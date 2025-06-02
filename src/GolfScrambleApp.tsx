@@ -1,15 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Users, Trophy, UserPlus, Settings, TrendingUp, Clock, MapPin } from 'lucide-react';
 
+interface Player {
+  id: number;
+  name: string;
+  email: string;
+  handicap: number;
+  totalEvents: number;
+  avgScore: number;
+}
+
+interface Event {
+  id: number;
+  date: string;
+  teeTime: string;
+  signedUp: number[];
+  teams: Player[][];
+}
+
 const GolfScrambleApp = () => {
   const [activeTab, setActiveTab] = useState('signup');
-  const [players, setPlayers] = useState([]);
-  const [events, setEvents] = useState([]);
-  const [currentEvent, setCurrentEvent] = useState(null);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [currentEvent, setCurrentEvent] = useState<Event | null>(null);
 
   // Initialize with sample data
   useEffect(() => {
-    const samplePlayers = [
+    const samplePlayers: Player[] = [
       { id: 1, name: 'John Smith', email: 'john@email.com', handicap: 12, totalEvents: 15, avgScore: 78 },
       { id: 2, name: 'Mike Johnson', email: 'mike@email.com', handicap: 8, totalEvents: 12, avgScore: 74 },
       { id: 3, name: 'Dave Wilson', email: 'dave@email.com', handicap: 15, totalEvents: 18, avgScore: 82 },
@@ -17,7 +34,7 @@ const GolfScrambleApp = () => {
     ];
     setPlayers(samplePlayers);
 
-    const thisWeekEvent = {
+    const thisWeekEvent: Event = {
       id: 1,
       date: new Date().toISOString().split('T')[0],
       teeTime: '8:00 AM',
@@ -28,8 +45,8 @@ const GolfScrambleApp = () => {
     setCurrentEvent(thisWeekEvent);
   }, []);
 
-  const addPlayer = (playerData) => {
-    const newPlayer = {
+  const addPlayer = (playerData: Omit<Player, 'id' | 'totalEvents' | 'avgScore'>) => {
+    const newPlayer: Player = {
       id: Date.now(),
       ...playerData,
       totalEvents: 0,
@@ -38,9 +55,9 @@ const GolfScrambleApp = () => {
     setPlayers([...players, newPlayer]);
   };
 
-  const signUpPlayer = (playerId) => {
-    if (!currentEvent.signedUp.includes(playerId)) {
-      const updatedEvent = {
+  const signUpPlayer = (playerId: number) => {
+    if (currentEvent && !currentEvent.signedUp.includes(playerId)) {
+      const updatedEvent: Event = {
         ...currentEvent,
         signedUp: [...currentEvent.signedUp, playerId]
       };
@@ -49,25 +66,29 @@ const GolfScrambleApp = () => {
     }
   };
 
-  const removeSignUp = (playerId) => {
-    const updatedEvent = {
-      ...currentEvent,
-      signedUp: currentEvent.signedUp.filter(id => id !== playerId)
-    };
-    setCurrentEvent(updatedEvent);
-    setEvents(events.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+  const removeSignUp = (playerId: number) => {
+    if (currentEvent) {
+      const updatedEvent: Event = {
+        ...currentEvent,
+        signedUp: currentEvent.signedUp.filter(id => id !== playerId)
+      };
+      setCurrentEvent(updatedEvent);
+      setEvents(events.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+    }
   };
 
   const generateTeams = () => {
+    if (!currentEvent) return;
+    
     const signedUpPlayers = players.filter(p => currentEvent.signedUp.includes(p.id));
     const shuffled = [...signedUpPlayers].sort(() => Math.random() - 0.5);
     
-    const teams = [];
+    const teams: Player[][] = [];
     for (let i = 0; i < shuffled.length; i += 4) {
       teams.push(shuffled.slice(i, i + 4));
     }
     
-    const updatedEvent = {
+    const updatedEvent: Event = {
       ...currentEvent,
       teams: teams
     };
@@ -225,7 +246,7 @@ const GolfScrambleApp = () => {
                 </button>
               </div>
 
-              {currentEvent?.teams.length > 0 ? (
+              {currentEvent && Array.isArray(currentEvent.teams) && currentEvent.teams.length > 0 ? (
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {currentEvent.teams.map((team, index) => (
                     <div key={index} className="bg-green-50 rounded-lg p-4">
