@@ -348,4 +348,4 @@ const GolfScrambleApp = () => {
   );
 };
 
-export default GolfScrambleApp; 
+export default GolfScrambleApp;
