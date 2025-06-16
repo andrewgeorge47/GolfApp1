@@ -47,4 +47,21 @@ The app will be available at [https://trackmansucks.com](https://trackmansucks.c
 - React
 - TypeScript
 - Tailwind CSS
-- Lucide React Icons 
+- Lucide React Icons
+
+## API Server
+
+The `server/` directory contains a small Express API used to store players and events.
+
+1. Install dependencies:
+```bash
+cd server
+npm install
+```
+
+2. Start the API server:
+```bash
+npm start
+```
+
+The server listens on port **4000** by default.
