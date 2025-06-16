@@ -40,7 +40,7 @@ npm run build
 npm run deploy
 ```
 
-The app will be available at [https://andrewgeorge.github.io/GolfApp1](https://andrewgeorge.github.io/GolfApp1).
+The app will be available at [https://trackmansucks.com](https://trackmansucks.com).
 
 ## Technologies Used
 
