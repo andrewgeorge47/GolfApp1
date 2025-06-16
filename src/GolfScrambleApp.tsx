@@ -8,6 +8,12 @@ interface Player {
   handicap: number;
   totalEvents: number;
   avgScore: number;
+  /** Average score for 9 holes provided by new players */
+  avg9Score?: number;
+  /** Payment method token returned from the backend */
+  paymentMethod?: string;
+  /** Whether the player volunteered to keep team scores */
+  scorekeeper?: boolean;
 }
 
 interface Event {
@@ -281,7 +287,169 @@ const GolfScrambleApp = () => {
             </div>
           </div>
         )}
+
+        {/* Manage Tab */}
+        {activeTab === 'manage' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h2 className="text-xl font-semibold mb-4">Add New Player</h2>
+              <AddPlayerForm onAddPlayer={addPlayer} />
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h2 className="text-xl font-semibold mb-4">Event Settings</h2>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Next Event Date
+                  </label>
+                  <input
+                    type="date"
+                    value={currentEvent?.date || ''}
+                    onChange={(e) => {
+                      const updatedEvent = { ...currentEvent, date: e.target.value } as Event;
+                      setCurrentEvent(updatedEvent);
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Tee Time
+                  </label>
+                  <input
+                    type="text"
+                    value={currentEvent?.teeTime || ''}
+                    onChange={(e) => {
+                      const updatedEvent = { ...currentEvent, teeTime: e.target.value } as Event;
+                      setCurrentEvent(updatedEvent);
+                    }}
+                    placeholder="e.g., 8:00 AM"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+    </div>
+  );
+};
+
+interface AddPlayerFormProps {
+  onAddPlayer: (player: Omit<Player, 'id' | 'totalEvents' | 'avgScore'>) => void;
+}
+
+const AddPlayerForm: React.FC<AddPlayerFormProps> = ({ onAddPlayer }) => {
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    handicap: '',
+    avg9Score: '',
+    paymentMethod: '',
+    scorekeeper: false,
+  });
+
+  const handleSubmit = async () => {
+    if (formData.name && formData.email && formData.handicap) {
+      const payload = {
+        name: formData.name,
+        email: formData.email,
+        handicap: parseInt(formData.handicap, 10),
+        avg9Score: formData.avg9Score ? parseInt(formData.avg9Score, 10) : undefined,
+        paymentMethod: formData.paymentMethod,
+        scorekeeper: formData.scorekeeper,
+      };
+
+      try {
+        await fetch('/api/players', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } catch (err) {
+        console.error('Failed to register player', err);
+      }
+
+      onAddPlayer(payload);
+      setFormData({ name: '', email: '', handicap: '', avg9Score: '', paymentMethod: '', scorekeeper: false });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid md:grid-cols-3 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Player Name</label>
+          <input
+            type="text"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            placeholder="John Smith"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+          <input
+            type="email"
+            value={formData.email}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            placeholder="john@email.com"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Handicap</label>
+          <input
+            type="number"
+            value={formData.handicap}
+            onChange={(e) => setFormData({ ...formData, handicap: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            placeholder="12"
+            min="0"
+            max="36"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Average 9-Hole Score</label>
+          <input
+            type="number"
+            value={formData.avg9Score}
+            onChange={(e) => setFormData({ ...formData, avg9Score: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            placeholder="45"
+            min="0"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
+          <input
+            type="text"
+            value={formData.paymentMethod}
+            onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            placeholder="Token"
+          />
+        </div>
+        <div className="flex items-center mt-6">
+          <input
+            id="scorekeeper"
+            type="checkbox"
+            checked={formData.scorekeeper}
+            onChange={(e) => setFormData({ ...formData, scorekeeper: e.target.checked })}
+            className="mr-2 h-4 w-4 text-green-600 border-gray-300 rounded"
+          />
+          <label htmlFor="scorekeeper" className="text-sm text-gray-700">Volunteer as Team Scorekeeper</label>
+        </div>
+      </div>
+      <button
+        onClick={handleSubmit}
+        className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors"
+      >
+        Add Player
+      </button>
     </div>
   );
 };
