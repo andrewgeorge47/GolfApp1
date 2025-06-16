@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Users, Trophy, UserPlus, Settings, TrendingUp, Clock, MapPin } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 interface Player {
   id: number;
@@ -187,7 +188,11 @@ const GolfScrambleApp = () => {
                           {player.name.charAt(0)}
                         </div>
                         <div>
-                          <div className="font-medium">{player.name}</div>
+                          <div className="font-medium">
+                            <Link to={`/player/${player.id}`} className="hover:underline">
+                              {player.name}
+                            </Link>
+                          </div>
                           <div className="text-sm text-gray-600">Handicap: {player.handicap}</div>
                         </div>
                       </div>
@@ -213,7 +218,11 @@ const GolfScrambleApp = () => {
                           {player.name.charAt(0)}
                         </div>
                         <div>
-                          <div className="font-medium">{player.name}</div>
+                          <div className="font-medium">
+                            <Link to={`/player/${player.id}`} className="hover:underline">
+                              {player.name}
+                            </Link>
+                          </div>
                           <div className="text-sm text-gray-600">Handicap: {player.handicap}</div>
                         </div>
                       </div>
@@ -257,7 +266,12 @@ const GolfScrambleApp = () => {
                             <div className="w-6 h-6 bg-green-600 rounded-full flex items-center justify-center text-white text-xs font-medium">
                               {player.name.charAt(0)}
                             </div>
-                            <span className="text-sm">{player.name} (HC: {player.handicap})</span>
+                            <span className="text-sm">
+                              <Link to={`/player/${player.id}`} className="hover:underline">
+                                {player.name}
+                              </Link>{' '}
+                              (HC: {player.handicap})
+                            </span>
                           </div>
                         ))}
                       </div>
