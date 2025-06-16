@@ -8,6 +8,7 @@ interface Player {
   handicap: number;
   totalEvents: number;
   avgScore: number;
+  ranking: string;
 }
 
 interface Event {
@@ -18,6 +19,13 @@ interface Event {
   teams: Player[][];
 }
 
+const calculateRanking = (handicap: number): string => {
+  if (handicap <= 5) return 'A';
+  if (handicap <= 10) return 'B';
+  if (handicap <= 15) return 'C';
+  return 'D';
+};
+
 const GolfScrambleApp = () => {
   const [activeTab, setActiveTab] = useState('signup');
   const [players, setPlayers] = useState<Player[]>([]);
@@ -27,10 +35,42 @@ const GolfScrambleApp = () => {
   // Initialize with sample data
   useEffect(() => {
     const samplePlayers: Player[] = [
-      { id: 1, name: 'John Smith', email: 'john@email.com', handicap: 12, totalEvents: 15, avgScore: 78 },
-      { id: 2, name: 'Mike Johnson', email: 'mike@email.com', handicap: 8, totalEvents: 12, avgScore: 74 },
-      { id: 3, name: 'Dave Wilson', email: 'dave@email.com', handicap: 15, totalEvents: 18, avgScore: 82 },
-      { id: 4, name: 'Tom Brown', email: 'tom@email.com', handicap: 10, totalEvents: 10, avgScore: 76 },
+      {
+        id: 1,
+        name: 'John Smith',
+        email: 'john@email.com',
+        handicap: 12,
+        totalEvents: 15,
+        avgScore: 78,
+        ranking: calculateRanking(12)
+      },
+      {
+        id: 2,
+        name: 'Mike Johnson',
+        email: 'mike@email.com',
+        handicap: 8,
+        totalEvents: 12,
+        avgScore: 74,
+        ranking: calculateRanking(8)
+      },
+      {
+        id: 3,
+        name: 'Dave Wilson',
+        email: 'dave@email.com',
+        handicap: 15,
+        totalEvents: 18,
+        avgScore: 82,
+        ranking: calculateRanking(15)
+      },
+      {
+        id: 4,
+        name: 'Tom Brown',
+        email: 'tom@email.com',
+        handicap: 10,
+        totalEvents: 10,
+        avgScore: 76,
+        ranking: calculateRanking(10)
+      },
     ];
     setPlayers(samplePlayers);
 
@@ -45,12 +85,13 @@ const GolfScrambleApp = () => {
     setCurrentEvent(thisWeekEvent);
   }, []);
 
-  const addPlayer = (playerData: Omit<Player, 'id' | 'totalEvents' | 'avgScore'>) => {
+  const addPlayer = (playerData: Omit<Player, 'id' | 'totalEvents' | 'avgScore' | 'ranking'>) => {
     const newPlayer: Player = {
       id: Date.now(),
       ...playerData,
       totalEvents: 0,
-      avgScore: 0
+      avgScore: 0,
+      ranking: calculateRanking(playerData.handicap)
     };
     setPlayers([...players, newPlayer]);
   };
@@ -77,23 +118,30 @@ const GolfScrambleApp = () => {
     }
   };
 
-  const generateTeams = () => {
+  const generateTeams = async () => {
     if (!currentEvent) return;
-    
-    const signedUpPlayers = players.filter(p => currentEvent.signedUp.includes(p.id));
-    const shuffled = [...signedUpPlayers].sort(() => Math.random() - 0.5);
-    
-    const teams: Player[][] = [];
-    for (let i = 0; i < shuffled.length; i += 4) {
-      teams.push(shuffled.slice(i, i + 4));
+
+    try {
+      const response = await fetch('http://localhost:4000/api/pairings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerIds: currentEvent.signedUp })
+      });
+
+      if (!response.ok) throw new Error('Failed to generate teams');
+
+      const data = await response.json();
+      const teams: Player[][] = data.teams;
+
+      const updatedEvent: Event = {
+        ...currentEvent,
+        teams
+      };
+      setCurrentEvent(updatedEvent);
+      setEvents(events.map(e => (e.id === updatedEvent.id ? updatedEvent : e)));
+    } catch (err) {
+      console.error(err);
     }
-    
-    const updatedEvent: Event = {
-      ...currentEvent,
-      teams: teams
-    };
-    setCurrentEvent(updatedEvent);
-    setEvents(events.map(e => e.id === updatedEvent.id ? updatedEvent : e));
   };
 
   const getSignedUpPlayers = () => {
