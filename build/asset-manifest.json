@@ -1,10 +1,10 @@
 {
   "files": {
-    "main.css": "/GolfApp1/static/css/main.5c8bf64c.css",
-    "main.js": "/GolfApp1/static/js/main.878bc5cf.js",
-    "index.html": "/GolfApp1/index.html",
-    "main.5c8bf64c.css.map": "/GolfApp1/static/css/main.5c8bf64c.css.map",
-    "main.878bc5cf.js.map": "/GolfApp1/static/js/main.878bc5cf.js.map"
+    "main.css": "/static/css/main.5c8bf64c.css",
+    "main.js": "/static/js/main.878bc5cf.js",
+    "index.html": "/index.html",
+    "main.5c8bf64c.css.map": "/static/css/main.5c8bf64c.css.map",
+    "main.878bc5cf.js.map": "/static/js/main.878bc5cf.js.map"
   },
   "entrypoints": [
     "static/css/main.5c8bf64c.css",
