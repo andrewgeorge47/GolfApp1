@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Users, Trophy, UserPlus, Settings, TrendingUp, Clock, MapPin } from 'lucide-react';
+import LiveScore from './LiveScore';
 
 interface Player {
   id: number;
@@ -125,6 +126,7 @@ const GolfScrambleApp = () => {
               { id: 'signup', label: 'Sign Up', icon: UserPlus },
               { id: 'teams', label: 'Teams', icon: Users },
               { id: 'players', label: 'Player Stats', icon: TrendingUp },
+              { id: 'live', label: 'Live Scores', icon: Trophy },
               { id: 'manage', label: 'Manage', icon: Settings }
             ].map(({ id, label, icon: Icon }) => (
               <button
@@ -278,6 +280,15 @@ const GolfScrambleApp = () => {
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Live Scores Tab */}
+        {activeTab === 'live' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <LiveScore />
             </div>
           </div>
         )}
