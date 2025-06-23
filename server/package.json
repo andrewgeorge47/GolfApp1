@@ -5,7 +5,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "league": "node golf-league-server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

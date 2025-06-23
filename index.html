@@ -544,8 +544,23 @@
         let matchQueue = [];
         let currentMatchIndex = 0;
 
-        // Load data from memory
+        // Load data from localStorage or default
         function loadData() {
+            try {
+                const savedData = localStorage.getItem('golfLeagueData');
+                if (savedData) {
+                    const data = JSON.parse(savedData);
+                    players = data.players || [];
+                    matches = data.matches || [];
+                    leaderboard = data.leaderboard || {};
+                    checkedInPlayers = data.checkedInPlayers || [];
+                    matchQueue = data.matchQueue || [];
+                    currentMatchIndex = data.currentMatchIndex || 0;
+                }
+            } catch (error) {
+                console.error('Error loading data:', error);
+            }
+            
             updatePlayersList();
             updatePlayerSelects();
             updateLeaderboard();
@@ -553,6 +568,49 @@
             updateCheckinDisplay();
             updateMatchQueue();
             updateStats();
+        }
+
+        // Save data to localStorage and prepare for download
+        function saveData() {
+            const data = {
+                players,
+                matches,
+                leaderboard,
+                checkedInPlayers,
+                matchQueue,
+                currentMatchIndex,
+                lastUpdated: new Date().toISOString()
+            };
+            
+            // Save to localStorage
+            localStorage.setItem('golfLeagueData', JSON.stringify(data));
+            
+            // Create download link for manual saving to GitHub
+            const dataStr = JSON.stringify(data, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(dataBlob);
+            
+            const downloadLink = document.createElement('a');
+            downloadLink.href = url;
+            downloadLink.download = 'data.json';
+            downloadLink.textContent = 'Download data.json (save this to your GitHub repo)';
+            downloadLink.style.display = 'block';
+            downloadLink.style.margin = '10px 0';
+            downloadLink.style.padding = '10px';
+            downloadLink.style.backgroundColor = '#4a7c59';
+            downloadLink.style.color = 'white';
+            downloadLink.style.textDecoration = 'none';
+            downloadLink.style.borderRadius = '5px';
+            downloadLink.style.textAlign = 'center';
+            
+            // Add to page
+            const container = document.querySelector('.container');
+            const existingLink = document.getElementById('download-link');
+            if (existingLink) {
+                existingLink.remove();
+            }
+            downloadLink.id = 'download-link';
+            container.appendChild(downloadLink);
         }
 
         // Add player
@@ -566,6 +624,7 @@
                 updatePlayerSelects();
                 updateLeaderboard();
                 updateCheckinDisplay();
+                saveData();
             }
         }
 
@@ -578,29 +637,7 @@
             }
             updateCheckinDisplay();
             updateStats();
-        }
-
-        // Update check-in display
-        function updateCheckinDisplay() {
-            const checkinDiv = document.getElementById('checkinPlayers');
-            
-            if (players.length === 0) {
-                checkinDiv.innerHTML = '<p style="text-align: center; color: #666;">No players added yet</p>';
-                return;
-            }
-
-            checkinDiv.innerHTML = players.map(player => {
-                const isCheckedIn = checkedInPlayers.includes(player);
-                return `
-                <div class="checkin-card ${isCheckedIn ? 'checked-in' : ''}">
-                    <span class="player-name">${player}</span>
-                    <button class="${isCheckedIn ? 'checkout-btn' : 'checkin-btn'}" 
-                            onclick="toggleCheckin('${player}')">
-                        ${isCheckedIn ? 'Check Out' : 'Check In'}
-                    </button>
-                </div>
-            `;
-            }).join('');
+            saveData();
         }
 
         // Generate matches for the evening
@@ -708,6 +745,7 @@
 
             updateMatchQueue();
             updateStats();
+            saveData();
         }
 
         // Start a specific match
@@ -729,6 +767,7 @@
                 document.getElementById('player2').value = match.player2;
                 
                 updateMatchQueue();
+                saveData();
                 
                 // Scroll to scoring section
                 document.querySelector('.card h2').scrollIntoView({ behavior: 'smooth' });
@@ -785,6 +824,7 @@
             updateCheckinDisplay();
             updateMatchQueue();
             updateStats();
+            saveData();
         }
 
         // Update players list display
@@ -895,6 +935,13 @@
             }
 
             // Update leaderboard
+            if (!leaderboard[player1]) {
+                leaderboard[player1] = { points: 0, matches: 0, wins: 0 };
+            }
+            if (!leaderboard[player2]) {
+                leaderboard[player2] = { points: 0, matches: 0, wins: 0 };
+            }
+
             leaderboard[player1].points += points[player1];
             leaderboard[player1].matches++;
             if (winner === player1) leaderboard[player1].wins++;
@@ -919,6 +966,7 @@
             updateMatchHistory();
             updateMatchQueue();
             updateStats();
+            saveData();
         }
 
         // Clear match form
@@ -981,6 +1029,29 @@
                     </div>
                 </div>
             `).join('');
+        }
+
+        // Update check-in display
+        function updateCheckinDisplay() {
+            const checkinDiv = document.getElementById('checkinPlayers');
+            
+            if (players.length === 0) {
+                checkinDiv.innerHTML = '<p style="text-align: center; color: #666;">No players added yet</p>';
+                return;
+            }
+
+            checkinDiv.innerHTML = players.map(player => {
+                const isCheckedIn = checkedInPlayers.includes(player);
+                return `
+                <div class="checkin-card ${isCheckedIn ? 'checked-in' : ''}">
+                    <span class="player-name">${player}</span>
+                    <button class="${isCheckedIn ? 'checkout-btn' : 'checkin-btn'}" 
+                            onclick="toggleCheckin('${player}')">
+                        ${isCheckedIn ? 'Check Out' : 'Check In'}
+                    </button>
+                </div>
+            `;
+            }).join('');
         }
 
         // Initialize app
