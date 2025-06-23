@@ -1,17 +1,99 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Golf Scramble App - Manage your weekly golf scramble events"
-    />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Golf Scramble App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    </style>
   </head>
-  <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
+  <body class="bg-green-50 min-h-screen">
+    <div class="max-w-6xl mx-auto p-6">
+        <div class="bg-green-800 text-white p-6 rounded-lg shadow-lg mb-6">
+            <h1 class="text-3xl font-bold">Gladstone Golf Course Weekly Scramble</h1>
+            <p class="mt-2 text-green-100">Manage your weekly golf scramble events</p>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-sm p-6">
+            <h2 class="text-xl font-semibold mb-4">Players</h2>
+            <div id="players-list" class="space-y-2">
+                <p class="text-gray-500">Loading players...</p>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-sm p-6 mt-6">
+            <h2 class="text-xl font-semibold mb-4">Test API</h2>
+            <button onclick="testAPI()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+                Test Backend API
+            </button>
+            <div id="api-result" class="mt-4 p-4 bg-gray-100 rounded-lg hidden">
+                <pre id="api-output" class="text-sm"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Load players on page load
+        window.addEventListener('load', loadPlayers);
+
+        async function loadPlayers() {
+            try {
+                const response = await fetch('http://localhost:4000/api/players');
+                if (response.ok) {
+                    const players = await response.json();
+                    displayPlayers(players);
+                } else {
+                    document.getElementById('players-list').innerHTML = 
+                        '<p class="text-red-500">Error loading players</p>';
+                }
+            } catch (error) {
+                document.getElementById('players-list').innerHTML = 
+                    '<p class="text-red-500">Cannot connect to server. Make sure the backend is running on port 4000.</p>';
+            }
+        }
+
+        function displayPlayers(players) {
+            const container = document.getElementById('players-list');
+            if (players.length === 0) {
+                container.innerHTML = '<p class="text-gray-500">No players found</p>';
+                return;
+            }
+
+            container.innerHTML = players.map(player => `
+                <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center text-white font-medium">
+                            ${player.name.charAt(0)}
+                        </div>
+                        <div>
+                            <div class="font-medium">${player.name}</div>
+                            <div class="text-sm text-gray-600">Handicap: ${player.handicap} | Ranking: ${player.ranking}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function testAPI() {
+            const resultDiv = document.getElementById('api-result');
+            const outputDiv = document.getElementById('api-output');
+            
+            resultDiv.classList.remove('hidden');
+            outputDiv.textContent = 'Testing API...';
+
+            try {
+                const response = await fetch('http://localhost:4000/api/players');
+                const data = await response.json();
+                
+                outputDiv.textContent = JSON.stringify(data, null, 2);
+                outputDiv.className = 'text-sm text-green-700';
+            } catch (error) {
+                outputDiv.textContent = `Error: ${error.message}`;
+                outputDiv.className = 'text-sm text-red-700';
+            }
+        }
+    </script>
   </body>
 </html>

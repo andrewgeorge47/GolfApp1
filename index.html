@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Golf Simulator League</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #2c5530, #4a7c59);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #2c5530;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .card h2 {
+            color: #2c5530;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+            border-bottom: 3px solid #4a7c59;
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #2c5530;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #4a7c59;
+            box-shadow: 0 0 0 3px rgba(74, 124, 89, 0.1);
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #4a7c59, #2c5530);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-small {
+            width: auto;
+            padding: 8px 16px;
+            font-size: 14px;
+            margin: 0 5px;
+        }
+
+        .players-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .player-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #4a7c59;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .player-name {
+            font-weight: 600;
+            color: #2c5530;
+        }
+
+        .remove-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .match-form {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .hole-scoring {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .hole-score {
+            text-align: center;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            border: 2px solid #ddd;
+        }
+
+        .hole-score h4 {
+            margin-bottom: 10px;
+            color: #2c5530;
+        }
+
+        .score-inputs {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .score-inputs input {
+            width: 60px;
+            text-align: center;
+        }
+
+        .match-result {
+            text-align: center;
+            font-size: 1.2em;
+            font-weight: 600;
+            margin: 15px 0;
+            padding: 15px;
+            border-radius: 8px;
+            background: #e8f5e8;
+            color: #2c5530;
+        }
+
+        .leaderboard {
+            grid-column: 1 / -1;
+        }
+
+        .leaderboard-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .leaderboard-table th,
+        .leaderboard-table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .leaderboard-table th {
+            background: #2c5530;
+            color: white;
+            font-weight: 600;
+        }
+
+        .leaderboard-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .position {
+            font-weight: 600;
+            color: #4a7c59;
+        }
+
+        .recent-matches {
+            grid-column: 1 / -1;
+            margin-top: 20px;
+        }
+
+        .checkin-section {
+            grid-column: 1 / -1;
+            margin-bottom: 20px;
+        }
+
+        .checkin-players {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .checkin-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #6c757d;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .checkin-card.checked-in {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+
+        .checkin-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .checkin-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .checkout-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .matchmaking-section {
+            grid-column: 1 / -1;
+            margin-bottom: 20px;
+        }
+
+        .match-queue {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .queue-match {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .queue-match.current {
+            background: #d1ecf1;
+            border-color: #17a2b8;
+        }
+
+        .queue-match.completed {
+            background: #d4edda;
+            border-color: #28a745;
+            opacity: 0.7;
+        }
+
+        .match-players {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #2c5530;
+            margin-bottom: 10px;
+        }
+
+        .match-status {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 15px;
+        }
+
+        .start-match-btn {
+            background: #17a2b8;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .stats-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            border-left: 4px solid #4a7c59;
+        }
+
+        .stat-number {
+            font-size: 2em;
+            font-weight: 600;
+            color: #2c5530;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+
+        .match-history {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .match-item {
+            background: #f8f9fa;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            border-left: 4px solid #4a7c59;
+        }
+
+        .match-header {
+            font-weight: 600;
+            color: #2c5530;
+            margin-bottom: 5px;
+        }
+
+        .match-details {
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .hole-scoring {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏌️ Golf Simulator League</h1>
+            <p>3-Hole Match Play Tournament Manager</p>
+        </div>
+
+        <div class="main-content">
+            <!-- Check-in Section -->
+            <div class="card checkin-section">
+                <h2>Tonight's Check-in</h2>
+                <div class="stats-summary">
+                    <div class="stat-card">
+                        <div class="stat-number" id="checkedInCount">0</div>
+                        <div class="stat-label">Checked In</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="totalMatches">0</div>
+                        <div class="stat-label">Matches Planned</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="completedMatches">0</div>
+                        <div class="stat-label">Completed</div>
+                    </div>
+                </div>
+                <div id="checkinPlayers" class="checkin-players"></div>
+            </div>
+
+            <!-- Matchmaking Section -->
+            <div class="card matchmaking-section">
+                <h2>Match Queue</h2>
+                <button class="btn" onclick="generateMatches()" id="generateBtn">Generate Tonight's Matches</button>
+                <div id="matchQueue" class="match-queue"></div>
+            </div>
+
+            <!-- Player Management -->
+            <div class="card">
+                <h2>Player Management</h2>
+                <div class="form-group">
+                    <label for="playerName">Add New Player</label>
+                    <input type="text" id="playerName" placeholder="Enter player name">
+                </div>
+                <button class="btn" onclick="addPlayer()">Add Player</button>
+                
+                <div id="playersList" class="players-list"></div>
+            </div>
+
+            <!-- Match Scoring -->
+            <div class="card">
+                <h2>Record Match</h2>
+                <div class="form-group">
+                    <label for="player1">Player 1</label>
+                    <select id="player1">
+                        <option value="">Select Player 1</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="player2">Player 2</label>
+                    <select id="player2">
+                        <option value="">Select Player 2</option>
+                    </select>
+                </div>
+
+                <div class="hole-scoring">
+                    <div class="hole-score">
+                        <h4>Hole 1</h4>
+                        <div class="score-inputs">
+                            <input type="number" id="p1h1" placeholder="P1" min="1" max="10">
+                            <span>vs</span>
+                            <input type="number" id="p2h1" placeholder="P2" min="1" max="10">
+                        </div>
+                    </div>
+                    <div class="hole-score">
+                        <h4>Hole 2</h4>
+                        <div class="score-inputs">
+                            <input type="number" id="p1h2" placeholder="P1" min="1" max="10">
+                            <span>vs</span>
+                            <input type="number" id="p2h2" placeholder="P2" min="1" max="10">
+                        </div>
+                    </div>
+                    <div class="hole-score">
+                        <h4>Hole 3</h4>
+                        <div class="score-inputs">
+                            <input type="number" id="p1h3" placeholder="P1" min="1" max="10">
+                            <span>vs</span>
+                            <input type="number" id="p2h3" placeholder="P2" min="1" max="10">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="matchResult" class="match-result" style="display: none;"></div>
+                <button class="btn" onclick="recordMatch()">Record Match</button>
+            </div>
+
+            <!-- Leaderboard -->
+            <div class="card leaderboard">
+                <h2>Leaderboard</h2>
+                <table class="leaderboard-table">
+                    <thead>
+                        <tr>
+                            <th>Position</th>
+                            <th>Player</th>
+                            <th>Points</th>
+                            <th>Matches</th>
+                            <th>Win Rate</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leaderboardBody">
+                        <tr>
+                            <td colspan="5" style="text-align: center; color: #666;">No matches recorded yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Recent Matches -->
+            <div class="card recent-matches">
+                <h2>Recent Matches</h2>
+                <div id="matchHistory" class="match-history">
+                    <p style="text-align: center; color: #666;">No matches recorded yet</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Data storage
+        let players = [];
+        let matches = [];
+        let leaderboard = {};
+        let checkedInPlayers = [];
+        let matchQueue = [];
+        let currentMatchIndex = 0;
+
+        // Load data from memory
+        function loadData() {
+            updatePlayersList();
+            updatePlayerSelects();
+            updateLeaderboard();
+            updateMatchHistory();
+            updateCheckinDisplay();
+            updateMatchQueue();
+            updateStats();
+        }
+
+        // Add player
+        function addPlayer() {
+            const playerName = document.getElementById('playerName').value.trim();
+            if (playerName && !players.includes(playerName)) {
+                players.push(playerName);
+                leaderboard[playerName] = { points: 0, matches: 0, wins: 0 };
+                document.getElementById('playerName').value = '';
+                updatePlayersList();
+                updatePlayerSelects();
+                updateLeaderboard();
+                updateCheckinDisplay();
+            }
+        }
+
+        // Check in/out players
+        function toggleCheckin(playerName) {
+            if (checkedInPlayers.includes(playerName)) {
+                checkedInPlayers = checkedInPlayers.filter(p => p !== playerName);
+            } else {
+                checkedInPlayers.push(playerName);
+            }
+            updateCheckinDisplay();
+            updateStats();
+        }
+
+        // Update check-in display
+        function updateCheckinDisplay() {
+            const checkinDiv = document.getElementById('checkinPlayers');
+            
+            if (players.length === 0) {
+                checkinDiv.innerHTML = '<p style="text-align: center; color: #666;">No players added yet</p>';
+                return;
+            }
+
+            checkinDiv.innerHTML = players.map(player => {
+                const isCheckedIn = checkedInPlayers.includes(player);
+                return `
+                <div class="checkin-card ${isCheckedIn ? 'checked-in' : ''}">
+                    <span class="player-name">${player}</span>
+                    <button class="${isCheckedIn ? 'checkout-btn' : 'checkin-btn'}" 
+                            onclick="toggleCheckin('${player}')">
+                        ${isCheckedIn ? 'Check Out' : 'Check In'}
+                    </button>
+                </div>
+            `;
+            }).join('');
+        }
+
+        // Generate matches for the evening
+        function generateMatches() {
+            if (checkedInPlayers.length < 2) {
+                alert('Need at least 2 players checked in to generate matches');
+                return;
+            }
+
+            matchQueue = [];
+            currentMatchIndex = 0;
+
+            // Create round-robin style matches ensuring everyone plays at least 3 matches
+            const playersCopy = [...checkedInPlayers];
+            const minMatches = 3;
+            const playerMatchCount = {};
+            
+            // Initialize match count for each player
+            playersCopy.forEach(player => {
+                playerMatchCount[player] = 0;
+            });
+
+            // Generate matches ensuring fair distribution
+            let attempts = 0;
+            const maxAttempts = 1000;
+            
+            while (attempts < maxAttempts) {
+                // Find players who need more matches
+                const needsMatches = playersCopy.filter(player => 
+                    playerMatchCount[player] < minMatches
+                ).sort((a, b) => playerMatchCount[a] - playerMatchCount[b]);
+                
+                if (needsMatches.length < 2) break;
+                
+                // Pair players who haven't played each other recently
+                let matched = false;
+                for (let i = 0; i < needsMatches.length - 1; i++) {
+                    for (let j = i + 1; j < needsMatches.length; j++) {
+                        const player1 = needsMatches[i];
+                        const player2 = needsMatches[j];
+                        
+                        // Check if they've already been matched tonight
+                        const alreadyMatched = matchQueue.some(match => 
+                            (match.player1 === player1 && match.player2 === player2) ||
+                            (match.player1 === player2 && match.player2 === player1)
+                        );
+                        
+                        if (!alreadyMatched) {
+                            matchQueue.push({
+                                player1,
+                                player2,
+                                status: 'pending',
+                                matchNumber: matchQueue.length + 1
+                            });
+                            playerMatchCount[player1]++;
+                            playerMatchCount[player2]++;
+                            matched = true;
+                            break;
+                        }
+                    }
+                    if (matched) break;
+                }
+                
+                if (!matched) {
+                    // Force a match if needed
+                    const player1 = needsMatches[0];
+                    const player2 = needsMatches[1];
+                    matchQueue.push({
+                        player1,
+                        player2,
+                        status: 'pending',
+                        matchNumber: matchQueue.length + 1
+                    });
+                    playerMatchCount[player1]++;
+                    playerMatchCount[player2]++;
+                }
+                
+                attempts++;
+            }
+
+            // Add extra matches if we have time and players
+            if (checkedInPlayers.length >= 4) {
+                const extraMatches = Math.floor(checkedInPlayers.length / 2);
+                for (let i = 0; i < extraMatches; i++) {
+                    // Find least matched players
+                    const sortedPlayers = playersCopy.sort((a, b) => 
+                        playerMatchCount[a] - playerMatchCount[b]
+                    );
+                    
+                    if (sortedPlayers.length >= 2) {
+                        const player1 = sortedPlayers[0];
+                        const player2 = sortedPlayers[1];
+                        
+                        matchQueue.push({
+                            player1,
+                            player2,
+                            status: 'pending',
+                            matchNumber: matchQueue.length + 1
+                        });
+                        playerMatchCount[player1]++;
+                        playerMatchCount[player2]++;
+                    }
+                }
+            }
+
+            updateMatchQueue();
+            updateStats();
+        }
+
+        // Start a specific match
+        function startMatch(index) {
+            if (index < matchQueue.length) {
+                // Mark current match as active
+                matchQueue.forEach((match, i) => {
+                    if (i === index) {
+                        match.status = 'active';
+                        currentMatchIndex = i;
+                    } else if (match.status === 'active') {
+                        match.status = 'pending';
+                    }
+                });
+                
+                // Set up the scoring form
+                const match = matchQueue[index];
+                document.getElementById('player1').value = match.player1;
+                document.getElementById('player2').value = match.player2;
+                
+                updateMatchQueue();
+                
+                // Scroll to scoring section
+                document.querySelector('.card h2').scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+
+        // Update match queue display
+        function updateMatchQueue() {
+            const queueDiv = document.getElementById('matchQueue');
+            
+            if (matchQueue.length === 0) {
+                queueDiv.innerHTML = '<p style="text-align: center; color: #666;">No matches generated yet</p>';
+                return;
+            }
+
+            queueDiv.innerHTML = matchQueue.map((match, index) => `
+                <div class="queue-match ${match.status}">
+                    <div class="match-players">
+                        Match ${match.matchNumber}: ${match.player1} vs ${match.player2}
+                    </div>
+                    <div class="match-status">
+                        Status: ${match.status.charAt(0).toUpperCase() + match.status.slice(1)}
+                    </div>
+                    ${match.status === 'pending' ? 
+                        `<button class="start-match-btn" onclick="startMatch(${index})">Start Match</button>` : 
+                        match.status === 'active' ? 
+                        '<strong style="color: #17a2b8;">Currently Playing</strong>' :
+                        '<strong style="color: #28a745;">Completed</strong>'
+                    }
+                </div>
+            `).join('');
+        }
+
+        // Update statistics
+        function updateStats() {
+            document.getElementById('checkedInCount').textContent = checkedInPlayers.length;
+            document.getElementById('totalMatches').textContent = matchQueue.length;
+            document.getElementById('completedMatches').textContent = 
+                matchQueue.filter(m => m.status === 'completed').length;
+        }
+
+        // Remove player
+        function removePlayer(playerName) {
+            players = players.filter(p => p !== playerName);
+            checkedInPlayers = checkedInPlayers.filter(p => p !== playerName);
+            delete leaderboard[playerName];
+            matches = matches.filter(m => m.player1 !== playerName && m.player2 !== playerName);
+            // Remove from match queue
+            matchQueue = matchQueue.filter(m => m.player1 !== playerName && m.player2 !== playerName);
+            updatePlayersList();
+            updatePlayerSelects();
+            updateLeaderboard();
+            updateMatchHistory();
+            updateCheckinDisplay();
+            updateMatchQueue();
+            updateStats();
+        }
+
+        // Update players list display
+        function updatePlayersList() {
+            const playersList = document.getElementById('playersList');
+            if (players.length === 0) {
+                playersList.innerHTML = '<p style="text-align: center; color: #666;">No players added yet</p>';
+                return;
+            }
+
+            playersList.innerHTML = players.map(player => `
+                <div class="player-card">
+                    <span class="player-name">${player}</span>
+                    <button class="remove-btn" onclick="removePlayer('${player}')">Remove</button>
+                </div>
+            `).join('');
+        }
+
+        // Update player select dropdowns
+        function updatePlayerSelects() {
+            const player1Select = document.getElementById('player1');
+            const player2Select = document.getElementById('player2');
+            
+            const options = players.map(player => `<option value="${player}">${player}</option>`).join('');
+            
+            player1Select.innerHTML = '<option value="">Select Player 1</option>' + options;
+            player2Select.innerHTML = '<option value="">Select Player 2</option>' + options;
+        }
+
+        // Record match
+        function recordMatch() {
+            const player1 = document.getElementById('player1').value;
+            const player2 = document.getElementById('player2').value;
+            
+            if (!player1 || !player2 || player1 === player2) {
+                alert('Please select two different players');
+                return;
+            }
+
+            const scores = {
+                p1: [
+                    parseInt(document.getElementById('p1h1').value) || 0,
+                    parseInt(document.getElementById('p1h2').value) || 0,
+                    parseInt(document.getElementById('p1h3').value) || 0
+                ],
+                p2: [
+                    parseInt(document.getElementById('p2h1').value) || 0,
+                    parseInt(document.getElementById('p2h2').value) || 0,
+                    parseInt(document.getElementById('p2h3').value) || 0
+                ]
+            };
+
+            // Validate scores
+            if (scores.p1.some(s => s === 0) || scores.p2.some(s => s === 0)) {
+                alert('Please enter all scores');
+                return;
+            }
+
+            // Calculate match result
+            let p1Wins = 0;
+            let p2Wins = 0;
+            const holeResults = [];
+
+            for (let i = 0; i < 3; i++) {
+                if (scores.p1[i] < scores.p2[i]) {
+                    p1Wins++;
+                    holeResults.push(`${player1} wins hole ${i + 1}`);
+                } else if (scores.p2[i] < scores.p1[i]) {
+                    p2Wins++;
+                    holeResults.push(`${player2} wins hole ${i + 1}`);
+                } else {
+                    holeResults.push(`Hole ${i + 1} tied`);
+                }
+            }
+
+            let winner, points;
+            if (p1Wins > p2Wins) {
+                winner = player1;
+                points = { [player1]: 3, [player2]: 0 };
+            } else if (p2Wins > p1Wins) {
+                winner = player2;
+                points = { [player1]: 0, [player2]: 3 };
+            } else {
+                winner = 'Tie';
+                points = { [player1]: 1, [player2]: 1 };
+            }
+
+            // Record match
+            const match = {
+                player1,
+                player2,
+                scores,
+                winner,
+                points,
+                holeResults,
+                timestamp: new Date().toLocaleString()
+            };
+
+            matches.unshift(match);
+
+            // Update match queue status
+            const queueMatch = matchQueue.find(m => 
+                (m.player1 === player1 && m.player2 === player2) ||
+                (m.player1 === player2 && m.player2 === player1)
+            );
+            if (queueMatch) {
+                queueMatch.status = 'completed';
+            }
+
+            // Update leaderboard
+            leaderboard[player1].points += points[player1];
+            leaderboard[player1].matches++;
+            if (winner === player1) leaderboard[player1].wins++;
+
+            leaderboard[player2].points += points[player2];
+            leaderboard[player2].matches++;
+            if (winner === player2) leaderboard[player2].wins++;
+
+            // Show result
+            const resultDiv = document.getElementById('matchResult');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = `
+                <strong>${winner === 'Tie' ? 'Match Tied!' : winner + ' Wins!'}</strong><br>
+                ${holeResults.join(' • ')}
+            `;
+
+            // Clear form
+            clearMatchForm();
+            
+            // Update displays
+            updateLeaderboard();
+            updateMatchHistory();
+            updateMatchQueue();
+            updateStats();
+        }
+
+        // Clear match form
+        function clearMatchForm() {
+            document.getElementById('player1').value = '';
+            document.getElementById('player2').value = '';
+            ['p1h1', 'p1h2', 'p1h3', 'p2h1', 'p2h2', 'p2h3'].forEach(id => {
+                document.getElementById(id).value = '';
+            });
+            setTimeout(() => {
+                document.getElementById('matchResult').style.display = 'none';
+            }, 5000);
+        }
+
+        // Update leaderboard
+        function updateLeaderboard() {
+            const tbody = document.getElementById('leaderboardBody');
+            
+            if (Object.keys(leaderboard).length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666;">No matches recorded yet</td></tr>';
+                return;
+            }
+
+            const sortedPlayers = Object.entries(leaderboard)
+                .sort((a, b) => b[1].points - a[1].points)
+                .map(([name, stats], index) => ({
+                    position: index + 1,
+                    name,
+                    ...stats,
+                    winRate: stats.matches > 0 ? ((stats.wins / stats.matches) * 100).toFixed(1) : '0.0'
+                }));
+
+            tbody.innerHTML = sortedPlayers.map(player => `
+                <tr>
+                    <td class="position">#${player.position}</td>
+                    <td>${player.name}</td>
+                    <td><strong>${player.points}</strong></td>
+                    <td>${player.matches}</td>
+                    <td>${player.winRate}%</td>
+                </tr>
+            `).join('');
+        }
+
+        // Update match history
+        function updateMatchHistory() {
+            const historyDiv = document.getElementById('matchHistory');
+            
+            if (matches.length === 0) {
+                historyDiv.innerHTML = '<p style="text-align: center; color: #666;">No matches recorded yet</p>';
+                return;
+            }
+
+            historyDiv.innerHTML = matches.map(match => `
+                <div class="match-item">
+                    <div class="match-header">
+                        ${match.player1} vs ${match.player2} - ${match.winner === 'Tie' ? 'Tied' : match.winner + ' Wins'}
+                    </div>
+                    <div class="match-details">
+                        ${match.holeResults.join(' • ')} | ${match.timestamp}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Initialize app
+        loadData();
+    </script>
+</body>
+</html>

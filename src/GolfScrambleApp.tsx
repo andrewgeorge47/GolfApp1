@@ -3,7 +3,7 @@ import { Calendar, Users, Trophy, UserPlus, Settings, TrendingUp, Clock, MapPin 
 import { Link } from 'react-router-dom';
 
 interface Player {
-  id: number;
+  id: string;
   name: string;
   email: string;
   handicap: number;
@@ -13,10 +13,10 @@ interface Player {
 }
 
 interface Event {
-  id: number;
+  id: string;
   date: string;
   teeTime: string;
-  signedUp: number[];
+  signedUp: string[];
   teams: Player[][];
 }
 
@@ -32,72 +32,58 @@ const GolfScrambleApp = () => {
   const [players, setPlayers] = useState<Player[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [currentEvent, setCurrentEvent] = useState<Event | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Initialize with sample data
+  // Fetch players from API
   useEffect(() => {
-    const samplePlayers: Player[] = [
-      {
-        id: 1,
-        name: 'John Smith',
-        email: 'john@email.com',
-        handicap: 12,
-        totalEvents: 15,
-        avgScore: 78,
-        ranking: calculateRanking(12)
-      },
-      {
-        id: 2,
-        name: 'Mike Johnson',
-        email: 'mike@email.com',
-        handicap: 8,
-        totalEvents: 12,
-        avgScore: 74,
-        ranking: calculateRanking(8)
-      },
-      {
-        id: 3,
-        name: 'Dave Wilson',
-        email: 'dave@email.com',
-        handicap: 15,
-        totalEvents: 18,
-        avgScore: 82,
-        ranking: calculateRanking(15)
-      },
-      {
-        id: 4,
-        name: 'Tom Brown',
-        email: 'tom@email.com',
-        handicap: 10,
-        totalEvents: 10,
-        avgScore: 76,
-        ranking: calculateRanking(10)
-      },
-    ];
-    setPlayers(samplePlayers);
+    const fetchPlayers = async () => {
+      try {
+        const response = await fetch('http://localhost:4000/api/players');
+        if (response.ok) {
+          const data = await response.json();
+          setPlayers(data);
+        } else {
+          console.error('Failed to fetch players');
+        }
+      } catch (error) {
+        console.error('Error fetching players:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
+    fetchPlayers();
+
+    // Create a default event for this week
     const thisWeekEvent: Event = {
-      id: 1,
+      id: '1',
       date: new Date().toISOString().split('T')[0],
       teeTime: '8:00 AM',
-      signedUp: [1, 2, 3],
+      signedUp: [],
       teams: []
     };
     setEvents([thisWeekEvent]);
     setCurrentEvent(thisWeekEvent);
   }, []);
 
-  const addPlayer = (playerData: Omit<Player, 'id' | 'totalEvents' | 'avgScore' | 'ranking'>) => {
-    const newPlayer: Player = {
-      id: Date.now(),
-      ...playerData,
-      totalEvents: 0,
-      avgScore: 0,
-      ranking: calculateRanking(playerData.handicap)
-    };
-    setPlayers([...players, newPlayer]);
+  const addPlayer = async (playerData: Omit<Player, 'id' | 'totalEvents' | 'avgScore' | 'ranking'>) => {
+    try {
+      const response = await fetch('http://localhost:4000/players', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(playerData)
+      });
+      
+      if (response.ok) {
+        const newPlayer = await response.json();
+        setPlayers([...players, newPlayer]);
+      }
+    } catch (error) {
+      console.error('Error adding player:', error);
+    }
   };
 
-  const signUpPlayer = (playerId: number) => {
+  const signUpPlayer = (playerId: string) => {
     if (currentEvent && !currentEvent.signedUp.includes(playerId)) {
       const updatedEvent: Event = {
         ...currentEvent,
@@ -108,7 +94,7 @@ const GolfScrambleApp = () => {
     }
   };
 
-  const removeSignUp = (playerId: number) => {
+  const removeSignUp = (playerId: string) => {
     if (currentEvent) {
       const updatedEvent: Event = {
         ...currentEvent,
@@ -152,6 +138,17 @@ const GolfScrambleApp = () => {
   const getAvailablePlayers = () => {
     return players.filter(p => !currentEvent?.signedUp.includes(p.id));
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-green-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-green-50">

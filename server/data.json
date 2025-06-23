@@ -1,4 +1,41 @@
 {
-  "players": [],
+  "players": [
+    {
+      "id": "1",
+      "name": "John Smith",
+      "email": "john@email.com",
+      "handicap": 12,
+      "totalEvents": 15,
+      "avgScore": 78,
+      "ranking": "C"
+    },
+    {
+      "id": "2",
+      "name": "Mike Johnson",
+      "email": "mike@email.com",
+      "handicap": 8,
+      "totalEvents": 12,
+      "avgScore": 74,
+      "ranking": "B"
+    },
+    {
+      "id": "3",
+      "name": "Dave Wilson",
+      "email": "dave@email.com",
+      "handicap": 15,
+      "totalEvents": 18,
+      "avgScore": 82,
+      "ranking": "C"
+    },
+    {
+      "id": "4",
+      "name": "Tom Brown",
+      "email": "tom@email.com",
+      "handicap": 10,
+      "totalEvents": 10,
+      "avgScore": 76,
+      "ranking": "B"
+    }
+  ],
   "events": []
 }
