@@ -12,10 +12,10 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #2c5530, #4a7c59);
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--base-color-brand--dark-green), var(--base-color-brand--muted-green));
             min-height: 100vh;
-            color: #333;
+            color: var(--base-color-brand--black);
         }
 
         .container {
@@ -34,13 +34,14 @@
         }
 
         .header h1 {
-            color: #2c5530;
+            color: var(--base-color-brand--black);
             font-size: 2.5em;
             margin-bottom: 10px;
+            font-weight: 700;
         }
 
         .header p {
-            color: #666;
+            color: var(--base-color-neutral--600);
             font-size: 1.1em;
         }
 
@@ -60,11 +61,12 @@
         }
 
         .card h2 {
-            color: #2c5530;
+            color: var(--base-color-brand--black);
             margin-bottom: 20px;
             font-size: 1.8em;
-            border-bottom: 3px solid #4a7c59;
+            border-bottom: 3px solid var(--base-color-brand--neon-green);
             padding-bottom: 10px;
+            font-weight: 600;
         }
 
         .form-group {
@@ -75,27 +77,28 @@
             display: block;
             margin-bottom: 8px;
             font-weight: 600;
-            color: #2c5530;
+            color: var(--base-color-brand--black);
         }
 
         input, select {
             width: 100%;
             padding: 12px;
-            border: 2px solid #ddd;
+            border: 2px solid var(--base-color-neutral--200);
             border-radius: 8px;
             font-size: 16px;
             transition: border-color 0.3s;
+            font-family: 'Inter', sans-serif;
         }
 
         input:focus, select:focus {
             outline: none;
-            border-color: #4a7c59;
-            box-shadow: 0 0 0 3px rgba(74, 124, 89, 0.1);
+            border-color: var(--base-color-brand--neon-green);
+            box-shadow: 0 0 0 3px rgba(119, 221, 60, 0.1);
         }
 
         .btn {
-            background: linear-gradient(135deg, #4a7c59, #2c5530);
-            color: white;
+            background: linear-gradient(135deg, var(--base-color-brand--neon-green), var(--base-color-brand--muted-green));
+            color: var(--base-color-brand--black);
             border: none;
             padding: 12px 24px;
             border-radius: 8px;
@@ -104,11 +107,13 @@
             font-weight: 600;
             transition: all 0.3s;
             width: 100%;
+            font-family: 'Inter', sans-serif;
         }
 
         .btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+            background: linear-gradient(135deg, var(--base-color-brand--muted-green), var(--base-color-brand--neon-green));
         }
 
         .btn-small {
@@ -126,10 +131,10 @@
         }
 
         .player-card {
-            background: #f8f9fa;
+            background: var(--base-color-neutral--50);
             padding: 15px;
             border-radius: 10px;
-            border-left: 4px solid #4a7c59;
+            border-left: 4px solid var(--base-color-brand--neon-green);
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -137,21 +142,22 @@
 
         .player-name {
             font-weight: 600;
-            color: #2c5530;
+            color: var(--base-color-brand--black);
         }
 
         .remove-btn {
-            background: #dc3545;
+            background: var(--base-color-system--error-red);
             color: white;
             border: none;
             padding: 5px 10px;
             border-radius: 5px;
             cursor: pointer;
             font-size: 12px;
+            font-family: 'Inter', sans-serif;
         }
 
         .match-form {
-            background: #f8f9fa;
+            background: var(--base-color-neutral--50);
             padding: 20px;
             border-radius: 10px;
             margin-bottom: 20px;
@@ -169,12 +175,13 @@
             padding: 15px;
             background: white;
             border-radius: 8px;
-            border: 2px solid #ddd;
+            border: 2px solid var(--base-color-neutral--200);
         }
 
         .hole-score h4 {
             margin-bottom: 10px;
-            color: #2c5530;
+            color: var(--base-color-brand--black);
+            font-weight: 600;
         }
 
         .score-inputs {
@@ -196,8 +203,8 @@
             margin: 15px 0;
             padding: 15px;
             border-radius: 8px;
-            background: #e8f5e8;
-            color: #2c5530;
+            background: var(--base-color-system--success-green-light);
+            color: var(--base-color-system--success-green);
         }
 
         .leaderboard {
@@ -214,22 +221,22 @@
         .leaderboard-table td {
             padding: 15px;
             text-align: left;
-            border-bottom: 1px solid #ddd;
+            border-bottom: 1px solid var(--base-color-neutral--200);
         }
 
         .leaderboard-table th {
-            background: #2c5530;
+            background: var(--base-color-brand--dark-green);
             color: white;
             font-weight: 600;
         }
 
         .leaderboard-table tr:hover {
-            background: #f8f9fa;
+            background: var(--base-color-neutral--50);
         }
 
         .position {
             font-weight: 600;
-            color: #4a7c59;
+            color: var(--base-color-brand--neon-green);
         }
 
         .recent-matches {
@@ -250,43 +257,45 @@
         }
 
         .checkin-card {
-            background: #f8f9fa;
+            background: var(--base-color-neutral--50);
             padding: 15px;
             border-radius: 10px;
-            border-left: 4px solid #6c757d;
+            border-left: 4px solid var(--base-color-neutral--400);
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
         .checkin-card.checked-in {
-            border-left-color: #28a745;
-            background: #d4edda;
+            border-left-color: var(--base-color-system--success-green);
+            background: var(--base-color-system--success-green-light);
         }
 
         .checkin-btn {
-            background: #28a745;
+            background: var(--base-color-system--success-green);
             color: white;
             border: none;
             padding: 8px 16px;
             border-radius: 5px;
             cursor: pointer;
             font-size: 14px;
+            font-family: 'Inter', sans-serif;
         }
 
         .checkin-btn:disabled {
-            background: #6c757d;
+            background: var(--base-color-neutral--400);
             cursor: not-allowed;
         }
 
         .checkout-btn {
-            background: #dc3545;
+            background: var(--base-color-system--error-red);
             color: white;
             border: none;
             padding: 8px 16px;
             border-radius: 5px;
             cursor: pointer;
             font-size: 14px;
+            font-family: 'Inter', sans-serif;
         }
 
         .matchmaking-section {
@@ -302,46 +311,47 @@
         }
 
         .queue-match {
-            background: #fff3cd;
-            border: 2px solid #ffc107;
+            background: var(--base-color-system--success-green-light);
+            border: 2px solid var(--base-color-system--success-green);
             border-radius: 10px;
             padding: 20px;
             text-align: center;
         }
 
         .queue-match.current {
-            background: #d1ecf1;
-            border-color: #17a2b8;
+            background: var(--base-color-neutral--50);
+            border-color: var(--base-color-brand--neon-green);
         }
 
         .queue-match.completed {
-            background: #d4edda;
-            border-color: #28a745;
+            background: var(--base-color-system--success-green-light);
+            border-color: var(--base-color-system--success-green);
             opacity: 0.7;
         }
 
         .match-players {
             font-size: 1.2em;
             font-weight: 600;
-            color: #2c5530;
+            color: var(--base-color-brand--black);
             margin-bottom: 10px;
         }
 
         .match-status {
             font-size: 0.9em;
-            color: #666;
+            color: var(--base-color-neutral--600);
             margin-bottom: 15px;
         }
 
         .start-match-btn {
-            background: #17a2b8;
-            color: white;
+            background: var(--base-color-brand--neon-green);
+            color: var(--base-color-brand--black);
             border: none;
             padding: 10px 20px;
             border-radius: 5px;
             cursor: pointer;
             font-size: 14px;
             font-weight: 600;
+            font-family: 'Inter', sans-serif;
         }
 
         .stats-summary {
@@ -352,21 +362,21 @@
         }
 
         .stat-card {
-            background: #f8f9fa;
+            background: var(--base-color-neutral--50);
             padding: 20px;
             border-radius: 10px;
             text-align: center;
-            border-left: 4px solid #4a7c59;
+            border-left: 4px solid var(--base-color-brand--neon-green);
         }
 
         .stat-number {
             font-size: 2em;
             font-weight: 600;
-            color: #2c5530;
+            color: var(--base-color-brand--black);
         }
 
         .stat-label {
-            color: #666;
+            color: var(--base-color-neutral--600);
             font-size: 0.9em;
             margin-top: 5px;
         }
@@ -377,22 +387,37 @@
         }
 
         .match-item {
-            background: #f8f9fa;
+            background: var(--base-color-neutral--50);
             padding: 15px;
             margin-bottom: 10px;
             border-radius: 8px;
-            border-left: 4px solid #4a7c59;
+            border-left: 4px solid var(--base-color-brand--neon-green);
         }
 
         .match-header {
             font-weight: 600;
-            color: #2c5530;
+            color: var(--base-color-brand--black);
             margin-bottom: 5px;
         }
 
         .match-details {
             font-size: 0.9em;
-            color: #666;
+            color: var(--base-color-neutral--600);
+        }
+
+        /* Download link styling */
+        #download-link {
+            background: var(--base-color-brand--neon-green) !important;
+            color: var(--base-color-brand--black) !important;
+            font-weight: 600;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+
+        #download-link:hover {
+            background: var(--base-color-brand--muted-green) !important;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
         }
 
         @media (max-width: 768px) {
@@ -407,6 +432,24 @@
             .header h1 {
                 font-size: 2em;
             }
+        }
+
+        /* CSS Custom Properties for brand colors */
+        :root {
+            --base-color-brand--black: #020c05;
+            --base-color-brand--white: white;
+            --base-color-brand--muted-green: #255946;
+            --base-color-brand--neon-green: #77dd3c;
+            --base-color-brand--dark-green: #01422c;
+            --base-color-brand--highlight-green: #416d5c;
+            --base-color-neutral--50: #f5f7f8;
+            --base-color-neutral--100: #eaeaea;
+            --base-color-neutral--200: #d5d6d5;
+            --base-color-neutral--400: #aaacab;
+            --base-color-neutral--600: #808381;
+            --base-color-system--success-green: #256a33;
+            --base-color-system--success-green-light: #f0faf2;
+            --base-color-system--error-red: #6b0005;
         }
     </style>
 </head>
