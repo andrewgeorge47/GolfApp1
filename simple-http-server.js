@@ -169,6 +169,11 @@ async function updateLeaderboard(playerName, points, isWinner) {
     }
 }
 
+// Helper to escape single quotes for Airtable formula values
+function escapeAirtableFormulaValue(value) {
+    return value.replace(/'/g, "\\'");
+}
+
 // Simple HTTP server
 const server = http.createServer(async (req, res) => {
     // Enable CORS
@@ -317,10 +322,10 @@ const server = http.createServer(async (req, res) => {
         // Remove player endpoint
         else if (path.startsWith('/api/players/') && req.method === 'DELETE') {
             const playerName = decodeURIComponent(path.split('/api/players/')[1]);
-            
+            const safeName = escapeAirtableFormulaValue(playerName);
             try {
                 // Get and delete player records
-                const playerRecords = await airtableRequest(`/Players?filterByFormula={Name}='${encodeURIComponent(playerName)}'`);
+                const playerRecords = await airtableRequest(`/Players?filterByFormula={Name}='${safeName}'`);
                 if (playerRecords.records.length > 0) {
                     const recordIds = playerRecords.records.map(r => r.id);
                     await airtableRequest('/Players', {
@@ -330,7 +335,7 @@ const server = http.createServer(async (req, res) => {
                 }
 
                 // Get and delete leaderboard entry
-                const leaderboardRecords = await airtableRequest(`/Leaderboard?filterByFormula={Player}='${encodeURIComponent(playerName)}'`);
+                const leaderboardRecords = await airtableRequest(`/Leaderboard?filterByFormula={Player}='${safeName}'`);
                 if (leaderboardRecords.records.length > 0) {
                     const recordIds = leaderboardRecords.records.map(r => r.id);
                     await airtableRequest('/Leaderboard', {
@@ -340,7 +345,7 @@ const server = http.createServer(async (req, res) => {
                 }
 
                 // Remove from checked in players
-                const checkedInRecords = await airtableRequest(`/CheckedInPlayers?filterByFormula={Player}='${encodeURIComponent(playerName)}'`);
+                const checkedInRecords = await airtableRequest(`/CheckedInPlayers?filterByFormula={Player}='${safeName}'`);
                 if (checkedInRecords.records.length > 0) {
                     const recordIds = checkedInRecords.records.map(r => r.id);
                     await airtableRequest('/CheckedInPlayers', {
