@@ -537,7 +537,7 @@
             // Build the dropdown HTML
             const dropdownHTML = '<option value="">-- Select a user --</option>' +
                 availableUsers.map(user => 
-                    `<option value="${user.id}">${user.firstName} ${user.lastName}</option>`
+                    `<option value="${user.id}">${user.firstName} ${user.lastName}(${user.club})</option>`
                 ).join('');
             
             console.log('Dropdown HTML length:', dropdownHTML.length);
