@@ -72,10 +72,18 @@ class AirtableAPI {
 
     // Add player from existing user
     async addPlayerFromUser(userId) {
-        return this.request('/players', {
-            method: 'POST',
-            body: JSON.stringify({ userId })
-        });
+        console.log('Making addPlayerFromUser request with userId:', userId);
+        try {
+            const result = await this.request('/players', {
+                method: 'POST',
+                body: JSON.stringify({ userId })
+            });
+            console.log('addPlayerFromUser response:', result);
+            return result;
+        } catch (error) {
+            console.error('addPlayerFromUser error:', error);
+            throw error;
+        }
     }
 
     async removePlayer(playerId) {

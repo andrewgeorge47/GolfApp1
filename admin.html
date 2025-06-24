@@ -560,20 +560,32 @@
 
         // Add selected user as player
         async function addSelectedUserAsPlayer() {
+            console.log('=== addSelectedUserAsPlayer Debug ===');
             const userSelect = document.getElementById('userSelect');
             const userId = userSelect.value;
             
+            console.log('Selected user ID:', userId);
+            console.log('User select element:', userSelect);
+            console.log('User select value:', userSelect.value);
+            
             if (!userId) {
+                console.log('No user selected, showing alert');
                 alert('Please select a user first');
                 return;
             }
             
+            console.log('Calling airtableAPI.addPlayerFromUser with userId:', userId);
             try {
-                await airtableAPI.addPlayerFromUser(userId);
+                const result = await airtableAPI.addPlayerFromUser(userId);
+                console.log('addPlayerFromUser result:', result);
                 await loadData();
                 alert('Player added successfully!');
             } catch (error) {
                 console.error('Failed to add player:', error);
+                console.error('Error details:', {
+                    message: error.message,
+                    stack: error.stack
+                });
                 alert('Failed to add player. Please try again.');
             }
         }

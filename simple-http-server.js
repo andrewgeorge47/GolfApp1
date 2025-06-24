@@ -419,8 +419,7 @@ const server = http.createServer(async (req, res) => {
                             body: JSON.stringify({
                                 records: [{
                                     fields: {
-                                        User: [userId],
-                                        PlayerID: `P${Date.now()}`
+                                        User: [userId]
                                     }
                                 }]
                             })
