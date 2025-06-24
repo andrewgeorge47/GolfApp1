@@ -151,6 +151,20 @@ const server = http.createServer(async (req, res) => {
             }));
         }
         
+        // Simple test endpoint without Airtable
+        else if (path === '/api/test-simple' && req.method === 'GET') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                message: 'Simple test successful',
+                timestamp: new Date().toISOString(),
+                environment: {
+                    port: PORT,
+                    baseId: AIRTABLE_BASE_ID,
+                    tokenPresent: !!AIRTABLE_PERSONAL_ACCESS_TOKEN
+                }
+            }));
+        }
+        
         // Health check
         else if (path === '/api/health') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -166,25 +180,38 @@ const server = http.createServer(async (req, res) => {
         
         // Get all data
         else if (path === '/api/data' && req.method === 'GET') {
-            const [players, matches, leaderboard, checkedInPlayers, matchQueue, settings] = await Promise.all([
-                getPlayers(),
-                getMatches(),
-                getLeaderboard(),
-                getCheckedInPlayers(),
-                getMatchQueue(),
-                getSettings()
-            ]);
+            try {
+                console.log('Starting to fetch all data...');
+                const [players, matches, leaderboard, checkedInPlayers, matchQueue, settings] = await Promise.all([
+                    getPlayers(),
+                    getMatches(),
+                    getLeaderboard(),
+                    getCheckedInPlayers(),
+                    getMatchQueue(),
+                    getSettings()
+                ]);
 
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                players,
-                matches,
-                leaderboard,
-                checkedInPlayers,
-                matchQueue,
-                currentMatchIndex: 0,
-                lastUpdated: new Date().toISOString()
-            }));
+                console.log('All data fetched successfully');
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    players,
+                    matches,
+                    leaderboard,
+                    checkedInPlayers,
+                    matchQueue,
+                    currentMatchIndex: 0,
+                    lastUpdated: new Date().toISOString()
+                }));
+            } catch (error) {
+                console.error('Error in /api/data endpoint:', error);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ 
+                    error: 'Failed to fetch data',
+                    details: error.message,
+                    timestamp: new Date().toISOString()
+                }));
+            }
         }
         
         // Players endpoints
