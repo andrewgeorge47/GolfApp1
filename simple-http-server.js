@@ -98,20 +98,36 @@ async function getTournaments() {
 // Get all players (expanded with User and Tournament)
 async function getPlayers() {
     const response = await airtableRequestExpand('/Players', ['User', 'Tournaments']);
-    return response.records.map(record => ({
-        id: record.id,
-        playerID: record.fields.PlayerID,
-        user: record.fields.User && record.fields.User[0] ? {
-            id: record.fields.User[0].id,
-            firstName: record.fields.User[0].fields['First Name'],
-            lastName: record.fields.User[0].fields['Last Name'],
-            email: record.fields.User[0].fields['Email Address'],
-        } : null,
-        tournament: record.fields.Tournaments && record.fields.Tournaments[0] ? {
-            id: record.fields.Tournaments[0].id,
-            name: record.fields.Tournaments[0].fields.TournamentName
-        } : null,
-    }));
+    return response.records.map(record => {
+        // Safely handle User field
+        let user = null;
+        if (record.fields.User && record.fields.User[0] && record.fields.User[0].fields) {
+            const userFields = record.fields.User[0].fields;
+            user = {
+                id: record.fields.User[0].id,
+                firstName: userFields['First Name'] || 'Unknown',
+                lastName: userFields['Last Name'] || 'Unknown',
+                email: userFields['Email Address'] || '',
+            };
+        }
+        
+        // Safely handle Tournaments field
+        let tournament = null;
+        if (record.fields.Tournaments && record.fields.Tournaments[0] && record.fields.Tournaments[0].fields) {
+            const tournamentFields = record.fields.Tournaments[0].fields;
+            tournament = {
+                id: record.fields.Tournaments[0].id,
+                name: tournamentFields.TournamentName || 'Unknown Tournament'
+            };
+        }
+        
+        return {
+            id: record.id,
+            playerID: record.fields.PlayerID || null,
+            user: user,
+            tournament: tournament,
+        };
+    });
 }
 
 // Get checked-in players (expanded)
@@ -119,14 +135,22 @@ async function getCheckedInPlayers() {
     const response = await airtableRequestExpand('/CheckedInPlayers', ['Player', 'Player.User']);
     return response.records.map(record => {
         const player = record.fields.Player && record.fields.Player[0];
+        
+        // Safely handle User field
+        let user = null;
+        if (player && player.fields.User && player.fields.User[0] && player.fields.User[0].fields) {
+            const userFields = player.fields.User[0].fields;
+            user = {
+                id: player.fields.User[0].id,
+                firstName: userFields['First Name'] || 'Unknown',
+                lastName: userFields['Last Name'] || 'Unknown',
+            };
+        }
+        
         return {
             id: record.id,
-            playerID: player && player.fields.PlayerID,
-            user: player && player.fields.User && player.fields.User[0] ? {
-                id: player.fields.User[0].id,
-                firstName: player.fields.User[0].fields['First Name'],
-                lastName: player.fields.User[0].fields['Last Name'],
-            } : null,
+            playerID: player && player.fields.PlayerID ? player.fields.PlayerID : null,
+            user: user,
             checkedInAt: record.fields.CheckedInAt
         };
     });
@@ -138,25 +162,31 @@ async function getMatchQueue() {
     return response.records.map(record => {
         const p1 = record.fields.Player1 && record.fields.Player1[0];
         const p2 = record.fields.Player2 && record.fields.Player2[0];
+        
+        // Helper function to safely extract user info
+        const extractUser = (player) => {
+            if (player && player.fields.User && player.fields.User[0] && player.fields.User[0].fields) {
+                const userFields = player.fields.User[0].fields;
+                return {
+                    id: player.fields.User[0].id,
+                    firstName: userFields['First Name'] || 'Unknown',
+                    lastName: userFields['Last Name'] || 'Unknown',
+                };
+            }
+            return null;
+        };
+        
         return {
             id: record.id,
             player1: p1 ? {
                 id: p1.id,
-                playerID: p1.fields.PlayerID,
-                user: p1.fields.User && p1.fields.User[0] ? {
-                    id: p1.fields.User[0].id,
-                    firstName: p1.fields.User[0].fields['First Name'],
-                    lastName: p1.fields.User[0].fields['Last Name'],
-                } : null
+                playerID: p1.fields.PlayerID || null,
+                user: extractUser(p1)
             } : null,
             player2: p2 ? {
                 id: p2.id,
-                playerID: p2.fields.PlayerID,
-                user: p2.fields.User && p2.fields.User[0] ? {
-                    id: p2.fields.User[0].id,
-                    firstName: p2.fields.User[0].fields['First Name'],
-                    lastName: p2.fields.User[0].fields['Last Name'],
-                } : null
+                playerID: p2.fields.PlayerID || null,
+                user: extractUser(p2)
             } : null,
             status: record.fields.Status || 'pending',
             matchNumber: record.fields.MatchNumber || 0
@@ -174,27 +204,34 @@ async function getMatches() {
         try { if (record.fields.Scores) scores = JSON.parse(record.fields.Scores); } catch (e) { scores = {}; }
         try { if (record.fields.Points) points = JSON.parse(record.fields.Points); } catch (e) { points = {}; }
         try { if (record.fields.HoleResults) holeResults = JSON.parse(record.fields.HoleResults); } catch (e) { holeResults = {}; }
+        
         const p1 = record.fields.Player1 && record.fields.Player1[0];
         const p2 = record.fields.Player2 && record.fields.Player2[0];
+        
+        // Helper function to safely extract user info
+        const extractUser = (player) => {
+            if (player && player.fields.User && player.fields.User[0] && player.fields.User[0].fields) {
+                const userFields = player.fields.User[0].fields;
+                return {
+                    id: player.fields.User[0].id,
+                    firstName: userFields['First Name'] || 'Unknown',
+                    lastName: userFields['Last Name'] || 'Unknown',
+                };
+            }
+            return null;
+        };
+        
         return {
             id: record.id,
             player1: p1 ? {
                 id: p1.id,
-                playerID: p1.fields.PlayerID,
-                user: p1.fields.User && p1.fields.User[0] ? {
-                    id: p1.fields.User[0].id,
-                    firstName: p1.fields.User[0].fields['First Name'],
-                    lastName: p1.fields.User[0].fields['Last Name'],
-                } : null
+                playerID: p1.fields.PlayerID || null,
+                user: extractUser(p1)
             } : null,
             player2: p2 ? {
                 id: p2.id,
-                playerID: p2.fields.PlayerID,
-                user: p2.fields.User && p2.fields.User[0] ? {
-                    id: p2.fields.User[0].id,
-                    firstName: p2.fields.User[0].fields['First Name'],
-                    lastName: p2.fields.User[0].fields['Last Name'],
-                } : null
+                playerID: p2.fields.PlayerID || null,
+                user: extractUser(p2)
             } : null,
             scores,
             winner: record.fields.Winner || 'Unknown',
@@ -210,16 +247,24 @@ async function getLeaderboard() {
     const response = await airtableRequestExpand('/Leaderboard', ['Player', 'Player.User']);
     return response.records.map(record => {
         const player = record.fields.Player && record.fields.Player[0];
+        
+        // Safely handle User field
+        let user = null;
+        if (player && player.fields.User && player.fields.User[0] && player.fields.User[0].fields) {
+            const userFields = player.fields.User[0].fields;
+            user = {
+                id: player.fields.User[0].id,
+                firstName: userFields['First Name'] || 'Unknown',
+                lastName: userFields['Last Name'] || 'Unknown',
+            };
+        }
+        
         return {
             id: record.id,
             player: player ? {
                 id: player.id,
-                playerID: player.fields.PlayerID,
-                user: player.fields.User && player.fields.User[0] ? {
-                    id: player.fields.User[0].id,
-                    firstName: player.fields.User[0].fields['First Name'],
-                    lastName: player.fields.User[0].fields['Last Name'],
-                } : null
+                playerID: player.fields.PlayerID || null,
+                user: user
             } : null,
             points: record.fields.Points || 0,
             matches: record.fields.Matches || 0,
