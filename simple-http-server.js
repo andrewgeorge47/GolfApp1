@@ -414,15 +414,21 @@ const server = http.createServer(async (req, res) => {
                         const userName = `${user.fields['First Name']} ${user.fields['Last Name']}`;
                         
                         // Create player record linked to user
+                        const playerPayload = {
+                            records: [{
+                                fields: {
+                                    User: [userId]
+                                }
+                            }]
+                        };
+                        
+                        console.log('Creating player with payload:', JSON.stringify(playerPayload, null, 2));
+                        console.log('User ID being used:', userId);
+                        console.log('User ID type:', typeof userId);
+                        
                         const playerRecord = await airtableRequest('/Players', {
                             method: 'POST',
-                            body: JSON.stringify({
-                                records: [{
-                                    fields: {
-                                        User: [userId]
-                                    }
-                                }]
-                            })
+                            body: JSON.stringify(playerPayload)
                         });
 
                         // Initialize leaderboard entry
