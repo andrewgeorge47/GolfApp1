@@ -448,7 +448,7 @@
         // Global variables
         let players = [];
         let matches = [];
-        let leaderboard = {};
+        let leaderboard = [];
         let checkedInPlayers = [];
         let matchQueue = [];
         let currentMatchIndex = 0;
@@ -464,7 +464,7 @@
                 const data = await airtableAPI.getAllData();
                 players = data.players || [];
                 matches = data.matches || [];
-                leaderboard = data.leaderboard || {};
+                leaderboard = data.leaderboard || [];
                 checkedInPlayers = data.checkedInPlayers || [];
                 matchQueue = data.matchQueue || [];
                 currentMatchIndex = data.currentMatchIndex || 0;
@@ -522,16 +522,21 @@
                 return;
             }
             
-            if (players.includes(name)) {
+            // Check if player already exists by name
+            const existingPlayer = players.find(p => 
+                airtableAPI.getPlayerDisplayName(p) === name
+            );
+            
+            if (existingPlayer) {
                 alert('Player already exists');
                 return;
             }
             
             try {
                 await airtableAPI.addPlayer(name);
-                players.push(name);
+                // Reload data to get the new player with expanded fields
+                await loadData();
                 nameInput.value = '';
-                updateDisplay();
                 alert('Player added successfully!');
             } catch (error) {
                 console.error('Failed to add player:', error);
@@ -540,13 +545,15 @@
         }
 
         // Remove player
-        async function removePlayer(name) {
-            if (confirm(`Are you sure you want to remove ${name}?`)) {
+        async function removePlayer(playerId) {
+            const player = players.find(p => p.id === playerId);
+            const playerName = airtableAPI.getPlayerDisplayName(player);
+            
+            if (confirm(`Are you sure you want to remove ${playerName}?`)) {
                 try {
-                    await airtableAPI.removePlayer(name);
-                    players = players.filter(p => p !== name);
-                    checkedInPlayers = checkedInPlayers.filter(p => p !== name);
-                    updateDisplay();
+                    await airtableAPI.removePlayer(playerId);
+                    // Reload data to ensure consistency
+                    await loadData();
                     alert('Player removed successfully!');
                 } catch (error) {
                     console.error('Failed to remove player:', error);
@@ -556,20 +563,15 @@
         }
 
         // Toggle check-in
-        async function toggleCheckin(playerName) {
-            const isCheckedIn = checkedInPlayers.includes(playerName);
+        async function toggleCheckin(playerId) {
+            const player = players.find(p => p.id === playerId);
+            const isCheckedIn = checkedInPlayers.some(cp => cp.player && cp.player.id === playerId);
             const newStatus = !isCheckedIn;
             
             try {
-                await airtableAPI.toggleCheckin(playerName, newStatus);
-                
-                if (newStatus) {
-                    checkedInPlayers.push(playerName);
-                } else {
-                    checkedInPlayers = checkedInPlayers.filter(p => p !== playerName);
-                }
-                
-                updateDisplay();
+                await airtableAPI.toggleCheckin(playerId, newStatus);
+                // Reload data to ensure consistency
+                await loadData();
             } catch (error) {
                 console.error('Failed to update check-in status:', error);
                 alert('Failed to update check-in status. Please try again.');
@@ -584,20 +586,20 @@
             }
             
             matchQueue = [];
-            const playersCopy = [...checkedInPlayers];
+            const checkedInPlayerIds = checkedInPlayers.map(cp => cp.player.id);
             const minMatches = parseInt(document.getElementById('minMatches').value) || 3;
             const playerMatchCount = {};
             
-            playersCopy.forEach(player => {
-                playerMatchCount[player] = 0;
+            checkedInPlayerIds.forEach(playerId => {
+                playerMatchCount[playerId] = 0;
             });
 
             let attempts = 0;
             const maxAttempts = 1000;
             
             while (attempts < maxAttempts) {
-                const needsMatches = playersCopy.filter(player => 
-                    playerMatchCount[player] < minMatches
+                const needsMatches = checkedInPlayerIds.filter(playerId => 
+                    playerMatchCount[playerId] < minMatches
                 ).sort((a, b) => playerMatchCount[a] - playerMatchCount[b]);
                 
                 if (needsMatches.length < 2) break;
@@ -605,23 +607,26 @@
                 let matched = false;
                 for (let i = 0; i < needsMatches.length - 1; i++) {
                     for (let j = i + 1; j < needsMatches.length; j++) {
-                        const player1 = needsMatches[i];
-                        const player2 = needsMatches[j];
+                        const player1Id = needsMatches[i];
+                        const player2Id = needsMatches[j];
                         
                         const alreadyMatched = matchQueue.some(match => 
-                            (match.player1 === player1 && match.player2 === player2) ||
-                            (match.player1 === player2 && match.player2 === player1)
+                            (match.player1 && match.player1.id === player1Id && match.player2 && match.player2.id === player2Id) ||
+                            (match.player1 && match.player1.id === player2Id && match.player2 && match.player2.id === player1Id)
                         );
                         
                         if (!alreadyMatched) {
+                            const player1 = players.find(p => p.id === player1Id);
+                            const player2 = players.find(p => p.id === player2Id);
+                            
                             matchQueue.push({
                                 player1,
                                 player2,
                                 status: 'pending',
                                 matchNumber: matchQueue.length + 1
                             });
-                            playerMatchCount[player1]++;
-                            playerMatchCount[player2]++;
+                            playerMatchCount[player1Id]++;
+                            playerMatchCount[player2Id]++;
                             matched = true;
                             break;
                         }
@@ -630,16 +635,19 @@
                 }
                 
                 if (!matched) {
-                    const player1 = needsMatches[0];
-                    const player2 = needsMatches[1];
+                    const player1Id = needsMatches[0];
+                    const player2Id = needsMatches[1];
+                    const player1 = players.find(p => p.id === player1Id);
+                    const player2 = players.find(p => p.id === player2Id);
+                    
                     matchQueue.push({
                         player1,
                         player2,
                         status: 'pending',
                         matchNumber: matchQueue.length + 1
                     });
-                    playerMatchCount[player1]++;
-                    playerMatchCount[player2]++;
+                    playerMatchCount[player1Id]++;
+                    playerMatchCount[player2Id]++;
                 }
                 
                 attempts++;
@@ -725,11 +733,12 @@
                 playersList.innerHTML = '<p style="text-align: center; color: var(--base-color-neutral--600); grid-column: 1 / -1;">No players added yet</p>';
             } else {
                 playersList.innerHTML = players.map(player => {
-                    const isCheckedIn = checkedInPlayers.some(p => p.playerID === player.playerID);
+                    const isCheckedIn = checkedInPlayers.some(cp => cp.player && cp.player.id === player.id);
+                    const displayName = airtableAPI.getPlayerDisplayName(player);
                     return `
                         <div class="player-card">
                             <div class="player-info">
-                                <h3>Player #${player.playerID}: ${player.userName}</h3>
+                                <h3>${displayName}</h3>
                                 <p>Status: ${isCheckedIn ? 'Checked In' : 'Not Checked In'}</p>
                             </div>
                             <div class="player-actions">
@@ -750,24 +759,29 @@
             if (matchQueue.length === 0) {
                 matchQueueDiv.innerHTML = '<p style="text-align: center; color: var(--base-color-neutral--600); grid-column: 1 / -1;">No matches generated yet</p>';
             } else {
-                matchQueueDiv.innerHTML = matchQueue.map((match, index) => `
-                    <div class="match-card ${match.status}">
-                        <div class="match-header">
-                            <div class="match-number">Match ${match.matchNumber}</div>
-                            <div class="match-status ${match.status}">${match.status.charAt(0).toUpperCase() + match.status.slice(1)}</div>
+                matchQueueDiv.innerHTML = matchQueue.map((match, index) => {
+                    const player1Name = airtableAPI.getPlayerDisplayName(match.player1);
+                    const player2Name = airtableAPI.getPlayerDisplayName(match.player2);
+                    
+                    return `
+                        <div class="match-card ${match.status}">
+                            <div class="match-header">
+                                <div class="match-number">Match ${match.matchNumber}</div>
+                                <div class="match-status ${match.status}">${match.status.charAt(0).toUpperCase() + match.status.slice(1)}</div>
+                            </div>
+                            <div class="match-players">${player1Name} vs ${player2Name}</div>
+                            <div class="match-actions">
+                                ${match.status === 'pending' ? 
+                                    `<button class="btn btn-small" onclick="startMatch(${index})">Start Match</button>` : 
+                                    match.status === 'active' ? 
+                                    '<span style="color: var(--base-color-brand--neon-green); font-weight: 600;">Currently Playing</span>' :
+                                    '<span style="color: var(--base-color-system--success-green); font-weight: 600;">Completed</span>'
+                                }
+                                <button class="btn btn-small btn-danger" onclick="removeMatch(${index})">Remove</button>
+                            </div>
                         </div>
-                        <div class="match-players">${match.player1} vs ${match.player2}</div>
-                        <div class="match-actions">
-                            ${match.status === 'pending' ? 
-                                `<button class="btn btn-small" onclick="startMatch(${index})">Start Match</button>` : 
-                                match.status === 'active' ? 
-                                '<span style="color: var(--base-color-brand--neon-green); font-weight: 600;">Currently Playing</span>' :
-                                '<span style="color: var(--base-color-system--success-green); font-weight: 600;">Completed</span>'
-                            }
-                            <button class="btn btn-small btn-danger" onclick="removeMatch(${index})">Remove</button>
-                        </div>
-                    </div>
-                `).join('');
+                    `;
+                }).join('');
             }
         }
 

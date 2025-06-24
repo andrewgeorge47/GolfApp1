@@ -68,21 +68,105 @@ async function airtableRequestExpand(endpoint, expandFields = []) {
     return await airtableRequest(url);
 }
 
-// Helper functions
-async function getPlayers() {
-    const response = await airtableRequestExpand('/Players', ['User']);
+// Get all users (for user selection in frontend)
+async function getUsers() {
+    const response = await airtableRequest('/Users');
     return response.records.map(record => ({
         id: record.id,
-        playerID: record.fields.PlayerID,
-        userID: record.fields.User && record.fields.User[0],
-        userName: record.fields.User && record.fields.User[0] && record.fields.User[0].fields && record.fields.User[0].fields['First Name'] ? `${record.fields.User[0].fields['First Name']} ${record.fields.User[0].fields['Last Name']}` : 'Unknown',
-        tournamentIDs: record.fields.Tournaments || [],
-        // Add any other fields you want to expose
+        memberId: record.fields['Member ID'],
+        firstName: record.fields['First Name'],
+        lastName: record.fields['Last Name'],
+        email: record.fields['Email Address'],
+        club: record.fields['Club'],
+        role: record.fields['Role'],
     }));
 }
 
+// Get all tournaments
+async function getTournaments() {
+    const response = await airtableRequest('/Tournaments');
+    return response.records.map(record => ({
+        id: record.id,
+        name: record.fields.TournamentName,
+        minMatches: record.fields.MinMatches,
+        notes: record.fields.Notes,
+        start: record.fields.Start,
+        end: record.fields.End,
+    }));
+}
+
+// Get all players (expanded with User and Tournament)
+async function getPlayers() {
+    const response = await airtableRequestExpand('/Players', ['User', 'Tournaments']);
+    return response.records.map(record => ({
+        id: record.id,
+        playerID: record.fields.PlayerID,
+        user: record.fields.User && record.fields.User[0] ? {
+            id: record.fields.User[0].id,
+            firstName: record.fields.User[0].fields['First Name'],
+            lastName: record.fields.User[0].fields['Last Name'],
+            email: record.fields.User[0].fields['Email Address'],
+        } : null,
+        tournament: record.fields.Tournaments && record.fields.Tournaments[0] ? {
+            id: record.fields.Tournaments[0].id,
+            name: record.fields.Tournaments[0].fields.TournamentName
+        } : null,
+    }));
+}
+
+// Get checked-in players (expanded)
+async function getCheckedInPlayers() {
+    const response = await airtableRequestExpand('/CheckedInPlayers', ['Player', 'Player.User']);
+    return response.records.map(record => {
+        const player = record.fields.Player && record.fields.Player[0];
+        return {
+            id: record.id,
+            playerID: player && player.fields.PlayerID,
+            user: player && player.fields.User && player.fields.User[0] ? {
+                id: player.fields.User[0].id,
+                firstName: player.fields.User[0].fields['First Name'],
+                lastName: player.fields.User[0].fields['Last Name'],
+            } : null,
+            checkedInAt: record.fields.CheckedInAt
+        };
+    });
+}
+
+// Get match queue (expanded)
+async function getMatchQueue() {
+    const response = await airtableRequestExpand('/MatchQueue', ['Player1', 'Player2', 'Player1.User', 'Player2.User']);
+    return response.records.map(record => {
+        const p1 = record.fields.Player1 && record.fields.Player1[0];
+        const p2 = record.fields.Player2 && record.fields.Player2[0];
+        return {
+            id: record.id,
+            player1: p1 ? {
+                id: p1.id,
+                playerID: p1.fields.PlayerID,
+                user: p1.fields.User && p1.fields.User[0] ? {
+                    id: p1.fields.User[0].id,
+                    firstName: p1.fields.User[0].fields['First Name'],
+                    lastName: p1.fields.User[0].fields['Last Name'],
+                } : null
+            } : null,
+            player2: p2 ? {
+                id: p2.id,
+                playerID: p2.fields.PlayerID,
+                user: p2.fields.User && p2.fields.User[0] ? {
+                    id: p2.fields.User[0].id,
+                    firstName: p2.fields.User[0].fields['First Name'],
+                    lastName: p2.fields.User[0].fields['Last Name'],
+                } : null
+            } : null,
+            status: record.fields.Status || 'pending',
+            matchNumber: record.fields.MatchNumber || 0
+        };
+    });
+}
+
+// Get matches (expanded)
 async function getMatches() {
-    const response = await airtableRequest('/Matches?sort[0][field]=PlayedAt&sort[0][direction]=desc');
+    const response = await airtableRequestExpand('/Matches?sort[0][field]=PlayedAt&sort[0][direction]=desc', ['Player1', 'Player2', 'Player1.User', 'Player2.User']);
     return response.records.map(record => {
         let scores = {};
         let points = {};
@@ -90,10 +174,28 @@ async function getMatches() {
         try { if (record.fields.Scores) scores = JSON.parse(record.fields.Scores); } catch (e) { scores = {}; }
         try { if (record.fields.Points) points = JSON.parse(record.fields.Points); } catch (e) { points = {}; }
         try { if (record.fields.HoleResults) holeResults = JSON.parse(record.fields.HoleResults); } catch (e) { holeResults = {}; }
+        const p1 = record.fields.Player1 && record.fields.Player1[0];
+        const p2 = record.fields.Player2 && record.fields.Player2[0];
         return {
             id: record.id,
-            player1ID: record.fields.Player1 && record.fields.Player1[0],
-            player2ID: record.fields.Player2 && record.fields.Player2[0],
+            player1: p1 ? {
+                id: p1.id,
+                playerID: p1.fields.PlayerID,
+                user: p1.fields.User && p1.fields.User[0] ? {
+                    id: p1.fields.User[0].id,
+                    firstName: p1.fields.User[0].fields['First Name'],
+                    lastName: p1.fields.User[0].fields['Last Name'],
+                } : null
+            } : null,
+            player2: p2 ? {
+                id: p2.id,
+                playerID: p2.fields.PlayerID,
+                user: p2.fields.User && p2.fields.User[0] ? {
+                    id: p2.fields.User[0].id,
+                    firstName: p2.fields.User[0].fields['First Name'],
+                    lastName: p2.fields.User[0].fields['Last Name'],
+                } : null
+            } : null,
             scores,
             winner: record.fields.Winner || 'Unknown',
             points,
@@ -103,53 +205,30 @@ async function getMatches() {
     });
 }
 
+// Get leaderboard (expanded)
 async function getLeaderboard() {
-    const response = await airtableRequest('/Leaderboard');
-    const leaderboard = {};
-    
-    response.records.forEach(record => {
-        leaderboard[record.fields.Player || 'Unknown'] = {
+    const response = await airtableRequestExpand('/Leaderboard', ['Player', 'Player.User']);
+    return response.records.map(record => {
+        const player = record.fields.Player && record.fields.Player[0];
+        return {
+            id: record.id,
+            player: player ? {
+                id: player.id,
+                playerID: player.fields.PlayerID,
+                user: player.fields.User && player.fields.User[0] ? {
+                    id: player.fields.User[0].id,
+                    firstName: player.fields.User[0].fields['First Name'],
+                    lastName: player.fields.User[0].fields['Last Name'],
+                } : null
+            } : null,
             points: record.fields.Points || 0,
             matches: record.fields.Matches || 0,
             wins: record.fields.Wins || 0
         };
     });
-    
-    return leaderboard;
 }
 
-async function getCheckedInPlayers() {
-    const response = await airtableRequestExpand('/CheckedInPlayers', ['Player', 'Player.User']);
-    return response.records.map(record => {
-        const player = record.fields.Player && record.fields.Player[0];
-        return {
-            id: record.id,
-            playerID: player && player.fields.PlayerID,
-            userName: player && player.fields.User && player.fields.User[0] ? `${player.fields.User[0].fields['First Name']} ${player.fields.User[0].fields['Last Name']}` : 'Unknown',
-            checkedInAt: record.fields.CheckedInAt
-        };
-    });
-}
-
-async function getMatchQueue() {
-    const response = await airtableRequestExpand('/MatchQueue', ['Player1', 'Player2', 'Player1.User', 'Player2.User']);
-    return response.records.map(record => {
-        const p1 = record.fields.Player1 && record.fields.Player1[0];
-        const p2 = record.fields.Player2 && record.fields.Player2[0];
-        return {
-            id: record.id,
-            player1ID: p1 && p1.id,
-            player1Number: p1 && p1.fields.PlayerID,
-            player1Name: p1 && p1.fields.User && p1.fields.User[0] ? `${p1.fields.User[0].fields['First Name']} ${p1.fields.User[0].fields['Last Name']}` : 'Unknown',
-            player2ID: p2 && p2.id,
-            player2Number: p2 && p2.fields.PlayerID,
-            player2Name: p2 && p2.fields.User && p2.fields.User[0] ? `${p2.fields.User[0].fields['First Name']} ${p2.fields.User[0].fields['Last Name']}` : 'Unknown',
-            status: record.fields.Status || 'pending',
-            matchNumber: record.fields.MatchNumber || 0
-        };
-    });
-}
-
+// Get tournament settings (first tournament for now)
 async function getSettings() {
     const response = await airtableRequest('/Tournaments');
     if (response.records.length > 0) {

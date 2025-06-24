@@ -40,12 +40,12 @@ class AirtableAPI {
         return this.request('/health');
     }
 
-    // Get all data
+    // Get all data with expanded fields
     async getAllData() {
         return this.request('/data');
     }
 
-    // Players API
+    // Players API - now returns expanded player data with user info
     async getPlayers() {
         return this.request('/players');
     }
@@ -57,21 +57,21 @@ class AirtableAPI {
         });
     }
 
-    async removePlayer(name) {
-        return this.request(`/players/${encodeURIComponent(name)}`, {
+    async removePlayer(playerId) {
+        return this.request(`/players/${encodeURIComponent(playerId)}`, {
             method: 'DELETE'
         });
     }
 
-    // Check-in API
-    async toggleCheckin(playerName, checkedIn) {
+    // Check-in API - now works with player IDs
+    async toggleCheckin(playerId, checkedIn) {
         return this.request('/checkin', {
             method: 'POST',
-            body: JSON.stringify({ playerName, checkedIn })
+            body: JSON.stringify({ playerId, checkedIn })
         });
     }
 
-    // Matches API
+    // Matches API - now works with player IDs and expanded data
     async recordMatch(matchData) {
         return this.request('/matches', {
             method: 'POST',
@@ -79,7 +79,7 @@ class AirtableAPI {
         });
     }
 
-    // Match Queue API
+    // Match Queue API - now works with player IDs
     async updateMatchQueue(matches) {
         return this.request('/match-queue', {
             method: 'POST',
@@ -106,7 +106,7 @@ class AirtableAPI {
         });
     }
 
-    // Data synchronization
+    // Data synchronization with expanded fields
     async syncData() {
         try {
             const data = await this.getAllData();
@@ -130,6 +130,18 @@ class AirtableAPI {
             
             throw error;
         }
+    }
+
+    // Helper methods for working with expanded data
+    getPlayerDisplayName(player) {
+        if (player && player.user) {
+            return `${player.user.firstName} ${player.user.lastName}`;
+        }
+        return player?.playerID || 'Unknown Player';
+    }
+
+    getPlayerId(player) {
+        return player?.id || player;
     }
 
     // Batch operations for better performance

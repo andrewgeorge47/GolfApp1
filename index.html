@@ -19,14 +19,14 @@
         }
 
         .container {
-            max-width: 1000px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
         }
 
         .header {
             text-align: center;
-            margin-bottom: 60px;
+            margin-bottom: 40px;
             background: rgba(255, 255, 255, 0.95);
             padding: 40px;
             border-radius: 20px;
@@ -54,11 +54,123 @@
             border-radius: 25px;
             font-weight: 600;
             font-size: 1.1em;
+            transition: all 0.3s;
+        }
+
+        .status-loading {
+            background: var(--base-color-neutral--200);
+            color: var(--base-color-neutral--600);
+        }
+
+        .status-active {
+            background: var(--base-color-brand--neon-green);
+            color: var(--base-color-brand--black);
+        }
+
+        .status-ready {
+            background: var(--base-color-system--success-green);
+            color: white;
+        }
+
+        .status-waiting {
+            background: var(--base-color-neutral--400);
+            color: white;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .quick-stats {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .quick-stats h2 {
+            color: var(--base-color-brand--black);
+            margin-bottom: 20px;
+            font-size: 1.8em;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 20px;
+            background: var(--base-color-neutral--50);
+            border-radius: 15px;
+            border-left: 4px solid var(--base-color-brand--neon-green);
+        }
+
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: 700;
+            color: var(--base-color-brand--black);
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: var(--base-color-neutral--600);
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+
+        .recent-activity {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .recent-activity h2 {
+            color: var(--base-color-brand--black);
+            margin-bottom: 20px;
+            font-size: 1.8em;
+            font-weight: 600;
+        }
+
+        .activity-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .activity-item {
+            padding: 15px;
+            margin-bottom: 10px;
+            background: var(--base-color-neutral--50);
+            border-radius: 10px;
+            border-left: 4px solid var(--base-color-brand--neon-green);
+        }
+
+        .activity-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .activity-title {
+            font-weight: 600;
+            color: var(--base-color-brand--black);
+            margin-bottom: 5px;
+        }
+
+        .activity-time {
+            font-size: 0.8em;
+            color: var(--base-color-neutral--600);
         }
 
         .page-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
             gap: 30px;
             margin-bottom: 40px;
         }
@@ -121,7 +233,7 @@
             background: linear-gradient(135deg, var(--base-color-brand--muted-green), var(--base-color-brand--neon-green));
         }
 
-        .quick-stats {
+        .quick-actions {
             background: rgba(255, 255, 255, 0.95);
             border-radius: 20px;
             padding: 30px;
@@ -129,7 +241,7 @@
             margin-bottom: 40px;
         }
 
-        .quick-stats h2 {
+        .quick-actions h2 {
             color: var(--base-color-brand--black);
             margin-bottom: 20px;
             font-size: 1.8em;
@@ -137,31 +249,38 @@
             font-weight: 600;
         }
 
-        .stats-grid {
+        .actions-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
         }
 
-        .stat-item {
-            text-align: center;
-            padding: 20px;
+        .action-btn {
             background: var(--base-color-neutral--50);
-            border-radius: 15px;
-            border-left: 4px solid var(--base-color-brand--neon-green);
-        }
-
-        .stat-number {
-            font-size: 2.5em;
-            font-weight: 700;
-            color: var(--base-color-brand--black);
-            margin-bottom: 5px;
-        }
-
-        .stat-label {
-            color: var(--base-color-neutral--600);
-            font-size: 0.9em;
+            border: 2px solid var(--base-color-neutral--200);
+            padding: 15px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-family: 'Inter', sans-serif;
             font-weight: 600;
+            color: var(--base-color-brand--black);
+        }
+
+        .action-btn:hover {
+            border-color: var(--base-color-brand--neon-green);
+            background: var(--base-color-system--success-green-light);
+        }
+
+        .action-btn.primary {
+            background: var(--base-color-brand--neon-green);
+            border-color: var(--base-color-brand--neon-green);
+            color: var(--base-color-brand--black);
+        }
+
+        .action-btn.primary:hover {
+            background: var(--base-color-brand--muted-green);
+            transform: translateY(-2px);
         }
 
         .footer {
@@ -169,6 +288,21 @@
             color: rgba(255, 255, 255, 0.8);
             font-size: 0.9em;
             margin-top: 40px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: var(--base-color-neutral--600);
+        }
+
+        .error-message {
+            background: var(--base-color-system--error-red);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
         }
 
         /* CSS Custom Properties for brand colors */
@@ -194,12 +328,20 @@
                 font-size: 2.5em;
             }
             
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
             .page-grid {
                 grid-template-columns: 1fr;
             }
             
             .stats-grid {
                 grid-template-columns: repeat(2, 1fr);
+            }
+
+            .actions-grid {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -209,28 +351,57 @@
         <div class="header">
             <h1>🏌️ Golf League Tournament</h1>
             <p>3-Hole Match Play Tournament Manager</p>
-            <div class="tournament-status" id="tournamentStatus">Tournament Active</div>
+            <div class="tournament-status status-loading" id="tournamentStatus">Loading...</div>
         </div>
 
-        <div class="quick-stats">
-            <h2>Quick Stats</h2>
-            <div class="stats-grid">
-                <div class="stat-item">
-                    <div class="stat-number" id="totalPlayers">0</div>
-                    <div class="stat-label">Players</div>
+        <div id="errorContainer" style="display: none;"></div>
+
+        <div class="main-content">
+            <div class="quick-stats">
+                <h2>Tournament Overview</h2>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-number" id="totalPlayers">-</div>
+                        <div class="stat-label">Players</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number" id="checkedInPlayers">-</div>
+                        <div class="stat-label">Checked In</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number" id="totalMatches">-</div>
+                        <div class="stat-label">Matches</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number" id="activeMatches">-</div>
+                        <div class="stat-label">Active</div>
+                    </div>
                 </div>
-                <div class="stat-item">
-                    <div class="stat-number" id="totalMatches">0</div>
-                    <div class="stat-label">Matches</div>
+            </div>
+
+            <div class="recent-activity">
+                <h2>Recent Activity</h2>
+                <div class="activity-list" id="activityList">
+                    <div class="loading">Loading recent activity...</div>
                 </div>
-                <div class="stat-item">
-                    <div class="stat-number" id="activeMatches">0</div>
-                    <div class="stat-label">Active</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-number" id="leaderPoints">0</div>
-                    <div class="stat-label">Leader Points</div>
-                </div>
+            </div>
+        </div>
+
+        <div class="quick-actions">
+            <h2>Quick Actions</h2>
+            <div class="actions-grid">
+                <button class="action-btn primary" onclick="window.location.href='admin.html'">
+                    ⚙️ Tournament Admin
+                </button>
+                <button class="action-btn" onclick="window.location.href='scoring.html'">
+                    📊 Score Matches
+                </button>
+                <button class="action-btn" onclick="window.location.href='leaderboard.html'">
+                    🏆 View Leaderboard
+                </button>
+                <button class="action-btn" onclick="refreshData()">
+                    🔄 Refresh Data
+                </button>
             </div>
         </div>
 
@@ -238,88 +409,181 @@
             <div class="page-card" onclick="window.location.href='admin.html'">
                 <span class="page-icon">⚙️</span>
                 <h2>Tournament Admin</h2>
-                <p>Manage players, generate matches, and control tournament settings. Add new players, check them in, and organize the tournament flow.</p>
+                <p>Manage players, generate matches, and control tournament settings. Add new players, check them in, and organize the tournament flow with our enhanced Airtable backend.</p>
                 <a href="admin.html" class="page-btn">Go to Admin</a>
             </div>
 
             <div class="page-card" onclick="window.location.href='scoring.html'">
                 <span class="page-icon">📊</span>
                 <h2>Match Scoring</h2>
-                <p>Record scores for active matches with an optimized interface. Easy hole-by-hole scoring with instant results and match completion.</p>
+                <p>Record scores for active matches with an optimized interface. Easy hole-by-hole scoring with instant results and match completion using expanded player data.</p>
                 <a href="scoring.html" class="page-btn">Start Scoring</a>
             </div>
 
             <div class="page-card" onclick="window.location.href='leaderboard.html'">
                 <span class="page-icon">🏆</span>
                 <h2>Leaderboard</h2>
-                <p>View current standings, match history, and player statistics. Track points, win rates, and tournament progress in real-time.</p>
+                <p>View current standings, match history, and player statistics. Track points, win rates, and tournament progress in real-time with comprehensive player data.</p>
                 <a href="leaderboard.html" class="page-btn">View Standings</a>
             </div>
         </div>
 
         <div class="footer">
-            <p>Golf League Tournament Manager • Built for Neighborhood National</p>
+            <p>Golf League Tournament Manager • Built for Neighborhood National • Powered by Airtable</p>
         </div>
     </div>
 
+    <script src="airtable-api.js"></script>
     <script>
-        // Data storage
+        // Global variables
         let players = [];
         let matches = [];
-        let leaderboard = {};
+        let leaderboard = [];
         let checkedInPlayers = [];
         let matchQueue = [];
         let currentMatchIndex = 0;
+        let settings = {};
 
-        // Load data from localStorage
-        function loadData() {
+        // Load data from Airtable
+        async function loadData() {
             try {
-                const savedData = localStorage.getItem('golfLeagueData');
-                if (savedData) {
-                    const data = JSON.parse(savedData);
-                    players = data.players || [];
-                    matches = data.matches || [];
-                    leaderboard = data.leaderboard || {};
-                    checkedInPlayers = data.checkedInPlayers || [];
-                    matchQueue = data.matchQueue || [];
-                    currentMatchIndex = data.currentMatchIndex || 0;
+                const data = await airtableAPI.getAllData();
+                players = data.players || [];
+                matches = data.matches || [];
+                leaderboard = data.leaderboard || [];
+                checkedInPlayers = data.checkedInPlayers || [];
+                matchQueue = data.matchQueue || [];
+                currentMatchIndex = data.currentMatchIndex || 0;
+                
+                // Load settings
+                try {
+                    const settingsData = await airtableAPI.getSettings();
+                    settings = settingsData;
+                } catch (error) {
+                    console.log('Using default settings');
                 }
+                
+                updateDisplay();
+                hideError();
             } catch (error) {
-                console.error('Error loading data:', error);
+                console.error('Failed to load data:', error);
+                showError('Failed to load tournament data. Please check your connection and try again.');
             }
+        }
+
+        // Refresh data
+        async function refreshData() {
+            const statusElement = document.getElementById('tournamentStatus');
+            statusElement.textContent = 'Refreshing...';
+            statusElement.className = 'tournament-status status-loading';
             
+            await loadData();
+        }
+
+        // Show error message
+        function showError(message) {
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.innerHTML = `<div class="error-message">${message}</div>`;
+            errorContainer.style.display = 'block';
+        }
+
+        // Hide error message
+        function hideError() {
+            document.getElementById('errorContainer').style.display = 'none';
+        }
+
+        // Update display
+        function updateDisplay() {
             updateStats();
+            updateActivity();
+            updateStatus();
         }
 
         // Update quick stats
         function updateStats() {
             document.getElementById('totalPlayers').textContent = players.length;
+            document.getElementById('checkedInPlayers').textContent = checkedInPlayers.length;
             document.getElementById('totalMatches').textContent = matches.length;
             document.getElementById('activeMatches').textContent = matchQueue.filter(m => m.status === 'active').length;
+        }
+
+        // Update recent activity
+        function updateActivity() {
+            const activityList = document.getElementById('activityList');
             
-            const sortedPlayers = Object.entries(leaderboard)
-                .sort((a, b) => b[1].points - a[1].points);
-            
-            if (sortedPlayers.length > 0) {
-                document.getElementById('leaderPoints').textContent = sortedPlayers[0][1].points;
-            } else {
-                document.getElementById('leaderPoints').textContent = '0';
+            if (matches.length === 0 && checkedInPlayers.length === 0) {
+                activityList.innerHTML = '<div class="loading">No recent activity</div>';
+                return;
             }
 
-            // Update tournament status
+            let activities = [];
+
+            // Add recent matches
+            const recentMatches = matches.slice(0, 5);
+            recentMatches.forEach(match => {
+                const player1Name = airtableAPI.getPlayerDisplayName(match.player1);
+                const player2Name = airtableAPI.getPlayerDisplayName(match.player2);
+                activities.push({
+                    title: `${player1Name} vs ${player2Name} - ${match.winner === 'Tie' ? 'Tied' : match.winner + ' Wins'}`,
+                    time: new Date(match.timestamp).toLocaleString(),
+                    type: 'match'
+                });
+            });
+
+            // Add check-ins
+            const recentCheckins = checkedInPlayers.slice(0, 3);
+            recentCheckins.forEach(checkin => {
+                const playerName = airtableAPI.getPlayerDisplayName(checkin.player);
+                activities.push({
+                    title: `${playerName} checked in`,
+                    time: new Date(checkin.checkedInAt).toLocaleString(),
+                    type: 'checkin'
+                });
+            });
+
+            // Sort by time and take top 8
+            activities.sort((a, b) => new Date(b.time) - new Date(a.time));
+            activities = activities.slice(0, 8);
+
+            if (activities.length === 0) {
+                activityList.innerHTML = '<div class="loading">No recent activity</div>';
+                return;
+            }
+
+            activityList.innerHTML = activities.map(activity => `
+                <div class="activity-item">
+                    <div class="activity-title">${activity.title}</div>
+                    <div class="activity-time">${activity.time}</div>
+                </div>
+            `).join('');
+        }
+
+        // Update tournament status
+        function updateStatus() {
             const statusElement = document.getElementById('tournamentStatus');
-            if (matchQueue.filter(m => m.status === 'active').length > 0) {
-                statusElement.textContent = 'Matches in Progress';
-                statusElement.style.background = 'var(--base-color-brand--neon-green)';
+            const activeMatches = matchQueue.filter(m => m.status === 'active');
+            const pendingMatches = matchQueue.filter(m => m.status === 'pending');
+
+            if (activeMatches.length > 0) {
+                statusElement.textContent = `${activeMatches.length} Match${activeMatches.length > 1 ? 'es' : ''} in Progress`;
+                statusElement.className = 'tournament-status status-active';
+            } else if (pendingMatches.length > 0) {
+                statusElement.textContent = `${pendingMatches.length} Match${pendingMatches.length > 1 ? 'es' : ''} Ready`;
+                statusElement.className = 'tournament-status status-ready';
             } else if (checkedInPlayers.length > 0) {
-                statusElement.textContent = 'Players Checked In';
-                statusElement.style.background = 'var(--base-color-system--success-green)';
-                statusElement.style.color = 'white';
-            } else {
+                statusElement.textContent = `${checkedInPlayers.length} Player${checkedInPlayers.length > 1 ? 's' : ''} Checked In`;
+                statusElement.className = 'tournament-status status-ready';
+            } else if (players.length > 0) {
                 statusElement.textContent = 'Tournament Ready';
-                statusElement.style.background = 'var(--base-color-neutral--200)';
+                statusElement.className = 'tournament-status status-waiting';
+            } else {
+                statusElement.textContent = 'No Players Added';
+                statusElement.className = 'tournament-status status-waiting';
             }
         }
+
+        // Auto-refresh every 30 seconds
+        setInterval(refreshData, 30000);
 
         // Initialize
         loadData();

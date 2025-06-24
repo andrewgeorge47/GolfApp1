@@ -389,7 +389,7 @@
         // Global variables
         let players = [];
         let matches = [];
-        let leaderboard = {};
+        let leaderboard = [];
         let checkedInPlayers = [];
         let matchQueue = [];
         let currentMatchIndex = 0;
@@ -401,7 +401,7 @@
                 const data = await airtableAPI.getAllData();
                 players = data.players || [];
                 matches = data.matches || [];
-                leaderboard = data.leaderboard || {};
+                leaderboard = data.leaderboard || [];
                 checkedInPlayers = data.checkedInPlayers || [];
                 matchQueue = data.matchQueue || [];
                 currentMatchIndex = data.currentMatchIndex || 0;
@@ -438,10 +438,11 @@
             if (activeMatches.length > 0) {
                 html += '<h3 style="color: var(--base-color-system--success-green); margin: 20px 0 10px 0;">Active Matches</h3>';
                 activeMatches.forEach((match, index) => {
-                    const matchIndex = matchQueue.findIndex(m => m === match);
+                    const player1Name = airtableAPI.getPlayerDisplayName(match.player1);
+                    const player2Name = airtableAPI.getPlayerDisplayName(match.player2);
                     html += `
                         <div class="match-option active" onclick="selectMatch('${match.id}')">
-                            <h3>Match ${match.matchNumber}: Player #${match.player1Number}: ${match.player1Name} vs Player #${match.player2Number}: ${match.player2Name}</h3>
+                            <h3>Match ${match.matchNumber}: ${player1Name} vs ${player2Name}</h3>
                             <p>Status: Currently Playing</p>
                         </div>
                     `;
@@ -452,10 +453,11 @@
             if (pendingMatches.length > 0) {
                 html += '<h3 style="color: var(--base-color-brand--black); margin: 20px 0 10px 0;">Pending Matches</h3>';
                 pendingMatches.forEach((match, index) => {
-                    const matchIndex = matchQueue.findIndex(m => m === match);
+                    const player1Name = airtableAPI.getPlayerDisplayName(match.player1);
+                    const player2Name = airtableAPI.getPlayerDisplayName(match.player2);
                     html += `
                         <div class="match-option" onclick="selectMatch('${match.id}')">
-                            <h3>Match ${match.matchNumber}: Player #${match.player1Number}: ${match.player1Name} vs Player #${match.player2Number}: ${match.player2Name}</h3>
+                            <h3>Match ${match.matchNumber}: ${player1Name} vs ${player2Name}</h3>
                             <p>Status: Ready to Start</p>
                         </div>
                     `;
@@ -469,6 +471,8 @@
         function selectMatch(id) {
             selectedMatchIndex = id;
             const match = matchQueue.find(m => m.id === id);
+            const player1Name = airtableAPI.getPlayerDisplayName(match.player1);
+            const player2Name = airtableAPI.getPlayerDisplayName(match.player2);
 
             // Update match options
             document.querySelectorAll('.match-option').forEach((option, i) => {
@@ -477,15 +481,15 @@
             event.target.closest('.match-option').classList.add('active');
 
             // Update current match display
-            document.getElementById('matchPlayers').textContent = `${match.player1Name} vs ${match.player2Name}`;
+            document.getElementById('matchPlayers').textContent = `${player1Name} vs ${player2Name}`;
 
             // Update player names in hole cards
-            document.getElementById('p1Name1').textContent = match.player1Name + ':';
-            document.getElementById('p2Name1').textContent = match.player2Name + ':';
-            document.getElementById('p1Name2').textContent = match.player1Name + ':';
-            document.getElementById('p2Name2').textContent = match.player2Name + ':';
-            document.getElementById('p1Name3').textContent = match.player1Name + ':';
-            document.getElementById('p2Name3').textContent = match.player2Name + ':';
+            document.getElementById('p1Name1').textContent = player1Name + ':';
+            document.getElementById('p2Name1').textContent = player2Name + ':';
+            document.getElementById('p1Name2').textContent = player1Name + ':';
+            document.getElementById('p2Name2').textContent = player2Name + ':';
+            document.getElementById('p1Name3').textContent = player1Name + ':';
+            document.getElementById('p2Name3').textContent = player2Name + ':';
 
             // Show scoring card
             document.getElementById('scoringCard').classList.add('active');
@@ -504,7 +508,7 @@
             // Set all matches to pending except the selected one
             for (let i = 0; i < matchQueue.length; i++) {
                 const match = matchQueue[i];
-                const newStatus = (i === id) ? 'active' : (match.status === 'completed' ? 'completed' : 'pending');
+                const newStatus = (match.id === id) ? 'active' : (match.status === 'completed' ? 'completed' : 'pending');
                 if (match.status !== newStatus) {
                     await airtableAPI.updateMatchStatus(match.matchNumber, newStatus);
                     match.status = newStatus;
@@ -529,9 +533,11 @@
                 return;
             }
 
-            const match = matchQueue[selectedMatchIndex];
+            const match = matchQueue.find(m => m.id === selectedMatchIndex);
             const player1 = match.player1;
             const player2 = match.player2;
+            const player1Name = airtableAPI.getPlayerDisplayName(player1);
+            const player2Name = airtableAPI.getPlayerDisplayName(player2);
 
             const scores = {
                 p1: [
@@ -560,10 +566,10 @@
             for (let i = 0; i < 3; i++) {
                 if (scores.p1[i] < scores.p2[i]) {
                     p1Wins++;
-                    holeResults.push(`${player1} wins hole ${i + 1}`);
+                    holeResults.push(`${player1Name} wins hole ${i + 1}`);
                 } else if (scores.p2[i] < scores.p1[i]) {
                     p2Wins++;
-                    holeResults.push(`${player2} wins hole ${i + 1}`);
+                    holeResults.push(`${player2Name} wins hole ${i + 1}`);
                 } else {
                     holeResults.push(`Hole ${i + 1} tied`);
                 }
@@ -571,21 +577,21 @@
 
             let winner, points;
             if (p1Wins > p2Wins) {
-                winner = player1;
-                points = { [player1]: 3, [player2]: 0 };
+                winner = player1Name;
+                points = { [player1Name]: 3, [player2Name]: 0 };
             } else if (p2Wins > p1Wins) {
-                winner = player2;
-                points = { [player1]: 0, [player2]: 3 };
+                winner = player2Name;
+                points = { [player1Name]: 0, [player2Name]: 3 };
             } else {
                 winner = 'Tie';
-                points = { [player1]: 1, [player2]: 1 };
+                points = { [player1Name]: 1, [player2Name]: 1 };
             }
 
             // Record match in Airtable
             try {
                 const matchData = {
-                    player1,
-                    player2,
+                    player1: player1Name,
+                    player2: player2Name,
                     scores,
                     winner,
                     points,

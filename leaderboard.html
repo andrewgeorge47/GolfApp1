@@ -407,7 +407,7 @@
         // Global variables
         let players = [];
         let matches = [];
-        let leaderboard = {};
+        let leaderboard = [];
         let checkedInPlayers = [];
         let matchQueue = [];
         let currentMatchIndex = 0;
@@ -418,7 +418,7 @@
                 const data = await airtableAPI.getAllData();
                 players = data.players || [];
                 matches = data.matches || [];
-                leaderboard = data.leaderboard || {};
+                leaderboard = data.leaderboard || [];
                 checkedInPlayers = data.checkedInPlayers || [];
                 matchQueue = data.matchQueue || [];
                 currentMatchIndex = data.currentMatchIndex || 0;
@@ -458,23 +458,23 @@
             document.getElementById('totalPlayers').textContent = players.length;
             document.getElementById('totalMatches').textContent = matches.length;
             
-            const sortedPlayers = Object.entries(leaderboard)
-                .sort((a, b) => b[1].points - a[1].points);
+            const sortedLeaderboard = leaderboard
+                .sort((a, b) => b.points - a.points);
             
-            if (sortedPlayers.length > 0) {
-                document.getElementById('leaderPoints').textContent = sortedPlayers[0][1].points;
+            if (sortedLeaderboard.length > 0) {
+                document.getElementById('leaderPoints').textContent = sortedLeaderboard[0].points;
                 
-                const totalWinRate = sortedPlayers.reduce((sum, [name, stats]) => {
-                    return sum + (stats.matches > 0 ? (stats.wins / stats.matches) * 100 : 0);
+                const totalWinRate = sortedLeaderboard.reduce((sum, entry) => {
+                    return sum + (entry.matches > 0 ? (entry.wins / entry.matches) * 100 : 0);
                 }, 0);
-                const avgWinRate = sortedPlayers.length > 0 ? (totalWinRate / sortedPlayers.length).toFixed(1) : 0;
+                const avgWinRate = sortedLeaderboard.length > 0 ? (totalWinRate / sortedLeaderboard.length).toFixed(1) : 0;
                 document.getElementById('avgWinRate').textContent = avgWinRate + '%';
             }
 
             // Update leaderboard table
             const leaderboardDiv = document.getElementById('leaderboardTable');
             
-            if (Object.keys(leaderboard).length === 0) {
+            if (leaderboard.length === 0) {
                 leaderboardDiv.innerHTML = `
                     <div class="empty-state">
                         <h3>No matches recorded yet</h3>
@@ -484,13 +484,14 @@
                 return;
             }
 
-            const sortedLeaderboard = Object.entries(leaderboard)
-                .sort((a, b) => b[1].points - a[1].points)
-                .map(([name, stats], index) => ({
+            const sortedLeaderboardWithStats = sortedLeaderboard
+                .map((entry, index) => ({
                     position: index + 1,
-                    name,
-                    ...stats,
-                    winRate: stats.matches > 0 ? ((stats.wins / stats.matches) * 100).toFixed(1) : '0.0'
+                    name: airtableAPI.getPlayerDisplayName(entry.player),
+                    points: entry.points,
+                    matches: entry.matches,
+                    wins: entry.wins,
+                    winRate: entry.matches > 0 ? ((entry.wins / entry.matches) * 100).toFixed(1) : '0.0'
                 }));
 
             let tableHTML = `
@@ -508,7 +509,7 @@
                     <tbody>
             `;
 
-            sortedLeaderboard.forEach(player => {
+            sortedLeaderboardWithStats.forEach(player => {
                 const positionClass = player.position <= 3 ? `position-${player.position}` : '';
                 tableHTML += `
                     <tr>
@@ -545,13 +546,15 @@
             }
 
             historyDiv.innerHTML = matches.map(match => {
+                const player1Name = airtableAPI.getPlayerDisplayName(match.player1);
+                const player2Name = airtableAPI.getPlayerDisplayName(match.player2);
                 const resultClass = match.winner === 'Tie' ? 'tie' : 'win';
                 const resultText = match.winner === 'Tie' ? 'Tied' : match.winner + ' Wins';
                 
                 return `
                     <div class="match-item">
                         <div class="match-header">
-                            <div class="match-title">${match.player1} vs ${match.player2}</div>
+                            <div class="match-title">${player1Name} vs ${player2Name}</div>
                             <div class="match-result ${resultClass}">${resultText}</div>
                         </div>
                         <div class="match-details">
@@ -560,18 +563,18 @@
                         <div class="match-scores">
                             <div class="hole-score ${match.scores.p1[0] < match.scores.p2[0] ? 'winner' : ''}">
                                 <strong>Hole 1</strong><br>
-                                ${match.player1}: ${match.scores.p1[0]}<br>
-                                ${match.player2}: ${match.scores.p2[0]}
+                                ${player1Name}: ${match.scores.p1[0]}<br>
+                                ${player2Name}: ${match.scores.p2[0]}
                             </div>
                             <div class="hole-score ${match.scores.p1[1] < match.scores.p2[1] ? 'winner' : ''}">
                                 <strong>Hole 2</strong><br>
-                                ${match.player1}: ${match.scores.p1[1]}<br>
-                                ${match.player2}: ${match.scores.p2[1]}
+                                ${player1Name}: ${match.scores.p1[1]}<br>
+                                ${player2Name}: ${match.scores.p2[1]}
                             </div>
                             <div class="hole-score ${match.scores.p1[2] < match.scores.p2[2] ? 'winner' : ''}">
                                 <strong>Hole 3</strong><br>
-                                ${match.player1}: ${match.scores.p1[2]}<br>
-                                ${match.player2}: ${match.scores.p2[2]}
+                                ${player1Name}: ${match.scores.p1[2]}<br>
+                                ${player2Name}: ${match.scores.p2[2]}
                             </div>
                         </div>
                     </div>
@@ -583,7 +586,7 @@
         function updatePlayerStats() {
             const statsDiv = document.getElementById('playerStats');
             
-            if (Object.keys(leaderboard).length === 0) {
+            if (leaderboard.length === 0) {
                 statsDiv.innerHTML = `
                     <div class="empty-state">
                         <h3>No player statistics available</h3>
@@ -593,13 +596,15 @@
                 return;
             }
 
-            const sortedStats = Object.entries(leaderboard)
-                .sort((a, b) => b[1].points - a[1].points)
-                .map(([name, stats]) => ({
-                    name,
-                    ...stats,
-                    winRate: stats.matches > 0 ? ((stats.wins / stats.matches) * 100).toFixed(1) : '0.0',
-                    avgPoints: stats.matches > 0 ? (stats.points / stats.matches).toFixed(1) : '0.0'
+            const sortedStats = leaderboard
+                .sort((a, b) => b.points - a.points)
+                .map(entry => ({
+                    name: airtableAPI.getPlayerDisplayName(entry.player),
+                    points: entry.points,
+                    matches: entry.matches,
+                    wins: entry.wins,
+                    winRate: entry.matches > 0 ? ((entry.wins / entry.matches) * 100).toFixed(1) : '0.0',
+                    avgPoints: entry.matches > 0 ? (entry.points / entry.matches).toFixed(1) : '0.0'
                 }));
 
             let statsHTML = '<div class="stats-grid">';
@@ -607,7 +612,7 @@
             sortedStats.forEach(player => {
                 statsHTML += `
                     <div class="stat-card">
-                        <div class="stat-number">Player #${player.name}: ${player.name}</div>
+                        <div class="stat-number">${player.name}</div>
                         <div class="stat-label">${player.points} pts • ${player.matches} matches</div>
                         <div class="stat-label">${player.winRate}% win rate</div>
                         <div class="stat-label">${player.avgPoints} avg points</div>
