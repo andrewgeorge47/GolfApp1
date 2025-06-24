@@ -576,27 +576,68 @@
                 return;
             }
             
-            console.log('Calling airtableAPI.addPlayerFromUser with userId:', userId);
+            // Find the selected user from our local users array
+            const selectedUser = users.find(user => user.id === userId);
+            if (!selectedUser) {
+                console.error('Selected user not found in local users array');
+                alert('User not found. Please try again.');
+                return;
+            }
+            
+            console.log('Selected user:', selectedUser);
+            
+            // Create a new player object locally
+            const newPlayer = {
+                id: `temp_${Date.now()}`, // Temporary ID until we get the real one from Airtable
+                playerID: null,
+                user: {
+                    id: selectedUser.id,
+                    firstName: selectedUser.firstName,
+                    lastName: selectedUser.lastName,
+                    email: selectedUser.email
+                },
+                tournament: null
+            };
+            
+            console.log('Created new player locally:', newPlayer);
+            
+            // Add to local players array immediately
+            players.push(newPlayer);
+            console.log('Added to local players array. New count:', players.length);
+            
+            // Update the UI immediately
+            updateDisplay();
+            updateUserSelect();
+            updateStats();
+            
+            // Clear the dropdown selection
+            userSelect.value = '';
+            
+            console.log('UI updated immediately');
+            
+            // Now sync to Airtable in the background
+            console.log('Syncing to Airtable in background...');
             try {
                 const result = await airtableAPI.addPlayerFromUser(userId);
-                console.log('addPlayerFromUser result:', result);
+                console.log('Airtable sync result:', result);
                 
-                // Add a small delay to allow Airtable to propagate the change
-                console.log('Waiting 2 seconds for Airtable to update...');
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                // Update the temporary ID with the real one from Airtable
+                if (result && result.player && result.player.id) {
+                    newPlayer.id = result.player.id;
+                    console.log('Updated player ID from Airtable:', newPlayer.id);
+                }
                 
-                console.log('Reloading data...');
-                await loadData();
-                console.log('Data reloaded. Players count:', players.length);
-                
-                alert('Player added successfully!');
+                console.log('Background sync completed successfully');
             } catch (error) {
-                console.error('Failed to add player:', error);
+                console.error('Background sync failed:', error);
                 console.error('Error details:', {
                     message: error.message,
                     stack: error.stack
                 });
-                alert('Failed to add player. Please try again.');
+                
+                // Optionally show a warning that the sync failed
+                // but the player is still added locally
+                console.warn('Player added locally but sync to Airtable failed');
             }
         }
 
