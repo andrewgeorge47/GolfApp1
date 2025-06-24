@@ -440,8 +440,8 @@
                 activeMatches.forEach((match, index) => {
                     const matchIndex = matchQueue.findIndex(m => m === match);
                     html += `
-                        <div class="match-option active" onclick="selectMatch(${matchIndex})">
-                            <h3>Match ${match.matchNumber}: ${match.player1} vs ${match.player2}</h3>
+                        <div class="match-option active" onclick="selectMatch('${match.id}')">
+                            <h3>Match ${match.matchNumber}: Player #${match.player1Number}: ${match.player1Name} vs Player #${match.player2Number}: ${match.player2Name}</h3>
                             <p>Status: Currently Playing</p>
                         </div>
                     `;
@@ -454,8 +454,8 @@
                 pendingMatches.forEach((match, index) => {
                     const matchIndex = matchQueue.findIndex(m => m === match);
                     html += `
-                        <div class="match-option" onclick="selectMatch(${matchIndex})">
-                            <h3>Match ${match.matchNumber}: ${match.player1} vs ${match.player2}</h3>
+                        <div class="match-option" onclick="selectMatch('${match.id}')">
+                            <h3>Match ${match.matchNumber}: Player #${match.player1Number}: ${match.player1Name} vs Player #${match.player2Number}: ${match.player2Name}</h3>
                             <p>Status: Ready to Start</p>
                         </div>
                     `;
@@ -466,9 +466,9 @@
         }
 
         // Select match
-        function selectMatch(index) {
-            selectedMatchIndex = index;
-            const match = matchQueue[index];
+        function selectMatch(id) {
+            selectedMatchIndex = id;
+            const match = matchQueue.find(m => m.id === id);
 
             // Update match options
             document.querySelectorAll('.match-option').forEach((option, i) => {
@@ -477,15 +477,15 @@
             event.target.closest('.match-option').classList.add('active');
 
             // Update current match display
-            document.getElementById('matchPlayers').textContent = `${match.player1} vs ${match.player2}`;
+            document.getElementById('matchPlayers').textContent = `${match.player1Name} vs ${match.player2Name}`;
 
             // Update player names in hole cards
-            document.getElementById('p1Name1').textContent = match.player1 + ':';
-            document.getElementById('p2Name1').textContent = match.player2 + ':';
-            document.getElementById('p1Name2').textContent = match.player1 + ':';
-            document.getElementById('p2Name2').textContent = match.player2 + ':';
-            document.getElementById('p1Name3').textContent = match.player1 + ':';
-            document.getElementById('p2Name3').textContent = match.player2 + ':';
+            document.getElementById('p1Name1').textContent = match.player1Name + ':';
+            document.getElementById('p2Name1').textContent = match.player2Name + ':';
+            document.getElementById('p1Name2').textContent = match.player1Name + ':';
+            document.getElementById('p2Name2').textContent = match.player2Name + ':';
+            document.getElementById('p1Name3').textContent = match.player1Name + ':';
+            document.getElementById('p2Name3').textContent = match.player2Name + ':';
 
             // Show scoring card
             document.getElementById('scoringCard').classList.add('active');
@@ -495,16 +495,16 @@
 
             // If match is pending, start it
             if (match.status === 'pending') {
-                startMatch(index);
+                startMatch(id);
             }
         }
 
         // Start match
-        async function startMatch(index) {
+        async function startMatch(id) {
             // Set all matches to pending except the selected one
             for (let i = 0; i < matchQueue.length; i++) {
                 const match = matchQueue[i];
-                const newStatus = (i === index) ? 'active' : (match.status === 'completed' ? 'completed' : 'pending');
+                const newStatus = (i === id) ? 'active' : (match.status === 'completed' ? 'completed' : 'pending');
                 if (match.status !== newStatus) {
                     await airtableAPI.updateMatchStatus(match.matchNumber, newStatus);
                     match.status = newStatus;

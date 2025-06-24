@@ -58,10 +58,27 @@ async function airtableRequest(endpoint, options = {}) {
     }
 }
 
+// Helper to fetch and expand linked records from Airtable
+async function airtableRequestExpand(endpoint, expandFields = []) {
+    let url = endpoint;
+    if (expandFields.length > 0) {
+        const expandParam = expandFields.map(f => `expand[]=${encodeURIComponent(f)}`).join('&');
+        url += (url.includes('?') ? '&' : '?') + expandParam;
+    }
+    return await airtableRequest(url);
+}
+
 // Helper functions
 async function getPlayers() {
-    const response = await airtableRequest('/Players');
-    return response.records.map(record => record.fields.Name || 'Unknown Player');
+    const response = await airtableRequestExpand('/Players', ['User']);
+    return response.records.map(record => ({
+        id: record.id,
+        playerID: record.fields.PlayerID,
+        userID: record.fields.User && record.fields.User[0],
+        userName: record.fields.User && record.fields.User[0] && record.fields.User[0].fields && record.fields.User[0].fields['First Name'] ? `${record.fields.User[0].fields['First Name']} ${record.fields.User[0].fields['Last Name']}` : 'Unknown',
+        tournamentIDs: record.fields.Tournaments || [],
+        // Add any other fields you want to expose
+    }));
 }
 
 async function getMatches() {
@@ -94,19 +111,35 @@ async function getLeaderboard() {
 }
 
 async function getCheckedInPlayers() {
-    const response = await airtableRequest('/CheckedInPlayers');
-    return response.records.map(record => record.fields.Player || 'Unknown');
+    const response = await airtableRequestExpand('/CheckedInPlayers', ['Player', 'Player.User']);
+    return response.records.map(record => {
+        const player = record.fields.Player && record.fields.Player[0];
+        return {
+            id: record.id,
+            playerID: player && player.fields.PlayerID,
+            userName: player && player.fields.User && player.fields.User[0] ? `${player.fields.User[0].fields['First Name']} ${player.fields.User[0].fields['Last Name']}` : 'Unknown',
+            checkedInAt: record.fields.CheckedInAt
+        };
+    });
 }
 
 async function getMatchQueue() {
-    const response = await airtableRequest('/MatchQueue?sort[0][field]=MatchNumber&sort[0][direction]=asc');
-    
-    return response.records.map(record => ({
-        player1: record.fields.Player1 || 'Unknown',
-        player2: record.fields.Player2 || 'Unknown',
-        status: record.fields.Status || 'pending',
-        matchNumber: record.fields.MatchNumber || 0
-    }));
+    const response = await airtableRequestExpand('/MatchQueue', ['Player1', 'Player2', 'Player1.User', 'Player2.User']);
+    return response.records.map(record => {
+        const p1 = record.fields.Player1 && record.fields.Player1[0];
+        const p2 = record.fields.Player2 && record.fields.Player2[0];
+        return {
+            id: record.id,
+            player1ID: p1 && p1.id,
+            player1Number: p1 && p1.fields.PlayerID,
+            player1Name: p1 && p1.fields.User && p1.fields.User[0] ? `${p1.fields.User[0].fields['First Name']} ${p1.fields.User[0].fields['Last Name']}` : 'Unknown',
+            player2ID: p2 && p2.id,
+            player2Number: p2 && p2.fields.PlayerID,
+            player2Name: p2 && p2.fields.User && p2.fields.User[0] ? `${p2.fields.User[0].fields['First Name']} ${p2.fields.User[0].fields['Last Name']}` : 'Unknown',
+            status: record.fields.Status || 'pending',
+            matchNumber: record.fields.MatchNumber || 0
+        };
+    });
 }
 
 async function getSettings() {

@@ -725,18 +725,18 @@
                 playersList.innerHTML = '<p style="text-align: center; color: var(--base-color-neutral--600); grid-column: 1 / -1;">No players added yet</p>';
             } else {
                 playersList.innerHTML = players.map(player => {
-                    const isCheckedIn = checkedInPlayers.includes(player);
+                    const isCheckedIn = checkedInPlayers.some(p => p.playerID === player.playerID);
                     return `
                         <div class="player-card">
                             <div class="player-info">
-                                <h3>${player}</h3>
+                                <h3>Player #${player.playerID}: ${player.userName}</h3>
                                 <p>Status: ${isCheckedIn ? 'Checked In' : 'Not Checked In'}</p>
                             </div>
                             <div class="player-actions">
-                                <button class="btn btn-small" onclick="toggleCheckin('${player}')">
+                                <button class="btn btn-small" onclick="toggleCheckin('${player.id}')">
                                     ${isCheckedIn ? 'Check Out' : 'Check In'}
                                 </button>
-                                <button class="btn btn-small btn-danger" onclick="removePlayer('${player}')">
+                                <button class="btn btn-small btn-danger" onclick="removePlayer('${player.id}')">
                                     Remove
                                 </button>
                             </div>
