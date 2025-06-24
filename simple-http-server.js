@@ -488,23 +488,34 @@ const server = http.createServer(async (req, res) => {
             req.on('end', async () => {
                 try {
                     const { status } = JSON.parse(body);
+                    const validStatuses = ['pending', 'active', 'completed'];
+                    if (!validStatuses.includes(status)) {
+                        res.writeHead(400, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ error: `Invalid status value: ${status}` }));
+                        return;
+                    }
 
                     const records = await airtableRequest(`/MatchQueue?filterByFormula={MatchNumber}=${matchNumber}`);
-                    if (records.records.length > 0) {
-                        await airtableRequest('/MatchQueue', {
-                            method: 'PATCH',
-                            body: JSON.stringify({
-                                records: [{
-                                    id: records.records[0].id,
-                                    fields: { Status: status }
-                                }]
-                            })
-                        });
+                    if (!records.records.length) {
+                        res.writeHead(404, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ error: `Match with MatchNumber ${matchNumber} not found` }));
+                        return;
                     }
+
+                    await airtableRequest('/MatchQueue', {
+                        method: 'PATCH',
+                        body: JSON.stringify({
+                            records: [{
+                                id: records.records[0].id,
+                                fields: { Status: status }
+                            }]
+                        })
+                    });
 
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ success: true }));
                 } catch (error) {
+                    console.error('Error updating match status:', error);
                     res.writeHead(500, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ error: error.message }));
                 }

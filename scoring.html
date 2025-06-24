@@ -415,8 +415,8 @@
 
         // Save data to Airtable
         async function saveData() {
+            // Only use for generating or clearing the queue
             try {
-                // Update match queue
                 await airtableAPI.updateMatchQueue(matchQueue);
                 console.log('Data saved successfully');
             } catch (error) {
@@ -501,16 +501,17 @@
 
         // Start match
         async function startMatch(index) {
-            matchQueue.forEach((match, i) => {
-                if (i === index) {
-                    match.status = 'active';
-                    currentMatchIndex = i;
-                } else if (match.status === 'active') {
-                    match.status = 'pending';
+            // Set all matches to pending except the selected one
+            for (let i = 0; i < matchQueue.length; i++) {
+                const match = matchQueue[i];
+                const newStatus = (i === index) ? 'active' : (match.status === 'completed' ? 'completed' : 'pending');
+                if (match.status !== newStatus) {
+                    await airtableAPI.updateMatchStatus(match.matchNumber, newStatus);
+                    match.status = newStatus;
                 }
-            });
-            updateMatchList();
-            await saveData();
+            }
+            // Reload data from backend to ensure sync
+            await loadData();
         }
 
         // Clear scores
