@@ -36,14 +36,22 @@ async function airtableRequest(endpoint, options = {}) {
     };
 
     try {
+        console.log(`Making Airtable request to: ${endpoint}`);
         const response = await fetch(url, config);
         
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
+            console.error(`Airtable API Error (${endpoint}):`, {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorData
+            });
             throw new Error(errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`);
         }
 
-        return await response.json();
+        const data = await response.json();
+        console.log(`Airtable request successful (${endpoint}):`, data.records?.length || 0, 'records');
+        return data;
     } catch (error) {
         console.error(`Airtable API Error (${endpoint}):`, error);
         throw error;
