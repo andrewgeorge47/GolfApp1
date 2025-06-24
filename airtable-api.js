@@ -52,7 +52,15 @@ class AirtableAPI {
 
     // Get all users (for player selection)
     async getUsers() {
-        return this.request('/users');
+        console.log('Making getUsers request to:', `${this.baseURL}/users`);
+        try {
+            const result = await this.request('/users');
+            console.log('getUsers response:', result);
+            return result;
+        } catch (error) {
+            console.error('getUsers error:', error);
+            throw error;
+        }
     }
 
     async addPlayer(name) {

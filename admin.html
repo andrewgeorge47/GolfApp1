@@ -464,7 +464,10 @@
         // Load data from Airtable
         async function loadData() {
             try {
+                console.log('Starting to load data...');
                 const data = await airtableAPI.getAllData();
+                console.log('All data loaded:', data);
+                
                 players = data.players || [];
                 matches = data.matches || [];
                 leaderboard = data.leaderboard || [];
@@ -472,11 +475,23 @@
                 matchQueue = data.matchQueue || [];
                 currentMatchIndex = data.currentMatchIndex || 0;
                 
+                console.log('Players loaded:', players.length);
+                console.log('Checked in players:', checkedInPlayers.length);
+                
                 // Load users for player selection
                 try {
-                    users = await airtableAPI.getUsers();
+                    console.log('Loading users...');
+                    const usersResponse = await airtableAPI.getUsers();
+                    console.log('Raw users response:', usersResponse);
+                    users = Array.isArray(usersResponse) ? usersResponse : [];
+                    console.log('Users loaded successfully:', users.length);
+                    console.log('First few users:', users.slice(0, 3));
                 } catch (error) {
-                    console.log('Failed to load users:', error);
+                    console.error('Failed to load users:', error);
+                    console.error('Error details:', {
+                        message: error.message,
+                        stack: error.stack
+                    });
                     users = [];
                 }
                 
@@ -493,6 +508,10 @@
                 updateStats();
             } catch (error) {
                 console.error('Failed to load data:', error);
+                console.error('Error details:', {
+                    message: error.message,
+                    stack: error.stack
+                });
                 alert('Failed to load data from server. Please check your connection.');
             }
         }
@@ -502,13 +521,30 @@
             const userSelect = document.getElementById('userSelect');
             const existingPlayerUserIds = players.map(p => p.user?.id).filter(id => id);
             
+            console.log('=== updateUserSelect Debug ===');
+            console.log('Users loaded:', users.length);
+            console.log('Users data:', users);
+            console.log('Players loaded:', players.length);
+            console.log('Players data:', players);
+            console.log('Existing player user IDs:', existingPlayerUserIds);
+            
             // Filter out users who are already players
             const availableUsers = users.filter(user => !existingPlayerUserIds.includes(user.id));
             
-            userSelect.innerHTML = '<option value="">-- Select a user --</option>' +
+            console.log('Available users:', availableUsers.length);
+            console.log('Available users data:', availableUsers);
+            
+            // Build the dropdown HTML
+            const dropdownHTML = '<option value="">-- Select a user --</option>' +
                 availableUsers.map(user => 
                     `<option value="${user.id}">${user.firstName} ${user.lastName} (${user.email})</option>`
                 ).join('');
+            
+            console.log('Dropdown HTML length:', dropdownHTML.length);
+            console.log('Dropdown HTML preview:', dropdownHTML.substring(0, 200) + '...');
+            
+            userSelect.innerHTML = dropdownHTML;
+            console.log('Dropdown updated. Options count:', userSelect.options.length);
         }
 
         // Update stats
