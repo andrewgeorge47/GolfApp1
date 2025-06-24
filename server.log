@@ -1,9 +1,0 @@
-const Airtable = require('airtable');
-require('dotenv').config();
-
-const base = new Airtable({apiKey: process.env.AIRTABLE_PERSONAL_ACCESS_TOKEN}).base(process.env.AIRTABLE_BASE_ID);
-
-base('Players').select({maxRecords: 1}).firstPage((err, records) => {
-  if (err) { console.error('Airtable error:', err); process.exit(1); }
-  console.log('Success! First record:', records && records[0] && records[0].fields);
-});

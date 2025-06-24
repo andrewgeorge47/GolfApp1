@@ -1,57 +1,16 @@
 {
-  "name": "golf-scramble-app",
-  "version": "0.1.0",
-  "private": true,
-  "homepage": "https://trackmansucks.com",
-  "dependencies": {
-    "@types/node": "^16.18.0",
-    "@types/react": "^18.0.0",
-    "@types/react-dom": "^18.0.0",
-    "airtable": "^0.12.2",
-    "autoprefixer": "^10.4.16",
-    "cors": "^2.8.5",
-    "dotenv": "^16.5.0",
-    "express": "^4.21.2",
-    "lucide-react": "^0.294.0",
-    "postcss": "^8.4.31",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.14.1",
-    "react-scripts": "5.0.1",
-    "sqlite3": "^5.1.7",
-    "tailwindcss": "^3.3.0",
-    "typescript": "^4.9.5"
-  },
+  "name": "golf-league-backend",
+  "version": "1.0.0",
+  "description": "Golf League Backend API",
+  "main": "simple-http-server.js",
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d build",
-    "server": "node server/server.js",
-    "airtable-server": "node airtable-server.js",
-    "backend": "node simple-http-server.js"
+    "start": "node simple-http-server.js"
   },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0"
   },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
-  },
-  "devDependencies": {
-    "gh-pages": "^6.0.0"
+  "engines": {
+    "node": ">=18.0.0"
   }
-}
+} 
