@@ -99,31 +99,32 @@ async function getTournaments() {
 async function getPlayers() {
     const response = await airtableRequestExpand('/Players', ['User', 'Tournaments']);
     return response.records.map(record => {
-        // Safely handle User field
+        // Always return a user object if possible
         let user = null;
-        if (record.fields.User && record.fields.User[0] && record.fields.User[0].fields) {
-            const userFields = record.fields.User[0].fields;
+        if (record.fields.User && record.fields.User[0]) {
+            const userRec = record.fields.User[0];
+            const userFields = userRec.fields || {};
             user = {
-                id: record.fields.User[0].id,
-                firstName: userFields['First Name'] || 'Unknown',
-                lastName: userFields['Last Name'] || 'Unknown',
+                id: userRec.id || '',
+                firstName: userFields['First Name'] || '',
+                lastName: userFields['Last Name'] || '',
                 email: userFields['Email Address'] || '',
+                club: userFields['Club'] || ''
             };
         }
-        
-        // Safely handle Tournaments field
+        // Always return a tournament object if possible
         let tournament = null;
-        if (record.fields.Tournaments && record.fields.Tournaments[0] && record.fields.Tournaments[0].fields) {
-            const tournamentFields = record.fields.Tournaments[0].fields;
+        if (record.fields.Tournaments && record.fields.Tournaments[0]) {
+            const tRec = record.fields.Tournaments[0];
+            const tFields = tRec.fields || {};
             tournament = {
-                id: record.fields.Tournaments[0].id,
-                name: tournamentFields.TournamentName || 'Unknown Tournament'
+                id: tRec.id || '',
+                name: tFields.TournamentName || ''
             };
         }
-        
         return {
             id: record.id,
-            playerID: record.fields.PlayerID || null,
+            playerID: record.fields.PlayerID || '',
             user: user,
             tournament: tournament,
         };

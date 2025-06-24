@@ -164,7 +164,12 @@ class AirtableAPI {
     // Helper methods for working with expanded data
     getPlayerDisplayName(player) {
         if (player && player.user) {
-            return `${player.user.firstName} ${player.user.lastName}`;
+            if (player.user.firstName && player.user.lastName) {
+                return `${player.user.firstName} ${player.user.lastName}`;
+            }
+            if (player.user.id) {
+                return `User ID: ${player.user.id}`;
+            }
         }
         return player?.playerID || 'Unknown Player';
     }
