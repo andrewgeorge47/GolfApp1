@@ -394,47 +394,89 @@ const server = http.createServer(async (req, res) => {
             res.end(JSON.stringify(players));
         }
         
+        // Users endpoint
+        else if (path === '/api/users' && req.method === 'GET') {
+            const users = await getUsers();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(users));
+        }
+        
         else if (path === '/api/players' && req.method === 'POST') {
             let body = '';
             req.on('data', chunk => body += chunk);
             req.on('end', async () => {
                 try {
-                    const { name } = JSON.parse(body);
-                    if (!name) {
+                    const { name, userId } = JSON.parse(body);
+                    
+                    if (userId) {
+                        // Add player from existing user
+                        const user = await airtableRequest(`/Users/${userId}`);
+                        const userName = `${user.fields['First Name']} ${user.fields['Last Name']}`;
+                        
+                        // Create player record linked to user
+                        const playerRecord = await airtableRequest('/Players', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                records: [{
+                                    fields: {
+                                        User: [userId],
+                                        PlayerID: `P${Date.now()}`
+                                    }
+                                }]
+                            })
+                        });
+
+                        // Initialize leaderboard entry
+                        await airtableRequest('/Leaderboard', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                records: [{
+                                    fields: {
+                                        Player: userName,
+                                        Points: 0,
+                                        Matches: 0,
+                                        Wins: 0
+                                    }
+                                }]
+                            })
+                        });
+
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ success: true, player: playerRecord.records[0] }));
+                    } else if (name) {
+                        // Legacy: Add player by name only
+                        const playerRecord = await airtableRequest('/Players', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                records: [{
+                                    fields: {
+                                        Name: name
+                                    }
+                                }]
+                            })
+                        });
+
+                        // Initialize leaderboard entry
+                        await airtableRequest('/Leaderboard', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                records: [{
+                                    fields: {
+                                        Player: name,
+                                        Points: 0,
+                                        Matches: 0,
+                                        Wins: 0
+                                    }
+                                }]
+                            })
+                        });
+
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ success: true, player: playerRecord.records[0] }));
+                    } else {
                         res.writeHead(400, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify({ error: 'Player name is required' }));
-                        return;
+                        res.end(JSON.stringify({ error: 'Either name or userId is required' }));
                     }
-
-                    // Create player record
-                    const playerRecord = await airtableRequest('/Players', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            records: [{
-                                fields: {
-                                    Name: name
-                                }
-                            }]
-                        })
-                    });
-
-                    // Initialize leaderboard entry
-                    await airtableRequest('/Leaderboard', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            records: [{
-                                fields: {
-                                    Player: name,
-                                    Points: 0,
-                                    Matches: 0,
-                                    Wins: 0
-                                }
-                            }]
-                        })
-                    });
-
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: true, player: playerRecord.records[0] }));
                 } catch (error) {
                     res.writeHead(500, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ error: error.message }));

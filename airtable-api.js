@@ -50,10 +50,23 @@ class AirtableAPI {
         return this.request('/players');
     }
 
+    // Get all users (for player selection)
+    async getUsers() {
+        return this.request('/users');
+    }
+
     async addPlayer(name) {
         return this.request('/players', {
             method: 'POST',
             body: JSON.stringify({ name })
+        });
+    }
+
+    // Add player from existing user
+    async addPlayerFromUser(userId) {
+        return this.request('/players', {
+            method: 'POST',
+            body: JSON.stringify({ userId })
         });
     }
 

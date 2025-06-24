@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tournament Admin - Golf League</title>
+    <title>Golf League Admin</title>
     <style>
         * {
             margin: 0;
@@ -13,9 +13,9 @@
 
         body {
             font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, var(--base-color-brand--dark-green), var(--base-color-brand--muted-green));
+            background: linear-gradient(135deg, #01422c, #255946);
             min-height: 100vh;
-            color: var(--base-color-brand--black);
+            color: #020c05;
         }
 
         .container {
@@ -34,14 +34,14 @@
         }
 
         .header h1 {
-            color: var(--base-color-brand--black);
+            color: #020c05;
             font-size: 2.5em;
             margin-bottom: 10px;
             font-weight: 700;
         }
 
         .header p {
-            color: var(--base-color-neutral--600);
+            color: #808381;
             font-size: 1.1em;
         }
 
@@ -63,13 +63,13 @@
             cursor: pointer;
             font-family: 'Inter', sans-serif;
             font-weight: 600;
-            color: var(--base-color-neutral--600);
+            color: #808381;
             transition: all 0.3s;
         }
 
         .nav-tab.active {
-            background: var(--base-color-brand--neon-green);
-            color: var(--base-color-brand--black);
+            background: #77dd3c;
+            color: #020c05;
         }
 
         .nav-tab:hover:not(.active) {
@@ -89,10 +89,10 @@
         }
 
         .section-title {
-            color: var(--base-color-brand--black);
+            color: #020c05;
             margin-bottom: 20px;
             font-size: 1.8em;
-            border-bottom: 3px solid var(--base-color-brand--neon-green);
+            border-bottom: 3px solid #77dd3c;
             padding-bottom: 10px;
             font-weight: 600;
         }
@@ -105,13 +105,13 @@
             display: block;
             margin-bottom: 8px;
             font-weight: 600;
-            color: var(--base-color-brand--black);
+            color: #020c05;
         }
 
         input, select, textarea {
             width: 100%;
             padding: 12px;
-            border: 2px solid var(--base-color-neutral--200);
+            border: 2px solid #d5d6d5;
             border-radius: 8px;
             font-size: 16px;
             transition: border-color 0.3s;
@@ -120,13 +120,13 @@
 
         input:focus, select:focus, textarea:focus {
             outline: none;
-            border-color: var(--base-color-brand--neon-green);
+            border-color: #77dd3c;
             box-shadow: 0 0 0 3px rgba(119, 221, 60, 0.1);
         }
 
         .btn {
-            background: linear-gradient(135deg, var(--base-color-brand--neon-green), var(--base-color-brand--muted-green));
-            color: var(--base-color-brand--black);
+            background: linear-gradient(135deg, #77dd3c, #255946);
+            color: #020c05;
             border: none;
             padding: 12px 24px;
             border-radius: 8px;
@@ -140,7 +140,7 @@
         .btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-            background: linear-gradient(135deg, var(--base-color-brand--muted-green), var(--base-color-brand--neon-green));
+            background: linear-gradient(135deg, #255946, #77dd3c);
         }
 
         .btn-small {
@@ -149,12 +149,21 @@
         }
 
         .btn-danger {
-            background: var(--base-color-system--error-red);
+            background: #6b0005;
             color: white;
         }
 
         .btn-danger:hover {
             background: #8b0007;
+        }
+
+        .btn-secondary {
+            background: #d5d6d5;
+            color: #020c05;
+        }
+
+        .btn-secondary:hover {
+            background: #aaacab;
         }
 
         .players-grid {
@@ -165,22 +174,22 @@
         }
 
         .player-card {
-            background: var(--base-color-neutral--50);
+            background: #f5f7f8;
             padding: 20px;
             border-radius: 10px;
-            border-left: 4px solid var(--base-color-brand--neon-green);
+            border-left: 4px solid #77dd3c;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
         .player-info h3 {
-            color: var(--base-color-brand--black);
+            color: #020c05;
             margin-bottom: 5px;
         }
 
         .player-info p {
-            color: var(--base-color-neutral--600);
+            color: #808381;
             font-size: 0.9em;
         }
 
@@ -197,20 +206,10 @@
         }
 
         .match-card {
-            background: var(--base-color-neutral--50);
+            background: #f5f7f8;
             padding: 20px;
             border-radius: 10px;
-            border: 2px solid var(--base-color-neutral--200);
-        }
-
-        .match-card.current {
-            border-color: var(--base-color-brand--neon-green);
-            background: var(--base-color-system--success-green-light);
-        }
-
-        .match-card.completed {
-            border-color: var(--base-color-system--success-green);
-            opacity: 0.7;
+            border-left: 4px solid #77dd3c;
         }
 
         .match-header {
@@ -221,134 +220,130 @@
         }
 
         .match-number {
-            background: var(--base-color-brand--neon-green);
-            color: var(--base-color-brand--black);
-            padding: 5px 10px;
-            border-radius: 15px;
             font-weight: 600;
-            font-size: 0.9em;
+            color: #020c05;
         }
 
         .match-status {
-            padding: 5px 10px;
-            border-radius: 15px;
+            padding: 4px 12px;
+            border-radius: 20px;
             font-size: 0.8em;
             font-weight: 600;
         }
 
         .match-status.pending {
-            background: var(--base-color-neutral--200);
-            color: var(--base-color-neutral--600);
+            background: #f0faf2;
+            color: #256a33;
         }
 
         .match-status.active {
-            background: var(--base-color-brand--neon-green);
-            color: var(--base-color-brand--black);
+            background: #f0faf2;
+            color: #256a33;
         }
 
         .match-status.completed {
-            background: var(--base-color-system--success-green);
-            color: white;
+            background: #d5d6d5;
+            color: #808381;
         }
 
         .match-players {
-            font-size: 1.1em;
             font-weight: 600;
-            color: var(--base-color-brand--black);
-            margin-bottom: 10px;
+            color: #020c05;
+            margin-bottom: 15px;
         }
 
         .match-actions {
             display: flex;
             gap: 10px;
-            margin-top: 15px;
+        }
+
+        .page-nav {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 30px;
+        }
+
+        .page-nav-btn {
+            background: #f5f7f8;
+            color: #020c05;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .page-nav-btn:hover {
+            background: #77dd3c;
+            transform: translateY(-2px);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #808381;
+        }
+
+        .empty-state h3 {
+            margin-bottom: 10px;
+            color: #020c05;
+        }
+
+        .user-select-container {
+            background: #f5f7f8;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+
+        .user-select-container h3 {
+            margin-bottom: 15px;
+            color: #020c05;
         }
 
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
         }
 
-        .stat-card {
-            background: var(--base-color-neutral--50);
-            padding: 25px;
-            border-radius: 10px;
+        .stat-item {
             text-align: center;
-            border-left: 4px solid var(--base-color-brand--neon-green);
+            padding: 20px;
+            background: #f5f7f8;
+            border-radius: 15px;
+            border-left: 4px solid #77dd3c;
         }
 
         .stat-number {
             font-size: 2.5em;
             font-weight: 700;
-            color: var(--base-color-brand--black);
+            color: #020c05;
             margin-bottom: 5px;
         }
 
         .stat-label {
-            color: var(--base-color-neutral--600);
+            color: #808381;
             font-size: 0.9em;
             font-weight: 600;
         }
 
-        .page-nav {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            display: flex;
-            gap: 10px;
-        }
-
-        .page-nav-btn {
-            background: var(--base-color-brand--neon-green);
-            color: var(--base-color-brand--black);
-            border: none;
-            padding: 15px 20px;
-            border-radius: 50px;
-            cursor: pointer;
-            font-weight: 600;
-            font-family: 'Inter', sans-serif;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-            transition: all 0.3s;
-        }
-
-        .page-nav-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-        }
-
-        /* CSS Custom Properties for brand colors */
-        :root {
-            --base-color-brand--black: #020c05;
-            --base-color-brand--white: white;
-            --base-color-brand--muted-green: #255946;
-            --base-color-brand--neon-green: #77dd3c;
-            --base-color-brand--dark-green: #01422c;
-            --base-color-brand--highlight-green: #416d5c;
-            --base-color-neutral--50: #f5f7f8;
-            --base-color-neutral--100: #eaeaea;
-            --base-color-neutral--200: #d5d6d5;
-            --base-color-neutral--400: #aaacab;
-            --base-color-neutral--600: #808381;
-            --base-color-system--success-green: #256a33;
-            --base-color-system--success-green-light: #f0faf2;
-            --base-color-system--error-red: #6b0005;
-        }
-
         @media (max-width: 768px) {
-            .nav-tabs {
-                flex-direction: column;
-            }
-            
-            .players-grid, .match-queue {
+            .players-grid {
                 grid-template-columns: 1fr;
             }
             
-            .page-nav {
-                position: static;
-                justify-content: center;
-                margin-top: 30px;
+            .match-queue {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
             }
         }
     </style>
@@ -356,14 +351,14 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🏌️ Tournament Admin</h1>
-            <p>Manage players, matches, and tournament settings</p>
+            <h1>🏌️ Golf League Administration</h1>
+            <p>Add Players from Users and Manage Tournament</p>
         </div>
 
         <div class="nav-tabs">
-            <button class="nav-tab active" onclick="showTab('players')">Players</button>
-            <button class="nav-tab" onclick="showTab('matches')">Matches</button>
-            <button class="nav-tab" onclick="showTab('settings')">Settings</button>
+            <button class="nav-tab active" onclick="showTab('players')">👥 Players</button>
+            <button class="nav-tab" onclick="showTab('matches')">🏌️ Matches</button>
+            <button class="nav-tab" onclick="showTab('settings')">⚙️ Settings</button>
         </div>
 
         <!-- Players Tab -->
@@ -371,29 +366,36 @@
             <h2 class="section-title">Player Management</h2>
             
             <div class="stats-grid">
-                <div class="stat-card">
+                <div class="stat-item">
                     <div class="stat-number" id="totalPlayers">0</div>
                     <div class="stat-label">Total Players</div>
                 </div>
-                <div class="stat-card">
+                <div class="stat-item">
                     <div class="stat-number" id="checkedInPlayers">0</div>
                     <div class="stat-label">Checked In</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="activeMatches">0</div>
-                    <div class="stat-label">Active Matches</div>
+                <div class="stat-item">
+                    <div class="stat-number" id="totalUsers">0</div>
+                    <div class="stat-label">Available Users</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number" id="availableUsers">0</div>
+                    <div class="stat-label">Can Add</div>
                 </div>
             </div>
 
-            <div class="form-group">
-                <label for="newPlayerName">Add New Player</label>
-                <div style="display: flex; gap: 10px;">
-                    <input type="text" id="newPlayerName" placeholder="Enter player name">
-                    <button class="btn" onclick="addPlayer()">Add Player</button>
+            <div class="user-select-container">
+                <h3>Add Player from Users</h3>
+                <div class="form-group">
+                    <label for="userSelect">Select User to Add as Player:</label>
+                    <select id="userSelect" style="margin-bottom: 15px;">
+                        <option value="">-- Select a user --</option>
+                    </select>
+                    <button class="btn" onclick="addSelectedUserAsPlayer()">Add as Player</button>
                 </div>
             </div>
 
-            <div id="playersList" class="players-grid">
+            <div class="players-grid" id="playersList">
                 <!-- Players will be populated here -->
             </div>
         </div>
@@ -404,7 +406,7 @@
             
             <div style="margin-bottom: 20px;">
                 <button class="btn" onclick="generateMatches()">Generate New Matches</button>
-                <button class="btn btn-small" onclick="clearMatches()" style="margin-left: 10px;">Clear All Matches</button>
+                <button class="btn btn-small btn-secondary" onclick="clearMatches()" style="margin-left: 10px;">Clear All Matches</button>
             </div>
 
             <div id="matchQueue" class="match-queue">
@@ -433,7 +435,7 @@
 
             <div style="margin-top: 30px;">
                 <button class="btn" onclick="saveSettings()">Save Settings</button>
-                <button class="btn btn-small" onclick="exportData()" style="margin-left: 10px;">Export Data</button>
+                <button class="btn btn-small btn-secondary" onclick="exportData()" style="margin-left: 10px;">Export Data</button>
             </div>
         </div>
 
@@ -457,6 +459,7 @@
             minMatches: 3,
             notes: ''
         };
+        let users = [];
 
         // Load data from Airtable
         async function loadData() {
@@ -469,6 +472,14 @@
                 matchQueue = data.matchQueue || [];
                 currentMatchIndex = data.currentMatchIndex || 0;
                 
+                // Load users for player selection
+                try {
+                    users = await airtableAPI.getUsers();
+                } catch (error) {
+                    console.log('Failed to load users:', error);
+                    users = [];
+                }
+                
                 // Load settings
                 try {
                     const settingsData = await airtableAPI.getSettings();
@@ -478,22 +489,56 @@
                 }
                 
                 updateDisplay();
-                updateSettingsForm();
+                updateUserSelect();
+                updateStats();
             } catch (error) {
                 console.error('Failed to load data:', error);
                 alert('Failed to load data from server. Please check your connection.');
             }
         }
 
-        // Save data to Airtable
-        async function saveData() {
-            // Only use for generating or clearing the queue
+        // Update user selection dropdown
+        function updateUserSelect() {
+            const userSelect = document.getElementById('userSelect');
+            const existingPlayerUserIds = players.map(p => p.user?.id).filter(id => id);
+            
+            // Filter out users who are already players
+            const availableUsers = users.filter(user => !existingPlayerUserIds.includes(user.id));
+            
+            userSelect.innerHTML = '<option value="">-- Select a user --</option>' +
+                availableUsers.map(user => 
+                    `<option value="${user.id}">${user.firstName} ${user.lastName} (${user.email})</option>`
+                ).join('');
+        }
+
+        // Update stats
+        function updateStats() {
+            document.getElementById('totalPlayers').textContent = players.length;
+            document.getElementById('checkedInPlayers').textContent = checkedInPlayers.length;
+            document.getElementById('totalUsers').textContent = users.length;
+            
+            const existingPlayerUserIds = players.map(p => p.user?.id).filter(id => id);
+            const availableUsers = users.filter(user => !existingPlayerUserIds.includes(user.id));
+            document.getElementById('availableUsers').textContent = availableUsers.length;
+        }
+
+        // Add selected user as player
+        async function addSelectedUserAsPlayer() {
+            const userSelect = document.getElementById('userSelect');
+            const userId = userSelect.value;
+            
+            if (!userId) {
+                alert('Please select a user first');
+                return;
+            }
+            
             try {
-                await airtableAPI.updateMatchQueue(matchQueue);
-                console.log('Data saved successfully');
+                await airtableAPI.addPlayerFromUser(userId);
+                await loadData();
+                alert('Player added successfully!');
             } catch (error) {
-                console.error('Failed to save data:', error);
-                alert('Failed to save data. Please try again.');
+                console.error('Failed to add player:', error);
+                alert('Failed to add player. Please try again.');
             }
         }
 
@@ -512,38 +557,6 @@
             event.target.classList.add('active');
         }
 
-        // Add player
-        async function addPlayer() {
-            const nameInput = document.getElementById('newPlayerName');
-            const name = nameInput.value.trim();
-            
-            if (!name) {
-                alert('Please enter a player name');
-                return;
-            }
-            
-            // Check if player already exists by name
-            const existingPlayer = players.find(p => 
-                airtableAPI.getPlayerDisplayName(p) === name
-            );
-            
-            if (existingPlayer) {
-                alert('Player already exists');
-                return;
-            }
-            
-            try {
-                await airtableAPI.addPlayer(name);
-                // Reload data to get the new player with expanded fields
-                await loadData();
-                nameInput.value = '';
-                alert('Player added successfully!');
-            } catch (error) {
-                console.error('Failed to add player:', error);
-                alert('Failed to add player. Please try again.');
-            }
-        }
-
         // Remove player
         async function removePlayer(playerId) {
             const player = players.find(p => p.id === playerId);
@@ -552,7 +565,6 @@
             if (confirm(`Are you sure you want to remove ${playerName}?`)) {
                 try {
                     await airtableAPI.removePlayer(playerId);
-                    // Reload data to ensure consistency
                     await loadData();
                     alert('Player removed successfully!');
                 } catch (error) {
@@ -570,7 +582,6 @@
             
             try {
                 await airtableAPI.toggleCheckin(playerId, newStatus);
-                // Reload data to ensure consistency
                 await loadData();
             } catch (error) {
                 console.error('Failed to update check-in status:', error);
@@ -672,6 +683,17 @@
             }
         }
 
+        // Save data to Airtable
+        async function saveData() {
+            try {
+                await airtableAPI.updateMatchQueue(matchQueue);
+                console.log('Data saved successfully');
+            } catch (error) {
+                console.error('Failed to save data:', error);
+                alert('Failed to save data. Please try again.');
+            }
+        }
+
         // Save settings
         async function saveSettings() {
             const newSettings = {
@@ -722,15 +744,10 @@
 
         // Update display
         function updateDisplay() {
-            // Update stats
-            document.getElementById('totalPlayers').textContent = players.length;
-            document.getElementById('checkedInPlayers').textContent = checkedInPlayers.length;
-            document.getElementById('activeMatches').textContent = matchQueue.filter(m => m.status === 'active').length;
-
             // Update players list
             const playersList = document.getElementById('playersList');
             if (players.length === 0) {
-                playersList.innerHTML = '<p style="text-align: center; color: var(--base-color-neutral--600); grid-column: 1 / -1;">No players added yet</p>';
+                playersList.innerHTML = '<div class="empty-state"><h3>No Players Added</h3><p>Add players from the Users table to get started</p></div>';
             } else {
                 playersList.innerHTML = players.map(player => {
                     const isCheckedIn = checkedInPlayers.some(cp => cp.player && cp.player.id === player.id);
@@ -757,7 +774,7 @@
             // Update match queue
             const matchQueueDiv = document.getElementById('matchQueue');
             if (matchQueue.length === 0) {
-                matchQueueDiv.innerHTML = '<p style="text-align: center; color: var(--base-color-neutral--600); grid-column: 1 / -1;">No matches generated yet</p>';
+                matchQueueDiv.innerHTML = '<div class="empty-state"><h3>No Matches Generated</h3><p>Generate matches once players are checked in</p></div>';
             } else {
                 matchQueueDiv.innerHTML = matchQueue.map((match, index) => {
                     const player1Name = airtableAPI.getPlayerDisplayName(match.player1);
@@ -774,8 +791,8 @@
                                 ${match.status === 'pending' ? 
                                     `<button class="btn btn-small" onclick="startMatch(${index})">Start Match</button>` : 
                                     match.status === 'active' ? 
-                                    '<span style="color: var(--base-color-brand--neon-green); font-weight: 600;">Currently Playing</span>' :
-                                    '<span style="color: var(--base-color-system--success-green); font-weight: 600;">Completed</span>'
+                                    '<span style="color: #256a33; font-weight: 600;">Currently Playing</span>' :
+                                    '<span style="color: #256a33; font-weight: 600;">Completed</span>'
                                 }
                                 <button class="btn btn-small btn-danger" onclick="removeMatch(${index})">Remove</button>
                             </div>
@@ -787,7 +804,6 @@
 
         // Start match
         async function startMatch(index) {
-            // Set all matches to pending except the selected one
             for (let i = 0; i < matchQueue.length; i++) {
                 const match = matchQueue[i];
                 const newStatus = (i === index) ? 'active' : (match.status === 'completed' ? 'completed' : 'pending');
@@ -796,7 +812,6 @@
                     match.status = newStatus;
                 }
             }
-            // Reload data from backend to ensure sync
             await loadData();
         }
 
@@ -804,7 +819,6 @@
         async function removeMatch(index) {
             if (confirm('Are you sure you want to remove this match?')) {
                 matchQueue.splice(index, 1);
-                // Renumber matches
                 matchQueue.forEach((match, i) => {
                     match.matchNumber = i + 1;
                 });
