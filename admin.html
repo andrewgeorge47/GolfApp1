@@ -476,6 +476,7 @@
                 currentMatchIndex = data.currentMatchIndex || 0;
                 
                 console.log('Players loaded:', players.length);
+                console.log('Players data:', players);
                 console.log('Checked in players:', checkedInPlayers.length);
                 
                 // Load users for player selection
@@ -579,7 +580,15 @@
             try {
                 const result = await airtableAPI.addPlayerFromUser(userId);
                 console.log('addPlayerFromUser result:', result);
+                
+                // Add a small delay to allow Airtable to propagate the change
+                console.log('Waiting 2 seconds for Airtable to update...');
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                console.log('Reloading data...');
                 await loadData();
+                console.log('Data reloaded. Players count:', players.length);
+                
                 alert('Player added successfully!');
             } catch (error) {
                 console.error('Failed to add player:', error);
