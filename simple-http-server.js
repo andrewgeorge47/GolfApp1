@@ -83,16 +83,24 @@ async function getPlayers() {
 
 async function getMatches() {
     const response = await airtableRequest('/Matches?sort[0][field]=PlayedAt&sort[0][direction]=desc');
-    
-    return response.records.map(record => ({
-        player1: record.fields.Player1 || 'Unknown',
-        player2: record.fields.Player2 || 'Unknown',
-        scores: record.fields.Scores ? JSON.parse(record.fields.Scores) : {},
-        winner: record.fields.Winner || 'Unknown',
-        points: record.fields.Points ? JSON.parse(record.fields.Points) : {},
-        holeResults: record.fields.HoleResults ? JSON.parse(record.fields.HoleResults) : {},
-        timestamp: record.fields.PlayedAt || new Date().toISOString()
-    }));
+    return response.records.map(record => {
+        let scores = {};
+        let points = {};
+        let holeResults = {};
+        try { if (record.fields.Scores) scores = JSON.parse(record.fields.Scores); } catch (e) { scores = {}; }
+        try { if (record.fields.Points) points = JSON.parse(record.fields.Points); } catch (e) { points = {}; }
+        try { if (record.fields.HoleResults) holeResults = JSON.parse(record.fields.HoleResults); } catch (e) { holeResults = {}; }
+        return {
+            id: record.id,
+            player1ID: record.fields.Player1 && record.fields.Player1[0],
+            player2ID: record.fields.Player2 && record.fields.Player2[0],
+            scores,
+            winner: record.fields.Winner || 'Unknown',
+            points,
+            holeResults,
+            timestamp: record.fields.PlayedAt || new Date().toISOString()
+        };
+    });
 }
 
 async function getLeaderboard() {
@@ -143,18 +151,22 @@ async function getMatchQueue() {
 }
 
 async function getSettings() {
-    const response = await airtableRequest('/Settings');
+    const response = await airtableRequest('/Tournaments');
     if (response.records.length > 0) {
         return {
             tournamentName: response.records[0].fields.TournamentName || 'Golf League Tournament',
             minMatches: response.records[0].fields.MinMatches || 3,
-            notes: response.records[0].fields.Notes || ''
+            notes: response.records[0].fields.Notes || '',
+            start: response.records[0].fields.Start || '',
+            end: response.records[0].fields.End || ''
         };
     }
     return {
         tournamentName: 'Golf League Tournament',
         minMatches: 3,
-        notes: ''
+        notes: '',
+        start: '',
+        end: ''
     };
 }
 
