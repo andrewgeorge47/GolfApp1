@@ -2,7 +2,7 @@
 // This service handles all communication with the Airtable backend
 
 // Update this URL to your deployed backend URL
-const API_BASE_URL = 'https://your-app-name.onrender.com/api'; // Replace with your Render URL
+const API_BASE_URL = 'https://golfapp1.onrender.com/api';
 
 class AirtableAPI {
     constructor() {
