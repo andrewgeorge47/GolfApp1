@@ -125,6 +125,50 @@ async function getSettings() {
     };
 }
 
+// Helper function to update leaderboard
+async function updateLeaderboard(playerName, points, isWinner) {
+    try {
+        const records = await airtableRequest(`/Leaderboard?filterByFormula={Player}='${encodeURIComponent(playerName)}'`);
+        
+        if (records.records.length > 0) {
+            const record = records.records[0];
+            const currentPoints = record.fields.Points || 0;
+            const currentMatches = record.fields.Matches || 0;
+            const currentWins = record.fields.Wins || 0;
+            
+            await airtableRequest('/Leaderboard', {
+                method: 'PATCH',
+                body: JSON.stringify({
+                    records: [{
+                        id: record.id,
+                        fields: {
+                            Points: currentPoints + points,
+                            Matches: currentMatches + 1,
+                            Wins: currentWins + (isWinner ? 1 : 0)
+                        }
+                    }]
+                })
+            });
+        } else {
+            await airtableRequest('/Leaderboard', {
+                method: 'POST',
+                body: JSON.stringify({
+                    records: [{
+                        fields: {
+                            Player: playerName,
+                            Points: points,
+                            Matches: 1,
+                            Wins: isWinner ? 1 : 0
+                        }
+                    }]
+                })
+            });
+        }
+    } catch (error) {
+        console.error('Error updating leaderboard:', error);
+    }
+}
+
 // Simple HTTP server
 const server = http.createServer(async (req, res) => {
     // Enable CORS
@@ -270,6 +314,49 @@ const server = http.createServer(async (req, res) => {
             return;
         }
         
+        // Remove player endpoint
+        else if (path.startsWith('/api/players/') && req.method === 'DELETE') {
+            const playerName = decodeURIComponent(path.split('/api/players/')[1]);
+            
+            try {
+                // Get and delete player records
+                const playerRecords = await airtableRequest(`/Players?filterByFormula={Name}='${encodeURIComponent(playerName)}'`);
+                if (playerRecords.records.length > 0) {
+                    const recordIds = playerRecords.records.map(r => r.id);
+                    await airtableRequest('/Players', {
+                        method: 'DELETE',
+                        body: JSON.stringify({ records: recordIds })
+                    });
+                }
+
+                // Get and delete leaderboard entry
+                const leaderboardRecords = await airtableRequest(`/Leaderboard?filterByFormula={Player}='${encodeURIComponent(playerName)}'`);
+                if (leaderboardRecords.records.length > 0) {
+                    const recordIds = leaderboardRecords.records.map(r => r.id);
+                    await airtableRequest('/Leaderboard', {
+                        method: 'DELETE',
+                        body: JSON.stringify({ records: recordIds })
+                    });
+                }
+
+                // Remove from checked in players
+                const checkedInRecords = await airtableRequest(`/CheckedInPlayers?filterByFormula={Player}='${encodeURIComponent(playerName)}'`);
+                if (checkedInRecords.records.length > 0) {
+                    const recordIds = checkedInRecords.records.map(r => r.id);
+                    await airtableRequest('/CheckedInPlayers', {
+                        method: 'DELETE',
+                        body: JSON.stringify({ records: recordIds })
+                    });
+                }
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true }));
+            } catch (error) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: error.message }));
+            }
+        }
+        
         // Check-in endpoint
         else if (path === '/api/checkin' && req.method === 'POST') {
             let body = '';
@@ -310,11 +397,174 @@ const server = http.createServer(async (req, res) => {
             return;
         }
         
-        // Settings endpoint
+        // Record match endpoint
+        else if (path === '/api/matches' && req.method === 'POST') {
+            let body = '';
+            req.on('data', chunk => body += chunk);
+            req.on('end', async () => {
+                try {
+                    const { player1, player2, scores, winner, points, holeResults } = JSON.parse(body);
+                    
+                    const matchRecord = await airtableRequest('/Matches', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            records: [{
+                                fields: {
+                                    Player1: player1,
+                                    Player2: player2,
+                                    Scores: JSON.stringify(scores),
+                                    Winner: winner,
+                                    Points: JSON.stringify(points),
+                                    HoleResults: JSON.stringify(holeResults)
+                                }
+                            }]
+                        })
+                    });
+
+                    // Update leaderboard
+                    await updateLeaderboard(player1, points[player1], winner === player1);
+                    await updateLeaderboard(player2, points[player2], winner === player2);
+
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true, match: matchRecord.records[0] }));
+                } catch (error) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: error.message }));
+                }
+            });
+            return;
+        }
+        
+        // Match Queue API
+        else if (path === '/api/match-queue' && req.method === 'POST') {
+            let body = '';
+            req.on('data', chunk => body += chunk);
+            req.on('end', async () => {
+                try {
+                    const { matches } = JSON.parse(body);
+                    
+                    // Clear existing queue
+                    const existingRecords = await airtableRequest('/MatchQueue');
+                    if (existingRecords.records.length > 0) {
+                        const recordIds = existingRecords.records.map(r => r.id);
+                        await airtableRequest('/MatchQueue', {
+                            method: 'DELETE',
+                            body: JSON.stringify({ records: recordIds })
+                        });
+                    }
+
+                    // Add new matches
+                    if (matches.length > 0) {
+                        const records = matches.map(match => ({
+                            fields: {
+                                Player1: match.player1,
+                                Player2: match.player2,
+                                Status: match.status,
+                                MatchNumber: match.matchNumber
+                            }
+                        }));
+
+                        await airtableRequest('/MatchQueue', {
+                            method: 'POST',
+                            body: JSON.stringify({ records })
+                        });
+                    }
+
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true }));
+                } catch (error) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: error.message }));
+                }
+            });
+            return;
+        }
+        
+        // Update match status
+        else if (path.startsWith('/api/match-queue/') && req.method === 'PUT') {
+            const matchNumber = path.split('/api/match-queue/')[1];
+            let body = '';
+            req.on('data', chunk => body += chunk);
+            req.on('end', async () => {
+                try {
+                    const { status } = JSON.parse(body);
+
+                    const records = await airtableRequest(`/MatchQueue?filterByFormula={MatchNumber}=${matchNumber}`);
+                    if (records.records.length > 0) {
+                        await airtableRequest('/MatchQueue', {
+                            method: 'PATCH',
+                            body: JSON.stringify({
+                                records: [{
+                                    id: records.records[0].id,
+                                    fields: { Status: status }
+                                }]
+                            })
+                        });
+                    }
+
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true }));
+                } catch (error) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: error.message }));
+                }
+            });
+            return;
+        }
+        
+        // Settings API
         else if (path === '/api/settings' && req.method === 'GET') {
             const settings = await getSettings();
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(settings));
+        }
+
+        else if (path === '/api/settings' && req.method === 'PUT') {
+            let body = '';
+            req.on('data', chunk => body += chunk);
+            req.on('end', async () => {
+                try {
+                    const { tournamentName, minMatches, notes } = JSON.parse(body);
+                    
+                    const existingRecords = await airtableRequest('/Settings');
+                    
+                    if (existingRecords.records.length > 0) {
+                        await airtableRequest('/Settings', {
+                            method: 'PATCH',
+                            body: JSON.stringify({
+                                records: [{
+                                    id: existingRecords.records[0].id,
+                                    fields: {
+                                        TournamentName: tournamentName,
+                                        MinMatches: minMatches,
+                                        Notes: notes
+                                    }
+                                }]
+                            })
+                        });
+                    } else {
+                        await airtableRequest('/Settings', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                records: [{
+                                    fields: {
+                                        TournamentName: tournamentName,
+                                        MinMatches: minMatches,
+                                        Notes: notes
+                                    }
+                                }]
+                            })
+                        });
+                    }
+
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true }));
+                } catch (error) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: error.message }));
+                }
+            });
+            return;
         }
         
         else {
