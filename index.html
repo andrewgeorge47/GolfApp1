@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Golf League Tournament</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--base-color-brand--dark-green), var(--base-color-brand--muted-green));
+            min-height: 100vh;
+            color: var(--base-color-brand--black);
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 60px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: var(--base-color-brand--black);
+            font-size: 3.5em;
+            margin-bottom: 15px;
+            font-weight: 700;
+        }
+
+        .header p {
+            color: var(--base-color-neutral--600);
+            font-size: 1.3em;
+            margin-bottom: 20px;
+        }
+
+        .tournament-status {
+            display: inline-block;
+            background: var(--base-color-brand--neon-green);
+            color: var(--base-color-brand--black);
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-weight: 600;
+            font-size: 1.1em;
+        }
+
+        .page-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .page-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 40px 30px;
+            text-align: center;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s;
+            cursor: pointer;
+            border: 3px solid transparent;
+        }
+
+        .page-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.15);
+            border-color: var(--base-color-brand--neon-green);
+        }
+
+        .page-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        .page-card h2 {
+            color: var(--base-color-brand--black);
+            font-size: 1.8em;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .page-card p {
+            color: var(--base-color-neutral--600);
+            font-size: 1.1em;
+            line-height: 1.6;
+            margin-bottom: 25px;
+        }
+
+        .page-btn {
+            background: linear-gradient(135deg, var(--base-color-brand--neon-green), var(--base-color-brand--muted-green));
+            color: var(--base-color-brand--black);
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1.1em;
+            font-weight: 600;
+            transition: all 0.3s;
+            font-family: 'Inter', sans-serif;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .page-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+            background: linear-gradient(135deg, var(--base-color-brand--muted-green), var(--base-color-brand--neon-green));
+        }
+
+        .quick-stats {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.1);
+            margin-bottom: 40px;
+        }
+
+        .quick-stats h2 {
+            color: var(--base-color-brand--black);
+            margin-bottom: 20px;
+            font-size: 1.8em;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 20px;
+            background: var(--base-color-neutral--50);
+            border-radius: 15px;
+            border-left: 4px solid var(--base-color-brand--neon-green);
+        }
+
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: 700;
+            color: var(--base-color-brand--black);
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: var(--base-color-neutral--600);
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+
+        .footer {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.9em;
+            margin-top: 40px;
+        }
+
+        /* CSS Custom Properties for brand colors */
+        :root {
+            --base-color-brand--black: #020c05;
+            --base-color-brand--white: white;
+            --base-color-brand--muted-green: #255946;
+            --base-color-brand--neon-green: #77dd3c;
+            --base-color-brand--dark-green: #01422c;
+            --base-color-brand--highlight-green: #416d5c;
+            --base-color-neutral--50: #f5f7f8;
+            --base-color-neutral--100: #eaeaea;
+            --base-color-neutral--200: #d5d6d5;
+            --base-color-neutral--400: #aaacab;
+            --base-color-neutral--600: #808381;
+            --base-color-system--success-green: #256a33;
+            --base-color-system--success-green-light: #f0faf2;
+            --base-color-system--error-red: #6b0005;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2.5em;
+            }
+            
+            .page-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏌️ Golf League Tournament</h1>
+            <p>3-Hole Match Play Tournament Manager</p>
+            <div class="tournament-status" id="tournamentStatus">Tournament Active</div>
+        </div>
+
+        <div class="quick-stats">
+            <h2>Quick Stats</h2>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-number" id="totalPlayers">0</div>
+                    <div class="stat-label">Players</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number" id="totalMatches">0</div>
+                    <div class="stat-label">Matches</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number" id="activeMatches">0</div>
+                    <div class="stat-label">Active</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number" id="leaderPoints">0</div>
+                    <div class="stat-label">Leader Points</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="page-grid">
+            <div class="page-card" onclick="window.location.href='admin.html'">
+                <span class="page-icon">⚙️</span>
+                <h2>Tournament Admin</h2>
+                <p>Manage players, generate matches, and control tournament settings. Add new players, check them in, and organize the tournament flow.</p>
+                <a href="admin.html" class="page-btn">Go to Admin</a>
+            </div>
+
+            <div class="page-card" onclick="window.location.href='scoring.html'">
+                <span class="page-icon">📊</span>
+                <h2>Match Scoring</h2>
+                <p>Record scores for active matches with an optimized interface. Easy hole-by-hole scoring with instant results and match completion.</p>
+                <a href="scoring.html" class="page-btn">Start Scoring</a>
+            </div>
+
+            <div class="page-card" onclick="window.location.href='leaderboard.html'">
+                <span class="page-icon">🏆</span>
+                <h2>Leaderboard</h2>
+                <p>View current standings, match history, and player statistics. Track points, win rates, and tournament progress in real-time.</p>
+                <a href="leaderboard.html" class="page-btn">View Standings</a>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Golf League Tournament Manager • Built for Neighborhood National</p>
+        </div>
+    </div>
+
+    <script>
+        // Data storage
+        let players = [];
+        let matches = [];
+        let leaderboard = {};
+        let checkedInPlayers = [];
+        let matchQueue = [];
+        let currentMatchIndex = 0;
+
+        // Load data from localStorage
+        function loadData() {
+            try {
+                const savedData = localStorage.getItem('golfLeagueData');
+                if (savedData) {
+                    const data = JSON.parse(savedData);
+                    players = data.players || [];
+                    matches = data.matches || [];
+                    leaderboard = data.leaderboard || {};
+                    checkedInPlayers = data.checkedInPlayers || [];
+                    matchQueue = data.matchQueue || [];
+                    currentMatchIndex = data.currentMatchIndex || 0;
+                }
+            } catch (error) {
+                console.error('Error loading data:', error);
+            }
+            
+            updateStats();
+        }
+
+        // Update quick stats
+        function updateStats() {
+            document.getElementById('totalPlayers').textContent = players.length;
+            document.getElementById('totalMatches').textContent = matches.length;
+            document.getElementById('activeMatches').textContent = matchQueue.filter(m => m.status === 'active').length;
+            
+            const sortedPlayers = Object.entries(leaderboard)
+                .sort((a, b) => b[1].points - a[1].points);
+            
+            if (sortedPlayers.length > 0) {
+                document.getElementById('leaderPoints').textContent = sortedPlayers[0][1].points;
+            } else {
+                document.getElementById('leaderPoints').textContent = '0';
+            }
+
+            // Update tournament status
+            const statusElement = document.getElementById('tournamentStatus');
+            if (matchQueue.filter(m => m.status === 'active').length > 0) {
+                statusElement.textContent = 'Matches in Progress';
+                statusElement.style.background = 'var(--base-color-brand--neon-green)';
+            } else if (checkedInPlayers.length > 0) {
+                statusElement.textContent = 'Players Checked In';
+                statusElement.style.background = 'var(--base-color-system--success-green)';
+                statusElement.style.color = 'white';
+            } else {
+                statusElement.textContent = 'Tournament Ready';
+                statusElement.style.background = 'var(--base-color-neutral--200)';
+            }
+        }
+
+        // Initialize
+        loadData();
+    </script>
+</body>
+</html>
