@@ -443,8 +443,9 @@
         </div>
     </div>
 
+    <script src="airtable-api.js"></script>
     <script>
-        // Data storage
+        // Global variables
         let players = [];
         let matches = [];
         let leaderboard = {};
@@ -452,52 +453,48 @@
         let matchQueue = [];
         let currentMatchIndex = 0;
         let settings = {
-            tournamentName: "Golf League Tournament",
+            tournamentName: 'Golf League Tournament',
             minMatches: 3,
-            notes: ""
+            notes: ''
         };
 
-        // Load data from localStorage
-        function loadData() {
+        // Load data from Airtable
+        async function loadData() {
             try {
-                const savedData = localStorage.getItem('golfLeagueData');
-                if (savedData) {
-                    const data = JSON.parse(savedData);
-                    players = data.players || [];
-                    matches = data.matches || [];
-                    leaderboard = data.leaderboard || {};
-                    checkedInPlayers = data.checkedInPlayers || [];
-                    matchQueue = data.matchQueue || [];
-                    currentMatchIndex = data.currentMatchIndex || 0;
+                const data = await airtableAPI.getAllData();
+                players = data.players || [];
+                matches = data.matches || [];
+                leaderboard = data.leaderboard || {};
+                checkedInPlayers = data.checkedInPlayers || [];
+                matchQueue = data.matchQueue || [];
+                currentMatchIndex = data.currentMatchIndex || 0;
+                
+                // Load settings
+                try {
+                    const settingsData = await airtableAPI.getSettings();
+                    settings = { ...settings, ...settingsData };
+                } catch (error) {
+                    console.log('Using default settings');
                 }
-
-                const savedSettings = localStorage.getItem('golfLeagueSettings');
-                if (savedSettings) {
-                    settings = JSON.parse(savedSettings);
-                    document.getElementById('tournamentName').value = settings.tournamentName;
-                    document.getElementById('minMatches').value = settings.minMatches;
-                    document.getElementById('tournamentNotes').value = settings.notes;
-                }
+                
+                updateDisplay();
+                updateSettingsForm();
             } catch (error) {
-                console.error('Error loading data:', error);
+                console.error('Failed to load data:', error);
+                alert('Failed to load data from server. Please check your connection.');
             }
-            
-            updateDisplay();
         }
 
-        // Save data to localStorage
-        function saveData() {
-            const data = {
-                players,
-                matches,
-                leaderboard,
-                checkedInPlayers,
-                matchQueue,
-                currentMatchIndex,
-                lastUpdated: new Date().toISOString()
-            };
-            
-            localStorage.setItem('golfLeagueData', JSON.stringify(data));
+        // Save data to Airtable
+        async function saveData() {
+            try {
+                // Update match queue
+                await airtableAPI.updateMatchQueue(matchQueue);
+                console.log('Data saved successfully');
+            } catch (error) {
+                console.error('Failed to save data:', error);
+                alert('Failed to save data. Please try again.');
+            }
         }
 
         // Tab navigation
@@ -516,51 +513,77 @@
         }
 
         // Add player
-        function addPlayer() {
-            const playerName = document.getElementById('newPlayerName').value.trim();
-            if (playerName && !players.includes(playerName)) {
-                players.push(playerName);
-                leaderboard[playerName] = { points: 0, matches: 0, wins: 0 };
-                document.getElementById('newPlayerName').value = '';
+        async function addPlayer() {
+            const nameInput = document.getElementById('newPlayerName');
+            const name = nameInput.value.trim();
+            
+            if (!name) {
+                alert('Please enter a player name');
+                return;
+            }
+            
+            if (players.includes(name)) {
+                alert('Player already exists');
+                return;
+            }
+            
+            try {
+                await airtableAPI.addPlayer(name);
+                players.push(name);
+                nameInput.value = '';
                 updateDisplay();
-                saveData();
+                alert('Player added successfully!');
+            } catch (error) {
+                console.error('Failed to add player:', error);
+                alert('Failed to add player. Please try again.');
             }
         }
 
         // Remove player
-        function removePlayer(playerName) {
-            if (confirm(`Are you sure you want to remove ${playerName}?`)) {
-                players = players.filter(p => p !== playerName);
-                checkedInPlayers = checkedInPlayers.filter(p => p !== playerName);
-                delete leaderboard[playerName];
-                matches = matches.filter(m => m.player1 !== playerName && m.player2 !== playerName);
-                matchQueue = matchQueue.filter(m => m.player1 !== playerName && m.player2 !== playerName);
-                updateDisplay();
-                saveData();
+        async function removePlayer(name) {
+            if (confirm(`Are you sure you want to remove ${name}?`)) {
+                try {
+                    await airtableAPI.removePlayer(name);
+                    players = players.filter(p => p !== name);
+                    checkedInPlayers = checkedInPlayers.filter(p => p !== name);
+                    updateDisplay();
+                    alert('Player removed successfully!');
+                } catch (error) {
+                    console.error('Failed to remove player:', error);
+                    alert('Failed to remove player. Please try again.');
+                }
             }
         }
 
         // Toggle check-in
-        function toggleCheckin(playerName) {
-            if (checkedInPlayers.includes(playerName)) {
-                checkedInPlayers = checkedInPlayers.filter(p => p !== playerName);
-            } else {
-                checkedInPlayers.push(playerName);
+        async function toggleCheckin(playerName) {
+            const isCheckedIn = checkedInPlayers.includes(playerName);
+            const newStatus = !isCheckedIn;
+            
+            try {
+                await airtableAPI.toggleCheckin(playerName, newStatus);
+                
+                if (newStatus) {
+                    checkedInPlayers.push(playerName);
+                } else {
+                    checkedInPlayers = checkedInPlayers.filter(p => p !== playerName);
+                }
+                
+                updateDisplay();
+            } catch (error) {
+                console.error('Failed to update check-in status:', error);
+                alert('Failed to update check-in status. Please try again.');
             }
-            updateDisplay();
-            saveData();
         }
 
         // Generate matches
         function generateMatches() {
             if (checkedInPlayers.length < 2) {
-                alert('Need at least 2 players checked in to generate matches');
+                alert('Need at least 2 checked-in players to generate matches');
                 return;
             }
-
+            
             matchQueue = [];
-            currentMatchIndex = 0;
-
             const playersCopy = [...checkedInPlayers];
             const minMatches = parseInt(document.getElementById('minMatches').value) || 3;
             const playerMatchCount = {};
@@ -627,23 +650,43 @@
         }
 
         // Clear matches
-        function clearMatches() {
+        async function clearMatches() {
             if (confirm('Are you sure you want to clear all matches?')) {
-                matchQueue = [];
-                currentMatchIndex = 0;
-                updateDisplay();
-                saveData();
+                try {
+                    await airtableAPI.updateMatchQueue([]);
+                    matchQueue = [];
+                    currentMatchIndex = 0;
+                    updateDisplay();
+                } catch (error) {
+                    console.error('Failed to clear matches:', error);
+                    alert('Failed to clear matches. Please try again.');
+                }
             }
         }
 
         // Save settings
-        function saveSettings() {
-            settings.tournamentName = document.getElementById('tournamentName').value;
-            settings.minMatches = parseInt(document.getElementById('minMatches').value);
-            settings.notes = document.getElementById('tournamentNotes').value;
+        async function saveSettings() {
+            const newSettings = {
+                tournamentName: document.getElementById('tournamentName').value,
+                minMatches: parseInt(document.getElementById('minMatches').value),
+                notes: document.getElementById('tournamentNotes').value
+            };
             
-            localStorage.setItem('golfLeagueSettings', JSON.stringify(settings));
-            alert('Settings saved!');
+            try {
+                await airtableAPI.updateSettings(newSettings);
+                settings = { ...settings, ...newSettings };
+                alert('Settings saved successfully!');
+            } catch (error) {
+                console.error('Failed to save settings:', error);
+                alert('Failed to save settings. Please try again.');
+            }
+        }
+
+        // Update settings form
+        function updateSettingsForm() {
+            document.getElementById('tournamentName').value = settings.tournamentName;
+            document.getElementById('minMatches').value = settings.minMatches;
+            document.getElementById('tournamentNotes').value = settings.notes;
         }
 
         // Export data
@@ -729,7 +772,7 @@
         }
 
         // Start match
-        function startMatch(index) {
+        async function startMatch(index) {
             matchQueue.forEach((match, i) => {
                 if (i === index) {
                     match.status = 'active';
@@ -739,11 +782,11 @@
                 }
             });
             updateDisplay();
-            saveData();
+            await saveData();
         }
 
         // Remove match
-        function removeMatch(index) {
+        async function removeMatch(index) {
             if (confirm('Are you sure you want to remove this match?')) {
                 matchQueue.splice(index, 1);
                 // Renumber matches
@@ -751,7 +794,7 @@
                     match.matchNumber = i + 1;
                 });
                 updateDisplay();
-                saveData();
+                await saveData();
             }
         }
 

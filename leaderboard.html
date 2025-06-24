@@ -402,8 +402,9 @@
         </div>
     </div>
 
+    <script src="airtable-api.js"></script>
     <script>
-        // Data storage
+        // Global variables
         let players = [];
         let matches = [];
         let leaderboard = {};
@@ -411,24 +412,22 @@
         let matchQueue = [];
         let currentMatchIndex = 0;
 
-        // Load data from localStorage
-        function loadData() {
+        // Load data from Airtable
+        async function loadData() {
             try {
-                const savedData = localStorage.getItem('golfLeagueData');
-                if (savedData) {
-                    const data = JSON.parse(savedData);
-                    players = data.players || [];
-                    matches = data.matches || [];
-                    leaderboard = data.leaderboard || {};
-                    checkedInPlayers = data.checkedInPlayers || [];
-                    matchQueue = data.matchQueue || [];
-                    currentMatchIndex = data.currentMatchIndex || 0;
-                }
+                const data = await airtableAPI.getAllData();
+                players = data.players || [];
+                matches = data.matches || [];
+                leaderboard = data.leaderboard || {};
+                checkedInPlayers = data.checkedInPlayers || [];
+                matchQueue = data.matchQueue || [];
+                currentMatchIndex = data.currentMatchIndex || 0;
+                
+                updateDisplay();
             } catch (error) {
-                console.error('Error loading data:', error);
+                console.error('Failed to load data:', error);
+                alert('Failed to load data from server. Please check your connection.');
             }
-            
-            updateDisplay();
         }
 
         // Tab navigation

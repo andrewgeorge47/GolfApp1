@@ -7,8 +7,11 @@
     "@types/node": "^16.18.0",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
+    "airtable": "^0.12.2",
     "autoprefixer": "^10.4.16",
-    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
     "lucide-react": "^0.294.0",
     "postcss": "^8.4.31",
     "react": "^18.2.0",
@@ -26,7 +29,9 @@
     "eject": "react-scripts eject",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d build",
-    "server": "node server/server.js"
+    "server": "node server/server.js",
+    "airtable-server": "node airtable-server.js",
+    "backend": "node simple-http-server.js"
   },
   "eslintConfig": {
     "extends": [
