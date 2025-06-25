@@ -56,7 +56,7 @@ const Dashboard: React.FC = () => {
   const upcomingMatches = matches.filter(match => new Date(match.match_date) > new Date()).slice(0, 2);
 
   return (
-    <div className="space-y-0">
+    <div className="space-y-8">
       {/* Hero Section */}
       <div className="relative bg-gradient-to-br from-brand-dark-green via-brand-muted-green to-brand-neon-green/20 rounded-2xl p-12 shadow-2xl overflow-hidden">
         {/* Background Pattern */}
@@ -102,7 +102,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 -mt-6 relative z-20">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow border border-white/20">
           <div className="flex items-center">
             <div className="p-3 bg-brand-neon-green rounded-full">
