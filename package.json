@@ -2,10 +2,9 @@
   "name": "golf-league-backend",
   "version": "1.0.0",
   "description": "Golf League Backend API",
-  "main": "simple-http-server.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node simple-http-server.js",
-    "dev": "node simple-http-server.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
