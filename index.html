@@ -447,10 +447,10 @@
             try {
                 // Load all data in parallel
                 const [playersData, matchesData, leaderboardData, settingsData, statusData] = await Promise.all([
-                    api.getPlayers(),
+                    api.getLeaguePlayers(),
                     api.getMatches(),
                     api.getLeaderboard(),
-                    api.getSettings(),
+                    api.getLeagueSettings(),
                     api.getTournamentStatus()
                 ]);
 
@@ -466,6 +466,12 @@
                 console.error('Failed to load data:', error);
                 showError('Failed to load tournament data. Please check your connection and try again.');
             }
+        }
+
+        // Get player name by ID
+        function getPlayerName(playerId) {
+            const player = players.find(p => p.user_id === playerId);
+            return player ? `${player.first_name} ${player.last_name}` : `Player ${playerId}`;
         }
 
         // Refresh data
@@ -513,35 +519,43 @@
                 return;
             }
 
-            // For now, show recent matches as activity
-            const recentMatches = matches.slice(0, 8);
+            // Show recent completed matches as activity
+            const completedMatches = matches.filter(m => m.winner).slice(0, 8);
             
-            if (recentMatches.length === 0) {
-                activityList.innerHTML = '<div class="loading">No recent activity</div>';
+            if (completedMatches.length === 0) {
+                activityList.innerHTML = '<div class="loading">No completed matches yet</div>';
                 return;
             }
 
-            activityList.innerHTML = recentMatches.map(match => `
-                <div class="activity-item">
-                    <div class="activity-title">${api.getDisplayName(match.player1)} vs ${api.getDisplayName(match.player2)}</div>
-                    <div class="activity-time">Match recorded</div>
-                </div>
-            `).join('');
+            activityList.innerHTML = completedMatches.map(match => {
+                const player1Name = getPlayerName(match.player1_id);
+                const player2Name = getPlayerName(match.player2_id);
+                const matchDate = new Date(match.match_date).toLocaleDateString();
+                
+                return `
+                    <div class="activity-item">
+                        <div class="activity-title">${player1Name} vs ${player2Name}</div>
+                        <div class="activity-time">${match.winner === 'Tie' ? 'Match Tied' : `${match.winner} Wins`} • ${matchDate}</div>
+                    </div>
+                `;
+            }).join('');
         }
 
         // Update tournament status
         function updateStatus() {
             const statusElement = document.getElementById('tournamentStatus');
+            const completedMatches = matches.filter(m => m.winner);
+            const pendingMatches = matches.filter(m => !m.winner);
             
-            if (tournamentStatus.activeMatches > 0) {
-                statusElement.textContent = `${tournamentStatus.activeMatches} Match${tournamentStatus.activeMatches > 1 ? 'es' : ''} in Progress`;
+            if (pendingMatches.length > 0) {
+                statusElement.textContent = `${pendingMatches.length} Match${pendingMatches.length > 1 ? 'es' : ''} Pending`;
                 statusElement.className = 'tournament-status status-active';
-            } else if (tournamentStatus.totalPlayers > 0) {
-                statusElement.textContent = `${tournamentStatus.totalPlayers} Player${tournamentStatus.totalPlayers > 1 ? 's' : ''} Ready`;
+            } else if (completedMatches.length > 0) {
+                statusElement.textContent = `${completedMatches.length} Match${completedMatches.length > 1 ? 'es' : ''} Completed`;
                 statusElement.className = 'tournament-status status-ready';
             } else if (players.length > 0) {
-                statusElement.textContent = 'Tournament Ready';
-                statusElement.className = 'tournament-status status-waiting';
+                statusElement.textContent = `${players.length} Player${players.length > 1 ? 's' : ''} Ready`;
+                statusElement.className = 'tournament-status status-ready';
             } else {
                 statusElement.textContent = 'No Players Added';
                 statusElement.className = 'tournament-status status-waiting';

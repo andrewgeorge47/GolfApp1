@@ -300,6 +300,26 @@ app.put('/api/matches/:matchId', async (req, res) => {
   }
 });
 
+// Delete a match
+app.delete('/api/matches/:matchId', async (req, res) => {
+  const matchId = req.params.matchId;
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM matches WHERE id = $1 RETURNING *`,
+      [matchId]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    
+    res.json({ success: true, message: 'Match deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting match:', err);
+    res.status(500).json({ error: 'Failed to delete match' });
+  }
+});
+
 // Get leaderboard
 app.get('/api/leaderboard', async (req, res) => {
   try {

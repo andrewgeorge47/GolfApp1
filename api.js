@@ -119,6 +119,12 @@ class GolfLeagueAPI {
         });
     }
 
+    async deleteMatch(matchId) {
+        return this.request(`/api/matches/${matchId}`, {
+            method: 'DELETE'
+        });
+    }
+
     // Helper method to get display name for a user/player
     getDisplayName(user) {
         if (!user) return 'Unknown Player';

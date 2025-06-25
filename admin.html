@@ -149,7 +149,7 @@
         }
 
         .btn-danger {
-            background: #6b0005;
+            background: var(--base-color-system--error-red);
             color: white;
         }
 
@@ -231,19 +231,19 @@
             font-weight: 600;
         }
 
+        .match-status.completed {
+            background: var(--base-color-system--success-green);
+            color: white;
+        }
+
         .match-status.pending {
-            background: #f0faf2;
-            color: #256a33;
+            background: var(--base-color-neutral--400);
+            color: white;
         }
 
         .match-status.active {
             background: #f0faf2;
             color: #256a33;
-        }
-
-        .match-status.completed {
-            background: #d5d6d5;
-            color: #808381;
         }
 
         .match-players {
@@ -255,6 +255,7 @@
         .match-actions {
             display: flex;
             gap: 10px;
+            justify-content: flex-end;
         }
 
         .page-nav {
@@ -882,20 +883,56 @@
                     const player1Name = `${match.player1_first_name} ${match.player1_last_name}`;
                     const player2Name = `${match.player2_first_name} ${match.player2_last_name}`;
                     const matchDate = new Date(match.match_date).toLocaleDateString();
+                    const isCompleted = match.winner;
                     
                     return `
                         <div class="match-card">
                             <div class="match-header">
-                                <div class="match-number">Match ${index + 1}</div>
-                                <div class="match-status completed">Completed</div>
+                                <div class="match-number">Match ${match.id}</div>
+                                <div class="match-status ${isCompleted ? 'completed' : 'pending'}">${isCompleted ? 'Completed' : 'Pending'}</div>
                             </div>
                             <div class="match-players">${player1Name} vs ${player2Name}</div>
                             <div style="color: #808381; font-size: 0.9em; margin-top: 10px;">
-                                Winner: ${match.winner || 'Tie'} • Date: ${matchDate}
+                                ${isCompleted ? `Winner: ${match.winner}` : 'Not scored yet'} • Date: ${matchDate}
+                            </div>
+                            <div class="match-actions" style="margin-top: 15px;">
+                                <button class="btn btn-small btn-danger" onclick="deleteMatch(${match.id})">
+                                    🗑️ Delete Match
+                                </button>
                             </div>
                         </div>
                     `;
                 }).join('');
+            }
+        }
+
+        // Delete match
+        async function deleteMatch(matchId) {
+            const match = matches.find(m => m.id === matchId);
+            if (!match) {
+                alert('Match not found');
+                return;
+            }
+
+            const player1Name = `${match.player1_first_name} ${match.player1_last_name}`;
+            const player2Name = `${match.player2_first_name} ${match.player2_last_name}`;
+            const isCompleted = match.winner;
+            
+            const confirmMessage = isCompleted 
+                ? `Are you sure you want to delete the completed match between ${player1Name} and ${player2Name}? This will remove the match results and affect the leaderboard.`
+                : `Are you sure you want to delete the pending match between ${player1Name} and ${player2Name}?`;
+
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+
+            try {
+                await api.deleteMatch(matchId);
+                alert('Match deleted successfully!');
+                await loadData(); // Reload to update the display
+            } catch (error) {
+                alert('Failed to delete match.');
+                console.error(error);
             }
         }
 
