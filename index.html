@@ -344,9 +344,50 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        .nn-header {
+            background: #fff;
+            border-bottom: 1px solid #e9ecef;
+            padding: 0;
+            margin-bottom: 32px;
+            box-shadow: 0 2px 8px 0 rgba(0,0,0,0.02);
+        }
+        .nn-header-inner {
+            max-width: 900px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            padding: 18px 16px 14px 16px;
+            justify-content: center;
+        }
+        .nn-logo {
+            height: 48px;
+            width: auto;
+            display: block;
+        }
+        .nn-title {
+            font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+            font-size: 2rem;
+            font-weight: 800;
+            color: #03160a;
+            letter-spacing: -1px;
+            margin-left: 8px;
+        }
+        @media (max-width: 600px) {
+            .nn-header-inner { flex-direction: column; gap: 8px; }
+            .nn-title { font-size: 1.2rem; margin-left: 0; }
+            .nn-logo { height: 36px; }
+        }
     </style>
 </head>
 <body>
+    <header class="nn-header">
+        <div class="nn-header-inner">
+            <img src="images/LogoColor.svg" alt="Neighborhood National Logo" class="nn-logo">
+            <span class="nn-title">Neighborhood National League</span>
+        </div>
+    </header>
     <div class="container">
         <div class="header">
             <h1>🏌️ Golf League Tournament</h1>
