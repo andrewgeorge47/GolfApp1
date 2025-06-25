@@ -1,15 +1,15 @@
 {
   "files": {
-    "main.css": "/GolfApp1/static/css/main.bb29c468.css",
-    "main.js": "/GolfApp1/static/js/main.09b3323b.js",
-    "static/js/453.a3c1d153.chunk.js": "/GolfApp1/static/js/453.a3c1d153.chunk.js",
-    "index.html": "/GolfApp1/index.html",
-    "main.bb29c468.css.map": "/GolfApp1/static/css/main.bb29c468.css.map",
-    "main.09b3323b.js.map": "/GolfApp1/static/js/main.09b3323b.js.map",
-    "453.a3c1d153.chunk.js.map": "/GolfApp1/static/js/453.a3c1d153.chunk.js.map"
+    "main.css": "/static/css/main.bb29c468.css",
+    "main.js": "/static/js/main.fd14a4fd.js",
+    "static/js/453.a3c1d153.chunk.js": "/static/js/453.a3c1d153.chunk.js",
+    "index.html": "/index.html",
+    "main.bb29c468.css.map": "/static/css/main.bb29c468.css.map",
+    "main.fd14a4fd.js.map": "/static/js/main.fd14a4fd.js.map",
+    "453.a3c1d153.chunk.js.map": "/static/js/453.a3c1d153.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.bb29c468.css",
-    "static/js/main.09b3323b.js"
+    "static/js/main.fd14a4fd.js"
   ]
 }
