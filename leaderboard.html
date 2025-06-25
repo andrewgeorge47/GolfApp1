@@ -402,32 +402,135 @@
         </div>
     </div>
 
-    <script src="airtable-api.js"></script>
+    <script src="api.js"></script>
     <script>
         // Global variables
-        let players = [];
+        let leaguePlayers = [];
         let matches = [];
-        let leaderboard = [];
-        let checkedInPlayers = [];
-        let matchQueue = [];
-        let currentMatchIndex = 0;
+        let leagueSettings = {};
+        let calculatedLeaderboard = [];
 
-        // Load data from Airtable
+        // Load data from backend
         async function loadData() {
             try {
-                const data = await airtableAPI.getAllData();
-                players = data.players || [];
-                matches = data.matches || [];
-                leaderboard = data.leaderboard || [];
-                checkedInPlayers = data.checkedInPlayers || [];
-                matchQueue = data.matchQueue || [];
-                currentMatchIndex = data.currentMatchIndex || 0;
+                const [players, matchesData, settings] = await Promise.all([
+                    api.getLeaguePlayers(),
+                    api.getMatches(),
+                    api.getLeagueSettings()
+                ]);
                 
+                leaguePlayers = players || [];
+                matches = matchesData || [];
+                leagueSettings = settings || {};
+                
+                // Calculate leaderboard from match results
+                calculateLeaderboard();
                 updateDisplay();
             } catch (error) {
                 console.error('Failed to load data:', error);
                 alert('Failed to load data from server. Please check your connection.');
             }
+        }
+
+        // Calculate leaderboard from match results
+        function calculateLeaderboard() {
+            const playerStats = {};
+            
+            // Initialize player stats
+            leaguePlayers.forEach(player => {
+                playerStats[player.user_id] = {
+                    player: player,
+                    points: 0,
+                    matches: 0,
+                    wins: 0,
+                    losses: 0,
+                    ties: 0,
+                    holesWon: 0,
+                    totalHoles: 0
+                };
+            });
+
+            // Process completed matches
+            const completedMatches = matches.filter(m => m.winner);
+            completedMatches.forEach(match => {
+                const player1Id = match.player1_id;
+                const player2Id = match.player2_id;
+                const scores = match.scores;
+                
+                if (!scores || !scores.p1 || !scores.p2) return;
+
+                // Count holes won by each player
+                let player1HolesWon = 0;
+                let player2HolesWon = 0;
+                
+                for (let i = 0; i < 3; i++) {
+                    if (scores.p1[i] < scores.p2[i]) {
+                        player1HolesWon++;
+                    } else if (scores.p2[i] < scores.p1[i]) {
+                        player2HolesWon++;
+                    }
+                }
+
+                // Update player stats
+                if (playerStats[player1Id]) {
+                    playerStats[player1Id].matches++;
+                    playerStats[player1Id].holesWon += player1HolesWon;
+                    playerStats[player1Id].totalHoles += 3;
+                }
+                
+                if (playerStats[player2Id]) {
+                    playerStats[player2Id].matches++;
+                    playerStats[player2Id].holesWon += player2HolesWon;
+                    playerStats[player2Id].totalHoles += 3;
+                }
+
+                // Determine match winner and assign points
+                const scoringRules = leagueSettings.scoring_rules || { win: 3, tie: 1, loss: 0 };
+                
+                if (player1HolesWon > player2HolesWon) {
+                    // Player 1 wins
+                    if (playerStats[player1Id]) {
+                        playerStats[player1Id].wins++;
+                        playerStats[player1Id].points += scoringRules.win;
+                    }
+                    if (playerStats[player2Id]) {
+                        playerStats[player2Id].losses++;
+                        playerStats[player2Id].points += scoringRules.loss;
+                    }
+                } else if (player2HolesWon > player1HolesWon) {
+                    // Player 2 wins
+                    if (playerStats[player1Id]) {
+                        playerStats[player1Id].losses++;
+                        playerStats[player1Id].points += scoringRules.loss;
+                    }
+                    if (playerStats[player2Id]) {
+                        playerStats[player2Id].wins++;
+                        playerStats[player2Id].points += scoringRules.win;
+                    }
+                } else {
+                    // Tie
+                    if (playerStats[player1Id]) {
+                        playerStats[player1Id].ties++;
+                        playerStats[player1Id].points += scoringRules.tie;
+                    }
+                    if (playerStats[player2Id]) {
+                        playerStats[player2Id].ties++;
+                        playerStats[player2Id].points += scoringRules.tie;
+                    }
+                }
+            });
+
+            // Convert to array and sort by points
+            calculatedLeaderboard = Object.values(playerStats)
+                .filter(player => player.matches > 0) // Only show players who have played matches
+                .sort((a, b) => {
+                    // Sort by points first, then by win rate, then by holes won
+                    if (b.points !== a.points) return b.points - a.points;
+                    const aWinRate = a.matches > 0 ? a.wins / a.matches : 0;
+                    const bWinRate = b.matches > 0 ? b.wins / b.matches : 0;
+                    if (bWinRate !== aWinRate) return bWinRate - aWinRate;
+                    return b.holesWon - a.holesWon;
+                });
         }
 
         // Tab navigation
@@ -454,27 +557,26 @@
 
         // Update leaderboard
         function updateLeaderboard() {
+            const completedMatches = matches.filter(m => m.winner);
+            
             // Update stats
-            document.getElementById('totalPlayers').textContent = players.length;
-            document.getElementById('totalMatches').textContent = matches.length;
+            document.getElementById('totalPlayers').textContent = calculatedLeaderboard.length;
+            document.getElementById('totalMatches').textContent = completedMatches.length;
             
-            const sortedLeaderboard = leaderboard
-                .sort((a, b) => b.points - a.points);
-            
-            if (sortedLeaderboard.length > 0) {
-                document.getElementById('leaderPoints').textContent = sortedLeaderboard[0].points;
+            if (calculatedLeaderboard.length > 0) {
+                document.getElementById('leaderPoints').textContent = calculatedLeaderboard[0].points;
                 
-                const totalWinRate = sortedLeaderboard.reduce((sum, entry) => {
+                const totalWinRate = calculatedLeaderboard.reduce((sum, entry) => {
                     return sum + (entry.matches > 0 ? (entry.wins / entry.matches) * 100 : 0);
                 }, 0);
-                const avgWinRate = sortedLeaderboard.length > 0 ? (totalWinRate / sortedLeaderboard.length).toFixed(1) : 0;
+                const avgWinRate = calculatedLeaderboard.length > 0 ? (totalWinRate / calculatedLeaderboard.length).toFixed(1) : 0;
                 document.getElementById('avgWinRate').textContent = avgWinRate + '%';
             }
 
             // Update leaderboard table
             const leaderboardDiv = document.getElementById('leaderboardTable');
             
-            if (leaderboard.length === 0) {
+            if (calculatedLeaderboard.length === 0) {
                 leaderboardDiv.innerHTML = `
                     <div class="empty-state">
                         <h3>No matches recorded yet</h3>
@@ -484,14 +586,17 @@
                 return;
             }
 
-            const sortedLeaderboardWithStats = sortedLeaderboard
+            const sortedLeaderboardWithStats = calculatedLeaderboard
                 .map((entry, index) => ({
                     position: index + 1,
-                    name: airtableAPI.getPlayerDisplayName(entry.player),
+                    name: `${entry.player.first_name} ${entry.player.last_name}`,
                     points: entry.points,
                     matches: entry.matches,
                     wins: entry.wins,
-                    winRate: entry.matches > 0 ? ((entry.wins / entry.matches) * 100).toFixed(1) : '0.0'
+                    losses: entry.losses,
+                    ties: entry.ties,
+                    winRate: entry.matches > 0 ? ((entry.wins / entry.matches) * 100).toFixed(1) : '0.0',
+                    holesWon: entry.holesWon
                 }));
 
             let tableHTML = `
@@ -503,7 +608,10 @@
                             <th>Points</th>
                             <th>Matches</th>
                             <th>Wins</th>
+                            <th>Losses</th>
+                            <th>Ties</th>
                             <th>Win Rate</th>
+                            <th>Holes Won</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -518,7 +626,10 @@
                         <td class="points">${player.points}</td>
                         <td>${player.matches}</td>
                         <td>${player.wins}</td>
+                        <td>${player.losses}</td>
+                        <td>${player.ties}</td>
                         <td class="win-rate">${player.winRate}%</td>
+                        <td>${player.holesWon}</td>
                     </tr>
                 `;
             });
@@ -531,11 +642,18 @@
             leaderboardDiv.innerHTML = tableHTML;
         }
 
+        // Get player name by ID
+        function getPlayerName(playerId) {
+            const player = leaguePlayers.find(p => p.user_id === playerId);
+            return player ? `${player.first_name} ${player.last_name}` : `Player ${playerId}`;
+        }
+
         // Update match history
         function updateMatchHistory() {
             const historyDiv = document.getElementById('matchHistory');
+            const completedMatches = matches.filter(m => m.winner);
             
-            if (matches.length === 0) {
+            if (completedMatches.length === 0) {
                 historyDiv.innerHTML = `
                     <div class="empty-state">
                         <h3>No matches recorded yet</h3>
@@ -545,11 +663,25 @@
                 return;
             }
 
-            historyDiv.innerHTML = matches.map(match => {
-                const player1Name = airtableAPI.getPlayerDisplayName(match.player1);
-                const player2Name = airtableAPI.getPlayerDisplayName(match.player2);
+            historyDiv.innerHTML = completedMatches.map(match => {
+                const player1Name = getPlayerName(match.player1_id);
+                const player2Name = getPlayerName(match.player2_id);
                 const resultClass = match.winner === 'Tie' ? 'tie' : 'win';
                 const resultText = match.winner === 'Tie' ? 'Tied' : match.winner + ' Wins';
+                const matchDate = new Date(match.match_date).toLocaleDateString();
+                
+                // Calculate hole results
+                const scores = match.scores || { p1: [0, 0, 0], p2: [0, 0, 0] };
+                const holeResults = [];
+                for (let i = 0; i < 3; i++) {
+                    if (scores.p1[i] < scores.p2[i]) {
+                        holeResults.push(`${player1Name} wins hole ${i + 1}`);
+                    } else if (scores.p2[i] < scores.p1[i]) {
+                        holeResults.push(`${player2Name} wins hole ${i + 1}`);
+                    } else {
+                        holeResults.push(`Hole ${i + 1} tied`);
+                    }
+                }
                 
                 return `
                     <div class="match-item">
@@ -558,23 +690,23 @@
                             <div class="match-result ${resultClass}">${resultText}</div>
                         </div>
                         <div class="match-details">
-                            ${match.holeResults.join(' • ')} | ${match.timestamp}
+                            ${holeResults.join(' • ')} | Date: ${matchDate}
                         </div>
                         <div class="match-scores">
-                            <div class="hole-score ${match.scores.p1[0] < match.scores.p2[0] ? 'winner' : ''}">
+                            <div class="hole-score ${scores.p1[0] < scores.p2[0] ? 'winner' : ''}">
                                 <strong>Hole 1</strong><br>
-                                ${player1Name}: ${match.scores.p1[0]}<br>
-                                ${player2Name}: ${match.scores.p2[0]}
+                                ${player1Name}: ${scores.p1[0]}<br>
+                                ${player2Name}: ${scores.p2[0]}
                             </div>
-                            <div class="hole-score ${match.scores.p1[1] < match.scores.p2[1] ? 'winner' : ''}">
+                            <div class="hole-score ${scores.p1[1] < scores.p2[1] ? 'winner' : ''}">
                                 <strong>Hole 2</strong><br>
-                                ${player1Name}: ${match.scores.p1[1]}<br>
-                                ${player2Name}: ${match.scores.p2[1]}
+                                ${player1Name}: ${scores.p1[1]}<br>
+                                ${player2Name}: ${scores.p2[1]}
                             </div>
-                            <div class="hole-score ${match.scores.p1[2] < match.scores.p2[2] ? 'winner' : ''}">
+                            <div class="hole-score ${scores.p1[2] < scores.p2[2] ? 'winner' : ''}">
                                 <strong>Hole 3</strong><br>
-                                ${player1Name}: ${match.scores.p1[2]}<br>
-                                ${player2Name}: ${match.scores.p2[2]}
+                                ${player1Name}: ${scores.p1[2]}<br>
+                                ${player2Name}: ${scores.p2[2]}
                             </div>
                         </div>
                     </div>
@@ -586,7 +718,7 @@
         function updatePlayerStats() {
             const statsDiv = document.getElementById('playerStats');
             
-            if (leaderboard.length === 0) {
+            if (calculatedLeaderboard.length === 0) {
                 statsDiv.innerHTML = `
                     <div class="empty-state">
                         <h3>No player statistics available</h3>
@@ -596,15 +728,18 @@
                 return;
             }
 
-            const sortedStats = leaderboard
-                .sort((a, b) => b.points - a.points)
+            const sortedStats = calculatedLeaderboard
                 .map(entry => ({
-                    name: airtableAPI.getPlayerDisplayName(entry.player),
+                    name: `${entry.player.first_name} ${entry.player.last_name}`,
                     points: entry.points,
                     matches: entry.matches,
                     wins: entry.wins,
+                    losses: entry.losses,
+                    ties: entry.ties,
                     winRate: entry.matches > 0 ? ((entry.wins / entry.matches) * 100).toFixed(1) : '0.0',
-                    avgPoints: entry.matches > 0 ? (entry.points / entry.matches).toFixed(1) : '0.0'
+                    avgPoints: entry.matches > 0 ? (entry.points / entry.matches).toFixed(1) : '0.0',
+                    holesWon: entry.holesWon,
+                    totalHoles: entry.totalHoles
                 }));
 
             let statsHTML = '<div class="stats-grid">';
@@ -614,8 +749,8 @@
                     <div class="stat-card">
                         <div class="stat-number">${player.name}</div>
                         <div class="stat-label">${player.points} pts • ${player.matches} matches</div>
-                        <div class="stat-label">${player.winRate}% win rate</div>
-                        <div class="stat-label">${player.avgPoints} avg points</div>
+                        <div class="stat-label">${player.wins}W ${player.losses}L ${player.ties}T • ${player.winRate}% win rate</div>
+                        <div class="stat-label">${player.avgPoints} avg points • ${player.holesWon}/${player.totalHoles} holes won</div>
                     </div>
                 `;
             });

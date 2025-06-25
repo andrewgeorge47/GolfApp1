@@ -313,6 +313,10 @@
 
         <div class="match-selector">
             <h2>Select Match to Score</h2>
+            <div style="margin-bottom: 20px;">
+                <button class="btn btn-secondary" onclick="generateMatches()">Generate New Matches</button>
+                <button class="btn btn-secondary" onclick="loadData()" style="margin-left: 10px;">🔄 Refresh</button>
+            </div>
             <div id="matchList" class="match-list">
                 <!-- Matches will be populated here -->
             </div>
@@ -384,27 +388,26 @@
         </div>
     </div>
 
-    <script src="airtable-api.js"></script>
+    <script src="api.js"></script>
     <script>
         // Global variables
-        let players = [];
+        let leaguePlayers = [];
         let matches = [];
-        let leaderboard = [];
-        let checkedInPlayers = [];
-        let matchQueue = [];
-        let currentMatchIndex = 0;
-        let selectedMatchIndex = -1;
+        let leagueSettings = {};
+        let selectedMatch = null;
 
-        // Load data from Airtable
+        // Load data from backend
         async function loadData() {
             try {
-                const data = await airtableAPI.getAllData();
-                players = data.players || [];
-                matches = data.matches || [];
-                leaderboard = data.leaderboard || [];
-                checkedInPlayers = data.checkedInPlayers || [];
-                matchQueue = data.matchQueue || [];
-                currentMatchIndex = data.currentMatchIndex || 0;
+                const [players, matchesData, settings] = await Promise.all([
+                    api.getLeaguePlayers(),
+                    api.getMatches(),
+                    api.getLeagueSettings()
+                ]);
+                
+                leaguePlayers = players || [];
+                matches = matchesData || [];
+                leagueSettings = settings || {};
                 
                 updateMatchList();
             } catch (error) {
@@ -413,52 +416,56 @@
             }
         }
 
-        // Save data to Airtable
-        async function saveData() {
-            // Only use for generating or clearing the queue
-            try {
-                await airtableAPI.updateMatchQueue(matchQueue);
-                console.log('Data saved successfully');
-            } catch (error) {
-                console.error('Failed to save data:', error);
-                alert('Failed to save data. Please try again.');
-            }
-        }
-
         // Update match list
         function updateMatchList() {
             const matchList = document.getElementById('matchList');
-            const activeMatches = matchQueue.filter(m => m.status === 'active');
-            const pendingMatches = matchQueue.filter(m => m.status === 'pending');
-            const completedMatches = matchQueue.filter(m => m.status === 'completed');
+            
+            if (matches.length === 0) {
+                matchList.innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: var(--base-color-neutral--600);">
+                        <h3>No Matches Available</h3>
+                        <p>Generate matches in the Admin page to start scoring</p>
+                        <button class="btn" onclick="window.location.href='admin.html'">Go to Admin</button>
+                    </div>
+                `;
+                return;
+            }
+
+            // Group matches by status
+            const pendingMatches = matches.filter(m => !m.winner);
+            const completedMatches = matches.filter(m => m.winner);
 
             let html = '';
 
-            // Active matches
-            if (activeMatches.length > 0) {
-                html += '<h3 style="color: var(--base-color-system--success-green); margin: 20px 0 10px 0;">Active Matches</h3>';
-                activeMatches.forEach((match, index) => {
-                    const player1Name = airtableAPI.getPlayerDisplayName(match.player1);
-                    const player2Name = airtableAPI.getPlayerDisplayName(match.player2);
+            // Pending matches
+            if (pendingMatches.length > 0) {
+                html += '<h3 style="color: var(--base-color-system--success-green); margin: 20px 0 10px 0;">Pending Matches</h3>';
+                pendingMatches.forEach((match, index) => {
+                    const player1Name = getPlayerName(match.player1_id);
+                    const player2Name = getPlayerName(match.player2_id);
+                    const matchDate = new Date(match.match_date).toLocaleDateString();
+                    
                     html += `
-                        <div class="match-option active" onclick="selectMatch('${match.id}')">
-                            <h3>Match ${match.matchNumber}: ${player1Name} vs ${player2Name}</h3>
-                            <p>Status: Currently Playing</p>
+                        <div class="match-option" onclick="selectMatch(${match.id})">
+                            <h3>Match ${match.id}: ${player1Name} vs ${player2Name}</h3>
+                            <p>Date: ${matchDate} • Status: Ready to Score</p>
                         </div>
                     `;
                 });
             }
 
-            // Pending matches
-            if (pendingMatches.length > 0) {
-                html += '<h3 style="color: var(--base-color-brand--black); margin: 20px 0 10px 0;">Pending Matches</h3>';
-                pendingMatches.forEach((match, index) => {
-                    const player1Name = airtableAPI.getPlayerDisplayName(match.player1);
-                    const player2Name = airtableAPI.getPlayerDisplayName(match.player2);
+            // Completed matches
+            if (completedMatches.length > 0) {
+                html += '<h3 style="color: var(--base-color-neutral--600); margin: 20px 0 10px 0;">Completed Matches</h3>';
+                completedMatches.forEach((match, index) => {
+                    const player1Name = getPlayerName(match.player1_id);
+                    const player2Name = getPlayerName(match.player2_id);
+                    const matchDate = new Date(match.match_date).toLocaleDateString();
+                    
                     html += `
-                        <div class="match-option" onclick="selectMatch('${match.id}')">
-                            <h3>Match ${match.matchNumber}: ${player1Name} vs ${player2Name}</h3>
-                            <p>Status: Ready to Start</p>
+                        <div class="match-option" style="opacity: 0.7; cursor: not-allowed;">
+                            <h3>Match ${match.id}: ${player1Name} vs ${player2Name}</h3>
+                            <p>Winner: ${match.winner} • Date: ${matchDate} • Status: Completed</p>
                         </div>
                     `;
                 });
@@ -467,12 +474,23 @@
             matchList.innerHTML = html;
         }
 
+        // Get player name by ID
+        function getPlayerName(playerId) {
+            const player = leaguePlayers.find(p => p.user_id === playerId);
+            return player ? `${player.first_name} ${player.last_name}` : `Player ${playerId}`;
+        }
+
         // Select match
-        function selectMatch(id) {
-            selectedMatchIndex = id;
-            const match = matchQueue.find(m => m.id === id);
-            const player1Name = airtableAPI.getPlayerDisplayName(match.player1);
-            const player2Name = airtableAPI.getPlayerDisplayName(match.player2);
+        function selectMatch(matchId) {
+            selectedMatch = matches.find(m => m.id === matchId);
+            
+            if (!selectedMatch || selectedMatch.winner) {
+                alert('This match is already completed or invalid');
+                return;
+            }
+
+            const player1Name = getPlayerName(selectedMatch.player1_id);
+            const player2Name = getPlayerName(selectedMatch.player2_id);
 
             // Update match options
             document.querySelectorAll('.match-option').forEach((option, i) => {
@@ -497,25 +515,15 @@
             // Clear previous scores
             clearScores();
 
-            // If match is pending, start it
-            if (match.status === 'pending') {
-                startMatch(id);
+            // Pre-fill existing scores if any
+            if (selectedMatch.scores) {
+                document.getElementById('p1h1').value = selectedMatch.scores.p1?.[0] || '';
+                document.getElementById('p1h2').value = selectedMatch.scores.p1?.[1] || '';
+                document.getElementById('p1h3').value = selectedMatch.scores.p1?.[2] || '';
+                document.getElementById('p2h1').value = selectedMatch.scores.p2?.[0] || '';
+                document.getElementById('p2h2').value = selectedMatch.scores.p2?.[1] || '';
+                document.getElementById('p2h3').value = selectedMatch.scores.p2?.[2] || '';
             }
-        }
-
-        // Start match
-        async function startMatch(id) {
-            // Set all matches to pending except the selected one
-            for (let i = 0; i < matchQueue.length; i++) {
-                const match = matchQueue[i];
-                const newStatus = (match.id === id) ? 'active' : (match.status === 'completed' ? 'completed' : 'pending');
-                if (match.status !== newStatus) {
-                    await airtableAPI.updateMatchStatus(match.matchNumber, newStatus);
-                    match.status = newStatus;
-                }
-            }
-            // Reload data from backend to ensure sync
-            await loadData();
         }
 
         // Clear scores
@@ -528,16 +536,13 @@
 
         // Record match
         async function recordMatch() {
-            if (selectedMatchIndex === -1) {
+            if (!selectedMatch) {
                 alert('Please select a match first');
                 return;
             }
 
-            const match = matchQueue.find(m => m.id === selectedMatchIndex);
-            const player1 = match.player1;
-            const player2 = match.player2;
-            const player1Name = airtableAPI.getPlayerDisplayName(player1);
-            const player2Name = airtableAPI.getPlayerDisplayName(player2);
+            const player1Name = getPlayerName(selectedMatch.player1_id);
+            const player2Name = getPlayerName(selectedMatch.player2_id);
 
             const scores = {
                 p1: [
@@ -554,7 +559,7 @@
 
             // Validate scores
             if (scores.p1.some(s => s === 0) || scores.p2.some(s => s === 0)) {
-                alert('Please enter all scores');
+                alert('Please enter all scores (minimum 1 per hole)');
                 return;
             }
 
@@ -575,33 +580,24 @@
                 }
             }
 
-            let winner, points;
+            let winner;
             if (p1Wins > p2Wins) {
                 winner = player1Name;
-                points = { [player1Name]: 3, [player2Name]: 0 };
             } else if (p2Wins > p1Wins) {
                 winner = player2Name;
-                points = { [player1Name]: 0, [player2Name]: 3 };
             } else {
                 winner = 'Tie';
-                points = { [player1Name]: 1, [player2Name]: 1 };
             }
 
-            // Record match in Airtable
+            // Update match with scores and winner
             try {
-                const matchData = {
-                    player1: player1Name,
-                    player2: player2Name,
-                    scores,
-                    winner,
-                    points,
-                    holeResults
+                const updatedMatch = {
+                    ...selectedMatch,
+                    scores: scores,
+                    winner: winner
                 };
 
-                await airtableAPI.recordMatch(matchData);
-
-                // Update match queue status
-                match.status = 'completed';
+                await api.updateMatch(selectedMatch.id, updatedMatch);
 
                 // Show result
                 const resultDiv = document.getElementById('resultDisplay');
@@ -613,22 +609,69 @@
                     <p>Match recorded successfully!</p>
                 `;
 
-                // Save match queue changes
-                await saveData();
-
-                // Update match list
-                updateMatchList();
+                // Reload data to update the match list
+                await loadData();
 
                 // Clear scores after a delay
                 setTimeout(() => {
                     clearScores();
                     document.getElementById('scoringCard').classList.remove('active');
-                    selectedMatchIndex = -1;
+                    selectedMatch = null;
                 }, 3000);
 
             } catch (error) {
                 console.error('Failed to record match:', error);
                 alert('Failed to record match. Please try again.');
+            }
+        }
+
+        // Generate matches
+        async function generateMatches() {
+            if (leaguePlayers.length < 2) {
+                alert('Need at least 2 players to generate matches. Add players in the Admin page first.');
+                return;
+            }
+            
+            const minMatches = leagueSettings.min_matches || 3;
+            const generatedMatches = [];
+            
+            // Simple round-robin style matching
+            for (let i = 0; i < leaguePlayers.length - 1; i++) {
+                for (let j = i + 1; j < leaguePlayers.length; j++) {
+                    const player1Id = leaguePlayers[i].user_id;
+                    const player2Id = leaguePlayers[j].user_id;
+                    
+                    // Check if this match already exists
+                    const existingMatch = matches.find(m => 
+                        (m.player1_id === player1Id && m.player2_id === player2Id) ||
+                        (m.player1_id === player2Id && m.player2_id === player1Id)
+                    );
+                    
+                    if (!existingMatch) {
+                        // Create a new match
+                        const matchData = {
+                            player1_id: player1Id,
+                            player2_id: player2Id,
+                            scores: { p1: [0, 0, 0], p2: [0, 0, 0] },
+                            winner: null,
+                            match_date: new Date().toISOString().split('T')[0]
+                        };
+                        
+                        try {
+                            await api.addMatch(matchData);
+                            generatedMatches.push(matchData);
+                        } catch (error) {
+                            console.error('Failed to create match:', error);
+                        }
+                    }
+                }
+            }
+            
+            if (generatedMatches.length > 0) {
+                alert(`Generated ${generatedMatches.length} new matches!`);
+                await loadData(); // Reload to show new matches
+            } else {
+                alert('No new matches were generated. All possible matchups may already exist.');
             }
         }
 

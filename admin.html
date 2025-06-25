@@ -333,6 +333,73 @@
             font-weight: 600;
         }
 
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .settings-section {
+            background: #f5f7f8;
+            padding: 25px;
+            border-radius: 15px;
+            border-left: 4px solid #77dd3c;
+        }
+
+        .settings-section h3 {
+            margin-bottom: 20px;
+            color: #020c05;
+            font-size: 1.2em;
+        }
+
+        .settings-actions {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f0f8f0;
+            border-radius: 10px;
+            border: 1px solid #d0e8d0;
+        }
+
+        .settings-info {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #e9ecef;
+        }
+
+        .settings-info h3 {
+            margin-bottom: 15px;
+            color: #020c05;
+        }
+
+        .current-settings-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .current-settings-item:last-child {
+            border-bottom: none;
+        }
+
+        .current-settings-label {
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .current-settings-value {
+            color: #6c757d;
+        }
+
+        .form-group small {
+            color: #6c757d;
+            font-size: 0.85em;
+            margin-top: 5px;
+            display: block;
+        }
+
         @media (max-width: 768px) {
             .players-grid {
                 grid-template-columns: 1fr;
@@ -395,6 +462,11 @@
                 </div>
             </div>
 
+            <div style="margin-bottom: 20px;">
+                <button class="btn btn-secondary" onclick="checkInAllPlayers()">Check In All Players</button>
+                <button class="btn btn-secondary" onclick="checkOutAllPlayers()" style="margin-left: 10px;">Check Out All Players</button>
+            </div>
+
             <div class="players-grid" id="playersList">
                 <!-- Players will be populated here -->
             </div>
@@ -418,24 +490,73 @@
         <div id="settings-tab" class="tab-content">
             <h2 class="section-title">Tournament Settings</h2>
             
-            <div class="form-group">
-                <label for="tournamentName">Tournament Name</label>
-                <input type="text" id="tournamentName" value="Golf League Tournament">
+            <div class="settings-grid">
+                <div class="settings-section">
+                    <h3>Basic Information</h3>
+                    <div class="form-group">
+                        <label for="tournamentName">Tournament Name</label>
+                        <input type="text" id="tournamentName" placeholder="Enter tournament name">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="minMatches">Minimum Matches per Player</label>
+                        <input type="number" id="minMatches" value="3" min="1" max="10">
+                        <small>Players must complete this many matches to qualify for the leaderboard</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tournamentStatus">Tournament Status</label>
+                        <select id="tournamentStatus">
+                            <option value="active">Active</option>
+                            <option value="paused">Paused</option>
+                            <option value="completed">Completed</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Scoring Rules</h3>
+                    <div class="form-group">
+                        <label for="winPoints">Points for Win</label>
+                        <input type="number" id="winPoints" value="3" min="1" max="10">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tiePoints">Points for Tie</label>
+                        <input type="number" id="tiePoints" value="1" min="0" max="5">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="lossPoints">Points for Loss</label>
+                        <input type="number" id="lossPoints" value="0" min="0" max="5">
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Additional Information</h3>
+                    <div class="form-group">
+                        <label for="tournamentNotes">Tournament Notes</label>
+                        <textarea id="tournamentNotes" rows="4" placeholder="Add any special rules, notes, or announcements..."></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tournamentDate">Tournament Date</label>
+                        <input type="date" id="tournamentDate">
+                    </div>
+                </div>
             </div>
 
-            <div class="form-group">
-                <label for="minMatches">Minimum Matches per Player</label>
-                <input type="number" id="minMatches" value="3" min="1" max="10">
+            <div class="settings-actions">
+                <button class="btn" onclick="saveSettings()">💾 Save Settings</button>
+                <button class="btn btn-secondary" onclick="resetSettings()" style="margin-left: 10px;">🔄 Reset to Defaults</button>
+                <button class="btn btn-small btn-secondary" onclick="exportData()" style="margin-left: 10px;">📊 Export Data</button>
             </div>
 
-            <div class="form-group">
-                <label for="tournamentNotes">Tournament Notes</label>
-                <textarea id="tournamentNotes" rows="4" placeholder="Add any special rules or notes..."></textarea>
-            </div>
-
-            <div style="margin-top: 30px;">
-                <button class="btn" onclick="saveSettings()">Save Settings</button>
-                <button class="btn btn-small btn-secondary" onclick="exportData()" style="margin-left: 10px;">Export Data</button>
+            <div class="settings-info">
+                <h3>Current Settings</h3>
+                <div id="currentSettingsDisplay">
+                    <p>Loading current settings...</p>
+                </div>
             </div>
         </div>
 
@@ -445,423 +566,161 @@
         </div>
     </div>
 
-    <script src="airtable-api.js"></script>
+    <script src="api.js"></script>
     <script>
-        // Global variables
-        let players = [];
+        // State
+        let leaguePlayers = [];
+        let allUsers = [];
+        let leagueSettings = {};
         let matches = [];
-        let leaderboard = [];
         let checkedInPlayers = [];
-        let matchQueue = [];
-        let currentMatchIndex = 0;
-        let settings = {
-            tournamentName: 'Golf League Tournament',
-            minMatches: 3,
-            notes: ''
-        };
-        let users = [];
 
-        // Load data from Airtable
+        // Load all data
         async function loadData() {
             try {
-                console.log('Starting to load data...');
-                const data = await airtableAPI.getAllData();
-                console.log('All data loaded:', data);
+                // Load league players, all users, settings, and matches in parallel
+                const [players, users, settings, matchesData] = await Promise.all([
+                    api.getLeaguePlayers(),
+                    api.getUsers(),
+                    api.getLeagueSettings(),
+                    api.getMatches()
+                ]);
+                leaguePlayers = players || [];
+                allUsers = users || [];
+                leagueSettings = settings || {};
+                matches = matchesData || [];
                 
-                players = data.players || [];
-                matches = data.matches || [];
-                leaderboard = data.leaderboard || [];
-                checkedInPlayers = data.checkedInPlayers || [];
-                matchQueue = data.matchQueue || [];
-                currentMatchIndex = data.currentMatchIndex || 0;
+                // Initialize checked-in players (start with no one checked in)
+                // In a real app, this would come from the database
+                checkedInPlayers = [];
                 
-                console.log('Players loaded:', players.length);
-                console.log('Players data:', players);
-                console.log('Checked in players:', checkedInPlayers.length);
-                
-                // Load users for player selection
-                try {
-                    console.log('Loading users...');
-                    const usersResponse = await airtableAPI.getUsers();
-                    console.log('Raw users response:', usersResponse);
-                    users = Array.isArray(usersResponse) ? usersResponse : [];
-                    console.log('Users loaded successfully:', users.length);
-                    console.log('First few users:', users.slice(0, 3));
-                } catch (error) {
-                    console.error('Failed to load users:', error);
-                    console.error('Error details:', {
-                        message: error.message,
-                        stack: error.stack
-                    });
-                    users = [];
-                }
-                
-                // Load settings
-                try {
-                    const settingsData = await airtableAPI.getSettings();
-                    settings = { ...settings, ...settingsData };
-                } catch (error) {
-                    console.log('Using default settings');
-                }
-                
-                updateDisplay();
                 updateUserSelect();
                 updateStats();
+                updatePlayersList();
+                updateSettingsForm();
+                updateMatchQueue();
             } catch (error) {
-                console.error('Failed to load data:', error);
-                console.error('Error details:', {
-                    message: error.message,
-                    stack: error.stack
-                });
                 alert('Failed to load data from server. Please check your connection.');
+                console.error(error);
             }
         }
 
         // Update user selection dropdown
         function updateUserSelect() {
             const userSelect = document.getElementById('userSelect');
-            const existingPlayerUserIds = players.map(p => p.user?.id).filter(id => id);
-            
-            console.log('=== updateUserSelect Debug ===');
-            console.log('Users loaded:', users.length);
-            console.log('Users data:', users);
-            console.log('Players loaded:', players.length);
-            console.log('Players data:', players);
-            console.log('Existing player user IDs:', existingPlayerUserIds);
-            
-            // Filter out users who are already players
-            const availableUsers = users.filter(user => !existingPlayerUserIds.includes(user.id));
-            
-            console.log('Available users:', availableUsers.length);
-            console.log('Available users data:', availableUsers);
-            
-            // Build the dropdown HTML
-            const dropdownHTML = '<option value="">-- Select a user --</option>' +
-                availableUsers.map(user => 
-                    `<option value="${user.id}">${user.firstName} ${user.lastName}(${user.club})</option>`
-                ).join('');
-            
-            console.log('Dropdown HTML length:', dropdownHTML.length);
-            console.log('Dropdown HTML preview:', dropdownHTML.substring(0, 200) + '...');
-            
-            userSelect.innerHTML = dropdownHTML;
-            console.log('Dropdown updated. Options count:', userSelect.options.length);
+            const leagueUserIds = leaguePlayers.map(p => String(p.user_id));
+            const availableUsers = allUsers.filter(user => !leagueUserIds.includes(String(user.member_id)));
+            userSelect.innerHTML = '<option value="">-- Select a user --</option>' +
+                availableUsers.map(user => `<option value="${user.member_id}">${user.first_name} ${user.last_name} (${user.club})</option>`).join('');
         }
 
         // Update stats
         function updateStats() {
-            document.getElementById('totalPlayers').textContent = players.length;
+            document.getElementById('totalPlayers').textContent = leaguePlayers.length;
             document.getElementById('checkedInPlayers').textContent = checkedInPlayers.length;
-            document.getElementById('totalUsers').textContent = users.length;
-            
-            const existingPlayerUserIds = players.map(p => p.user?.id).filter(id => id);
-            const availableUsers = users.filter(user => !existingPlayerUserIds.includes(user.id));
+            document.getElementById('totalUsers').textContent = allUsers.length;
+            const leagueUserIds = leaguePlayers.map(p => String(p.user_id));
+            const availableUsers = allUsers.filter(user => !leagueUserIds.includes(String(user.member_id)));
             document.getElementById('availableUsers').textContent = availableUsers.length;
+        }
+
+        // Toggle check-in status for a player
+        function toggleCheckIn(userId) {
+            console.log('toggleCheckIn called with userId:', userId);
+            console.log('Before toggle - checkedInPlayers:', checkedInPlayers);
+            
+            const index = checkedInPlayers.indexOf(String(userId));
+            if (index > -1) {
+                checkedInPlayers.splice(index, 1); // Check out
+                console.log('Player checked out');
+            } else {
+                checkedInPlayers.push(String(userId)); // Check in
+                console.log('Player checked in');
+            }
+            
+            console.log('After toggle - checkedInPlayers:', checkedInPlayers);
+            updateStats();
+            updatePlayersList();
+        }
+
+        // Check in all players
+        function checkInAllPlayers() {
+            checkedInPlayers = leaguePlayers.map(p => String(p.user_id));
+            updateStats();
+            updatePlayersList();
+            alert('All players checked in!');
+        }
+
+        // Check out all players
+        function checkOutAllPlayers() {
+            checkedInPlayers = [];
+            updateStats();
+            updatePlayersList();
+            alert('All players checked out!');
         }
 
         // Add selected user as player
         async function addSelectedUserAsPlayer() {
-            console.log('=== BUTTON CLICKED! ===');
-            console.log('=== addSelectedUserAsPlayer Debug ===');
             const userSelect = document.getElementById('userSelect');
             const userId = userSelect.value;
-            
-            console.log('Selected user ID:', userId);
-            console.log('User select element:', userSelect);
-            console.log('User select value:', userSelect.value);
-            
             if (!userId) {
-                console.log('No user selected, showing alert');
                 alert('Please select a user first');
                 return;
             }
-            
-            // Find the selected user from our local users array
-            const selectedUser = users.find(user => user.id === userId);
-            if (!selectedUser) {
-                console.error('Selected user not found in local users array');
-                alert('User not found. Please try again.');
-                return;
-            }
-            
-            console.log('Selected user:', selectedUser);
-            
-            // Create a new player object locally
-            const newPlayer = {
-                id: `temp_${Date.now()}`, // Temporary ID until we get the real one from Airtable
-                playerID: null,
-                user: {
-                    id: selectedUser.id,
-                    firstName: selectedUser.firstName,
-                    lastName: selectedUser.lastName,
-                    email: selectedUser.email
-                },
-                tournament: null
-            };
-            
-            console.log('Created new player locally:', newPlayer);
-            
-            // Add to local players array immediately
-            players.push(newPlayer);
-            console.log('Added to local players array. New count:', players.length);
-            
-            // Update the UI immediately
-            updateDisplay();
-            updateUserSelect();
-            updateStats();
-            
-            // Clear the dropdown selection
-            userSelect.value = '';
-            
-            console.log('UI updated immediately');
-            
-            // Now sync to Airtable in the background
-            console.log('Syncing to Airtable in background...');
             try {
-                const result = await airtableAPI.addPlayerFromUser(userId);
-                console.log('Airtable sync result:', result);
-                
-                // Update the temporary ID with the real one from Airtable
-                if (result && result.player && result.player.id) {
-                    newPlayer.id = result.player.id;
-                    console.log('Updated player ID from Airtable:', newPlayer.id);
-                }
-                
-                console.log('Background sync completed successfully');
+                await api.addLeaguePlayer(userId);
+                await loadData(); // This will reload everything including check-in state
+                alert('Player added successfully!');
             } catch (error) {
-                console.error('Background sync failed:', error);
-                console.error('Error details:', {
-                    message: error.message,
-                    stack: error.stack
-                });
-                
-                // Optionally show a warning that the sync failed
-                // but the player is still added locally
-                console.warn('Player added locally but sync to Airtable failed');
+                alert('Failed to add player.');
+                console.error(error);
             }
-        }
-
-        // Tab navigation
-        function showTab(tabName) {
-            // Hide all tabs
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            document.querySelectorAll('.nav-tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-
-            // Show selected tab
-            document.getElementById(tabName + '-tab').classList.add('active');
-            event.target.classList.add('active');
         }
 
         // Remove player
-        async function removePlayer(playerId) {
-            const player = players.find(p => p.id === playerId);
-            const playerName = airtableAPI.getPlayerDisplayName(player);
-            
-            if (confirm(`Are you sure you want to remove ${playerName}?`)) {
-                try {
-                    await airtableAPI.removePlayer(playerId);
-                    await loadData();
-                    alert('Player removed successfully!');
-                } catch (error) {
-                    console.error('Failed to remove player:', error);
-                    alert('Failed to remove player. Please try again.');
-                }
-            }
-        }
-
-        // Toggle check-in
-        async function toggleCheckin(playerId) {
-            const player = players.find(p => p.id === playerId);
-            const isCheckedIn = checkedInPlayers.some(cp => cp.player && cp.player.id === playerId);
-            const newStatus = !isCheckedIn;
-            
+        async function removePlayer(userId) {
+            if (!confirm('Are you sure you want to remove this player from the league?')) return;
             try {
-                await airtableAPI.toggleCheckin(playerId, newStatus);
-                await loadData();
-            } catch (error) {
-                console.error('Failed to update check-in status:', error);
-                alert('Failed to update check-in status. Please try again.');
-            }
-        }
-
-        // Generate matches
-        function generateMatches() {
-            if (checkedInPlayers.length < 2) {
-                alert('Need at least 2 checked-in players to generate matches');
-                return;
-            }
-            
-            matchQueue = [];
-            const checkedInPlayerIds = checkedInPlayers.map(cp => cp.player.id);
-            const minMatches = parseInt(document.getElementById('minMatches').value) || 3;
-            const playerMatchCount = {};
-            
-            checkedInPlayerIds.forEach(playerId => {
-                playerMatchCount[playerId] = 0;
-            });
-
-            let attempts = 0;
-            const maxAttempts = 1000;
-            
-            while (attempts < maxAttempts) {
-                const needsMatches = checkedInPlayerIds.filter(playerId => 
-                    playerMatchCount[playerId] < minMatches
-                ).sort((a, b) => playerMatchCount[a] - playerMatchCount[b]);
-                
-                if (needsMatches.length < 2) break;
-                
-                let matched = false;
-                for (let i = 0; i < needsMatches.length - 1; i++) {
-                    for (let j = i + 1; j < needsMatches.length; j++) {
-                        const player1Id = needsMatches[i];
-                        const player2Id = needsMatches[j];
-                        
-                        const alreadyMatched = matchQueue.some(match => 
-                            (match.player1 && match.player1.id === player1Id && match.player2 && match.player2.id === player2Id) ||
-                            (match.player1 && match.player1.id === player2Id && match.player2 && match.player2.id === player1Id)
-                        );
-                        
-                        if (!alreadyMatched) {
-                            const player1 = players.find(p => p.id === player1Id);
-                            const player2 = players.find(p => p.id === player2Id);
-                            
-                            matchQueue.push({
-                                player1,
-                                player2,
-                                status: 'pending',
-                                matchNumber: matchQueue.length + 1
-                            });
-                            playerMatchCount[player1Id]++;
-                            playerMatchCount[player2Id]++;
-                            matched = true;
-                            break;
-                        }
-                    }
-                    if (matched) break;
+                await api.removeLeaguePlayer(userId);
+                // Remove from checked-in list if they were checked in
+                const checkInIndex = checkedInPlayers.indexOf(String(userId));
+                if (checkInIndex > -1) {
+                    checkedInPlayers.splice(checkInIndex, 1);
                 }
-                
-                if (!matched) {
-                    const player1Id = needsMatches[0];
-                    const player2Id = needsMatches[1];
-                    const player1 = players.find(p => p.id === player1Id);
-                    const player2 = players.find(p => p.id === player2Id);
-                    
-                    matchQueue.push({
-                        player1,
-                        player2,
-                        status: 'pending',
-                        matchNumber: matchQueue.length + 1
-                    });
-                    playerMatchCount[player1Id]++;
-                    playerMatchCount[player2Id]++;
-                }
-                
-                attempts++;
-            }
-
-            updateDisplay();
-            saveData();
-        }
-
-        // Clear matches
-        async function clearMatches() {
-            if (confirm('Are you sure you want to clear all matches?')) {
-                try {
-                    await airtableAPI.updateMatchQueue([]);
-                    matchQueue = [];
-                    currentMatchIndex = 0;
-                    updateDisplay();
-                } catch (error) {
-                    console.error('Failed to clear matches:', error);
-                    alert('Failed to clear matches. Please try again.');
-                }
-            }
-        }
-
-        // Save data to Airtable
-        async function saveData() {
-            try {
-                await airtableAPI.updateMatchQueue(matchQueue);
-                console.log('Data saved successfully');
+                await loadData(); // This will reload everything
+                alert('Player removed successfully!');
             } catch (error) {
-                console.error('Failed to save data:', error);
-                alert('Failed to save data. Please try again.');
+                alert('Failed to remove player.');
+                console.error(error);
             }
         }
 
-        // Save settings
-        async function saveSettings() {
-            const newSettings = {
-                tournamentName: document.getElementById('tournamentName').value,
-                minMatches: parseInt(document.getElementById('minMatches').value),
-                notes: document.getElementById('tournamentNotes').value
-            };
+        // Update players list
+        function updatePlayersList() {
+            console.log('updatePlayersList called');
+            console.log('leaguePlayers:', leaguePlayers);
+            console.log('checkedInPlayers:', checkedInPlayers);
             
-            try {
-                await airtableAPI.updateSettings(newSettings);
-                settings = { ...settings, ...newSettings };
-                alert('Settings saved successfully!');
-            } catch (error) {
-                console.error('Failed to save settings:', error);
-                alert('Failed to save settings. Please try again.');
-            }
-        }
-
-        // Update settings form
-        function updateSettingsForm() {
-            document.getElementById('tournamentName').value = settings.tournamentName;
-            document.getElementById('minMatches').value = settings.minMatches;
-            document.getElementById('tournamentNotes').value = settings.notes;
-        }
-
-        // Export data
-        function exportData() {
-            const data = {
-                players,
-                matches,
-                leaderboard,
-                checkedInPlayers,
-                matchQueue,
-                currentMatchIndex,
-                settings,
-                lastUpdated: new Date().toISOString()
-            };
-            
-            const dataStr = JSON.stringify(data, null, 2);
-            const dataBlob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(dataBlob);
-            
-            const downloadLink = document.createElement('a');
-            downloadLink.href = url;
-            downloadLink.download = 'golf-league-data.json';
-            downloadLink.click();
-        }
-
-        // Update display
-        function updateDisplay() {
-            // Update players list
             const playersList = document.getElementById('playersList');
-            if (players.length === 0) {
+            if (leaguePlayers.length === 0) {
                 playersList.innerHTML = '<div class="empty-state"><h3>No Players Added</h3><p>Add players from the Users table to get started</p></div>';
             } else {
-                playersList.innerHTML = players.map(player => {
-                    const isCheckedIn = checkedInPlayers.some(cp => cp.player && cp.player.id === player.id);
-                    const displayName = airtableAPI.getPlayerDisplayName(player);
+                playersList.innerHTML = leaguePlayers.map(player => {
+                    const displayName = `${player.first_name} ${player.last_name}`;
+                    const isCheckedIn = checkedInPlayers.includes(String(player.user_id));
+                    console.log(`Player ${displayName} (${player.user_id}) - isCheckedIn: ${isCheckedIn}`);
+                    
                     return `
                         <div class="player-card">
                             <div class="player-info">
                                 <h3>${displayName}</h3>
-                                <p>Status: ${isCheckedIn ? 'Checked In' : 'Not Checked In'}</p>
+                                <p>${player.club || ''}</p>
                             </div>
                             <div class="player-actions">
-                                <button class="btn btn-small" onclick="toggleCheckin('${player.id}')">
-                                    ${isCheckedIn ? 'Check Out' : 'Check In'}
+                                <button class="btn btn-small ${isCheckedIn ? 'btn-secondary' : ''}" onclick="toggleCheckIn('${player.user_id}')" style="${isCheckedIn ? 'background: #256a33; color: white;' : ''}">
+                                    ${isCheckedIn ? '✓ Checked In' : 'Check In'}
                                 </button>
-                                <button class="btn btn-small btn-danger" onclick="removePlayer('${player.id}')">
+                                <button class="btn btn-small btn-danger" onclick="removePlayer('${player.user_id}')">
                                     Remove
                                 </button>
                             </div>
@@ -869,31 +728,170 @@
                     `;
                 }).join('');
             }
+        }
 
-            // Update match queue
+        // Update settings form
+        function updateSettingsForm() {
+            document.getElementById('tournamentName').value = leagueSettings.name || '';
+            document.getElementById('minMatches').value = leagueSettings.min_matches || 3;
+            document.getElementById('tournamentNotes').value = leagueSettings.description || '';
+            document.getElementById('tournamentStatus').value = leagueSettings.status || 'active';
+            document.getElementById('winPoints').value = leagueSettings.scoring_rules?.win || 3;
+            document.getElementById('tiePoints').value = leagueSettings.scoring_rules?.tie || 1;
+            document.getElementById('lossPoints').value = leagueSettings.scoring_rules?.loss || 0;
+            document.getElementById('tournamentDate').value = leagueSettings.tournament_date ? new Date(leagueSettings.tournament_date).toISOString().split('T')[0] : '';
+            
+            updateCurrentSettingsDisplay();
+        }
+
+        // Update current settings display
+        function updateCurrentSettingsDisplay() {
+            const display = document.getElementById('currentSettingsDisplay');
+            if (!leagueSettings || Object.keys(leagueSettings).length === 0) {
+                display.innerHTML = '<p>No settings saved yet. Configure and save your tournament settings above.</p>';
+                return;
+            }
+
+            const settingsHtml = `
+                <div class="current-settings-item">
+                    <span class="current-settings-label">Tournament Name:</span>
+                    <span class="current-settings-value">${leagueSettings.name || 'Not set'}</span>
+                </div>
+                <div class="current-settings-item">
+                    <span class="current-settings-label">Status:</span>
+                    <span class="current-settings-value">${leagueSettings.status || 'active'}</span>
+                </div>
+                <div class="current-settings-item">
+                    <span class="current-settings-label">Min Matches:</span>
+                    <span class="current-settings-value">${leagueSettings.min_matches || 3}</span>
+                </div>
+                <div class="current-settings-item">
+                    <span class="current-settings-label">Win Points:</span>
+                    <span class="current-settings-value">${leagueSettings.scoring_rules?.win || 3}</span>
+                </div>
+                <div class="current-settings-item">
+                    <span class="current-settings-label">Tie Points:</span>
+                    <span class="current-settings-value">${leagueSettings.scoring_rules?.tie || 1}</span>
+                </div>
+                <div class="current-settings-item">
+                    <span class="current-settings-label">Loss Points:</span>
+                    <span class="current-settings-value">${leagueSettings.scoring_rules?.loss || 0}</span>
+                </div>
+                <div class="current-settings-item">
+                    <span class="current-settings-label">Tournament Date:</span>
+                    <span class="current-settings-value">${leagueSettings.tournament_date ? new Date(leagueSettings.tournament_date).toLocaleDateString() : 'Not set'}</span>
+                </div>
+                <div class="current-settings-item">
+                    <span class="current-settings-label">Last Updated:</span>
+                    <span class="current-settings-value">${leagueSettings.created_at ? new Date(leagueSettings.created_at).toLocaleString() : 'Not available'}</span>
+                </div>
+            `;
+            
+            display.innerHTML = settingsHtml;
+        }
+
+        // Save settings
+        async function saveSettings() {
+            const newSettings = {
+                name: document.getElementById('tournamentName').value,
+                min_matches: parseInt(document.getElementById('minMatches').value),
+                description: document.getElementById('tournamentNotes').value,
+                scoring_rules: {
+                    win: parseInt(document.getElementById('winPoints').value),
+                    tie: parseInt(document.getElementById('tiePoints').value),
+                    loss: parseInt(document.getElementById('lossPoints').value)
+                },
+                status: document.getElementById('tournamentStatus').value,
+                tournament_date: document.getElementById('tournamentDate').value ? new Date(document.getElementById('tournamentDate').value).toISOString() : null
+            };
+            try {
+                await api.updateLeagueSettings(newSettings);
+                alert('Settings saved successfully!');
+                await loadData();
+            } catch (error) {
+                alert('Failed to save settings.');
+                console.error(error);
+            }
+        }
+
+        // Reset settings
+        function resetSettings() {
+            if (!confirm('Are you sure you want to reset all settings to defaults?')) {
+                return;
+            }
+            
+            document.getElementById('tournamentName').value = '';
+            document.getElementById('minMatches').value = '3';
+            document.getElementById('tournamentNotes').value = '';
+            document.getElementById('tournamentStatus').value = 'active';
+            document.getElementById('winPoints').value = '3';
+            document.getElementById('tiePoints').value = '1';
+            document.getElementById('lossPoints').value = '0';
+            document.getElementById('tournamentDate').value = '';
+            
+            alert('Settings reset to defaults. Click "Save Settings" to apply.');
+        }
+
+        // Export data
+        async function exportData() {
+            try {
+                // Create a comprehensive data export
+                const exportData = {
+                    timestamp: new Date().toISOString(),
+                    settings: leagueSettings,
+                    players: leaguePlayers,
+                    matches: matches,
+                    users: allUsers,
+                    exportInfo: {
+                        totalPlayers: leaguePlayers.length,
+                        totalMatches: matches.length,
+                        totalUsers: allUsers.length,
+                        checkedInPlayers: checkedInPlayers.length
+                    }
+                };
+                
+                const dataStr = JSON.stringify(exportData, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `golf_league_export_${new Date().toISOString().split('T')[0]}.json`;
+                link.click();
+                URL.revokeObjectURL(link.href);
+                alert('Data exported successfully!');
+            } catch (error) {
+                alert('Failed to export data.');
+                console.error(error);
+            }
+        }
+
+        // Tab navigation
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.nav-tab').forEach(tab => tab.classList.remove('active'));
+            document.getElementById(tabName + '-tab').classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // Update match queue display
+        function updateMatchQueue() {
             const matchQueueDiv = document.getElementById('matchQueue');
-            if (matchQueue.length === 0) {
-                matchQueueDiv.innerHTML = '<div class="empty-state"><h3>No Matches Generated</h3><p>Generate matches once players are checked in</p></div>';
+            if (matches.length === 0) {
+                matchQueueDiv.innerHTML = '<div class="empty-state"><h3>No Matches Recorded</h3><p>Generate matches or record matches in the scoring page</p></div>';
             } else {
-                matchQueueDiv.innerHTML = matchQueue.map((match, index) => {
-                    const player1Name = airtableAPI.getPlayerDisplayName(match.player1);
-                    const player2Name = airtableAPI.getPlayerDisplayName(match.player2);
+                matchQueueDiv.innerHTML = matches.map((match, index) => {
+                    const player1Name = `${match.player1_first_name} ${match.player1_last_name}`;
+                    const player2Name = `${match.player2_first_name} ${match.player2_last_name}`;
+                    const matchDate = new Date(match.match_date).toLocaleDateString();
                     
                     return `
-                        <div class="match-card ${match.status}">
+                        <div class="match-card">
                             <div class="match-header">
-                                <div class="match-number">Match ${match.matchNumber}</div>
-                                <div class="match-status ${match.status}">${match.status.charAt(0).toUpperCase() + match.status.slice(1)}</div>
+                                <div class="match-number">Match ${index + 1}</div>
+                                <div class="match-status completed">Completed</div>
                             </div>
                             <div class="match-players">${player1Name} vs ${player2Name}</div>
-                            <div class="match-actions">
-                                ${match.status === 'pending' ? 
-                                    `<button class="btn btn-small" onclick="startMatch(${index})">Start Match</button>` : 
-                                    match.status === 'active' ? 
-                                    '<span style="color: #256a33; font-weight: 600;">Currently Playing</span>' :
-                                    '<span style="color: #256a33; font-weight: 600;">Completed</span>'
-                                }
-                                <button class="btn btn-small btn-danger" onclick="removeMatch(${index})">Remove</button>
+                            <div style="color: #808381; font-size: 0.9em; margin-top: 10px;">
+                                Winner: ${match.winner || 'Tie'} • Date: ${matchDate}
                             </div>
                         </div>
                     `;
@@ -901,28 +899,61 @@
             }
         }
 
-        // Start match
-        async function startMatch(index) {
-            for (let i = 0; i < matchQueue.length; i++) {
-                const match = matchQueue[i];
-                const newStatus = (i === index) ? 'active' : (match.status === 'completed' ? 'completed' : 'pending');
-                if (match.status !== newStatus) {
-                    await airtableAPI.updateMatchStatus(match.matchNumber, newStatus);
-                    match.status = newStatus;
+        // Generate matches between league players
+        async function generateMatches() {
+            if (checkedInPlayers.length < 2) {
+                alert('Need at least 2 checked-in players to generate matches');
+                return;
+            }
+            
+            const minMatches = leagueSettings.min_matches || 3;
+            const generatedMatches = [];
+            
+            // Simple round-robin style matching between checked-in players only
+            for (let i = 0; i < checkedInPlayers.length - 1; i++) {
+                for (let j = i + 1; j < checkedInPlayers.length; j++) {
+                    const player1Id = checkedInPlayers[i];
+                    const player2Id = checkedInPlayers[j];
+                    
+                    // Create a placeholder match (will be filled in when scored)
+                    const matchData = {
+                        player1_id: player1Id,
+                        player2_id: player2Id,
+                        scores: { p1: [0, 0, 0], p2: [0, 0, 0] },
+                        winner: null,
+                        match_date: new Date().toISOString().split('T')[0]
+                    };
+                    
+                    try {
+                        await api.addMatch(matchData);
+                        generatedMatches.push(matchData);
+                    } catch (error) {
+                        console.error('Failed to create match:', error);
+                    }
                 }
             }
-            await loadData();
+            
+            if (generatedMatches.length > 0) {
+                alert(`Generated ${generatedMatches.length} matches between ${checkedInPlayers.length} checked-in players!`);
+                await loadData(); // Reload to show new matches
+            } else {
+                alert('No new matches were generated');
+            }
         }
 
-        // Remove match
-        async function removeMatch(index) {
-            if (confirm('Are you sure you want to remove this match?')) {
-                matchQueue.splice(index, 1);
-                matchQueue.forEach((match, i) => {
-                    match.matchNumber = i + 1;
-                });
-                updateDisplay();
-                await saveData();
+        // Clear all matches
+        async function clearMatches() {
+            if (!confirm('Are you sure you want to clear all matches? This cannot be undone.')) {
+                return;
+            }
+            
+            try {
+                // For now, we'll need to add a clear matches endpoint
+                // For now, just show a message
+                alert('Clear matches functionality will be added in the next update');
+            } catch (error) {
+                alert('Failed to clear matches');
+                console.error(error);
             }
         }
 

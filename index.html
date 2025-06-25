@@ -409,14 +409,14 @@
             <div class="page-card" onclick="window.location.href='admin.html'">
                 <span class="page-icon">⚙️</span>
                 <h2>Tournament Admin</h2>
-                <p>Manage players, generate matches, and control tournament settings. Add new players, check them in, and organize the tournament flow with our enhanced Airtable backend.</p>
+                <p>Manage players, generate matches, and control tournament settings. Add new players, check them in, and organize the tournament flow with our PostgreSQL backend.</p>
                 <a href="admin.html" class="page-btn">Go to Admin</a>
             </div>
 
             <div class="page-card" onclick="window.location.href='scoring.html'">
                 <span class="page-icon">📊</span>
                 <h2>Match Scoring</h2>
-                <p>Record scores for active matches with an optimized interface. Easy hole-by-hole scoring with instant results and match completion using expanded player data.</p>
+                <p>Record scores for active matches with an optimized interface. Easy hole-by-hole scoring with instant results and match completion using our modern database.</p>
                 <a href="scoring.html" class="page-btn">Start Scoring</a>
             </div>
 
@@ -429,39 +429,36 @@
         </div>
 
         <div class="footer">
-            <p>Golf League Tournament Manager • Built for Neighborhood National • Powered by Airtable</p>
+            <p>Golf League Tournament Manager • Built for Neighborhood National • Powered by PostgreSQL</p>
         </div>
     </div>
 
-    <script src="airtable-api.js"></script>
+    <script src="api.js"></script>
     <script>
         // Global variables
         let players = [];
         let matches = [];
         let leaderboard = [];
-        let checkedInPlayers = [];
-        let matchQueue = [];
-        let currentMatchIndex = 0;
         let settings = {};
+        let tournamentStatus = {};
 
-        // Load data from Airtable
+        // Load data from new backend
         async function loadData() {
             try {
-                const data = await airtableAPI.getAllData();
-                players = data.players || [];
-                matches = data.matches || [];
-                leaderboard = data.leaderboard || [];
-                checkedInPlayers = data.checkedInPlayers || [];
-                matchQueue = data.matchQueue || [];
-                currentMatchIndex = data.currentMatchIndex || 0;
-                
-                // Load settings
-                try {
-                    const settingsData = await airtableAPI.getSettings();
-                    settings = settingsData;
-                } catch (error) {
-                    console.log('Using default settings');
-                }
+                // Load all data in parallel
+                const [playersData, matchesData, leaderboardData, settingsData, statusData] = await Promise.all([
+                    api.getPlayers(),
+                    api.getMatches(),
+                    api.getLeaderboard(),
+                    api.getSettings(),
+                    api.getTournamentStatus()
+                ]);
+
+                players = playersData || [];
+                matches = matchesData || [];
+                leaderboard = leaderboardData || [];
+                settings = settingsData || {};
+                tournamentStatus = statusData || {};
                 
                 updateDisplay();
                 hideError();
@@ -502,58 +499,32 @@
         // Update quick stats
         function updateStats() {
             document.getElementById('totalPlayers').textContent = players.length;
-            document.getElementById('checkedInPlayers').textContent = checkedInPlayers.length;
+            document.getElementById('checkedInPlayers').textContent = tournamentStatus.totalPlayers || 0;
             document.getElementById('totalMatches').textContent = matches.length;
-            document.getElementById('activeMatches').textContent = matchQueue.filter(m => m.status === 'active').length;
+            document.getElementById('activeMatches').textContent = tournamentStatus.activeMatches || 0;
         }
 
         // Update recent activity
         function updateActivity() {
             const activityList = document.getElementById('activityList');
             
-            if (matches.length === 0 && checkedInPlayers.length === 0) {
+            if (matches.length === 0) {
                 activityList.innerHTML = '<div class="loading">No recent activity</div>';
                 return;
             }
 
-            let activities = [];
-
-            // Add recent matches
-            const recentMatches = matches.slice(0, 5);
-            recentMatches.forEach(match => {
-                const player1Name = airtableAPI.getPlayerDisplayName(match.player1);
-                const player2Name = airtableAPI.getPlayerDisplayName(match.player2);
-                activities.push({
-                    title: `${player1Name} vs ${player2Name} - ${match.winner === 'Tie' ? 'Tied' : match.winner + ' Wins'}`,
-                    time: new Date(match.timestamp).toLocaleString(),
-                    type: 'match'
-                });
-            });
-
-            // Add check-ins
-            const recentCheckins = checkedInPlayers.slice(0, 3);
-            recentCheckins.forEach(checkin => {
-                const playerName = airtableAPI.getPlayerDisplayName(checkin.player);
-                activities.push({
-                    title: `${playerName} checked in`,
-                    time: new Date(checkin.checkedInAt).toLocaleString(),
-                    type: 'checkin'
-                });
-            });
-
-            // Sort by time and take top 8
-            activities.sort((a, b) => new Date(b.time) - new Date(a.time));
-            activities = activities.slice(0, 8);
-
-            if (activities.length === 0) {
+            // For now, show recent matches as activity
+            const recentMatches = matches.slice(0, 8);
+            
+            if (recentMatches.length === 0) {
                 activityList.innerHTML = '<div class="loading">No recent activity</div>';
                 return;
             }
 
-            activityList.innerHTML = activities.map(activity => `
+            activityList.innerHTML = recentMatches.map(match => `
                 <div class="activity-item">
-                    <div class="activity-title">${activity.title}</div>
-                    <div class="activity-time">${activity.time}</div>
+                    <div class="activity-title">${api.getDisplayName(match.player1)} vs ${api.getDisplayName(match.player2)}</div>
+                    <div class="activity-time">Match recorded</div>
                 </div>
             `).join('');
         }
@@ -561,17 +532,12 @@
         // Update tournament status
         function updateStatus() {
             const statusElement = document.getElementById('tournamentStatus');
-            const activeMatches = matchQueue.filter(m => m.status === 'active');
-            const pendingMatches = matchQueue.filter(m => m.status === 'pending');
-
-            if (activeMatches.length > 0) {
-                statusElement.textContent = `${activeMatches.length} Match${activeMatches.length > 1 ? 'es' : ''} in Progress`;
+            
+            if (tournamentStatus.activeMatches > 0) {
+                statusElement.textContent = `${tournamentStatus.activeMatches} Match${tournamentStatus.activeMatches > 1 ? 'es' : ''} in Progress`;
                 statusElement.className = 'tournament-status status-active';
-            } else if (pendingMatches.length > 0) {
-                statusElement.textContent = `${pendingMatches.length} Match${pendingMatches.length > 1 ? 'es' : ''} Ready`;
-                statusElement.className = 'tournament-status status-ready';
-            } else if (checkedInPlayers.length > 0) {
-                statusElement.textContent = `${checkedInPlayers.length} Player${checkedInPlayers.length > 1 ? 's' : ''} Checked In`;
+            } else if (tournamentStatus.totalPlayers > 0) {
+                statusElement.textContent = `${tournamentStatus.totalPlayers} Player${tournamentStatus.totalPlayers > 1 ? 's' : ''} Ready`;
                 statusElement.className = 'tournament-status status-ready';
             } else if (players.length > 0) {
                 statusElement.textContent = 'Tournament Ready';
