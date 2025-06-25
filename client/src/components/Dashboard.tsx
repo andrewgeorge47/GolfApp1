@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Users, Calendar, TrendingUp, ArrowRight, Play, Award, Settings, User as UserIcon } from 'lucide-react';
+import { Trophy, Users, Calendar, TrendingUp, ArrowRight, Play, Award, Settings, User as UserIcon, Star, CheckCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { getUsers, getLeagueSettings, getMatches, getUserProfiles } from '../services/api';
 import type { User, LeagueSettings, Match, UserProfile } from '../services/api';
@@ -52,92 +52,58 @@ const Dashboard: React.FC = () => {
   const totalPlayers = users.length;
   const totalMatches = matches.length;
   const activePlayers = profiles.length;
-  const recentMatches = matches.slice(-5);
-  const upcomingMatches = matches.filter(match => new Date(match.match_date) > new Date()).slice(0, 3);
+  const recentMatches = matches.slice(-3);
+  const upcomingMatches = matches.filter(match => new Date(match.match_date) > new Date()).slice(0, 2);
 
   return (
-    <div className="space-y-8">
-      {/* Welcome Header */}
-      <div className="text-center bg-gradient-to-r from-brand-neon-green to-emerald-400 rounded-2xl p-8 shadow-lg">
-        <img src={process.env.PUBLIC_URL + "/logo-color.svg"} alt="Golf League Logo" className="h-20 w-auto mx-auto mb-4" />
-        <h1 className="text-4xl font-bold text-brand-black mb-2">
-          {settings?.name || 'Golf League Tournament'}
-        </h1>
-        <p className="text-xl text-brand-black/80 mb-4">
-          {settings?.description || 'Weekly match play league'}
-        </p>
-        {currentUser && (
-          <p className="text-lg text-brand-black/90 mb-4">
-            Welcome back, <span className="font-semibold">{currentUser.first_name} {currentUser.last_name}</span>! 🏌️‍♂️
-          </p>
-        )}
-        <div className="inline-flex items-center bg-white/90 text-brand-black px-6 py-3 rounded-full font-semibold">
-          <Calendar className="w-5 h-5 mr-2" />
-          {settings?.status === 'active' ? 'League Active' : 'League Inactive'}
+    <div className="space-y-0">
+      {/* Hero Section */}
+      <div className="relative bg-gradient-to-br from-brand-dark-green via-brand-muted-green to-brand-neon-green/20 rounded-2xl p-12 shadow-2xl overflow-hidden">
+        {/* Background Pattern */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-brand-neon-green rounded-full -translate-y-32 translate-x-32"></div>
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-white rounded-full translate-y-24 -translate-x-24"></div>
         </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="bg-white/95 rounded-2xl p-6 shadow-lg">
-        <h2 className="text-2xl font-bold text-brand-black mb-6">Quick Actions</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Link to="/scoring" className="group">
-            <div className="bg-gradient-to-br from-brand-neon-green to-emerald-400 p-6 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 group-hover:scale-105">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Play className="w-8 h-8 text-brand-black mb-2" />
-                  <h3 className="font-bold text-brand-black">Start Scoring</h3>
-                  <p className="text-sm text-brand-black/80">Record match results</p>
-                </div>
-                <ArrowRight className="w-5 h-5 text-brand-black group-hover:translate-x-1 transition-transform" />
-              </div>
+        
+        <div className="relative z-10 text-center">
+          <img src={process.env.PUBLIC_URL + "/logo-color.svg"} alt="Golf League Logo" className="h-24 w-auto mx-auto mb-6" />
+          <h1 className="text-5xl font-bold text-white mb-4">
+            {settings?.name || 'Golf League Tournament'}
+          </h1>
+          <p className="text-xl text-white/90 mb-6 max-w-2xl mx-auto">
+            {settings?.description || 'Join the ultimate weekly match play league. Track scores, compete with friends, and climb the leaderboard.'}
+          </p>
+          
+          {currentUser && (
+            <div className="bg-white/20 backdrop-blur-sm rounded-full px-6 py-3 inline-block mb-8">
+              <p className="text-white font-semibold">
+                Welcome back, <span className="text-brand-neon-green">{currentUser.first_name} {currentUser.last_name}</span>! 🏌️‍♂️
+              </p>
             </div>
-          </Link>
-
-          <Link to="/leaderboard" className="group">
-            <div className="bg-gradient-to-br from-yellow-400 to-orange-400 p-6 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 group-hover:scale-105">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Trophy className="w-8 h-8 text-white mb-2" />
-                  <h3 className="font-bold text-white">Leaderboard</h3>
-                  <p className="text-sm text-white/90">View standings</p>
-                </div>
-                <ArrowRight className="w-5 h-5 text-white group-hover:translate-x-1 transition-transform" />
+          )}
+          
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link to="/scoring" className="group">
+              <div className="bg-brand-neon-green hover:bg-brand-neon-green/90 text-brand-black px-8 py-4 rounded-full font-bold text-lg shadow-lg hover:shadow-xl transition-all duration-200 group-hover:scale-105 flex items-center justify-center">
+                <Play className="w-6 h-6 mr-2" />
+                Start Playing
+                <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
               </div>
-            </div>
-          </Link>
-
-          <Link to="/players" className="group">
-            <div className="bg-gradient-to-br from-blue-400 to-purple-400 p-6 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 group-hover:scale-105">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Users className="w-8 h-8 text-white mb-2" />
-                  <h3 className="font-bold text-white">Players</h3>
-                  <p className="text-sm text-white/90">Manage roster</p>
-                </div>
-                <ArrowRight className="w-5 h-5 text-white group-hover:translate-x-1 transition-transform" />
+            </Link>
+            <Link to="/leaderboard" className="group">
+              <div className="bg-white/20 hover:bg-white/30 text-white border-2 border-white/30 hover:border-white/50 px-8 py-4 rounded-full font-bold text-lg backdrop-blur-sm transition-all duration-200 group-hover:scale-105 flex items-center justify-center">
+                <Trophy className="w-6 h-6 mr-2" />
+                View Leaderboard
+                <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
               </div>
-            </div>
-          </Link>
-
-          <Link to="/admin" className="group">
-            <div className="bg-gradient-to-br from-gray-600 to-gray-800 p-6 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 group-hover:scale-105">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Settings className="w-8 h-8 text-white mb-2" />
-                  <h3 className="font-bold text-white">Admin</h3>
-                  <p className="text-sm text-white/90">League settings</p>
-                </div>
-                <ArrowRight className="w-5 h-5 text-white group-hover:translate-x-1 transition-transform" />
-              </div>
-            </div>
-          </Link>
+            </Link>
+          </div>
         </div>
       </div>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white/95 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 -mt-6 relative z-20">
+        <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow border border-white/20">
           <div className="flex items-center">
             <div className="p-3 bg-brand-neon-green rounded-full">
               <Users className="w-6 h-6 text-brand-black" />
@@ -149,7 +115,7 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white/95 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow">
+        <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow border border-white/20">
           <div className="flex items-center">
             <div className="p-3 bg-brand-neon-green rounded-full">
               <Trophy className="w-6 h-6 text-brand-black" />
@@ -161,7 +127,7 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white/95 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow">
+        <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow border border-white/20">
           <div className="flex items-center">
             <div className="p-3 bg-brand-neon-green rounded-full">
               <TrendingUp className="w-6 h-6 text-brand-black" />
@@ -173,7 +139,7 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white/95 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow">
+        <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow border border-white/20">
           <div className="flex items-center">
             <div className="p-3 bg-brand-neon-green rounded-full">
               <Calendar className="w-6 h-6 text-brand-black" />
@@ -186,18 +152,98 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Upcoming Matches & Recent Activity */}
+      {/* Features Section */}
+      <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-8 shadow-lg border border-white/20">
+        <div className="text-center mb-12">
+          <h2 className="text-3xl font-bold text-brand-black mb-4">Everything You Need</h2>
+          <p className="text-xl text-neutral-600 max-w-2xl mx-auto">
+            Our comprehensive golf league platform provides all the tools you need to run a successful tournament.
+          </p>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className="text-center group">
+            <div className="bg-gradient-to-br from-brand-neon-green to-emerald-400 p-6 rounded-2xl shadow-lg group-hover:shadow-xl transition-all duration-200 group-hover:scale-105 mb-4">
+              <Play className="w-12 h-12 text-brand-black mx-auto" />
+            </div>
+            <h3 className="text-xl font-bold text-brand-black mb-2">Live Scoring</h3>
+            <p className="text-neutral-600">Record match results in real-time with our intuitive scoring system.</p>
+          </div>
+
+          <div className="text-center group">
+            <div className="bg-gradient-to-br from-yellow-400 to-orange-400 p-6 rounded-2xl shadow-lg group-hover:shadow-xl transition-all duration-200 group-hover:scale-105 mb-4">
+              <Trophy className="w-12 h-12 text-white mx-auto" />
+            </div>
+            <h3 className="text-xl font-bold text-brand-black mb-2">Leaderboards</h3>
+            <p className="text-neutral-600">Track standings and see who's leading the competition.</p>
+          </div>
+
+          <div className="text-center group">
+            <div className="bg-gradient-to-br from-blue-400 to-purple-400 p-6 rounded-2xl shadow-lg group-hover:shadow-xl transition-all duration-200 group-hover:scale-105 mb-4">
+              <Users className="w-12 h-12 text-white mx-auto" />
+            </div>
+            <h3 className="text-xl font-bold text-brand-black mb-2">Player Management</h3>
+            <p className="text-neutral-600">Manage your roster and track player statistics.</p>
+          </div>
+
+          <div className="text-center group">
+            <div className="bg-gradient-to-br from-gray-600 to-gray-800 p-6 rounded-2xl shadow-lg group-hover:shadow-xl transition-all duration-200 group-hover:scale-105 mb-4">
+              <Settings className="w-12 h-12 text-white mx-auto" />
+            </div>
+            <h3 className="text-xl font-bold text-brand-black mb-2">League Settings</h3>
+            <p className="text-neutral-600">Customize scoring rules and tournament parameters.</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Activity & Upcoming */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Recent Matches */}
+        <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/20">
+          <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+            <Award className="w-6 h-6 mr-3 text-brand-neon-green" />
+            Recent Matches
+          </h2>
+          <div className="space-y-4">
+            {recentMatches.length > 0 ? (
+              recentMatches.map((match) => (
+                <div key={match.id} className="p-4 bg-neutral-50 rounded-lg border-l-4 border-brand-neon-green hover:bg-neutral-100 transition-colors">
+                  <div className="font-semibold text-brand-black">
+                    Match #{match.id}
+                  </div>
+                  <div className="text-sm text-neutral-600">
+                    {new Date(match.match_date).toLocaleDateString()}
+                  </div>
+                  {match.winner && (
+                    <div className="text-sm text-brand-neon-green font-medium mt-1">
+                      🏆 Winner: {match.winner}
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-8">
+                <Trophy className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
+                <p className="text-neutral-600 mb-4">No matches played yet.</p>
+                <Link to="/scoring" className="inline-flex items-center text-brand-neon-green hover:text-brand-muted-green font-semibold">
+                  Start your first match
+                  <ArrowRight className="w-4 h-4 ml-1" />
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Upcoming Matches */}
-        <div className="bg-white/95 rounded-2xl p-6 shadow-lg">
-          <h2 className="text-2xl font-bold text-brand-black mb-4 flex items-center">
-            <Calendar className="w-6 h-6 mr-2 text-brand-neon-green" />
+        <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/20">
+          <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+            <Calendar className="w-6 h-6 mr-3 text-brand-neon-green" />
             Upcoming Matches
           </h2>
           <div className="space-y-4">
             {upcomingMatches.length > 0 ? (
               upcomingMatches.map((match) => (
-                <div key={match.id} className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-l-4 border-blue-400">
+                <div key={match.id} className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-l-4 border-blue-400 hover:from-blue-100 hover:to-indigo-100 transition-colors">
                   <div className="font-semibold text-brand-black">
                     Match #{match.id}
                   </div>
@@ -212,44 +258,10 @@ const Dashboard: React.FC = () => {
             ) : (
               <div className="text-center py-8">
                 <Calendar className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
-                <p className="text-neutral-600">No upcoming matches scheduled.</p>
-                <Link to="/admin" className="text-brand-neon-green hover:underline mt-2 inline-block">
-                  Schedule a match →
-                </Link>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Recent Matches */}
-        <div className="bg-white/95 rounded-2xl p-6 shadow-lg">
-          <h2 className="text-2xl font-bold text-brand-black mb-4 flex items-center">
-            <Award className="w-6 h-6 mr-2 text-brand-neon-green" />
-            Recent Matches
-          </h2>
-          <div className="space-y-4">
-            {recentMatches.length > 0 ? (
-              recentMatches.map((match) => (
-                <div key={match.id} className="p-4 bg-neutral-50 rounded-lg border-l-4 border-brand-neon-green">
-                  <div className="font-semibold text-brand-black">
-                    Match #{match.id}
-                  </div>
-                  <div className="text-sm text-neutral-600">
-                    {new Date(match.match_date).toLocaleDateString()}
-                  </div>
-                  {match.winner && (
-                    <div className="text-sm text-brand-neon-green font-medium">
-                      🏆 Winner: {match.winner}
-                    </div>
-                  )}
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-8">
-                <Trophy className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
-                <p className="text-neutral-600">No matches played yet.</p>
-                <Link to="/scoring" className="text-brand-neon-green hover:underline mt-2 inline-block">
-                  Start your first match →
+                <p className="text-neutral-600 mb-4">No upcoming matches scheduled.</p>
+                <Link to="/admin" className="inline-flex items-center text-brand-neon-green hover:text-brand-muted-green font-semibold">
+                  Schedule a match
+                  <ArrowRight className="w-4 h-4 ml-1" />
                 </Link>
               </div>
             )}
@@ -257,16 +269,16 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* League Settings Summary */}
-      <div className="bg-white/95 rounded-2xl p-6 shadow-lg">
-        <h2 className="text-2xl font-bold text-brand-black mb-4 flex items-center">
-          <Settings className="w-6 h-6 mr-2 text-brand-neon-green" />
-          League Settings
+      {/* League Info */}
+      <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-8 shadow-lg border border-white/20">
+        <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+          <Settings className="w-6 h-6 mr-3 text-brand-neon-green" />
+          League Information
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <label className="text-sm font-medium text-neutral-600">Scoring Rules</label>
-            <div className="mt-2 p-3 bg-neutral-50 rounded-lg">
+            <div className="mt-2 p-4 bg-neutral-50 rounded-lg border border-neutral-200">
               <div className="text-brand-black font-semibold">
                 Win: {settings?.scoring_rules?.win || 3} pts | 
                 Tie: {settings?.scoring_rules?.tie || 1} pt | 
@@ -277,7 +289,7 @@ const Dashboard: React.FC = () => {
           {settings?.tournament_date && (
             <div>
               <label className="text-sm font-medium text-neutral-600">Tournament Date</label>
-              <div className="mt-2 p-3 bg-neutral-50 rounded-lg">
+              <div className="mt-2 p-4 bg-neutral-50 rounded-lg border border-neutral-200">
                 <div className="text-brand-black font-semibold">
                   {new Date(settings.tournament_date).toLocaleDateString()}
                 </div>
@@ -286,12 +298,36 @@ const Dashboard: React.FC = () => {
           )}
           <div>
             <label className="text-sm font-medium text-neutral-600">League Status</label>
-            <div className="mt-2 p-3 bg-neutral-50 rounded-lg">
-              <div className={`font-semibold ${settings?.status === 'active' ? 'text-green-600' : 'text-red-600'}`}>
+            <div className="mt-2 p-4 bg-neutral-50 rounded-lg border border-neutral-200">
+              <div className={`font-semibold ${settings?.status === 'active' ? 'text-system-success-green' : 'text-red-600'}`}>
                 {settings?.status === 'active' ? '🟢 Active' : '🔴 Inactive'}
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Call to Action */}
+      <div className="bg-gradient-to-r from-brand-dark-green to-brand-muted-green rounded-2xl p-8 shadow-lg text-center">
+        <h2 className="text-3xl font-bold text-white mb-4">Ready to Join the Competition?</h2>
+        <p className="text-xl text-white/90 mb-8 max-w-2xl mx-auto">
+          Whether you're a seasoned golfer or just getting started, our league welcomes players of all skill levels.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <Link to="/scoring" className="group">
+            <div className="bg-brand-neon-green hover:bg-brand-neon-green/90 text-brand-black px-8 py-4 rounded-full font-bold text-lg shadow-lg hover:shadow-xl transition-all duration-200 group-hover:scale-105 flex items-center justify-center">
+              <Play className="w-6 h-6 mr-2" />
+              Start Playing Now
+              <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </Link>
+          <Link to="/players" className="group">
+            <div className="bg-white/20 hover:bg-white/30 text-white border-2 border-white/30 hover:border-white/50 px-8 py-4 rounded-full font-bold text-lg backdrop-blur-sm transition-all duration-200 group-hover:scale-105 flex items-center justify-center">
+              <Users className="w-6 h-6 mr-2" />
+              View Players
+              <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </Link>
         </div>
       </div>
     </div>
