@@ -1,5 +1,5 @@
-// Airtable API Client
-// This service handles all communication with the Airtable backend
+// API Client
+// This service handles all communication with the backend API
 
 // Update this URL to your deployed backend URL
 const API_BASE_URL = 'https://golfapp1.onrender.com/api';
