@@ -144,6 +144,20 @@ app.post('/api/setup-database', async (req, res) => {
       console.log('Migration note:', migrationErr.message);
     }
 
+    // Add handicap column if it doesn't exist
+    try {
+      const handicapCheck = await pool.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name='users' AND column_name='handicap'
+      `);
+      if (handicapCheck.rows.length === 0) {
+        await pool.query('ALTER TABLE users ADD COLUMN handicap INTEGER DEFAULT 0');
+        console.log('Added handicap column to users table.');
+      }
+    } catch (migrationErr) {
+      console.log('Migration note:', migrationErr.message);
+    }
+
     res.json({ 
       success: true, 
       message: 'Database tables created successfully',
@@ -163,6 +177,23 @@ app.get('/api/users', async (req, res) => {
   } catch (err) {
     console.error('Error fetching users:', err);
     res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// Update user profile
+app.put('/api/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const { first_name, last_name, email, club, handicap } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE users SET first_name = $1, last_name = $2, email_address = $3, club = $4, handicap = $5 WHERE member_id = $6 RETURNING *`,
+      [first_name, last_name, email, club, handicap, id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating user:', err);
+    res.status(500).json({ error: 'Failed to update user' });
   }
 });
 
@@ -1384,6 +1415,162 @@ async function updateUserProfilesForExistingMatches() {
 (async () => {
   await updateUserProfilesForExistingMatches();
 })();
+
+// Create scorecards table if it doesn't exist
+(async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS scorecards (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(member_id) ON DELETE CASCADE,
+        type VARCHAR(50) NOT NULL CHECK (type IN ('stroke_play', 'mully_golf')),
+        player_name VARCHAR(255) NOT NULL,
+        date_played DATE NOT NULL,
+        handicap INTEGER DEFAULT 0,
+        scores JSONB NOT NULL,
+        total_strokes INTEGER DEFAULT 0,
+        total_mulligans INTEGER DEFAULT 0,
+        final_score INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('Scorecards table ready.');
+  } catch (migrationErr) {
+    console.log('Migration note:', migrationErr.message);
+  }
+})();
+
+// Save scorecard
+app.post('/api/scorecards', authenticateToken, async (req, res) => {
+  const { type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score } = req.body;
+  
+  console.log('Received scorecard data:', req.body); // Debug log
+  console.log('User ID:', req.user.member_id); // Debug log
+  
+  if (!type || !player_name || !date_played || !scores) {
+    console.log('Missing required fields:', { type, player_name, date_played, scores: !!scores });
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  
+  try {
+    // Ensure scores is properly formatted as JSON
+    let scoresData = scores;
+    if (typeof scores === 'string') {
+      try {
+        scoresData = JSON.parse(scores);
+      } catch (parseErr) {
+        console.error('Error parsing scores JSON:', parseErr);
+        return res.status(400).json({ error: 'Invalid scores format' });
+      }
+    }
+    
+    console.log('Processed scores data:', scoresData); // Debug log
+    
+    const { rows } = await pool.query(
+      `INSERT INTO scorecards (user_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [req.user.member_id, type, player_name, date_played, handicap || 0, JSON.stringify(scoresData), total_strokes || 0, total_mulligans || 0, final_score || 0]
+    );
+    
+    console.log('Scorecard saved successfully:', rows[0]); // Debug log
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error saving scorecard:', err);
+    res.status(500).json({ error: 'Failed to save scorecard', details: err.message });
+  }
+});
+
+// Get user's scorecards
+app.get('/api/scorecards', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM scorecards WHERE user_id = $1 ORDER BY date_played DESC, created_at DESC',
+      [req.user.member_id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching scorecards:', err);
+    res.status(500).json({ error: 'Failed to fetch scorecards' });
+  }
+});
+
+// Get specific scorecard
+app.get('/api/scorecards/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM scorecards WHERE id = $1 AND user_id = $2',
+      [id, req.user.member_id]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Scorecard not found' });
+    }
+    
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching scorecard:', err);
+    res.status(500).json({ error: 'Failed to fetch scorecard' });
+  }
+});
+
+// Delete scorecard
+app.delete('/api/scorecards/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const { rows } = await pool.query(
+      'DELETE FROM scorecards WHERE id = $1 AND user_id = $2 RETURNING *',
+      [id, req.user.member_id]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Scorecard not found' });
+    }
+    
+    res.json({ success: true, message: 'Scorecard deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting scorecard:', err);
+    res.status(500).json({ error: 'Failed to delete scorecard' });
+  }
+});
+
+// Get all user profiles
+app.get('/api/user-profiles', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM user_profiles ORDER BY user_id');
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching user profiles:', err);
+    res.status(500).json({ error: 'Failed to fetch user profiles' });
+  }
+});
+
+// Get specific user profile
+app.get('/api/user-profiles/:userId', async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM user_profiles WHERE user_id = $1',
+      [userId]
+    );
+    
+    if (rows.length === 0) {
+      // Create a default profile if none exists
+      const { rows: newProfile } = await pool.query(
+        'INSERT INTO user_profiles (user_id, total_matches, wins, losses, ties, total_points, win_rate) VALUES ($1, 0, 0, 0, 0, 0, 0) RETURNING *',
+        [userId]
+      );
+      res.json(newProfile[0]);
+    } else {
+      res.json(rows[0]);
+    }
+  } catch (err) {
+    console.error('Error fetching user profile:', err);
+    res.status(500).json({ error: 'Failed to fetch user profile' });
+  }
+});
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);

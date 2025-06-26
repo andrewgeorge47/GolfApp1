@@ -9,12 +9,40 @@ const api = axios.create({
   },
 });
 
+// Add request interceptor to include auth token
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor to handle auth errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Token expired or invalid, redirect to login
+      localStorage.removeItem('token');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
 export interface User {
   member_id: number;
   first_name: string;
   last_name: string;
   email: string;
   club: string;
+  handicap?: number;
   role: string;
   created_at: string;
 }
@@ -66,6 +94,20 @@ export interface UserProfile {
   last_updated: string;
 }
 
+export interface Scorecard {
+  id: number;
+  user_id: number;
+  type: 'stroke_play' | 'mully_golf';
+  player_name: string;
+  date_played: string;
+  handicap: number;
+  scores: any;
+  total_strokes: number;
+  total_mulligans: number;
+  final_score: number;
+  created_at: string;
+}
+
 // Health check
 export const healthCheck = () => api.get('/health');
 
@@ -99,6 +141,22 @@ export const deleteMatch = (id: number) => api.delete(`/matches/${id}`);
 // User profiles
 export const getUserProfiles = () => api.get<UserProfile[]>('/user-profiles');
 export const getUserProfile = (userId: number) => api.get<UserProfile>(`/user-profiles/${userId}`);
+
+// Scorecards
+export const saveScorecard = (scorecardData: {
+  type: 'stroke_play' | 'mully_golf';
+  player_name: string;
+  date_played: string;
+  handicap: number;
+  scores: any;
+  total_strokes: number;
+  total_mulligans: number;
+  final_score: number;
+}) => api.post<Scorecard>('/scorecards', scorecardData);
+
+export const getScorecards = () => api.get<Scorecard[]>('/scorecards');
+export const getScorecard = (id: number) => api.get<Scorecard>(`/scorecards/${id}`);
+export const deleteScorecard = (id: number) => api.delete(`/scorecards/${id}`);
 
 // Leaderboard
 export const getLeaderboard = (tournamentId?: number) => {

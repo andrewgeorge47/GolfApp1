@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
-import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament } from '../services/api';
-import { User as UserIcon, Edit3, Save, X, Trophy, Target, TrendingUp, Calendar, MapPin, LogOut, Clock, Users, Plus, Minus, Award } from 'lucide-react';
+import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament, saveScorecard } from '../services/api';
+import { User as UserIcon, Edit3, Save, X, Trophy, Target, TrendingUp, Calendar, MapPin, LogOut, Clock, Users, Plus, Minus, Award, Circle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import TrackRoundModal from './TrackRoundModal';
+import ScoreCard from './ScoreCard';
+import StrokePlayScoreCard from './StrokePlayScoreCard';
 
 const Profile: React.FC = () => {
   const { user, token, logout } = useAuth();
@@ -19,7 +22,13 @@ const Profile: React.FC = () => {
     last_name: user?.last_name || '',
     email: user?.email || '',
     club: user?.club || '',
+    handicap: user?.handicap || 0,
   });
+
+  // Track Round Modal State
+  const [showTrackRoundModal, setShowTrackRoundModal] = useState(false);
+  const [showScoreCard, setShowScoreCard] = useState(false);
+  const [scoreCardType, setScoreCardType] = useState<'mully' | 'stroke' | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -87,6 +96,7 @@ const Profile: React.FC = () => {
       last_name: user?.last_name || '',
       email: user?.email || '',
       club: user?.club || '',
+      handicap: user?.handicap || 0,
     });
     setIsEditing(false);
     setError(null);
@@ -120,6 +130,67 @@ const Profile: React.FC = () => {
     } catch (err) {
       setError('Failed to unregister from tournament');
       console.error('Error unregistering from tournament:', err);
+    }
+  };
+
+  // Track Round Handlers
+  const handleTrackRound = () => {
+    setShowTrackRoundModal(true);
+  };
+
+  const handleSelectRoundType = (type: 'stroke' | 'mully') => {
+    setScoreCardType(type);
+    setShowTrackRoundModal(false);
+    setShowScoreCard(true);
+  };
+
+  const handleCloseScoreCard = () => {
+    setShowScoreCard(false);
+    setScoreCardType(null);
+  };
+
+  const handleSaveScoreCard = async (scoreCardData: any) => {
+    try {
+      console.log('ScoreCard data received:', scoreCardData); // Debug log
+      
+      // Test API connection first
+      try {
+        const testResponse = await fetch('http://localhost:3001/api/health');
+        console.log('API health check:', testResponse.status);
+      } catch (err) {
+        console.error('API health check failed:', err);
+      }
+      
+      // Prepare the data for the API
+      const apiData = {
+        type: scoreCardData.type || (scoreCardType === 'mully' ? 'mully_golf' : 'stroke_play'),
+        player_name: scoreCardData.playerInfo?.name || scoreCardData.player_name || '',
+        date_played: scoreCardData.playerInfo?.date || scoreCardData.date_played || new Date().toISOString().split('T')[0],
+        handicap: scoreCardData.playerInfo?.handicap || scoreCardData.handicap || 0,
+        scores: scoreCardData.holes || scoreCardData.scores || [],
+        total_strokes: scoreCardData.totalStrokes || scoreCardData.total_strokes || 0,
+        total_mulligans: scoreCardData.totalMulligans || scoreCardData.total_mulligans || 0,
+        final_score: scoreCardData.finalScore || scoreCardData.final_score || scoreCardData.totalStrokes || 0
+      };
+
+      console.log('API data being sent:', apiData); // Debug log
+
+      // Save to the backend
+      const response = await saveScorecard(apiData);
+      console.log('Save response:', response); // Debug log
+      
+      if (response && response.data) {
+        console.log('Scorecard saved with ID:', response.data.id);
+        // Show success message
+        alert('Scorecard saved successfully!');
+        handleCloseScoreCard();
+      } else {
+        throw new Error('Invalid response from server');
+      }
+    } catch (err: any) {
+      console.error('Error saving scorecard:', err);
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to save scorecard';
+      alert(`Failed to save scorecard: ${errorMessage}`);
     }
   };
 
@@ -172,6 +243,32 @@ const Profile: React.FC = () => {
     );
   }
 
+  // If scorecard is being shown, render it instead of the profile
+  if (showScoreCard && scoreCardType) {
+    const userInfo = {
+      name: `${user?.first_name} ${user?.last_name}`.trim(),
+      handicap: user?.handicap || 0
+    };
+
+    if (scoreCardType === 'mully') {
+      return (
+        <ScoreCard 
+          onClose={handleCloseScoreCard}
+          onSave={handleSaveScoreCard}
+          userInfo={userInfo}
+        />
+      );
+    } else {
+      return (
+        <StrokePlayScoreCard 
+          onClose={handleCloseScoreCard}
+          onSave={handleSaveScoreCard}
+          userInfo={userInfo}
+        />
+      );
+    }
+  }
+
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
@@ -194,6 +291,13 @@ const Profile: React.FC = () => {
           <div className="flex space-x-2">
             {!isEditing ? (
               <>
+                <button
+                  onClick={handleTrackRound}
+                  className="flex items-center px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                >
+                  <Circle className="w-4 h-4 mr-2" />
+                  Track a Round
+                </button>
                 <button
                   onClick={() => setIsEditing(true)}
                   className="flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-brand-neon-green/90 transition-colors"
@@ -300,6 +404,22 @@ const Profile: React.FC = () => {
               />
             ) : (
               <p className="text-lg text-gray-900">{user?.club || 'Not specified'}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Handicap
+            </label>
+            {isEditing ? (
+              <input
+                type="number"
+                value={formData.handicap}
+                onChange={(e) => setFormData({ ...formData, handicap: Number(e.target.value) })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+              />
+            ) : (
+              <p className="text-lg text-gray-900">{user?.handicap || 'Not specified'}</p>
             )}
           </div>
         </div>
@@ -515,6 +635,13 @@ const Profile: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Track Round Modal */}
+      <TrackRoundModal
+        isOpen={showTrackRoundModal}
+        onClose={() => setShowTrackRoundModal(false)}
+        onSelectRoundType={handleSelectRoundType}
+      />
     </div>
   );
 };
