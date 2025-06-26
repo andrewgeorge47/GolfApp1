@@ -272,14 +272,14 @@ const Profile: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
-      <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-        <div className="flex items-center justify-between mb-6">
+      <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 space-y-4 sm:space-y-0">
           <div className="flex items-center space-x-4">
             <div className="bg-brand-neon-green rounded-full p-3">
               <UserIcon className="w-8 h-8 text-brand-black" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-brand-black">
+              <h1 className="text-2xl sm:text-3xl font-bold text-brand-black">
                 {user?.first_name} {user?.last_name}
               </h1>
               <p className="text-brand-muted-green flex items-center">
@@ -288,26 +288,26 @@ const Profile: React.FC = () => {
               </p>
             </div>
           </div>
-          <div className="flex space-x-2">
+          <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
             {!isEditing ? (
               <>
                 <button
                   onClick={handleTrackRound}
-                  className="flex items-center px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                  className="flex items-center justify-center px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
                 >
                   <Circle className="w-4 h-4 mr-2" />
                   Track a Round
                 </button>
                 <button
                   onClick={() => setIsEditing(true)}
-                  className="flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-brand-neon-green/90 transition-colors"
+                  className="flex items-center justify-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-brand-neon-green/90 transition-colors"
                 >
                   <Edit3 className="w-4 h-4 mr-2" />
                   Edit Profile
                 </button>
                 <button
                   onClick={handleLogout}
-                  className="flex items-center px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                  className="flex items-center justify-center px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
                 >
                   <LogOut className="w-4 h-4 mr-2" />
                   Logout
@@ -318,14 +318,14 @@ const Profile: React.FC = () => {
                 <button
                   onClick={handleSave}
                   disabled={loading}
-                  className="flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-brand-neon-green/90 transition-colors disabled:opacity-50"
+                  className="flex items-center justify-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-brand-neon-green/90 transition-colors disabled:opacity-50"
                 >
                   <Save className="w-4 h-4 mr-2" />
                   Save
                 </button>
                 <button
                   onClick={handleCancel}
-                  className="flex items-center px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                  className="flex items-center justify-center px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
                 >
                   <X className="w-4 h-4 mr-2" />
                   Cancel
@@ -427,7 +427,7 @@ const Profile: React.FC = () => {
 
       {/* Available Tournaments */}
       {tournaments.length > 0 && (
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-6">
           <h2 className="text-xl font-bold text-brand-black mb-4 flex items-center">
             <Award className="w-5 h-5 mr-2" />
             Available Tournaments
@@ -439,17 +439,17 @@ const Profile: React.FC = () => {
               
               return (
                 <div key={tournament.id} className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-3 sm:space-y-0">
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold text-gray-900">{tournament.name}</h3>
-                      <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600">
+                      <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2 text-sm text-gray-600">
                         {tournament.start_date && (
                           <span className="flex items-center">
                             <Calendar className="w-4 h-4 mr-1" />
                             {new Date(tournament.start_date).toLocaleDateString()}
                           </span>
                         )}
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
                           status === 'Completed' ? 'bg-gray-100 text-gray-600' :
                           status === 'In Progress' ? 'bg-green-100 text-green-600' :
                           'bg-blue-100 text-blue-600'
@@ -461,11 +461,11 @@ const Profile: React.FC = () => {
                         <p className="text-sm text-gray-600 mt-2">{tournament.notes}</p>
                       )}
                     </div>
-                    <div className="ml-4">
+                    <div className="sm:ml-4">
                       {isRegistered ? (
                         <button
                           onClick={() => handleTournamentUnregister(tournament.id)}
-                          className="flex items-center px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm"
+                          className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm"
                         >
                           <Minus className="w-4 h-4 mr-1" />
                           Unregister
@@ -473,7 +473,7 @@ const Profile: React.FC = () => {
                       ) : (
                         <button
                           onClick={() => handleTournamentSignup(tournament.id)}
-                          className="flex items-center px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-brand-neon-green/90 transition-colors text-sm"
+                          className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-brand-neon-green/90 transition-colors text-sm"
                         >
                           <Plus className="w-4 h-4 mr-1" />
                           Sign Up
@@ -545,7 +545,7 @@ const Profile: React.FC = () => {
 
       {/* Recent Matches */}
       {userMatches.length > 0 && (
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-6">
           <h2 className="text-xl font-bold text-brand-black mb-4 flex items-center">
             <Clock className="w-5 h-5 mr-2" />
             Recent Matches
@@ -554,7 +554,7 @@ const Profile: React.FC = () => {
             {userMatches.map((match) => {
               const result = getMatchResult(match);
               return (
-                <div key={match.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div key={match.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-gray-50 rounded-lg space-y-2 sm:space-y-0">
                   <div className="flex items-center space-x-3">
                     <Users className="w-5 h-5 text-gray-500" />
                     <div>
@@ -566,7 +566,7 @@ const Profile: React.FC = () => {
                       </p>
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-left sm:text-right">
                     <span className={`font-bold ${getMatchResultColor(result)}`}>
                       {result}
                     </span>
@@ -585,7 +585,7 @@ const Profile: React.FC = () => {
 
       {/* Detailed Statistics */}
       {profile && (
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-6">
           <h2 className="text-xl font-bold text-brand-black mb-4">Match Statistics</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="text-center">
@@ -620,7 +620,7 @@ const Profile: React.FC = () => {
       )}
 
       {/* Member Since */}
-      <div className="bg-white rounded-lg shadow-lg p-6">
+      <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6">
         <h2 className="text-xl font-bold text-brand-black mb-4">Account Information</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>

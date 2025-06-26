@@ -137,7 +137,7 @@ const Leaderboard: React.FC = () => {
         </p>
         
         {/* Tournament Selector */}
-        <div className="flex items-center justify-center space-x-4">
+        <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4">
           <div className="flex items-center space-x-2">
             <Globe className="w-5 h-5 text-brand-neon-green" />
             <span className="text-sm font-medium text-neutral-700">View:</span>
@@ -145,7 +145,7 @@ const Leaderboard: React.FC = () => {
           <select
             value={selectedTournament || ''}
             onChange={(e) => handleTournamentChange(e.target.value)}
-            className="px-4 py-2 border border-neutral-300 rounded-lg bg-white text-neutral-700 focus:outline-none focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+            className="px-4 py-2 border border-neutral-300 rounded-lg bg-white text-neutral-700 focus:outline-none focus:ring-2 focus:ring-brand-neon-green focus:border-transparent w-full sm:w-auto"
           >
             <option value="">Global Leaderboard</option>
             {tournaments.map(tournament => (
@@ -186,8 +186,8 @@ const Leaderboard: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Leaderboard Table */}
-        <div className="lg:col-span-2 bg-white/95 rounded-2xl shadow-lg overflow-hidden">
+        {/* Leaderboard Table - Desktop */}
+        <div className="lg:col-span-2 bg-white/95 rounded-2xl shadow-lg overflow-hidden hidden md:block">
           <div className="px-6 py-4 border-b border-neutral-200">
             <h2 className="text-2xl font-bold text-brand-black">
               {leaderboardData.type === 'global' ? 'All-Time Rankings' : 'Tournament Rankings'}
@@ -272,6 +272,65 @@ const Leaderboard: React.FC = () => {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+
+        {/* Leaderboard Cards - Mobile */}
+        <div className="lg:col-span-2 bg-white/95 rounded-2xl shadow-lg overflow-hidden md:hidden">
+          <div className="px-6 py-4 border-b border-neutral-200">
+            <h2 className="text-2xl font-bold text-brand-black">
+              {leaderboardData.type === 'global' ? 'All-Time Rankings' : 'Tournament Rankings'}
+            </h2>
+          </div>
+          <div className="p-4">
+            {leaderboardData.players.length > 0 ? (
+              <div className="space-y-4">
+                {leaderboardData.players.map((player, index) => (
+                  <div key={player.member_id} className="bg-neutral-50 rounded-lg p-4 border-l-4 border-brand-neon-green">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center space-x-3">
+                        <div className="flex items-center">
+                          {getRankIcon(index + 1)}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-brand-black">
+                            {player.first_name} {player.last_name}
+                          </div>
+                          <div className="text-sm text-neutral-600">
+                            {player.club}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-bold text-brand-neon-green">
+                          {player.total_points} pts
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div>
+                        <div className="text-neutral-600">Matches</div>
+                        <div className="font-semibold text-brand-black">{player.total_matches}</div>
+                      </div>
+                      <div>
+                        <div className="text-neutral-600">Record</div>
+                        <div className="font-semibold text-brand-black">{player.wins}-{player.losses}-{player.ties}</div>
+                      </div>
+                      <div>
+                        <div className="text-neutral-600">Win Rate</div>
+                        <div className="font-semibold text-brand-black">{Math.round(player.win_rate * 100)}%</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-neutral-600">
+                {leaderboardData.type === 'global' 
+                  ? 'No players found. Add some players to see the leaderboard!' 
+                  : 'No players found for this tournament.'}
+              </div>
+            )}
           </div>
         </div>
 

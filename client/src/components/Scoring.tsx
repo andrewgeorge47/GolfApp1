@@ -246,7 +246,7 @@ const Scoring: React.FC = () => {
       {/* Tab Navigation */}
       <div className="bg-white/95 rounded-2xl shadow-lg">
         <div className="border-b border-neutral-200">
-          <nav className="flex space-x-8 px-6">
+          <nav className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-8 px-6">
             <button
               onClick={() => setActiveTab('tournament')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
@@ -272,7 +272,7 @@ const Scoring: React.FC = () => {
           </nav>
         </div>
 
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {activeTab === 'tournament' && (
             <div className="space-y-6">
               {/* Tournament Selection */}
@@ -383,7 +383,7 @@ const Scoring: React.FC = () => {
                         ) : (
                           // Scoring UI
                           <div className="space-y-4">
-                            <div className="flex items-center justify-between">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-2 sm:space-y-0">
                               <h4 className="text-lg font-semibold text-brand-black">
                                 Score Match #{selectedMatch.match_number}
                               </h4>
@@ -392,14 +392,14 @@ const Scoring: React.FC = () => {
                                   setSelectedMatch(null);
                                   resetForm();
                                 }}
-                                className="flex items-center px-3 py-1 text-sm border border-neutral-300 rounded text-neutral-600 hover:bg-neutral-50 transition-colors"
+                                className="flex items-center px-3 py-1 text-sm border border-neutral-300 rounded text-neutral-600 hover:bg-neutral-50 transition-colors w-full sm:w-auto justify-center"
                               >
                                 <X className="w-4 h-4 mr-1" />
                                 Back to Queue
                               </button>
                             </div>
                             
-                            <div className="bg-white rounded-lg p-6 border border-neutral-200">
+                            <div className="bg-white rounded-lg p-4 sm:p-6 border border-neutral-200">
                               <form onSubmit={handleTournamentMatchSubmit} className="space-y-6">
                                 {/* Match Details */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -428,57 +428,53 @@ const Scoring: React.FC = () => {
                                   </div>
                                 </div>
 
-                                {/* Scores Table */}
-                                <div className="overflow-x-auto">
-                                  <table className="w-full border-collapse border border-neutral-300 rounded-lg">
-                                    <thead className="bg-neutral-50">
-                                      <tr>
-                                        <th className="border border-neutral-300 px-4 py-2 text-left">Hole</th>
-                                        <th className="border border-neutral-300 px-4 py-2 text-left">Player 1</th>
-                                        <th className="border border-neutral-300 px-4 py-2 text-left">Player 2</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {[1, 2, 3].map(hole => (
-                                        <tr key={hole}>
-                                          <td className="border border-neutral-300 px-4 py-2 font-medium">
-                                            Hole {hole}
-                                          </td>
-                                          <td className="border border-neutral-300 px-4 py-2">
-                                            <input
-                                              type="number"
-                                              min="1"
-                                              value={scores.player1[`hole${hole}` as keyof typeof scores.player1]}
-                                              onChange={(e) => handleScoreChange('player1', `hole${hole}`, e.target.value)}
-                                              className="w-full px-2 py-1 border border-neutral-300 rounded focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                                              placeholder="Score"
-                                            />
-                                          </td>
-                                          <td className="border border-neutral-300 px-4 py-2">
-                                            <input
-                                              type="number"
-                                              min="1"
-                                              value={scores.player2[`hole${hole}` as keyof typeof scores.player2]}
-                                              onChange={(e) => handleScoreChange('player2', `hole${hole}`, e.target.value)}
-                                              className="w-full px-2 py-1 border border-neutral-300 rounded focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                                              placeholder="Score"
-                                            />
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
+                                {/* Scores Table - Mobile Optimized */}
+                                <div className="space-y-4">
+                                  <h3 className="font-medium text-brand-black">Hole Scores</h3>
+                                  {[1, 2, 3].map(hole => (
+                                    <div key={hole} className="bg-neutral-50 rounded-lg p-4">
+                                      <h4 className="font-medium text-brand-black mb-3">Hole {hole}</h4>
+                                      <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                          <label className="block text-sm font-medium text-neutral-600 mb-1">
+                                            {selectedMatch.player1_first_name}
+                                          </label>
+                                          <input
+                                            type="number"
+                                            min="1"
+                                            value={scores.player1[`hole${hole}` as keyof typeof scores.player1]}
+                                            onChange={(e) => handleScoreChange('player1', `hole${hole}`, e.target.value)}
+                                            className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                                            placeholder="Score"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-sm font-medium text-neutral-600 mb-1">
+                                            {selectedMatch.player2_first_name}
+                                          </label>
+                                          <input
+                                            type="number"
+                                            min="1"
+                                            value={scores.player2[`hole${hole}` as keyof typeof scores.player2]}
+                                            onChange={(e) => handleScoreChange('player2', `hole${hole}`, e.target.value)}
+                                            className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                                            placeholder="Score"
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
                                 </div>
 
                                 {/* Form Actions */}
-                                <div className="flex justify-end space-x-4">
+                                <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-4">
                                   <button
                                     type="button"
                                     onClick={() => {
                                       setSelectedMatch(null);
                                       resetForm();
                                     }}
-                                    className="flex items-center px-4 py-2 border border-neutral-300 rounded-lg text-neutral-600 hover:bg-neutral-50 transition-colors"
+                                    className="flex items-center justify-center px-4 py-2 border border-neutral-300 rounded-lg text-neutral-600 hover:bg-neutral-50 transition-colors"
                                   >
                                     <X className="w-4 h-4 mr-2" />
                                     Cancel
@@ -486,7 +482,7 @@ const Scoring: React.FC = () => {
                                   <button
                                     type="submit"
                                     disabled={submitting}
-                                    className="flex items-center px-6 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors disabled:opacity-50"
+                                    className="flex items-center justify-center px-6 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors disabled:opacity-50"
                                   >
                                     {submitting ? (
                                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-black mr-2"></div>
@@ -516,7 +512,7 @@ const Scoring: React.FC = () => {
             <div className="space-y-6">
               <h2 className="text-2xl font-bold text-brand-black">Manual Match Scoring</h2>
               
-              <div className="bg-neutral-50 rounded-lg p-6">
+              <div className="bg-neutral-50 rounded-lg p-4 sm:p-6">
                 <form onSubmit={handleSubmit} className="space-y-6">
                   {/* Match Details */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -571,46 +567,42 @@ const Scoring: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Scores Table */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse border border-neutral-300 rounded-lg bg-white">
-                      <thead className="bg-neutral-50">
-                        <tr>
-                          <th className="border border-neutral-300 px-4 py-2 text-left">Hole</th>
-                          <th className="border border-neutral-300 px-4 py-2 text-left">Player 1</th>
-                          <th className="border border-neutral-300 px-4 py-2 text-left">Player 2</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[1, 2, 3].map(hole => (
-                          <tr key={hole}>
-                            <td className="border border-neutral-300 px-4 py-2 font-medium">
-                              Hole {hole}
-                            </td>
-                            <td className="border border-neutral-300 px-4 py-2">
-                              <input
-                                type="number"
-                                min="1"
-                                value={scores.player1[`hole${hole}` as keyof typeof scores.player1]}
-                                onChange={(e) => handleScoreChange('player1', `hole${hole}`, e.target.value)}
-                                className="w-full px-2 py-1 border border-neutral-300 rounded focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                                placeholder="Score"
-                              />
-                            </td>
-                            <td className="border border-neutral-300 px-4 py-2">
-                              <input
-                                type="number"
-                                min="1"
-                                value={scores.player2[`hole${hole}` as keyof typeof scores.player2]}
-                                onChange={(e) => handleScoreChange('player2', `hole${hole}`, e.target.value)}
-                                className="w-full px-2 py-1 border border-neutral-300 rounded focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                                placeholder="Score"
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  {/* Scores Table - Mobile Optimized */}
+                  <div className="space-y-4">
+                    <h3 className="font-medium text-brand-black">Hole Scores</h3>
+                    {[1, 2, 3].map(hole => (
+                      <div key={hole} className="bg-white rounded-lg p-4 border border-neutral-200">
+                        <h4 className="font-medium text-brand-black mb-3">Hole {hole}</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-neutral-600 mb-1">
+                              Player 1
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={scores.player1[`hole${hole}` as keyof typeof scores.player1]}
+                              onChange={(e) => handleScoreChange('player1', `hole${hole}`, e.target.value)}
+                              className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                              placeholder="Score"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-neutral-600 mb-1">
+                              Player 2
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={scores.player2[`hole${hole}` as keyof typeof scores.player2]}
+                              onChange={(e) => handleScoreChange('player2', `hole${hole}`, e.target.value)}
+                              className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                              placeholder="Score"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
 
                   {/* Scoring Rules Info */}
@@ -626,11 +618,11 @@ const Scoring: React.FC = () => {
                   )}
 
                   {/* Form Actions */}
-                  <div className="flex justify-end space-x-4">
+                  <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-4">
                     <button
                       type="button"
                       onClick={resetForm}
-                      className="flex items-center px-4 py-2 border border-neutral-300 rounded-lg text-neutral-600 hover:bg-neutral-50 transition-colors"
+                      className="flex items-center justify-center px-4 py-2 border border-neutral-300 rounded-lg text-neutral-600 hover:bg-neutral-50 transition-colors"
                     >
                       <X className="w-4 h-4 mr-2" />
                       Reset
@@ -638,7 +630,7 @@ const Scoring: React.FC = () => {
                     <button
                       type="submit"
                       disabled={submitting}
-                      className="flex items-center px-6 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors disabled:opacity-50"
+                      className="flex items-center justify-center px-6 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors disabled:opacity-50"
                     >
                       {submitting ? (
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-black mr-2"></div>

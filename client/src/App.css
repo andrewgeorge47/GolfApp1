@@ -36,3 +36,42 @@
     transform: rotate(360deg);
   }
 }
+
+/* Mobile optimizations */
+@media (max-width: 640px) {
+  /* Improve touch targets */
+  button, input, select, textarea {
+    min-height: 44px;
+  }
+  
+  /* Better spacing for mobile */
+  .space-y-8 > * + * {
+    margin-top: 1.5rem;
+  }
+  
+  /* Improve table readability on mobile */
+  table {
+    font-size: 0.875rem;
+  }
+  
+  /* Better modal spacing */
+  .fixed.inset-0 {
+    padding: 1rem;
+  }
+  
+  /* Improve form spacing */
+  .space-y-6 > * + * {
+    margin-top: 1.25rem;
+  }
+}
+
+/* Prevent horizontal scroll on mobile */
+html, body {
+  overflow-x: hidden;
+}
+
+/* Improve focus states for accessibility */
+button:focus, input:focus, select:focus, textarea:focus {
+  outline: 2px solid #77dd3c;
+  outline-offset: 2px;
+}

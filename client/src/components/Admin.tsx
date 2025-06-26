@@ -419,7 +419,7 @@ const Admin: React.FC = () => {
               {selectedTournament && (
                 <div className="lg:col-span-2 space-y-6">
                   {/* Tabs */}
-                  <div className="flex space-x-4 border-b border-neutral-200 mb-4">
+                  <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 border-b border-neutral-200 mb-4">
                     <button
                       className={`py-2 px-4 font-medium ${activeTab === 'registration' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
                       onClick={() => setActiveTab('registration')}
@@ -552,7 +552,7 @@ const Admin: React.FC = () => {
                               No users found.
                             </p>
                           )}
-                          <div className="flex justify-end pt-4 space-x-2">
+                          <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-4 pt-4">
                             <button
                               onClick={() => handleRegisterUsers(selectedRegistrationUserIds)}
                               className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
@@ -658,7 +658,7 @@ const Admin: React.FC = () => {
                   rows={2}
                 />
               </div>
-              <div className="flex justify-end space-x-4 pt-4">
+              <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-4 pt-4">
                 <button
                   type="button"
                   onClick={() => setShowTournamentForm(false)}
@@ -732,7 +732,7 @@ const Admin: React.FC = () => {
                   rows={2}
                 />
               </div>
-              <div className="flex justify-end space-x-4 pt-4">
+              <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-4 pt-4">
                 <button
                   type="button"
                   onClick={() => setShowEditTournamentForm(false)}
@@ -813,7 +813,7 @@ const Admin: React.FC = () => {
                   All registered players are already checked in.
                 </p>
               )}
-              <div className="flex justify-end pt-4 space-x-2">
+              <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-4 pt-4">
                 <button
                   onClick={() => setShowCheckInModal(false)}
                   className="px-4 py-2 border border-neutral-300 rounded-lg text-neutral-600 hover:bg-neutral-50"
@@ -851,7 +851,7 @@ const Admin: React.FC = () => {
                   placeholder="Any special notes for this check-in..."
                 />
               </div>
-              <div className="flex justify-end space-x-4 pt-4">
+              <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-4 pt-4">
                 <button
                   onClick={() => {
                     setSelectedUserForCheckIn(null);
@@ -916,7 +916,7 @@ const Admin: React.FC = () => {
                   <strong>Format:</strong> {matchGenerationForm.format.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
                 </p>
               </div>
-              <div className="flex justify-end space-x-4 pt-4">
+              <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-4 pt-4">
                 <button
                   onClick={() => setShowMatchGenerationModal(false)}
                   className="px-4 py-2 border border-neutral-300 rounded-lg text-neutral-600 hover:bg-neutral-50"
