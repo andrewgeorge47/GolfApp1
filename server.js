@@ -516,6 +516,13 @@ app.post('/api/auth/register', async (req, res) => {
       [first_name, last_name, email, club || '', role || 'player', hashedPassword]
     );
     const user = result.rows[0];
+
+    // Immediately create the user profile
+    await pool.query(
+      'INSERT INTO user_profiles (user_id, total_matches, wins, losses, ties, total_points, win_rate, last_updated) VALUES ($1, 0, 0, 0, 0, 0, 0, NOW())',
+      [user.member_id]
+    );
+
     const token = jwt.sign({ member_id: user.member_id, email_address: user.email_address, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user });
   } catch (err) {
