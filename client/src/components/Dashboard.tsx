@@ -1,31 +1,65 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Users, Calendar, TrendingUp, ArrowRight, Play, Award, Settings, User as UserIcon, Star, CheckCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { getUsers, getLeagueSettings, getMatches, getUserProfiles } from '../services/api';
-import type { User, LeagueSettings, Match, UserProfile } from '../services/api';
+import { getUsers, getLeagueSettings, getLeaderboard } from '../services/api';
+import type { User, LeagueSettings } from '../services/api';
+
+interface LeaderboardPlayer {
+  member_id: number;
+  first_name: string;
+  last_name: string;
+  club: string;
+  role: string;
+  total_matches: number;
+  wins: number;
+  losses: number;
+  ties: number;
+  total_points: number;
+  win_rate: number;
+}
+
+interface RecentMatch {
+  id: number;
+  tournament_name: string;
+  player1_first_name: string;
+  player1_last_name: string;
+  player2_first_name: string;
+  player2_last_name: string;
+  winner_first_name: string;
+  winner_last_name: string;
+  created_at: string;
+}
+
+interface LeaderboardData {
+  players: LeaderboardPlayer[];
+  recentMatches: RecentMatch[];
+  stats: {
+    totalPlayers: number;
+    totalMatches: number;
+    totalPoints: number;
+    averagePoints: number;
+  };
+}
 
 const Dashboard: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettings] = useState<LeagueSettings | null>(null);
-  const [matches, setMatches] = useState<Match[]>([]);
-  const [profiles, setProfiles] = useState<UserProfile[]>([]);
+  const [leaderboardData, setLeaderboardData] = useState<LeaderboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [usersData, settingsData, matchesData, profilesData] = await Promise.all([
+        const [usersData, settingsData, leaderboardResponse] = await Promise.all([
           getUsers(),
           getLeagueSettings(),
-          getMatches(),
-          getUserProfiles()
+          getLeaderboard()
         ]);
 
         setUsers(usersData.data);
         setSettings(settingsData.data);
-        setMatches(matchesData.data);
-        setProfiles(profilesData.data);
+        setLeaderboardData(leaderboardResponse.data);
         
         // For now, we'll use the first user as current user (you can implement proper auth later)
         if (usersData.data.length > 0) {
@@ -50,10 +84,10 @@ const Dashboard: React.FC = () => {
   }
 
   const totalPlayers = users.length;
-  const totalMatches = matches.length;
-  const activePlayers = profiles.length;
-  const recentMatches = matches.slice(-3);
-  const upcomingMatches = matches.filter(match => new Date(match.match_date) > new Date()).slice(0, 2);
+  const totalMatches = leaderboardData?.stats.totalMatches || 0;
+  const activePlayers = leaderboardData?.players.filter(p => p.total_matches > 0).length || 0;
+  const recentMatches = leaderboardData?.recentMatches.slice(-3) || [];
+  const upcomingMatches: any[] = []; // No upcoming matches endpoint yet
 
   return (
     <div className="space-y-8">
@@ -71,7 +105,7 @@ const Dashboard: React.FC = () => {
             {settings?.name || 'Golf League Tournament'}
           </h1>
           <p className="text-xl text-white/90 mb-6 max-w-2xl mx-auto">
-            {settings?.description || 'Join the ultimate weekly match play league. Track scores, compete with friends, and climb the leaderboard.'}
+            Join the ultimate weekly match play league. Track scores, compete with friends, and climb the leaderboard.
           </p>
           
           {currentUser && (
@@ -209,14 +243,17 @@ const Dashboard: React.FC = () => {
               recentMatches.map((match) => (
                 <div key={match.id} className="p-4 bg-neutral-50 rounded-lg border-l-4 border-brand-neon-green hover:bg-neutral-100 transition-colors">
                   <div className="font-semibold text-brand-black">
-                    Match #{match.id}
+                    {match.tournament_name} - Match #{match.id}
                   </div>
                   <div className="text-sm text-neutral-600">
-                    {new Date(match.match_date).toLocaleDateString()}
+                    {new Date(match.created_at).toLocaleDateString()}
                   </div>
-                  {match.winner && (
+                  <div className="text-sm text-neutral-700 mt-1">
+                    {match.player1_first_name} {match.player1_last_name} vs {match.player2_first_name} {match.player2_last_name}
+                  </div>
+                  {match.winner_first_name && (
                     <div className="text-sm text-brand-neon-green font-medium mt-1">
-                      🏆 Winner: {match.winner}
+                      🏆 Winner: {match.winner_first_name} {match.winner_last_name}
                     </div>
                   )}
                 </div>
@@ -234,33 +271,40 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Upcoming Matches */}
+        {/* Top Players */}
         <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/20">
           <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
-            <Calendar className="w-6 h-6 mr-3 text-brand-neon-green" />
-            Upcoming Matches
+            <Trophy className="w-6 h-6 mr-3 text-brand-neon-green" />
+            Top Players
           </h2>
           <div className="space-y-4">
-            {upcomingMatches.length > 0 ? (
-              upcomingMatches.map((match) => (
-                <div key={match.id} className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-l-4 border-blue-400 hover:from-blue-100 hover:to-indigo-100 transition-colors">
-                  <div className="font-semibold text-brand-black">
-                    Match #{match.id}
+            {leaderboardData?.players.slice(0, 5).map((player, index) => (
+              <div key={player.member_id} className="p-4 bg-neutral-50 rounded-lg border-l-4 border-brand-neon-green hover:bg-neutral-100 transition-colors">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-brand-black">
+                      #{index + 1} {player.first_name} {player.last_name}
+                    </div>
+                    <div className="text-sm text-neutral-600">
+                      {player.club} • {player.total_matches} matches
+                    </div>
                   </div>
-                  <div className="text-sm text-neutral-600">
-                    {new Date(match.match_date).toLocaleDateString()} at {new Date(match.match_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                  </div>
-                  <div className="text-sm text-blue-600 font-medium mt-1">
-                    ⏰ Upcoming
+                  <div className="text-right">
+                    <div className="text-lg font-bold text-brand-neon-green">
+                      {player.total_points} pts
+                    </div>
+                    <div className="text-sm text-neutral-600">
+                      {Math.round(parseFloat(player.win_rate.toString()) * 100)}% win rate
+                    </div>
                   </div>
                 </div>
-              ))
-            ) : (
+              </div>
+            )) || (
               <div className="text-center py-8">
-                <Calendar className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
-                <p className="text-neutral-600 mb-4">No upcoming matches scheduled.</p>
-                <Link to="/admin" className="inline-flex items-center text-brand-neon-green hover:text-brand-muted-green font-semibold">
-                  Schedule a match
+                <Trophy className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
+                <p className="text-neutral-600 mb-4">No player data available.</p>
+                <Link to="/leaderboard" className="inline-flex items-center text-brand-neon-green hover:text-brand-muted-green font-semibold">
+                  View full leaderboard
                   <ArrowRight className="w-4 h-4 ml-1" />
                 </Link>
               </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Save, X, UserPlus, UserMinus, CheckCircle, Clock } from 'lucide-react';
+import { Plus, UserPlus, CheckCircle, Clock } from 'lucide-react';
 import { 
   createTournament,
   getTournaments,
@@ -18,8 +18,12 @@ import {
   getUsers
 } from '../services/api';
 import type { User } from '../services/api';
-import { ToastContainer, toast } from 'react-toastify';
+import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import TournamentList from './TournamentList';
+import TournamentDetails from './TournamentDetails';
+import ParticipantsTable from './ParticipantsTable';
+import MatchesTable from './MatchesTable';
 
 const Admin: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -47,7 +51,6 @@ const Admin: React.FC = () => {
   const [tournamentStats, setTournamentStats] = useState<any>(null);
   const [showRegistrationModal, setShowRegistrationModal] = useState(false);
   const [showCheckInModal, setShowCheckInModal] = useState(false);
-  const [selectedUserForRegistration, setSelectedUserForRegistration] = useState<User | null>(null);
   const [selectedUserForCheckIn, setSelectedUserForCheckIn] = useState<any | null>(null);
   const [checkInNotes, setCheckInNotes] = useState('');
 
@@ -58,6 +61,21 @@ const Admin: React.FC = () => {
     format: 'optimized',
     minMatchesPerPlayer: 3
   });
+
+  // Add state for multi-select registration
+  const [selectedRegistrationUserIds, setSelectedRegistrationUserIds] = useState<number[]>([]);
+
+  // Add state for multi-select check-in
+  const [selectedCheckInUserIds, setSelectedCheckInUserIds] = useState<number[]>([]);
+
+  // Add tab state
+  const [activeTab, setActiveTab] = useState<'registration' | 'checkin' | 'matches'>('registration');
+
+  // Add state for registration search
+  const [registrationSearch, setRegistrationSearch] = useState('');
+
+  // Add state for club filter
+  const [registrationClubFilter, setRegistrationClubFilter] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -164,26 +182,22 @@ const Admin: React.FC = () => {
   };
 
   // Tournament registration functions
-  const handleRegisterUser = async (userId: number) => {
+  const handleRegisterUsers = async (userIds: number[]) => {
     if (!selectedTournament) return;
-    
     try {
-      await registerUserForTournament(selectedTournament.id, userId);
-      
+      await Promise.all(userIds.map(userId => registerUserForTournament(selectedTournament.id, userId)));
       // Refresh tournament data
       const [participantsRes, statsRes] = await Promise.all([
         getTournamentParticipants(selectedTournament.id),
         getTournamentStats(selectedTournament.id)
       ]);
-      
       setTournamentParticipants(participantsRes.data);
       setTournamentStats(statsRes.data);
       setShowRegistrationModal(false);
-      setSelectedUserForRegistration(null);
-      
-      toast.success('User registered successfully!');
+      setSelectedRegistrationUserIds([]);
+      toast.success('Users registered successfully!');
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Error registering user');
+      toast.error(error.response?.data?.error || 'Error registering users');
     }
   };
 
@@ -211,26 +225,23 @@ const Admin: React.FC = () => {
   };
 
   // Tournament check-in functions
-  const handleCheckInUser = async (userId: number) => {
+  const handleCheckInUsers = async (userIds: number[]) => {
     if (!selectedTournament) return;
-    
     try {
-      await checkInUser(selectedTournament.id, userId, checkInNotes);
-      
+      await Promise.all(userIds.map(userId => checkInUser(selectedTournament.id, userId, checkInNotes)));
       // Refresh tournament data
       const [checkInsRes, statsRes] = await Promise.all([
         getTournamentCheckIns(selectedTournament.id),
         getTournamentStats(selectedTournament.id)
       ]);
-      
       setTournamentCheckIns(checkInsRes.data);
       setTournamentStats(statsRes.data);
       setShowCheckInModal(false);
+      setSelectedCheckInUserIds([]);
       setCheckInNotes('');
-      
-      alert('User checked in successfully!');
+      toast.success('Users checked in successfully!');
     } catch (error: any) {
-      alert(error.response?.data?.error || 'Error checking in user');
+      toast.error(error.response?.data?.error || 'Error checking in users');
     }
   };
 
@@ -321,6 +332,43 @@ const Admin: React.FC = () => {
     return tournamentCheckIns.filter(c => c.status === 'checked_in').length;
   };
 
+  // Build statsByTournamentId for TournamentList
+  const statsByTournamentId = tournaments.reduce((acc, t) => {
+    if (t.id && selectedTournament && t.id === selectedTournament.id && tournamentStats) {
+      acc[t.id] = tournamentStats;
+    }
+    return acc;
+  }, {} as Record<string, any>);
+
+  // Helper to get all clubs from all users
+  function getAllClubs() {
+    return Array.from(new Set(users.map(u => u.club))).sort();
+  }
+  // Helper to get total users in a club
+  function getTotalUsersInClub(club: string) {
+    return users.filter(u => u.club === club).length;
+  }
+  // Helper to get registered users in a club
+  function getRegisteredUsersInClub(club: string) {
+    return tournamentParticipants.filter(p => p.club === club).length;
+  }
+  // Helper to get available (unregistered) users, filtered by club if set
+  function getAvailableUsersFiltered() {
+    let filtered = getAvailableUsers();
+    if (registrationClubFilter) {
+      filtered = filtered.filter(u => u.club === registrationClubFilter);
+    }
+    const search = registrationSearch.trim().toLowerCase();
+    if (search) {
+      filtered = filtered.filter(u =>
+        u.first_name.toLowerCase().includes(search) ||
+        u.last_name.toLowerCase().includes(search) ||
+        (u.club && u.club.toLowerCase().includes(search))
+      );
+    }
+    return filtered;
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-64">
@@ -358,256 +406,196 @@ const Admin: React.FC = () => {
             {/* Tournament Selection */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Tournament List */}
-              <div className="lg:col-span-1">
-                <h3 className="text-lg font-semibold text-brand-black mb-3">Tournaments</h3>
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {tournaments.map(tournament => (
-                    <div
-                      key={tournament.id}
-                      onClick={() => setSelectedTournament(tournament)}
-                      className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                        selectedTournament?.id === tournament.id
-                          ? 'border-brand-neon-green bg-brand-neon-green/10'
-                          : 'border-neutral-300 hover:border-neutral-400'
-                      }`}
-                    >
-                      <h4 className="font-medium text-brand-black">{tournament.name}</h4>
-                      <p className="text-sm text-neutral-600">{tournament.type}</p>
-                      {tournament.start_date && (
-                        <p className="text-xs text-neutral-500">
-                          {new Date(tournament.start_date).toLocaleDateString()}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <TournamentList
+                tournaments={tournaments}
+                selectedTournament={selectedTournament}
+                setSelectedTournament={setSelectedTournament}
+                onEdit={handleEditTournament}
+                onDelete={handleDeleteTournament}
+                statsByTournamentId={statsByTournamentId}
+              />
 
               {/* Tournament Details */}
               {selectedTournament && (
                 <div className="lg:col-span-2 space-y-6">
-                  {/* Tournament Info */}
-                  <div className="bg-neutral-50 rounded-lg p-4">
-                    <h3 className="text-lg font-semibold text-brand-black mb-3">{selectedTournament.name}</h3>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <p><strong>Type:</strong> {selectedTournament.type}</p>
-                        <p><strong>Start Date:</strong> {selectedTournament.start_date || 'N/A'}</p>
-                        <p><strong>End Date:</strong> {selectedTournament.end_date || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <p><strong>Notes:</strong> {selectedTournament.notes || 'N/A'}</p>
-                      </div>
-                    </div>
-                    
-                    {/* Tournament Stats */}
-                    {tournamentStats && (
-                      <div className="mt-4 grid grid-cols-3 gap-4 text-sm">
-                        <div className="text-center">
-                          <p className="font-bold text-brand-neon-green">{tournamentStats.total_participants}</p>
-                          <p className="text-neutral-600">Participants</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="font-bold text-brand-neon-green">{tournamentStats.checked_in_count}</p>
-                          <p className="text-neutral-600">Checked In</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="font-bold text-brand-neon-green">{tournamentStats.total_matches}</p>
-                          <p className="text-neutral-600">Matches</p>
-                        </div>
-                      </div>
-                    )}
-                    
-                    {/* Tournament Actions */}
-                    <div className="mt-4 flex space-x-2">
-                      <button
-                        onClick={() => setShowEditTournamentForm(true)}
-                        className="flex items-center px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
-                      >
-                        <Edit className="w-3 h-3 mr-1" />
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteTournament(selectedTournament.id)}
-                        className="flex items-center px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
-                      >
-                        <Trash2 className="w-3 h-3 mr-1" />
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Tournament Actions */}
-                  <div className="flex space-x-4">
+                  {/* Tabs */}
+                  <div className="flex space-x-4 border-b border-neutral-200 mb-4">
                     <button
-                      onClick={() => setShowRegistrationModal(true)}
-                      className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                      className={`py-2 px-4 font-medium ${activeTab === 'registration' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
+                      onClick={() => setActiveTab('registration')}
                     >
-                      <UserPlus className="w-4 h-4 mr-2" />
-                      Register Players
+                      Registration
                     </button>
                     <button
-                      onClick={() => setShowCheckInModal(true)}
-                      className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
+                      className={`py-2 px-4 font-medium ${activeTab === 'checkin' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
+                      onClick={() => setActiveTab('checkin')}
                     >
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                      Check In Players
+                      Check-in
                     </button>
                     <button
-                      onClick={() => setShowMatchGenerationModal(true)}
-                      disabled={getCheckedInPlayersCount() < 2}
-                      className={`flex items-center px-4 py-2 rounded-lg font-medium transition-colors ${
-                        getCheckedInPlayersCount() >= 2
-                          ? 'bg-purple-600 text-white hover:bg-purple-700'
-                          : 'bg-gray-400 text-gray-200 cursor-not-allowed'
-                      }`}
+                      className={`py-2 px-4 font-medium ${activeTab === 'matches' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
+                      onClick={() => setActiveTab('matches')}
                     >
-                      <Clock className="w-4 h-4 mr-2" />
-                      Generate Matches
+                      Matches
                     </button>
                   </div>
-
-                  {/* Participants List */}
-                  <div>
-                    <h4 className="text-lg font-semibold text-brand-black mb-3">Registered Participants</h4>
-                    <div className="overflow-x-auto">
-                      <table className="w-full border-collapse border border-neutral-300 rounded-lg">
-                        <thead className="bg-neutral-50">
-                          <tr>
-                            <th className="border border-neutral-300 px-4 py-2 text-left">Name</th>
-                            <th className="border border-neutral-300 px-4 py-2 text-left">Email</th>
-                            <th className="border border-neutral-300 px-4 py-2 text-left">Club</th>
-                            <th className="border border-neutral-300 px-4 py-2 text-left">Status</th>
-                            <th className="border border-neutral-300 px-4 py-2 text-left">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {tournamentParticipants.map(participant => {
-                            const checkIn = tournamentCheckIns.find(c => c.user_member_id === participant.user_member_id);
-                            return (
-                              <tr key={participant.user_member_id}>
-                                <td className="border border-neutral-300 px-4 py-2">
-                                  {participant.first_name} {participant.last_name}
-                                </td>
-                                <td className="border border-neutral-300 px-4 py-2">{participant.email_address}</td>
-                                <td className="border border-neutral-300 px-4 py-2">{participant.club}</td>
-                                <td className="border border-neutral-300 px-4 py-2">
-                                  {checkIn ? (
-                                    <span className={`px-2 py-1 rounded text-xs ${
-                                      checkIn.status === 'checked_in' 
-                                        ? 'bg-green-100 text-green-800' 
-                                        : 'bg-blue-100 text-blue-800'
-                                    }`}>
-                                      {checkIn.status === 'checked_in' ? 'Checked In' : 'Checked Out'}
-                                    </span>
-                                  ) : (
-                                    <span className="px-2 py-1 rounded text-xs bg-yellow-100 text-yellow-800">
-                                      Not Checked In
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="border border-neutral-300 px-4 py-2">
-                                  <div className="flex space-x-2">
-                                    {!checkIn && (
-                                      <button
-                                        onClick={() => {
-                                          setSelectedUserForRegistration(participant);
-                                          setShowCheckInModal(true);
-                                        }}
-                                        className="text-green-600 hover:text-green-800 text-sm"
-                                      >
-                                        Check In
-                                      </button>
-                                    )}
-                                    {checkIn && checkIn.status === 'checked_in' && (
-                                      <button
-                                        onClick={() => handleCheckOutUser(participant.user_member_id)}
-                                        className="text-blue-600 hover:text-blue-800 text-sm"
-                                      >
-                                        Check Out
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => handleUnregisterUser(participant.user_member_id)}
-                                      className="text-red-600 hover:text-red-800 text-sm"
-                                    >
-                                      Remove
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  {/* Matches List */}
-                  {tournamentMatches.length > 0 && (
+                  {/* Tab Content */}
+                  {activeTab === 'registration' && (
                     <div>
-                      <h4 className="text-lg font-semibold text-brand-black mb-3">Tournament Matches</h4>
-                      <div className="overflow-x-auto">
-                        <table className="w-full border-collapse border border-neutral-300 rounded-lg">
-                          <thead className="bg-neutral-50">
-                            <tr>
-                              <th className="border border-neutral-300 px-4 py-2 text-left">Match</th>
-                              <th className="border border-neutral-300 px-4 py-2 text-left">Player 1</th>
-                              <th className="border border-neutral-300 px-4 py-2 text-left">Player 2</th>
-                              <th className="border border-neutral-300 px-4 py-2 text-left">Status</th>
-                              <th className="border border-neutral-300 px-4 py-2 text-left">Winner</th>
-                              <th className="border border-neutral-300 px-4 py-2 text-left">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {tournamentMatches.map(match => (
-                              <tr key={match.id}>
-                                <td className="border border-neutral-300 px-4 py-2">{match.match_number}</td>
-                                <td className="border border-neutral-300 px-4 py-2">
-                                  {match.player1_first_name} {match.player1_last_name}
-                                </td>
-                                <td className="border border-neutral-300 px-4 py-2">
-                                  {match.player2_first_name} {match.player2_last_name}
-                                </td>
-                                <td className="border border-neutral-300 px-4 py-2">
-                                  <span className={`px-2 py-1 rounded text-xs ${
-                                    match.status === 'completed' 
-                                      ? 'bg-green-100 text-green-800' 
-                                      : 'bg-yellow-100 text-yellow-800'
-                                  }`}>
-                                    {match.status}
-                                  </span>
-                                </td>
-                                <td className="border border-neutral-300 px-4 py-2">
-                                  {match.winner_first_name ? 
-                                    `${match.winner_first_name} ${match.winner_last_name}` : 
-                                    'Not decided'
-                                  }
-                                </td>
-                                <td className="border border-neutral-300 px-4 py-2">
-                                  {match.status === 'pending' && (
-                                    <div className="flex space-x-2">
-                                      <button
-                                        onClick={() => handleUpdateMatchResult(match.id, match.player1_id)}
-                                        className="text-blue-600 hover:text-blue-800 text-sm"
-                                      >
-                                        {match.player1_first_name} Wins
-                                      </button>
-                                      <button
-                                        onClick={() => handleUpdateMatchResult(match.id, match.player2_id)}
-                                        className="text-blue-600 hover:text-blue-800 text-sm"
-                                      >
-                                        {match.player2_first_name} Wins
-                                      </button>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                      {/* Club Percentage Bars */}
+                      <div className="flex flex-wrap gap-3 mb-6">
+                        <div
+                          onClick={() => setRegistrationClubFilter(null)}
+                          className={`cursor-pointer flex flex-col items-center px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${registrationClubFilter === null ? 'bg-brand-neon-green/80 border-brand-neon-green text-brand-black' : 'bg-neutral-100 border-neutral-300 text-neutral-700 hover:bg-brand-neon-green/30'}`}
+                          style={{ minWidth: 100 }}
+                        >
+                          <span>All Clubs</span>
+                        </div>
+                        {getAllClubs().map(club => {
+                          const total = getTotalUsersInClub(club);
+                          const registered = getRegisteredUsersInClub(club);
+                          const percent = total > 0 ? Math.round((registered / total) * 100) : 0;
+                          return (
+                            <div
+                              key={club}
+                              onClick={() => setRegistrationClubFilter(club)}
+                              className={`cursor-pointer flex flex-col items-center px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${registrationClubFilter === club ? 'bg-brand-neon-green/80 border-brand-neon-green text-brand-black' : 'bg-neutral-100 border-neutral-300 text-neutral-700 hover:bg-brand-neon-green/30'}`}
+                              style={{ minWidth: 100 }}
+                            >
+                              <span>{club}</span>
+                              <div className="w-full h-2 bg-neutral-200 rounded mt-1 mb-1">
+                                <div
+                                  className="h-2 rounded"
+                                  style={{ width: `${percent}%`, background: percent === 100 ? '#22c55e' : '#4ade80' }}
+                                />
+                              </div>
+                              <span>{registered}/{total} registered</span>
+                            </div>
+                          );
+                        })}
                       </div>
+                      {/* Unified Search */}
+                      <div className="mb-4">
+                        <input
+                          type="text"
+                          value={registrationSearch}
+                          onChange={e => setRegistrationSearch(e.target.value)}
+                          placeholder="Search by name or club..."
+                          className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                        />
+                      </div>
+                      {/* Only show table and actions if a filter or search is active */}
+                      {(registrationClubFilter || registrationSearch.trim()) && (
+                        <>
+                          {/* Register All Button (when filtered) */}
+                          {getAvailableUsersFiltered().length > 0 && (
+                            <div className="flex justify-end mb-2">
+                              <button
+                                onClick={() => handleRegisterUsers(getAvailableUsersFiltered().map(u => u.member_id))}
+                                className="px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400"
+                              >
+                                Register All
+                              </button>
+                            </div>
+                          )}
+                          {/* Multi-select Table of Available Users Only */}
+                          <div className="overflow-x-auto">
+                            <table className="w-full border-collapse border border-neutral-300 rounded-lg">
+                              <thead className="bg-neutral-50">
+                                <tr>
+                                  <th className="border border-neutral-300 px-4 py-2 text-left">
+                                    <input
+                                      type="checkbox"
+                                      checked={getAvailableUsersFiltered().length > 0 && selectedRegistrationUserIds.length === getAvailableUsersFiltered().map(u => u.member_id).length}
+                                      onChange={e => {
+                                        if (e.target.checked) {
+                                          setSelectedRegistrationUserIds(getAvailableUsersFiltered().map(u => u.member_id));
+                                        } else {
+                                          setSelectedRegistrationUserIds([]);
+                                        }
+                                      }}
+                                    />
+                                  </th>
+                                  <th className="border border-neutral-300 px-4 py-2 text-left">Name</th>
+                                  <th className="border border-neutral-300 px-4 py-2 text-left">Email</th>
+                                  <th className="border border-neutral-300 px-4 py-2 text-left">Club</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {getAvailableUsersFiltered().map(user => (
+                                  <tr key={user.member_id}>
+                                    <td className="border border-neutral-300 px-4 py-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedRegistrationUserIds.includes(user.member_id)}
+                                        onChange={e => {
+                                          if (e.target.checked) {
+                                            setSelectedRegistrationUserIds(prev => [...prev, user.member_id]);
+                                          } else {
+                                            setSelectedRegistrationUserIds(prev => prev.filter(id => id !== user.member_id));
+                                          }
+                                        }}
+                                      />
+                                    </td>
+                                    <td className="border border-neutral-300 px-4 py-2">
+                                      {user.first_name} {user.last_name}
+                                    </td>
+                                    <td className="border border-neutral-300 px-4 py-2">{user.email}</td>
+                                    <td className="border border-neutral-300 px-4 py-2">{user.club}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          {getAvailableUsersFiltered().length === 0 && (
+                            <p className="text-center text-neutral-600 py-4">
+                              No users found.
+                            </p>
+                          )}
+                          <div className="flex justify-end pt-4 space-x-2">
+                            <button
+                              onClick={() => handleRegisterUsers(selectedRegistrationUserIds)}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
+                              disabled={selectedRegistrationUserIds.length === 0}
+                            >
+                              Register Selected
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
+                  )}
+                  {activeTab === 'checkin' && (
+                    <>
+                      <button
+                        onClick={() => setShowCheckInModal(true)}
+                        className="mb-4 px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
+                      >
+                        Check In Players
+                      </button>
+                      <ParticipantsTable
+                        participants={tournamentParticipants}
+                        checkIns={tournamentCheckIns}
+                        onCheckIn={() => {}}
+                        onCheckOut={handleCheckOutUser}
+                        onUnregister={() => {}}
+                        setSelectedUserForCheckIn={setSelectedUserForCheckIn}
+                      />
+                    </>
+                  )}
+                  {activeTab === 'matches' && (
+                    <>
+                      <button
+                        onClick={() => setShowMatchGenerationModal(true)}
+                        className="mb-4 px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700"
+                      >
+                        Generate Matches
+                      </button>
+                      <MatchesTable
+                        matches={tournamentMatches}
+                        onUpdateMatchResult={handleUpdateMatchResult}
+                      />
+                    </>
                   )}
                 </div>
               )}
@@ -764,63 +752,6 @@ const Admin: React.FC = () => {
         </div>
       )}
 
-      {/* Registration Modal */}
-      {showRegistrationModal && selectedTournament && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-2xl max-h-96 overflow-y-auto">
-            <h3 className="text-xl font-bold text-brand-black mb-4">
-              Register Players for {selectedTournament.name}
-            </h3>
-            <div className="space-y-4">
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse border border-neutral-300 rounded-lg">
-                  <thead className="bg-neutral-50">
-                    <tr>
-                      <th className="border border-neutral-300 px-4 py-2 text-left">Name</th>
-                      <th className="border border-neutral-300 px-4 py-2 text-left">Email</th>
-                      <th className="border border-neutral-300 px-4 py-2 text-left">Club</th>
-                      <th className="border border-neutral-300 px-4 py-2 text-left">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {getAvailableUsers().map(user => (
-                      <tr key={user.member_id}>
-                        <td className="border border-neutral-300 px-4 py-2">
-                          {user.first_name} {user.last_name}
-                        </td>
-                        <td className="border border-neutral-300 px-4 py-2">{user.email}</td>
-                        <td className="border border-neutral-300 px-4 py-2">{user.club}</td>
-                        <td className="border border-neutral-300 px-4 py-2">
-                          <button
-                            onClick={() => handleRegisterUser(user.member_id)}
-                            className="text-blue-600 hover:text-blue-800 text-sm"
-                          >
-                            Register
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {getAvailableUsers().length === 0 && (
-                <p className="text-center text-neutral-600 py-4">
-                  All users are already registered for this tournament.
-                </p>
-              )}
-              <div className="flex justify-end pt-4">
-                <button
-                  onClick={() => setShowRegistrationModal(false)}
-                  className="px-4 py-2 border border-neutral-300 rounded-lg text-neutral-600 hover:bg-neutral-50"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Check-in Modal */}
       {showCheckInModal && selectedTournament && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -833,31 +764,45 @@ const Admin: React.FC = () => {
                 <table className="w-full border-collapse border border-neutral-300 rounded-lg">
                   <thead className="bg-neutral-50">
                     <tr>
+                      <th className="border border-neutral-300 px-4 py-2 text-left">
+                        <input
+                          type="checkbox"
+                          checked={getRegisteredNotCheckedIn().length > 0 && selectedCheckInUserIds.length === getRegisteredNotCheckedIn().length}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setSelectedCheckInUserIds(getRegisteredNotCheckedIn().map(u => u.user_member_id));
+                            } else {
+                              setSelectedCheckInUserIds([]);
+                            }
+                          }}
+                        />
+                      </th>
                       <th className="border border-neutral-300 px-4 py-2 text-left">Name</th>
                       <th className="border border-neutral-300 px-4 py-2 text-left">Email</th>
                       <th className="border border-neutral-300 px-4 py-2 text-left">Club</th>
-                      <th className="border border-neutral-300 px-4 py-2 text-left">Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {getRegisteredNotCheckedIn().map(participant => (
                       <tr key={participant.user_member_id}>
                         <td className="border border-neutral-300 px-4 py-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedCheckInUserIds.includes(participant.user_member_id)}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setSelectedCheckInUserIds(prev => [...prev, participant.user_member_id]);
+                              } else {
+                                setSelectedCheckInUserIds(prev => prev.filter(id => id !== participant.user_member_id));
+                              }
+                            }}
+                          />
+                        </td>
+                        <td className="border border-neutral-300 px-4 py-2">
                           {participant.first_name} {participant.last_name}
                         </td>
                         <td className="border border-neutral-300 px-4 py-2">{participant.email_address}</td>
                         <td className="border border-neutral-300 px-4 py-2">{participant.club}</td>
-                        <td className="border border-neutral-300 px-4 py-2">
-                          <button
-                            onClick={() => {
-                              setSelectedUserForCheckIn(participant);
-                              setCheckInNotes('');
-                            }}
-                            className="text-green-600 hover:text-green-800 text-sm"
-                          >
-                            Check In
-                          </button>
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -868,12 +813,19 @@ const Admin: React.FC = () => {
                   All registered players are already checked in.
                 </p>
               )}
-              <div className="flex justify-end pt-4">
+              <div className="flex justify-end pt-4 space-x-2">
                 <button
                   onClick={() => setShowCheckInModal(false)}
                   className="px-4 py-2 border border-neutral-300 rounded-lg text-neutral-600 hover:bg-neutral-50"
                 >
-                  Close
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleCheckInUsers(selectedCheckInUserIds)}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
+                  disabled={selectedCheckInUserIds.length === 0}
+                >
+                  Check In Selected
                 </button>
               </div>
             </div>
@@ -910,7 +862,7 @@ const Admin: React.FC = () => {
                   Cancel
                 </button>
                 <button
-                  onClick={() => handleCheckInUser(selectedUserForCheckIn.user_member_id)}
+                  onClick={() => handleCheckInUsers(selectedCheckInUserIds)}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
                 >
                   Check In
