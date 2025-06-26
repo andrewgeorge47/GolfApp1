@@ -19,6 +19,17 @@ export interface User {
   created_at: string;
 }
 
+export interface Tournament {
+  id: number;
+  name: string;
+  start_date?: string;
+  end_date?: string;
+  notes?: string;
+  type: string;
+  status?: string;
+  created_at: string;
+}
+
 export interface LeagueSettings {
   id: number;
   name: string;

@@ -1,10 +1,11 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
-import { Home, Users, Trophy, Settings, BarChart3, Plus } from 'lucide-react';
+import { Home, Users, Trophy, Settings, BarChart3, Plus, User } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Leaderboard from './components/Leaderboard';
 import Scoring from './components/Scoring';
 import Admin from './components/Admin';
+import Profile from './components/Profile';
 import { AuthProvider, useAuth } from './AuthContext';
 import Login from './components/Login';
 
@@ -51,6 +52,13 @@ function App() {
                     Scoring
                   </Link>
                   <Link
+                    to="/profile"
+                    className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
+                  >
+                    <User className="w-5 h-5 mr-2" />
+                    Profile
+                  </Link>
+                  <Link
                     to="/admin"
                     className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
                   >
@@ -68,6 +76,7 @@ function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/leaderboard" element={<Leaderboard />} />
               <Route path="/scoring" element={<Scoring />} />
+              <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
               <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
               <Route path="/login" element={<Login />} />
             </Routes>
