@@ -74,9 +74,9 @@ async function importHandicaps() {
             await pool.query(
               `INSERT INTO scorecards (
                 user_id, type, player_name, date_played, handicap, scores, 
-                teebox, course_rating, course_slope, software, course_name, 
+                total_strokes, teebox, course_rating, course_slope, software, course_name, 
                 differential, csv_timestamp, round_type
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
               [
                 user.member_id,
                 'stroke_play', // Default type for imported rounds
@@ -87,6 +87,7 @@ async function importHandicaps() {
                   course: record['Name of Course Played'],
                   holes: []
                 }),
+                totalScore, // Add the total score
                 record['Color of Tees Played'],
                 courseRating,
                 courseSlope,
