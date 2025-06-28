@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { Storage } = require('@google-cloud/storage');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -2276,32 +2277,18 @@ app.get('/api/users/:id/grass-stats', authenticateToken, async (req, res) => {
   }
 });
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = 'images/profile-photos';
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    // Generate unique filename: user_id_timestamp.extension
-    const userId = req.user.member_id;
-    const timestamp = Date.now();
-    const ext = path.extname(file.originalname);
-    cb(null, `user_${userId}_${timestamp}${ext}`);
-  }
+// Google Cloud Storage setup using environment variables
+const gcs = new Storage({
+  projectId: process.env.GCP_PROJECT_ID,
+  keyFilename: process.env.GCS_KEYFILE_PATH
 });
+const bucket = gcs.bucket(process.env.GCS_BUCKET_NAME);
 
+// Use memory storage for multer
 const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
-  },
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: function (req, file, cb) {
-    // Only allow images
     if (file.mimetype.startsWith('image/')) {
       cb(null, true);
     } else {
@@ -2310,10 +2297,7 @@ const upload = multer({
   }
 });
 
-// Serve static files from images directory
-app.use('/images', express.static('images'));
-
-// Upload profile photo endpoint
+// Upload profile photo endpoint (GCS version)
 app.post('/api/users/profile-photo', authenticateToken, upload.single('profilePhoto'), async (req, res) => {
   try {
     if (!req.file) {
@@ -2321,7 +2305,18 @@ app.post('/api/users/profile-photo', authenticateToken, upload.single('profilePh
     }
 
     const userId = req.user.member_id;
-    const photoUrl = `/images/profile-photos/${req.file.filename}`;
+    const ext = path.extname(req.file.originalname);
+    const gcsFileName = `profile-photos/user_${userId}_${Date.now()}${ext}`;
+    const blob = bucket.file(gcsFileName);
+
+    // Upload to GCS
+    await blob.save(req.file.buffer, {
+      contentType: req.file.mimetype,
+      public: true, // Set to false if you want to use signed URLs instead
+      metadata: { cacheControl: 'public, max-age=31536000' }
+    });
+
+    const photoUrl = `https://storage.googleapis.com/${bucket.name}/${gcsFileName}`;
 
     // Update user's profile photo URL in database
     await pool.query(
@@ -2331,7 +2326,7 @@ app.post('/api/users/profile-photo', authenticateToken, upload.single('profilePh
 
     res.json({ 
       success: true, 
-      photoUrl: photoUrl,
+      photoUrl,
       message: 'Profile photo uploaded successfully' 
     });
   } catch (error) {
