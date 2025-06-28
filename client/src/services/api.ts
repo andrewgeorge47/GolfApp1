@@ -45,6 +45,7 @@ export interface User {
   handicap?: number;
   sim_handicap?: number;
   grass_handicap?: number;
+  profile_photo_url?: string;
   role: string;
   created_at: string;
 }
@@ -165,6 +166,19 @@ export const createUser = (userData: Partial<User>) => api.post<User>('/users', 
 export const updateUser = (id: number, userData: Partial<User>) => api.put<User>(`/users/${id}`, userData);
 export const deleteUser = (id: number) => api.delete(`/users/${id}`);
 export const getUserSimStats = (id: number) => api.get<SimStats>(`/users/${id}/sim-stats`);
+export const getUserGrassStats = (id: number) => api.get<SimStats>(`/users/${id}/grass-stats`);
+
+// Profile photo upload
+export const uploadProfilePhoto = (file: File) => {
+  const formData = new FormData();
+  formData.append('profilePhoto', file);
+  
+  return api.post('/users/profile-photo', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+};
 
 // Players
 export const getPlayers = () => api.get<User[]>('/players');
@@ -198,6 +212,7 @@ export const saveScorecard = (scorecardData: {
   total_strokes: number;
   total_mulligans: number;
   final_score: number;
+  round_type?: 'sim' | 'grass';
 }) => api.post<Scorecard>('/scorecards', scorecardData);
 
 export const getScorecards = () => api.get<Scorecard[]>('/scorecards');

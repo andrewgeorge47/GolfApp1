@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
-import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament, saveScorecard, createTournament, getUserSimStats, SimStats } from '../services/api';
-import { User as UserIcon, Edit3, Save, X, Trophy, Target, TrendingUp, Calendar, MapPin, LogOut, Clock, Users, Plus, Minus, Award, Circle, Settings } from 'lucide-react';
+import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament, saveScorecard, createTournament, getUserSimStats, getUserGrassStats, uploadProfilePhoto, SimStats } from '../services/api';
+import { User as UserIcon, Edit3, Save, X, Trophy, Target, TrendingUp, Calendar, MapPin, LogOut, Clock, Users, Plus, Minus, Award, Circle, Settings, Camera } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
 import ScoreCard from './ScoreCard';
@@ -20,6 +20,7 @@ const Profile: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [tournamentLoading, setTournamentLoading] = useState<number | null>(null);
   const [simStats, setSimStats] = useState<SimStats | null>(null);
+  const [grassStats, setGrassStats] = useState<SimStats | null>(null);
   const [formData, setFormData] = useState({
     first_name: user?.first_name || '',
     last_name: user?.last_name || '',
@@ -33,6 +34,12 @@ const Profile: React.FC = () => {
   const [showTrackRoundModal, setShowTrackRoundModal] = useState(false);
   const [showScoreCard, setShowScoreCard] = useState(false);
   const [scoreCardType, setScoreCardType] = useState<'mully' | 'stroke' | null>(null);
+  const [roundType, setRoundType] = useState<'sim' | 'grass' | null>(null);
+  const [holes, setHoles] = useState<9 | 18 | null>(null);
+
+  // Photo upload state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -42,19 +49,22 @@ const Profile: React.FC = () => {
           console.log('Fetching data for user ID:', user.member_id);
           console.log('User data:', user);
           
-          const [profileResponse, matchesResponse, tournamentsResponse, simStatsResponse] = await Promise.all([
+          const [profileResponse, matchesResponse, tournamentsResponse, simStatsResponse, grassStatsResponse] = await Promise.all([
             getUserProfile(user.member_id),
             getMatches(),
             getTournaments(),
-            getUserSimStats(user.member_id)
+            getUserSimStats(user.member_id),
+            getUserGrassStats(user.member_id)
           ]);
           
           console.log('Sim stats response:', simStatsResponse.data);
+          console.log('Grass stats response:', grassStatsResponse.data);
           
           setProfile(profileResponse.data);
           setMatches(matchesResponse.data);
           setTournaments(tournamentsResponse.data);
           setSimStats(simStatsResponse.data);
+          setGrassStats(grassStatsResponse.data);
           
           // Fetch user's tournament registrations
           const userTournamentIds: number[] = [];
@@ -200,8 +210,10 @@ const Profile: React.FC = () => {
     setShowTrackRoundModal(true);
   };
 
-  const handleSelectRoundType = (type: 'stroke' | 'mully') => {
-    setScoreCardType(type);
+  const handleSelectRoundType = (roundType: 'sim' | 'grass', holes: 9 | 18) => {
+    setScoreCardType('stroke'); // Default to stroke play
+    setRoundType(roundType);
+    setHoles(holes);
     setShowTrackRoundModal(false);
     setShowScoreCard(true);
   };
@@ -209,6 +221,8 @@ const Profile: React.FC = () => {
   const handleCloseScoreCard = () => {
     setShowScoreCard(false);
     setScoreCardType(null);
+    setRoundType(null);
+    setHoles(null);
   };
 
   const handleSaveScoreCard = async (scoreCardData: any) => {
@@ -232,7 +246,8 @@ const Profile: React.FC = () => {
         scores: scoreCardData.holes || scoreCardData.scores || [],
         total_strokes: scoreCardData.totalStrokes || scoreCardData.total_strokes || 0,
         total_mulligans: scoreCardData.totalMulligans || scoreCardData.total_mulligans || 0,
-        final_score: scoreCardData.finalScore || scoreCardData.final_score || scoreCardData.totalStrokes || 0
+        final_score: scoreCardData.finalScore || scoreCardData.final_score || scoreCardData.totalStrokes || 0,
+        round_type: roundType || 'sim'
       };
 
       console.log('API data being sent:', apiData); // Debug log
@@ -399,6 +414,42 @@ const Profile: React.FC = () => {
     }
   };
 
+  // Photo upload handlers
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+
+    // Validate file size (5MB limit)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File size must be less than 5MB');
+      return;
+    }
+
+    setUploadingPhoto(true);
+    try {
+      const response = await uploadProfilePhoto(file);
+      if (response.data.success) {
+        // Refresh user data to get updated photo URL
+        window.location.reload();
+      }
+    } catch (err: any) {
+      console.error('Error uploading photo:', err);
+      alert('Failed to upload photo. Please try again.');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const triggerPhotoUpload = () => {
+    fileInputRef.current?.click();
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-64">
@@ -439,9 +490,38 @@ const Profile: React.FC = () => {
       <div className="bg-gradient-to-br from-brand-dark-green to-brand-muted-green rounded-2xl shadow-xl p-6 mb-8 text-white">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center space-x-6 mb-6 lg:mb-0">
-            <div className="bg-white/20 backdrop-blur-sm rounded-full p-4">
-              <UserIcon className="w-12 h-12 text-white" />
+            <div className="relative">
+              <div className="bg-white/20 backdrop-blur-sm rounded-full p-4">
+                {user?.profile_photo_url ? (
+                  <img 
+                    src={user.profile_photo_url} 
+                    alt="Profile" 
+                    className="w-12 h-12 rounded-full object-cover"
+                  />
+                ) : (
+                  <UserIcon className="w-12 h-12 text-white" />
+                )}
+              </div>
+              <button
+                onClick={triggerPhotoUpload}
+                disabled={uploadingPhoto}
+                className="absolute -bottom-1 -right-1 bg-brand-neon-green text-brand-black rounded-full p-2 hover:bg-green-400 transition-colors disabled:opacity-50"
+                title="Upload profile photo"
+              >
+                {uploadingPhoto ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-black"></div>
+                ) : (
+                  <Camera className="w-4 h-4" />
+                )}
+              </button>
             </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handlePhotoUpload}
+              className="hidden"
+            />
             <div>
               <div className="flex items-center space-x-3 mb-2">
                 <h1 className="text-3xl lg:text-4xl font-bold">
@@ -684,6 +764,94 @@ const Profile: React.FC = () => {
             <Target className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No Simulator Rounds Yet</h3>
             <p className="text-gray-600 mb-4">Start tracking your simulator rounds to see your performance statistics here.</p>
+            <button
+              onClick={handleTrackRound}
+              className="inline-flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors font-medium"
+            >
+              <Circle className="w-4 h-4 mr-2" />
+              Track Your First Round
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Outdoor Performance */}
+      <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
+        <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+          <MapPin className="w-6 h-6 mr-3" />
+          Outdoor Performance
+        </h2>
+        
+        {/* Outdoor Round Stats */}
+        {grassStats && grassStats.total_rounds > 0 ? (
+          <div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              <div className="text-center">
+                <div className="text-3xl font-bold text-blue-600 mb-2">{grassStats.total_rounds}</div>
+                <div className="text-sm text-gray-600">Total Rounds</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-green-600 mb-2">
+                  {grassStats.avg_differential ? Number(grassStats.avg_differential).toFixed(1) : 'N/A'}
+                </div>
+                <div className="text-sm text-gray-600">Avg Differential</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-orange-600 mb-2">
+                  {grassStats.best_differential ? Number(grassStats.best_differential).toFixed(1) : 'N/A'}
+                </div>
+                <div className="text-sm text-gray-600">Best Differential</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-purple-600 mb-2">{grassStats.unique_courses}</div>
+                <div className="text-sm text-gray-600">Courses Played</div>
+              </div>
+            </div>
+            
+            {/* Additional Outdoor Stats */}
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="text-sm text-gray-600 mb-1">Scoring</div>
+                <div className="text-lg font-semibold text-gray-800">
+                  {grassStats.avg_strokes && grassStats.avg_strokes > 0 ? Number(grassStats.avg_strokes).toFixed(1) : 
+                   grassStats.avg_differential ? Number(grassStats.avg_differential).toFixed(1) : 'N/A'} avg
+                </div>
+                <div className="text-sm text-gray-500">
+                  {grassStats.avg_strokes && grassStats.avg_strokes > 0 ? 
+                    `Best: ${grassStats.best_strokes || 'N/A'} • Worst: ${grassStats.worst_strokes || 'N/A'}` :
+                    `Best: ${grassStats.best_differential ? Number(grassStats.best_differential).toFixed(1) : 'N/A'} • Worst: ${grassStats.worst_differential ? Number(grassStats.worst_differential).toFixed(1) : 'N/A'}`
+                  }
+                </div>
+                <div className="text-xs text-gray-400 mt-1">
+                  {grassStats.avg_strokes && grassStats.avg_strokes > 0 ? 'Strokes' : 'Differential'}
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="text-sm text-gray-600 mb-1">Activity</div>
+                <div className="text-lg font-semibold text-gray-800">{grassStats.unique_dates} days</div>
+                <div className="text-sm text-gray-500">
+                  {grassStats.first_round && grassStats.last_round ? 
+                    `${new Date(grassStats.first_round).toLocaleDateString()} - ${new Date(grassStats.last_round).toLocaleDateString()}` : 
+                    'No date range'
+                  }
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="text-sm text-gray-600 mb-1">Recent Activity</div>
+                <div className="text-lg font-semibold text-gray-800">
+                  {grassStats.recent_rounds.length} rounds
+                </div>
+                <div className="text-sm text-gray-500">
+                  Last: {grassStats.last_round ? new Date(grassStats.last_round).toLocaleDateString() : 'N/A'}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <MapPin className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No Outdoor Rounds Yet</h3>
+            <p className="text-gray-600 mb-4">Start tracking your outdoor rounds to see your performance statistics here.</p>
             <button
               onClick={handleTrackRound}
               className="inline-flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors font-medium"

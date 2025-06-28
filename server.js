@@ -5,6 +5,9 @@ const { Pool } = require('pg');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -1615,9 +1618,10 @@ async function updateUserProfilesForExistingMatches() {
       await pool.query(`
         ALTER TABLE users 
         ADD COLUMN IF NOT EXISTS sim_handicap NUMERIC(5,2) DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS grass_handicap NUMERIC(5,2) DEFAULT 0
+        ADD COLUMN IF NOT EXISTS grass_handicap NUMERIC(5,2) DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS profile_photo_url VARCHAR(255)
       `);
-      console.log('Users table separate handicap columns added.');
+      console.log('Users table separate handicap columns and profile photo URL added.');
     } catch (separateHandicapErr) {
       console.log('Separate handicap columns migration note:', separateHandicapErr.message);
     }
@@ -2172,6 +2176,167 @@ app.get('/api/users/:id/sim-stats', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching user sim stats:', error);
     res.status(500).json({ error: 'Failed to fetch user simulator statistics' });
+  }
+});
+
+// Get user outdoor/grass round statistics
+app.get('/api/users/:id/grass-stats', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  
+  console.log('Grass stats requested for user ID:', id);
+  console.log('Authenticated user:', req.user);
+  
+  try {
+    // Get outdoor/grass round statistics for the user
+    const { rows } = await pool.query(`
+      SELECT 
+        COUNT(*) as total_rounds,
+        COUNT(CASE WHEN differential IS NOT NULL THEN 1 END) as rounds_with_differential,
+        AVG(differential) as avg_differential,
+        MIN(differential) as best_differential,
+        MAX(differential) as worst_differential,
+        AVG(total_strokes) as avg_strokes,
+        MIN(total_strokes) as best_strokes,
+        MAX(total_strokes) as worst_strokes,
+        COUNT(DISTINCT course_name) as unique_courses,
+        COUNT(DISTINCT DATE(date_played)) as unique_dates,
+        MIN(date_played) as first_round,
+        MAX(date_played) as last_round
+      FROM scorecards
+      WHERE user_id = $1 
+        AND round_type = 'grass'
+    `, [id]);
+    
+    console.log('Query result:', rows);
+    
+    if (rows.length === 0) {
+      console.log('No rows returned, sending empty stats');
+      return res.json({
+        total_rounds: 0,
+        rounds_with_differential: 0,
+        avg_differential: null,
+        best_differential: null,
+        worst_differential: null,
+        avg_strokes: null,
+        best_strokes: null,
+        worst_strokes: null,
+        unique_courses: 0,
+        unique_dates: 0,
+        first_round: null,
+        last_round: null,
+        recent_rounds: []
+      });
+    }
+    
+    const stats = rows[0];
+    
+    // Get recent rounds (last 5)
+    const { rows: recentRounds } = await pool.query(`
+      SELECT 
+        id,
+        date_played,
+        course_name,
+        total_strokes,
+        differential,
+        round_type
+      FROM scorecards
+      WHERE user_id = $1 
+        AND round_type = 'grass'
+      ORDER BY date_played DESC
+      LIMIT 5
+    `, [id]);
+    
+    // Get course breakdown
+    const { rows: courseBreakdown } = await pool.query(`
+      SELECT 
+        course_name,
+        COUNT(*) as rounds_played,
+        AVG(total_strokes) as avg_strokes,
+        MIN(total_strokes) as best_strokes,
+        AVG(differential) as avg_differential,
+        MIN(differential) as best_differential
+      FROM scorecards
+      WHERE user_id = $1 
+        AND round_type = 'grass'
+        AND course_name IS NOT NULL
+      GROUP BY course_name
+      ORDER BY rounds_played DESC
+      LIMIT 5
+    `, [id]);
+    
+    res.json({
+      ...stats,
+      recent_rounds: recentRounds,
+      course_breakdown: courseBreakdown
+    });
+    
+  } catch (error) {
+    console.error('Error fetching user grass stats:', error);
+    res.status(500).json({ error: 'Failed to fetch user outdoor statistics' });
+  }
+});
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = 'images/profile-photos';
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    // Generate unique filename: user_id_timestamp.extension
+    const userId = req.user.member_id;
+    const timestamp = Date.now();
+    const ext = path.extname(file.originalname);
+    cb(null, `user_${userId}_${timestamp}${ext}`);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: function (req, file, cb) {
+    // Only allow images
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'), false);
+    }
+  }
+});
+
+// Serve static files from images directory
+app.use('/images', express.static('images'));
+
+// Upload profile photo endpoint
+app.post('/api/users/profile-photo', authenticateToken, upload.single('profilePhoto'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const userId = req.user.member_id;
+    const photoUrl = `/images/profile-photos/${req.file.filename}`;
+
+    // Update user's profile photo URL in database
+    await pool.query(
+      'UPDATE users SET profile_photo_url = $1 WHERE member_id = $2',
+      [photoUrl, userId]
+    );
+
+    res.json({ 
+      success: true, 
+      photoUrl: photoUrl,
+      message: 'Profile photo uploaded successfully' 
+    });
+  } catch (error) {
+    console.error('Error uploading profile photo:', error);
+    res.status(500).json({ error: 'Failed to upload profile photo' });
   }
 });
 
