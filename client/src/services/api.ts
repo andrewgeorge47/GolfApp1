@@ -43,6 +43,8 @@ export interface User {
   email: string;
   club: string;
   handicap?: number;
+  sim_handicap?: number;
+  grass_handicap?: number;
   role: string;
   created_at: string;
 }
@@ -120,6 +122,37 @@ export interface Scorecard {
   created_at: string;
 }
 
+export interface SimStats {
+  total_rounds: number;
+  rounds_with_differential: number;
+  avg_differential: number | null;
+  best_differential: number | null;
+  worst_differential: number | null;
+  avg_strokes: number | null;
+  best_strokes: number | null;
+  worst_strokes: number | null;
+  unique_courses: number;
+  unique_dates: number;
+  first_round: string | null;
+  last_round: string | null;
+  recent_rounds: Array<{
+    id: number;
+    date_played: string;
+    course_name: string;
+    total_strokes: number;
+    differential: number | null;
+    round_type: string;
+  }>;
+  course_breakdown: Array<{
+    course_name: string;
+    rounds_played: number;
+    avg_strokes: number;
+    best_strokes: number;
+    avg_differential: number;
+    best_differential: number;
+  }>;
+}
+
 // Health check
 export const healthCheck = () => api.get('/health');
 
@@ -131,6 +164,7 @@ export const getUsers = () => api.get<User[]>('/users');
 export const createUser = (userData: Partial<User>) => api.post<User>('/users', userData);
 export const updateUser = (id: number, userData: Partial<User>) => api.put<User>(`/users/${id}`, userData);
 export const deleteUser = (id: number) => api.delete(`/users/${id}`);
+export const getUserSimStats = (id: number) => api.get<SimStats>(`/users/${id}/sim-stats`);
 
 // Players
 export const getPlayers = () => api.get<User[]>('/players');

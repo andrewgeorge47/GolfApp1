@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
-import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament, saveScorecard, createTournament } from '../services/api';
-import { User as UserIcon, Edit3, Save, X, Trophy, Target, TrendingUp, Calendar, MapPin, LogOut, Clock, Users, Plus, Minus, Award, Circle } from 'lucide-react';
+import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament, saveScorecard, createTournament, getUserSimStats, SimStats } from '../services/api';
+import { User as UserIcon, Edit3, Save, X, Trophy, Target, TrendingUp, Calendar, MapPin, LogOut, Clock, Users, Plus, Minus, Award, Circle, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
 import ScoreCard from './ScoreCard';
@@ -19,12 +19,14 @@ const Profile: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tournamentLoading, setTournamentLoading] = useState<number | null>(null);
+  const [simStats, setSimStats] = useState<SimStats | null>(null);
   const [formData, setFormData] = useState({
     first_name: user?.first_name || '',
     last_name: user?.last_name || '',
     email: user?.email || '',
     club: user?.club || '',
     handicap: user?.handicap || 0,
+    sim_handicap: user?.sim_handicap || 0,
   });
 
   // Track Round Modal State
@@ -37,14 +39,22 @@ const Profile: React.FC = () => {
       if (user?.member_id) {
         try {
           setLoading(true);
-          const [profileResponse, matchesResponse, tournamentsResponse] = await Promise.all([
+          console.log('Fetching data for user ID:', user.member_id);
+          console.log('User data:', user);
+          
+          const [profileResponse, matchesResponse, tournamentsResponse, simStatsResponse] = await Promise.all([
             getUserProfile(user.member_id),
             getMatches(),
-            getTournaments()
+            getTournaments(),
+            getUserSimStats(user.member_id)
           ]);
+          
+          console.log('Sim stats response:', simStatsResponse.data);
+          
           setProfile(profileResponse.data);
           setMatches(matchesResponse.data);
           setTournaments(tournamentsResponse.data);
+          setSimStats(simStatsResponse.data);
           
           // Fetch user's tournament registrations
           const userTournamentIds: number[] = [];
@@ -104,6 +114,7 @@ const Profile: React.FC = () => {
       email: user?.email || '',
       club: user?.club || '',
       handicap: user?.handicap || 0,
+      sim_handicap: user?.sim_handicap || 0,
     });
     setIsEditing(false);
     setError(null);
@@ -423,22 +434,33 @@ const Profile: React.FC = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 space-y-4 sm:space-y-0">
-          <div className="flex items-center space-x-4">
-            <div className="bg-brand-neon-green rounded-full p-3">
-              <UserIcon className="w-8 h-8 text-brand-black" />
+    <div className="max-w-6xl mx-auto">
+      {/* Golf Passport Header */}
+      <div className="bg-gradient-to-br from-brand-dark-green to-brand-muted-green rounded-2xl shadow-xl p-6 mb-8 text-white">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center space-x-6 mb-6 lg:mb-0">
+            <div className="bg-white/20 backdrop-blur-sm rounded-full p-4">
+              <UserIcon className="w-12 h-12 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-brand-black">
-                {user?.first_name} {user?.last_name}
-              </h1>
-              <p className="text-brand-muted-green flex items-center">
-                <MapPin className="w-4 h-4 mr-1" />
-                {user?.club || 'No club specified'}
-              </p>
+              <div className="flex items-center space-x-3 mb-2">
+                <h1 className="text-3xl lg:text-4xl font-bold">
+                  {user?.first_name} {user?.last_name}
+                </h1>
+                <div className="bg-white/20 backdrop-blur-sm rounded-full px-3 py-1 text-sm font-medium">
+                  {user?.role?.toLowerCase() === 'admin' ? 'Admin' : 'Member'}
+                </div>
+              </div>
+              <div className="flex items-center space-x-4 text-white/90">
+                <span className="flex items-center">
+                  <MapPin className="w-4 h-4 mr-2" />
+                  {user?.club || 'No club specified'}
+                </span>
+                <span className="flex items-center">
+                  <Calendar className="w-4 h-4 mr-2" />
+                  Member since {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}
+                </span>
+              </div>
             </div>
           </div>
           <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
@@ -446,30 +468,24 @@ const Profile: React.FC = () => {
               <>
                 <button
                   onClick={handleTrackRound}
-                  className="flex items-center justify-center px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                  className="flex items-center justify-center px-6 py-3 bg-white/20 backdrop-blur-sm text-white rounded-lg hover:bg-white/30 transition-colors font-medium"
                 >
-                  <Circle className="w-4 h-4 mr-2" />
-                  Track a Round
+                  <Circle className="w-5 h-5 mr-2" />
+                  Track Round
                 </button>
                 <button
                   onClick={() => setIsEditing(true)}
-                  className="flex items-center justify-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-brand-neon-green/90 transition-colors"
+                  className="flex items-center justify-center px-6 py-3 bg-white/20 backdrop-blur-sm text-white rounded-lg hover:bg-white/30 transition-colors font-medium"
                 >
-                  <Edit3 className="w-4 h-4 mr-2" />
+                  <Edit3 className="w-5 h-5 mr-2" />
                   Edit Profile
                 </button>
                 <button
                   onClick={handleLogout}
-                  className="flex items-center justify-center px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                  className="flex items-center justify-center px-6 py-3 bg-red-500/80 text-white rounded-lg hover:bg-red-500 transition-colors font-medium"
                 >
-                  <LogOut className="w-4 h-4 mr-2" />
+                  <LogOut className="w-5 h-5 mr-2" />
                   Logout
-                </button>
-                <button
-                  onClick={createTestTournament}
-                  className="flex items-center justify-center px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
-                >
-                  Debug: Create Test Tournament
                 </button>
               </>
             ) : (
@@ -477,16 +493,16 @@ const Profile: React.FC = () => {
                 <button
                   onClick={handleSave}
                   disabled={loading}
-                  className="flex items-center justify-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-brand-neon-green/90 transition-colors disabled:opacity-50"
+                  className="flex items-center justify-center px-6 py-3 bg-white/20 backdrop-blur-sm text-white rounded-lg hover:bg-white/30 transition-colors font-medium disabled:opacity-50"
                 >
-                  <Save className="w-4 h-4 mr-2" />
+                  <Save className="w-5 h-5 mr-2" />
                   Save
                 </button>
                 <button
                   onClick={handleCancel}
-                  className="flex items-center justify-center px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                  className="flex items-center justify-center px-6 py-3 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors font-medium"
                 >
-                  <X className="w-4 h-4 mr-2" />
+                  <X className="w-5 h-5 mr-2" />
                   Cancel
                 </button>
               </>
@@ -494,385 +510,200 @@ const Profile: React.FC = () => {
           </div>
         </div>
 
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-            {error}
+        {/* Handicap Information in Hero */}
+        {user?.sim_handicap && parseFloat(user.sim_handicap) > 0 && (
+          <div className="mt-6 pt-6 border-t border-white/20">
+            <div className="flex justify-start">
+              <div className="bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20 flex items-center space-x-3">
+                <div className="bg-blue-500/20 rounded-full p-1">
+                  <TrendingUp className="w-4 h-4 text-blue-300" />
+                </div>
+                <div>
+                  <span className="text-sm font-medium text-white">NN Handicap</span>
+                  <span className="text-lg font-bold text-blue-300 ml-2">
+                    {parseFloat(user.sim_handicap).toFixed(1)}
+                  </span>
+                </div>
+                <div className="text-xs text-white/60 ml-2">
+                  App Tracked
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
-        {/* Profile Form */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              First Name
-            </label>
-            {isEditing ? (
-              <input
-                type="text"
-                value={formData.first_name}
-                onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-              />
-            ) : (
-              <p className="text-lg text-gray-900">{user?.first_name}</p>
+        {/* Profile Form - Inline in hero when editing */}
+        {isEditing && (
+          <div className="mt-6 pt-6 border-t border-white/20">
+            {error && (
+              <div className="bg-red-500/20 border border-red-400/50 text-white px-4 py-3 rounded mb-4">
+                {error}
+              </div>
             )}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-white/90 mb-2">
+                  First Name
+                </label>
+                <input
+                  type="text"
+                  value={formData.first_name}
+                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50 text-white placeholder-white/50"
+                  placeholder="First Name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white/90 mb-2">
+                  Last Name
+                </label>
+                <input
+                  type="text"
+                  value={formData.last_name}
+                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50 text-white placeholder-white/50"
+                  placeholder="Last Name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white/90 mb-2">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50 text-white placeholder-white/50"
+                  placeholder="Email"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white/90 mb-2">
+                  Club
+                </label>
+                <input
+                  type="text"
+                  value={formData.club}
+                  onChange={(e) => setFormData({ ...formData, club: e.target.value })}
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50 text-white placeholder-white/50"
+                  placeholder="Club"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white/90 mb-2">
+                  Official GHIN Handicap
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={formData.handicap}
+                  onChange={(e) => setFormData({ ...formData, handicap: Number(e.target.value) })}
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50 text-white placeholder-white/50"
+                  placeholder="GHIN Handicap"
+                />
+              </div>
+            </div>
           </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Last Name
-            </label>
-            {isEditing ? (
-              <input
-                type="text"
-                value={formData.last_name}
-                onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-              />
-            ) : (
-              <p className="text-lg text-gray-900">{user?.last_name}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Email
-            </label>
-            {isEditing ? (
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-              />
-            ) : (
-              <p className="text-lg text-gray-900">{user?.email}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Club
-            </label>
-            {isEditing ? (
-              <input
-                type="text"
-                value={formData.club}
-                onChange={(e) => setFormData({ ...formData, club: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-              />
-            ) : (
-              <p className="text-lg text-gray-900">{user?.club || 'Not specified'}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Handicap
-            </label>
-            {isEditing ? (
-              <input
-                type="number"
-                value={formData.handicap}
-                onChange={(e) => setFormData({ ...formData, handicap: Number(e.target.value) })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-              />
-            ) : (
-              <p className="text-lg text-gray-900">{user?.handicap || 'Not specified'}</p>
-            )}
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* User's Registered Tournaments */}
-      {userRegisteredTournaments.length > 0 && (
-        <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-6">
-          <h2 className="text-xl font-bold text-brand-black mb-4 flex items-center">
-            <Trophy className="w-5 h-5 mr-2" />
-            My Tournament Registrations
-          </h2>
-          <p className="text-sm text-gray-600 mb-4">Tournaments you're currently registered for or have participated in.</p>
-          <div className="space-y-4">
-            {userRegisteredTournaments.map((tournament) => {
-              const status = getTournamentStatus(tournament);
-              const isActive = isTournamentActive(tournament);
-              const isAvailable = isTournamentAvailable(tournament);
-              
-              return (
-                <div key={tournament.id} className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-3 sm:space-y-0">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900">{tournament.name}</h3>
-                      <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2 text-sm text-gray-600">
-                        {tournament.start_date && (
-                          <span className="flex items-center">
-                            <Calendar className="w-4 h-4 mr-1" />
-                            {new Date(tournament.start_date).toLocaleDateString()}
-                            {tournament.end_date && tournament.end_date !== tournament.start_date && (
-                              <span> - {new Date(tournament.end_date).toLocaleDateString()}</span>
-                            )}
-                          </span>
-                        )}
-                        <span className="flex items-center">
-                          <Users className="w-4 h-4 mr-1" />
-                          {tournamentParticipants[tournament.id] || 0} participants
-                          {tournament.max_participants && (
-                            <span className="text-gray-500"> / {tournament.max_participants}</span>
-                          )}
-                        </span>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
-                          status === 'Completed' ? 'bg-gray-100 text-gray-600' :
-                          status === 'In Progress' ? 'bg-green-100 text-green-600' :
-                          status === 'Active' ? 'bg-green-100 text-green-600' :
-                          status === 'Draft' ? 'bg-yellow-100 text-yellow-600' :
-                          'bg-blue-100 text-blue-600'
-                        }`}>
-                          {status}
-                        </span>
-                        {isActive && (
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-600">
-                            Active
-                          </span>
-                        )}
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${tournament.registration_open ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}`}>{tournament.registration_open ? 'Registration Open' : 'Registration Closed'}</span>
-                      </div>
-                      {tournament.description && (
-                        <p className="text-sm text-gray-700 mt-2">{tournament.description}</p>
-                      )}
-                      {tournament.notes && (
-                        <p className="text-sm text-gray-600 mt-2">{tournament.notes}</p>
-                      )}
-                      <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-500">
-                        {tournament.tournament_format && (
-                          <span className="capitalize">Format: {tournament.tournament_format.replace('_', ' ')}</span>
-                        )}
-                        {tournament.registration_deadline && (
-                          <span>Registration closes: {new Date(tournament.registration_deadline).toLocaleDateString()}</span>
-                        )}
-                        {tournament.entry_fee && tournament.entry_fee > 0 && (
-                          <span>Entry fee: ${tournament.entry_fee}</span>
-                        )}
-                        {tournament.location && (
-                          <span>Location: {tournament.location}</span>
-                        )}
-                        {tournament.course && (
-                          <span>Course: {tournament.course}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="sm:ml-4">
-                      {isAvailable ? (
-                        <button
-                          onClick={() => handleTournamentUnregister(tournament.id)}
-                          disabled={tournamentLoading === tournament.id}
-                          className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {tournamentLoading === tournament.id ? (
-                            <>
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1"></div>
-                              Processing...
-                            </>
-                          ) : (
-                            <>
-                              <Minus className="w-4 h-4 mr-1" />
-                              Unregister
-                            </>
-                          )}
-                        </button>
-                      ) : (
-                        <span className="text-sm text-gray-500 px-3 py-2">
-                          {status === 'Completed' ? 'Completed' : 'Registered'}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+      {/* Performance Overview */}
+      <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
+        <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+          <Target className="w-6 h-6 mr-3" />
+          Simulator Performance
+        </h2>
+        
+        {/* Simulator Round Stats */}
+        {simStats && simStats.total_rounds > 0 ? (
+          <div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              <div className="text-center">
+                <div className="text-3xl font-bold text-blue-600 mb-2">{simStats.total_rounds}</div>
+                <div className="text-sm text-gray-600">Total Rounds</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-green-600 mb-2">
+                  {simStats.avg_differential ? Number(simStats.avg_differential).toFixed(1) : 'N/A'}
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Available Tournaments */}
-      {availableTournaments.length > 0 && (
-        <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-6">
-          <h2 className="text-xl font-bold text-brand-black mb-4 flex items-center">
-            <Award className="w-5 h-5 mr-2" />
-            Available for Registration
-          </h2>
-          <p className="text-sm text-gray-600 mb-4">Tournaments you can sign up for.</p>
-          <div className="space-y-4">
-            {availableTournaments.map((tournament) => {
-              const status = getTournamentStatus(tournament);
-              const isActive = isTournamentActive(tournament);
-              
-              return (
-                <div key={tournament.id} className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-3 sm:space-y-0">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900">{tournament.name}</h3>
-                      <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2 text-sm text-gray-600">
-                        {tournament.start_date && (
-                          <span className="flex items-center">
-                            <Calendar className="w-4 h-4 mr-1" />
-                            {new Date(tournament.start_date).toLocaleDateString()}
-                            {tournament.end_date && tournament.end_date !== tournament.start_date && (
-                              <span> - {new Date(tournament.end_date).toLocaleDateString()}</span>
-                            )}
-                          </span>
-                        )}
-                        <span className="flex items-center">
-                          <Users className="w-4 h-4 mr-1" />
-                          {tournamentParticipants[tournament.id] || 0} participants
-                          {tournament.max_participants && (
-                            <span className="text-gray-500"> / {tournament.max_participants}</span>
-                          )}
-                        </span>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
-                          status === 'Completed' ? 'bg-gray-100 text-gray-600' :
-                          status === 'In Progress' ? 'bg-green-100 text-green-600' :
-                          status === 'Active' ? 'bg-green-100 text-green-600' :
-                          status === 'Draft' ? 'bg-yellow-100 text-yellow-600' :
-                          'bg-blue-100 text-blue-600'
-                        }`}>
-                          {status}
-                        </span>
-                        {isActive && (
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-600">
-                            Active
-                          </span>
-                        )}
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${tournament.registration_open ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}`}>{tournament.registration_open ? 'Registration Open' : 'Registration Closed'}</span>
-                      </div>
-                      {tournament.description && (
-                        <p className="text-sm text-gray-700 mt-2">{tournament.description}</p>
-                      )}
-                      {tournament.notes && (
-                        <p className="text-sm text-gray-600 mt-2">{tournament.notes}</p>
-                      )}
-                      <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-500">
-                        {tournament.tournament_format && (
-                          <span className="capitalize">Format: {tournament.tournament_format.replace('_', ' ')}</span>
-                        )}
-                        {tournament.registration_deadline && (
-                          <span>Registration closes: {new Date(tournament.registration_deadline).toLocaleDateString()}</span>
-                        )}
-                        {tournament.entry_fee && tournament.entry_fee > 0 && (
-                          <span>Entry fee: ${tournament.entry_fee}</span>
-                        )}
-                        {tournament.location && (
-                          <span>Location: {tournament.location}</span>
-                        )}
-                        {tournament.course && (
-                          <span>Course: {tournament.course}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="sm:ml-4">
-                      <button
-                        onClick={() => handleTournamentSignup(tournament.id)}
-                        disabled={tournamentLoading === tournament.id}
-                        className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-brand-neon-green/90 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {tournamentLoading === tournament.id ? (
-                          <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-black mr-1"></div>
-                            Processing...
-                          </>
-                        ) : (
-                          <>
-                            <Plus className="w-4 h-4 mr-1" />
-                            Sign Up
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
+                <div className="text-sm text-gray-600">Avg Differential</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-orange-600 mb-2">
+                  {simStats.best_differential ? Number(simStats.best_differential).toFixed(1) : 'N/A'}
                 </div>
-              );
-            })}
+                <div className="text-sm text-gray-600">Best Differential</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-purple-600 mb-2">{simStats.unique_courses}</div>
+                <div className="text-sm text-gray-600">Courses Played</div>
+              </div>
+            </div>
+            
+            {/* Additional Sim Stats */}
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="text-sm text-gray-600 mb-1">Scoring</div>
+                <div className="text-lg font-semibold text-gray-800">
+                  {simStats.avg_strokes && simStats.avg_strokes > 0 ? Number(simStats.avg_strokes).toFixed(1) : 
+                   simStats.avg_differential ? Number(simStats.avg_differential).toFixed(1) : 'N/A'} avg
+                </div>
+                <div className="text-sm text-gray-500">
+                  {simStats.avg_strokes && simStats.avg_strokes > 0 ? 
+                    `Best: ${simStats.best_strokes || 'N/A'} • Worst: ${simStats.worst_strokes || 'N/A'}` :
+                    `Best: ${simStats.best_differential ? Number(simStats.best_differential).toFixed(1) : 'N/A'} • Worst: ${simStats.worst_differential ? Number(simStats.worst_differential).toFixed(1) : 'N/A'}`
+                  }
+                </div>
+                <div className="text-xs text-gray-400 mt-1">
+                  {simStats.avg_strokes && simStats.avg_strokes > 0 ? 'Strokes' : 'Differential'}
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="text-sm text-gray-600 mb-1">Activity</div>
+                <div className="text-lg font-semibold text-gray-800">{simStats.unique_dates} days</div>
+                <div className="text-sm text-gray-500">
+                  {simStats.first_round && simStats.last_round ? 
+                    `${new Date(simStats.first_round).toLocaleDateString()} - ${new Date(simStats.last_round).toLocaleDateString()}` : 
+                    'No date range'
+                  }
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="text-sm text-gray-600 mb-1">Recent Activity</div>
+                <div className="text-lg font-semibold text-gray-800">
+                  {simStats.recent_rounds.length} rounds
+                </div>
+                <div className="text-sm text-gray-500">
+                  Last: {simStats.last_round ? new Date(simStats.last_round).toLocaleDateString() : 'N/A'}
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* No Available Tournaments Message */}
-      {tournaments.length > 0 && availableTournaments.length === 0 && userRegisteredTournaments.length === 0 && (
-        <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-6">
-          <h2 className="text-xl font-bold text-brand-black mb-4 flex items-center">
-            <Award className="w-5 h-5 mr-2" />
-            Tournaments
-          </h2>
+        ) : (
           <div className="text-center py-8">
-            <p className="text-gray-600 mb-2">No tournaments are currently available for registration.</p>
-            <p className="text-sm text-gray-500">All tournaments are either completed or you're already registered for them.</p>
+            <Target className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No Simulator Rounds Yet</h3>
+            <p className="text-gray-600 mb-4">Start tracking your simulator rounds to see your performance statistics here.</p>
+            <button
+              onClick={handleTrackRound}
+              className="inline-flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors font-medium"
+            >
+              <Circle className="w-4 h-4 mr-2" />
+              Track Your First Round
+            </button>
           </div>
-        </div>
-      )}
-
-      {/* Statistics */}
-      {profile && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <div className="flex items-center">
-              <div className="bg-blue-100 rounded-full p-3 mr-4">
-                <Target className="w-6 h-6 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Matches</p>
-                <p className="text-2xl font-bold text-gray-900">{profile.total_matches}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <div className="flex items-center">
-              <div className="bg-green-100 rounded-full p-3 mr-4">
-                <Trophy className="w-6 h-6 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-600">Wins</p>
-                <p className="text-2xl font-bold text-gray-900">{profile.wins}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <div className="flex items-center">
-              <div className="bg-red-100 rounded-full p-3 mr-4">
-                <TrendingUp className="w-6 h-6 text-red-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-600">Win Rate</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {profile.total_matches > 0 ? ((profile.wins / profile.total_matches) * 100).toFixed(1) : 0}%
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <div className="flex items-center">
-              <div className="bg-purple-100 rounded-full p-3 mr-4">
-                <Calendar className="w-6 h-6 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Points</p>
-                <p className="text-2xl font-bold text-gray-900">{profile.total_points}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Recent Matches */}
       {userMatches.length > 0 && (
-        <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-6">
-          <h2 className="text-xl font-bold text-brand-black mb-4 flex items-center">
-            <Clock className="w-5 h-5 mr-2" />
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
+          <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+            <Clock className="w-6 h-6 mr-3" />
             Recent Matches
           </h2>
-          <div className="space-y-3">
-            {userMatches.map((match) => {
+          <div className="space-y-4">
+            {userMatches.slice(0, 5).map((match) => {
               const result = getMatchResult(match);
               return (
                 <div key={match.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-gray-50 rounded-lg space-y-2 sm:space-y-0">
@@ -904,58 +735,173 @@ const Profile: React.FC = () => {
         </div>
       )}
 
-      {/* Detailed Statistics */}
-      {profile && (
-        <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-6">
-          <h2 className="text-xl font-bold text-brand-black mb-4">Match Statistics</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-green-600 mb-2">{profile.wins}</div>
-              <div className="text-sm text-gray-600">Wins</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-red-600 mb-2">{profile.losses}</div>
-              <div className="text-sm text-gray-600">Losses</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-yellow-600 mb-2">{profile.ties}</div>
-              <div className="text-sm text-gray-600">Ties</div>
+      {/* Tournament Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+        {/* User's Registered Tournaments */}
+        {userRegisteredTournaments.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-lg p-6">
+            <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+              <Trophy className="w-6 h-6 mr-3" />
+              My Tournaments
+            </h2>
+            <div className="space-y-4">
+              {userRegisteredTournaments.slice(0, 3).map((tournament) => {
+                const status = getTournamentStatus(tournament);
+                const isActive = isTournamentActive(tournament);
+                const isAvailable = isTournamentAvailable(tournament);
+                
+                return (
+                  <div key={tournament.id} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-3 sm:space-y-0">
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-gray-900">{tournament.name}</h3>
+                        <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2 text-sm text-gray-600">
+                          {tournament.start_date && (
+                            <span className="flex items-center">
+                              <Calendar className="w-4 h-4 mr-1" />
+                              {new Date(tournament.start_date).toLocaleDateString()}
+                            </span>
+                          )}
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
+                            status === 'Completed' ? 'bg-gray-100 text-gray-600' :
+                            status === 'In Progress' ? 'bg-green-100 text-green-600' :
+                            status === 'Active' ? 'bg-green-100 text-green-600' :
+                            status === 'Draft' ? 'bg-yellow-100 text-yellow-600' :
+                            'bg-blue-100 text-blue-600'
+                          }`}>
+                            {status}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="sm:ml-4">
+                        {isAvailable ? (
+                          <button
+                            onClick={() => handleTournamentUnregister(tournament.id)}
+                            disabled={tournamentLoading === tournament.id}
+                            className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {tournamentLoading === tournament.id ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1"></div>
+                                Processing...
+                              </>
+                            ) : (
+                              <>
+                                <Minus className="w-4 h-4 mr-1" />
+                                Unregister
+                              </>
+                            )}
+                          </button>
+                        ) : (
+                          <span className="text-sm text-gray-500 px-3 py-2">
+                            {status === 'Completed' ? 'Completed' : 'Registered'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-          
-          {profile.total_matches > 0 && (
-            <div className="mt-6">
-              <div className="flex justify-between text-sm text-gray-600 mb-2">
-                <span>Win Rate</span>
-                <span>{((profile.wins / profile.total_matches) * 100).toFixed(1)}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-brand-neon-green h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${(profile.wins / profile.total_matches) * 100}%` }}
-                ></div>
-              </div>
+        )}
+
+        {/* Available Tournaments */}
+        {availableTournaments.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-lg p-6">
+            <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+              <Award className="w-6 h-6 mr-3" />
+              Available Tournaments
+            </h2>
+            <div className="space-y-4">
+              {availableTournaments.slice(0, 3).map((tournament) => {
+                const status = getTournamentStatus(tournament);
+                const isActive = isTournamentActive(tournament);
+                
+                return (
+                  <div key={tournament.id} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-3 sm:space-y-0">
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-gray-900">{tournament.name}</h3>
+                        <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2 text-sm text-gray-600">
+                          {tournament.start_date && (
+                            <span className="flex items-center">
+                              <Calendar className="w-4 h-4 mr-1" />
+                              {new Date(tournament.start_date).toLocaleDateString()}
+                            </span>
+                          )}
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
+                            status === 'Completed' ? 'bg-gray-100 text-gray-600' :
+                            status === 'In Progress' ? 'bg-green-100 text-green-600' :
+                            status === 'Active' ? 'bg-green-100 text-green-600' :
+                            status === 'Draft' ? 'bg-yellow-100 text-yellow-600' :
+                            'bg-blue-100 text-blue-600'
+                          }`}>
+                            {status}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="sm:ml-4">
+                        <button
+                          onClick={() => handleTournamentSignup(tournament.id)}
+                          disabled={tournamentLoading === tournament.id}
+                          className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {tournamentLoading === tournament.id ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-black mr-1"></div>
+                              Processing...
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-4 h-4 mr-1" />
+                              Sign Up
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          )}
+          </div>
+        )}
+      </div>
+
+      {/* No Available Tournaments Message */}
+      {tournaments.length > 0 && availableTournaments.length === 0 && userRegisteredTournaments.length === 0 && (
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
+          <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+            <Award className="w-6 h-6 mr-3" />
+            Tournaments
+          </h2>
+          <div className="text-center py-8">
+            <p className="text-gray-600 mb-2">No tournaments are currently available for registration.</p>
+            <p className="text-sm text-gray-500">All tournaments are either completed or you're already registered for them.</p>
+          </div>
         </div>
       )}
 
-      {/* Member Since */}
-      <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6">
-        <h2 className="text-xl font-bold text-brand-black mb-4">Account Information</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <p className="text-sm font-medium text-gray-600">Member Since</p>
-            <p className="text-lg text-gray-900">
-              {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}
-            </p>
-          </div>
-          <div>
-            <p className="text-sm font-medium text-gray-600">Role</p>
-            <p className="text-lg text-gray-900 capitalize">{user?.role || 'Player'}</p>
+      {/* Admin Section - Only visible to admins */}
+      {user?.role?.toLowerCase() === 'admin' && (
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
+          <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+            <Settings className="w-6 h-6 mr-3" />
+            Admin Panel
+          </h2>
+          <p className="text-sm text-gray-600 mb-6">Administrative tools and tournament management.</p>
+          <div className="flex justify-center">
+            <button
+              onClick={() => navigate('/admin')}
+              className="flex items-center justify-center px-8 py-4 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors font-medium text-lg"
+            >
+              <Settings className="w-6 h-6 mr-3" />
+              Tournament Management
+            </button>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Track Round Modal */}
       <TrackRoundModal

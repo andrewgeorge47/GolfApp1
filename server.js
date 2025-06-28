@@ -2078,6 +2078,103 @@ app.get('/api/handicaps', async (req, res) => {
   }
 });
 
+// Get user simulator round statistics
+app.get('/api/users/:id/sim-stats', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  
+  console.log('Sim stats requested for user ID:', id);
+  console.log('Authenticated user:', req.user);
+  
+  try {
+    // Get simulator round statistics for the user
+    const { rows } = await pool.query(`
+      SELECT 
+        COUNT(*) as total_rounds,
+        COUNT(CASE WHEN differential IS NOT NULL THEN 1 END) as rounds_with_differential,
+        AVG(differential) as avg_differential,
+        MIN(differential) as best_differential,
+        MAX(differential) as worst_differential,
+        AVG(total_strokes) as avg_strokes,
+        MIN(total_strokes) as best_strokes,
+        MAX(total_strokes) as worst_strokes,
+        COUNT(DISTINCT course_name) as unique_courses,
+        COUNT(DISTINCT DATE(date_played)) as unique_dates,
+        MIN(date_played) as first_round,
+        MAX(date_played) as last_round
+      FROM scorecards
+      WHERE user_id = $1 
+        AND (round_type = 'sim' OR round_type IS NULL)
+    `, [id]);
+    
+    console.log('Query result:', rows);
+    
+    if (rows.length === 0) {
+      console.log('No rows returned, sending empty stats');
+      return res.json({
+        total_rounds: 0,
+        rounds_with_differential: 0,
+        avg_differential: null,
+        best_differential: null,
+        worst_differential: null,
+        avg_strokes: null,
+        best_strokes: null,
+        worst_strokes: null,
+        unique_courses: 0,
+        unique_dates: 0,
+        first_round: null,
+        last_round: null,
+        recent_rounds: []
+      });
+    }
+    
+    const stats = rows[0];
+    
+    // Get recent rounds (last 5)
+    const { rows: recentRounds } = await pool.query(`
+      SELECT 
+        id,
+        date_played,
+        course_name,
+        total_strokes,
+        differential,
+        round_type
+      FROM scorecards
+      WHERE user_id = $1 
+        AND (round_type = 'sim' OR round_type IS NULL)
+      ORDER BY date_played DESC
+      LIMIT 5
+    `, [id]);
+    
+    // Get course breakdown
+    const { rows: courseBreakdown } = await pool.query(`
+      SELECT 
+        course_name,
+        COUNT(*) as rounds_played,
+        AVG(total_strokes) as avg_strokes,
+        MIN(total_strokes) as best_strokes,
+        AVG(differential) as avg_differential,
+        MIN(differential) as best_differential
+      FROM scorecards
+      WHERE user_id = $1 
+        AND (round_type = 'sim' OR round_type IS NULL)
+        AND course_name IS NOT NULL
+      GROUP BY course_name
+      ORDER BY rounds_played DESC
+      LIMIT 5
+    `, [id]);
+    
+    res.json({
+      ...stats,
+      recent_rounds: recentRounds,
+      course_breakdown: courseBreakdown
+    });
+    
+  } catch (error) {
+    console.error('Error fetching user sim stats:', error);
+    res.status(500).json({ error: 'Failed to fetch user simulator statistics' });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 }); 

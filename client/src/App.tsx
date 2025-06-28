@@ -23,7 +23,6 @@ function App() {
     { to: "/leaderboard", icon: Trophy, label: "Leaderboard" },
     { to: "/scoring", icon: Plus, label: "Scoring" },
     { to: "/profile", icon: User, label: "Profile" },
-    { to: "/admin", icon: Settings, label: "Admin" },
   ];
 
   return (
