@@ -3,6 +3,7 @@ import { Trophy, Users, Calendar, TrendingUp, ArrowRight, Play, Award, Settings,
 import { Link } from 'react-router-dom';
 import { getUsers, getLeagueSettings, getLeaderboard } from '../services/api';
 import type { User, LeagueSettings } from '../services/api';
+import { useAuth } from '../AuthContext';
 
 interface LeaderboardPlayer {
   member_id: number;
@@ -42,11 +43,11 @@ interface LeaderboardData {
 }
 
 const Dashboard: React.FC = () => {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettings] = useState<LeagueSettings | null>(null);
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -60,11 +61,6 @@ const Dashboard: React.FC = () => {
         setUsers(usersData.data);
         setSettings(settingsData.data);
         setLeaderboardData(leaderboardResponse.data);
-        
-        // For now, we'll use the first user as current user (you can implement proper auth later)
-        if (usersData.data.length > 0) {
-          setCurrentUser(usersData.data[0]);
-        }
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
       } finally {

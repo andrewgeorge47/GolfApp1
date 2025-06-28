@@ -631,14 +631,96 @@ app.get('/api/debug-db', async (req, res) => {
   }
 })();
 
+// Migration: Add enhanced tournament formation fields
+(async () => {
+  try {
+    const columns = [
+      { name: 'description', type: 'TEXT' },
+      { name: 'registration_deadline', type: 'DATE' },
+      { name: 'max_participants', type: 'INTEGER' },
+      { name: 'min_participants', type: 'INTEGER DEFAULT 2' },
+      { name: 'tournament_format', type: 'VARCHAR(50) DEFAULT \'match_play\'' },
+      { name: 'status', type: 'VARCHAR(50) DEFAULT \'draft\'' },
+      { name: 'registration_open', type: 'BOOLEAN DEFAULT true' },
+      { name: 'entry_fee', type: 'NUMERIC(10,2) DEFAULT 0' },
+      { name: 'location', type: 'VARCHAR(255)' },
+      { name: 'course', type: 'VARCHAR(255)' },
+      { name: 'rules', type: 'TEXT' },
+      { name: 'created_by', type: 'INTEGER REFERENCES users(member_id)' },
+      { name: 'created_at', type: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP' },
+      { name: 'updated_at', type: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP' }
+    ];
+
+    for (const column of columns) {
+      const colCheck = await pool.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name='tournaments' AND column_name='${column.name}'
+      `);
+      if (colCheck.rows.length === 0) {
+        await pool.query(`ALTER TABLE tournaments ADD COLUMN ${column.name} ${column.type}`);
+        console.log(`Added ${column.name} column to tournaments table.`);
+      }
+    }
+
+    // Add indexes for better performance
+    const indexes = [
+      'CREATE INDEX IF NOT EXISTS idx_tournaments_status ON tournaments(status)',
+      'CREATE INDEX IF NOT EXISTS idx_tournaments_registration_deadline ON tournaments(registration_deadline)',
+      'CREATE INDEX IF NOT EXISTS idx_tournaments_start_date ON tournaments(start_date)',
+      'CREATE INDEX IF NOT EXISTS idx_tournaments_created_by ON tournaments(created_by)'
+    ];
+
+    for (const index of indexes) {
+      try {
+        await pool.query(index);
+      } catch (indexErr) {
+        console.log(`Index creation note: ${indexErr.message}`);
+      }
+    }
+
+    console.log('Tournament formation migration completed.');
+  } catch (migrationErr) {
+    console.log('Tournament formation migration note:', migrationErr.message);
+  }
+})();
+
 // Create a new tournament
 app.post('/api/tournaments', async (req, res) => {
-  const { name, start_date, end_date, notes, type } = req.body;
+  const { 
+    name, 
+    description,
+    start_date, 
+    end_date, 
+    registration_deadline,
+    max_participants,
+    min_participants,
+    tournament_format,
+    status,
+    registration_open,
+    entry_fee,
+    location,
+    course,
+    rules,
+    notes, 
+    type,
+    created_by
+  } = req.body;
+  
   if (!name) return res.status(400).json({ error: 'Name is required' });
+  
   try {
     const { rows } = await pool.query(
-      `INSERT INTO tournaments (name, start_date, end_date, notes, type) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [name, start_date, end_date, notes, type || 'tournament']
+      `INSERT INTO tournaments (
+        name, description, start_date, end_date, registration_deadline,
+        max_participants, min_participants, tournament_format, status,
+        registration_open, entry_fee, location, course, rules, notes, type, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
+      [
+        name, description, start_date, end_date, registration_deadline,
+        max_participants, min_participants || 2, tournament_format || 'match_play', 
+        status || 'draft', registration_open !== false, entry_fee || 0,
+        location, course, rules, notes, type || 'tournament', created_by
+      ]
     );
     res.json(rows[0]);
   } catch (err) {
@@ -661,11 +743,39 @@ app.get('/api/tournaments', async (req, res) => {
 // Update a tournament
 app.put('/api/tournaments/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, start_date, end_date, notes, type } = req.body;
+  const { 
+    name, 
+    description,
+    start_date, 
+    end_date, 
+    registration_deadline,
+    max_participants,
+    min_participants,
+    tournament_format,
+    status,
+    registration_open,
+    entry_fee,
+    location,
+    course,
+    rules,
+    notes, 
+    type 
+  } = req.body;
+  
   try {
     const { rows } = await pool.query(
-      `UPDATE tournaments SET name = $1, start_date = $2, end_date = $3, notes = $4, type = $5 WHERE id = $6 RETURNING *`,
-      [name, start_date, end_date, notes, type, id]
+      `UPDATE tournaments SET 
+        name = $1, description = $2, start_date = $3, end_date = $4, 
+        registration_deadline = $5, max_participants = $6, min_participants = $7,
+        tournament_format = $8, status = $9, registration_open = $10,
+        entry_fee = $11, location = $12, course = $13, rules = $14,
+        notes = $15, type = $16, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $17 RETURNING *`,
+      [
+        name, description, start_date, end_date, registration_deadline,
+        max_participants, min_participants, tournament_format, status,
+        registration_open, entry_fee, location, course, rules, notes, type, id
+      ]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Tournament not found' });
     res.json(rows[0]);
@@ -717,6 +827,33 @@ app.post('/api/tournaments/:id/register', async (req, res) => {
   }
   
   try {
+    // Get tournament details to check registration rules
+    const tournamentResult = await pool.query(
+      'SELECT * FROM tournaments WHERE id = $1',
+      [id]
+    );
+    
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    const tournament = tournamentResult.rows[0];
+    
+    // Check if tournament is accepting registrations
+    if (tournament.status === 'completed' || tournament.status === 'cancelled') {
+      return res.status(400).json({ error: 'Tournament is not accepting registrations' });
+    }
+    
+    // Check if registration is open
+    if (tournament.registration_open === false) {
+      return res.status(400).json({ error: 'Registration is closed for this tournament' });
+    }
+    
+    // Check registration deadline
+    if (tournament.registration_deadline && new Date(tournament.registration_deadline) < new Date()) {
+      return res.status(400).json({ error: 'Registration deadline has passed' });
+    }
+    
     // Check if user is already registered
     const existingCheck = await pool.query(
       'SELECT * FROM participation WHERE tournament_id = $1 AND user_member_id = $2',
@@ -725,6 +862,18 @@ app.post('/api/tournaments/:id/register', async (req, res) => {
     
     if (existingCheck.rows.length > 0) {
       return res.status(409).json({ error: 'User is already registered for this tournament' });
+    }
+    
+    // Check participant limits
+    if (tournament.max_participants) {
+      const participantCount = await pool.query(
+        'SELECT COUNT(*) as count FROM participation WHERE tournament_id = $1',
+        [id]
+      );
+      
+      if (parseInt(participantCount.rows[0].count) >= tournament.max_participants) {
+        return res.status(400).json({ error: 'Tournament has reached maximum participant limit' });
+      }
     }
     
     const { rows } = await pool.query(
@@ -1435,6 +1584,43 @@ async function updateUserProfilesForExistingMatches() {
       )
     `);
     console.log('Scorecards table ready.');
+    
+    // Add new columns for CSV import data
+    await pool.query(`
+      ALTER TABLE scorecards
+        ADD COLUMN IF NOT EXISTS teebox VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS course_rating NUMERIC,
+        ADD COLUMN IF NOT EXISTS course_slope INTEGER,
+        ADD COLUMN IF NOT EXISTS software VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS course_name VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS differential NUMERIC,
+        ADD COLUMN IF NOT EXISTS csv_timestamp VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS round_type VARCHAR(20) DEFAULT 'sim'
+      `);
+    console.log('Scorecards table migration complete.');
+    
+    // Change handicap column to NUMERIC to support decimal values
+    try {
+      await pool.query(`
+        ALTER TABLE users 
+        ALTER COLUMN handicap TYPE NUMERIC(5,2) USING handicap::numeric
+      `);
+      console.log('Users table handicap column updated to NUMERIC.');
+    } catch (handicapErr) {
+      console.log('Handicap column migration note:', handicapErr.message);
+    }
+    
+    // Add separate handicap fields for sim and grass rounds
+    try {
+      await pool.query(`
+        ALTER TABLE users 
+        ADD COLUMN IF NOT EXISTS sim_handicap NUMERIC(5,2) DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS grass_handicap NUMERIC(5,2) DEFAULT 0
+      `);
+      console.log('Users table separate handicap columns added.');
+    } catch (separateHandicapErr) {
+      console.log('Separate handicap columns migration note:', separateHandicapErr.message);
+    }
   } catch (migrationErr) {
     console.log('Migration note:', migrationErr.message);
   }
@@ -1442,7 +1628,7 @@ async function updateUserProfilesForExistingMatches() {
 
 // Save scorecard
 app.post('/api/scorecards', authenticateToken, async (req, res) => {
-  const { type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score } = req.body;
+  const { type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope } = req.body;
   
   console.log('Received scorecard data:', req.body); // Debug log
   console.log('User ID:', req.user.member_id); // Debug log
@@ -1450,6 +1636,21 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
   if (!type || !player_name || !date_played || !scores) {
     console.log('Missing required fields:', { type, player_name, date_played, scores: !!scores });
     return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  // Calculate differential if possible
+  let differential = null;
+  if (
+    typeof total_strokes !== 'undefined' &&
+    typeof course_rating !== 'undefined' &&
+    typeof course_slope !== 'undefined' &&
+    !isNaN(parseFloat(total_strokes)) &&
+    !isNaN(parseFloat(course_rating)) &&
+    !isNaN(parseFloat(course_slope)) &&
+    parseFloat(course_slope) !== 0
+  ) {
+    differential = ((parseFloat(total_strokes) - parseFloat(course_rating)) * 113) / parseFloat(course_slope);
+    differential = Math.round(differential * 1000000) / 1000000; // round to 6 decimals for consistency
   }
   
   try {
@@ -1467,12 +1668,36 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
     console.log('Processed scores data:', scoresData); // Debug log
     
     const { rows } = await pool.query(
-      `INSERT INTO scorecards (user_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [req.user.member_id, type, player_name, date_played, handicap || 0, JSON.stringify(scoresData), total_strokes || 0, total_mulligans || 0, final_score || 0]
+      `INSERT INTO scorecards (user_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, differential)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      [
+        req.user.member_id,
+        type,
+        player_name,
+        date_played,
+        handicap || 0,
+        JSON.stringify(scoresData),
+        total_strokes || 0,
+        total_mulligans || 0,
+        final_score || 0,
+        round_type || 'sim',
+        course_rating || null,
+        course_slope || null,
+        differential
+      ]
     );
     
     console.log('Scorecard saved successfully:', rows[0]); // Debug log
+    
+    // Recalculate handicap for this user after saving scorecard
+    try {
+      await calculateAndUpdateHandicaps();
+      console.log('Handicap recalculated after scorecard save');
+    } catch (handicapErr) {
+      console.error('Error recalculating handicap:', handicapErr);
+      // Don't fail the scorecard save if handicap calculation fails
+    }
+    
     res.json(rows[0]);
   } catch (err) {
     console.error('Error saving scorecard:', err);
@@ -1569,6 +1794,287 @@ app.get('/api/user-profiles/:userId', async (req, res) => {
   } catch (err) {
     console.error('Error fetching user profile:', err);
     res.status(500).json({ error: 'Failed to fetch user profile' });
+  }
+});
+
+// Get tournaments by status
+app.get('/api/tournaments/status/:status', async (req, res) => {
+  const { status } = req.params;
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM tournaments WHERE status = $1 ORDER BY start_date DESC, id DESC',
+      [status]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching tournaments by status:', err);
+    res.status(500).json({ error: 'Failed to fetch tournaments' });
+  }
+});
+
+// Get available tournaments (open for registration)
+app.get('/api/tournaments/available', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT * FROM tournaments 
+      WHERE status IN ('draft', 'active') 
+      AND registration_open = true 
+      AND (registration_deadline IS NULL OR registration_deadline >= CURRENT_DATE)
+      ORDER BY start_date ASC, id DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching available tournaments:', err);
+    res.status(500).json({ error: 'Failed to fetch available tournaments' });
+  }
+});
+
+// Update tournament status
+app.put('/api/tournaments/:id/status', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  
+  if (!status) {
+    return res.status(400).json({ error: 'Status is required' });
+  }
+  
+  const validStatuses = ['draft', 'active', 'completed', 'cancelled'];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Invalid status. Must be one of: ' + validStatuses.join(', ') });
+  }
+  
+  try {
+    const { rows } = await pool.query(
+      'UPDATE tournaments SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+      [status, id]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating tournament status:', err);
+    res.status(500).json({ error: 'Failed to update tournament status' });
+  }
+});
+
+// Toggle registration open/closed
+app.put('/api/tournaments/:id/registration', async (req, res) => {
+  const { id } = req.params;
+  const { registration_open } = req.body;
+  
+  if (typeof registration_open !== 'boolean') {
+    return res.status(400).json({ error: 'registration_open must be a boolean' });
+  }
+  
+  try {
+    const { rows } = await pool.query(
+      'UPDATE tournaments SET registration_open = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+      [registration_open, id]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating tournament registration:', err);
+    res.status(500).json({ error: 'Failed to update tournament registration' });
+  }
+});
+
+// Get tournament formation statistics
+app.get('/api/tournaments/:id/formation-stats', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // Get tournament details
+    const tournamentResult = await pool.query(
+      'SELECT * FROM tournaments WHERE id = $1',
+      [id]
+    );
+    
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    const tournament = tournamentResult.rows[0];
+    
+    // Get participant count
+    const participantResult = await pool.query(
+      'SELECT COUNT(*) as count FROM participation WHERE tournament_id = $1',
+      [id]
+    );
+    
+    const participantCount = parseInt(participantResult.rows[0].count);
+    
+    // Calculate formation progress
+    const stats = {
+      tournament: {
+        id: tournament.id,
+        name: tournament.name,
+        status: tournament.status,
+        registration_open: tournament.registration_open,
+        registration_deadline: tournament.registration_deadline,
+        min_participants: tournament.min_participants,
+        max_participants: tournament.max_participants
+      },
+      participants: {
+        current: participantCount,
+        min_required: tournament.min_participants || 2,
+        max_allowed: tournament.max_participants,
+        spots_remaining: tournament.max_participants ? tournament.max_participants - participantCount : null
+      },
+      formation: {
+        can_start: participantCount >= (tournament.min_participants || 2),
+        is_full: tournament.max_participants ? participantCount >= tournament.max_participants : false,
+        registration_deadline_passed: tournament.registration_deadline ? new Date(tournament.registration_deadline) < new Date() : false
+      }
+    };
+    
+    res.json(stats);
+  } catch (err) {
+    console.error('Error fetching tournament formation stats:', err);
+    res.status(500).json({ error: 'Failed to fetch tournament formation stats' });
+  }
+});
+
+// Calculate and update user handicaps based on scorecard differentials
+async function calculateAndUpdateHandicaps() {
+  try {
+    // Get all users who have scorecards
+    const { rows: users } = await pool.query(`
+      SELECT DISTINCT u.member_id, u.first_name, u.last_name
+      FROM users u
+      INNER JOIN scorecards s ON u.member_id = s.user_id
+      WHERE s.differential IS NOT NULL
+      ORDER BY u.member_id
+    `);
+
+    console.log(`Calculating handicaps for ${users.length} users...`);
+
+    for (const user of users) {
+      // Calculate sim handicap
+      const { rows: simScorecards } = await pool.query(`
+        SELECT differential, date_played
+        FROM scorecards
+        WHERE user_id = $1 
+          AND differential IS NOT NULL 
+          AND (round_type = 'sim' OR round_type IS NULL)
+        ORDER BY date_played DESC
+        LIMIT 20
+      `, [user.member_id]);
+
+      // Calculate grass handicap
+      const { rows: grassScorecards } = await pool.query(`
+        SELECT differential, date_played
+        FROM scorecards
+        WHERE user_id = $1 
+          AND differential IS NOT NULL 
+          AND round_type = 'grass'
+        ORDER BY date_played DESC
+        LIMIT 20
+      `, [user.member_id]);
+
+      // Calculate sim handicap
+      let simHandicap = 0;
+      if (simScorecards.length > 0) {
+        const simDifferentials = simScorecards
+          .map(s => parseFloat(s.differential))
+          .filter(diff => !isNaN(diff) && isFinite(diff))
+          .sort((a, b) => a - b);
+
+        if (simDifferentials.length > 0) {
+          simHandicap = calculateHandicapFromDifferentials(simDifferentials);
+        }
+      }
+
+      // Calculate grass handicap
+      let grassHandicap = 0;
+      if (grassScorecards.length > 0) {
+        const grassDifferentials = grassScorecards
+          .map(s => parseFloat(s.differential))
+          .filter(diff => !isNaN(diff) && isFinite(diff))
+          .sort((a, b) => a - b);
+
+        if (grassDifferentials.length > 0) {
+          grassHandicap = calculateHandicapFromDifferentials(grassDifferentials);
+        }
+      }
+
+      // Update the user's handicaps
+      await pool.query(
+        'UPDATE users SET sim_handicap = $1, grass_handicap = $2 WHERE member_id = $3',
+        [simHandicap, grassHandicap, user.member_id]
+      );
+
+      console.log(`${user.first_name} ${user.last_name}: Sim: ${simHandicap} (${simScorecards.length} rounds), Grass: ${grassHandicap} (${grassScorecards.length} rounds)`);
+    }
+
+    console.log('Handicap calculation complete!');
+  } catch (error) {
+    console.error('Error calculating handicaps:', error);
+  }
+}
+
+// Helper function to calculate handicap from differentials
+function calculateHandicapFromDifferentials(differentials) {
+  if (differentials.length >= 20) {
+    // Use best 8 out of last 20
+    const best8 = differentials.slice(0, 8);
+    const average = best8.reduce((sum, diff) => sum + diff, 0) / 8;
+    return Math.round(average * 0.96 * 10) / 10; // USGA formula
+  } else if (differentials.length >= 10) {
+    // Use best 3 out of last 10
+    const best3 = differentials.slice(0, 3);
+    const average = best3.reduce((sum, diff) => sum + diff, 0) / 3;
+    return Math.round(average * 0.96 * 10) / 10;
+  } else if (differentials.length >= 5) {
+    // Use best 1 out of last 5
+    const best1 = differentials[0];
+    return Math.round(best1 * 0.96 * 10) / 10;
+  } else {
+    // Use the best differential available
+    const best1 = differentials[0];
+    return Math.round(best1 * 0.96 * 10) / 10;
+  }
+}
+
+// Calculate handicaps endpoint
+app.post('/api/calculate-handicaps', async (req, res) => {
+  try {
+    await calculateAndUpdateHandicaps();
+    res.json({ success: true, message: 'Handicaps calculated and updated successfully' });
+  } catch (error) {
+    console.error('Error in calculate handicaps endpoint:', error);
+    res.status(500).json({ error: 'Failed to calculate handicaps' });
+  }
+});
+
+// Get user handicaps
+app.get('/api/handicaps', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT u.member_id, u.first_name, u.last_name, 
+             u.sim_handicap, u.grass_handicap,
+             COUNT(s.id) as total_rounds,
+             COUNT(CASE WHEN s.round_type = 'sim' OR s.round_type IS NULL THEN 1 END) as sim_rounds,
+             COUNT(CASE WHEN s.round_type = 'grass' THEN 1 END) as grass_rounds,
+             MIN(s.differential) as best_differential,
+             AVG(s.differential) as avg_differential
+      FROM users u
+      LEFT JOIN scorecards s ON u.member_id = s.user_id AND s.differential IS NOT NULL
+      GROUP BY u.member_id, u.first_name, u.last_name, u.sim_handicap, u.grass_handicap
+      ORDER BY u.first_name, u.last_name
+    `);
+    
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching handicaps:', error);
+    res.status(500).json({ error: 'Failed to fetch handicaps' });
   }
 });
 

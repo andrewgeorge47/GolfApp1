@@ -77,9 +77,24 @@ CREATE TABLE IF NOT EXISTS public.tournaments
 (
     id integer NOT NULL DEFAULT nextval('tournaments_id_seq'::regclass),
     name character varying(100) COLLATE pg_catalog."default" NOT NULL,
+    description text COLLATE pg_catalog."default",
     start_date date,
     end_date date,
+    registration_deadline date,
+    max_participants integer,
+    min_participants integer DEFAULT 2,
+    tournament_format character varying(50) COLLATE pg_catalog."default" DEFAULT 'match_play',
+    status character varying(50) COLLATE pg_catalog."default" DEFAULT 'draft',
+    registration_open boolean DEFAULT true,
+    entry_fee numeric(10,2) DEFAULT 0,
+    location character varying(255) COLLATE pg_catalog."default",
+    course character varying(255) COLLATE pg_catalog."default",
+    rules text COLLATE pg_catalog."default",
     notes text COLLATE pg_catalog."default",
+    type character varying(50) COLLATE pg_catalog."default" DEFAULT 'tournament',
+    created_by integer REFERENCES users(member_id),
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT tournaments_pkey PRIMARY KEY (id)
 )
 
@@ -87,6 +102,12 @@ TABLESPACE pg_default;
 
 ALTER TABLE IF EXISTS public.tournaments
     OWNER to golfos_user;
+
+-- Add indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_tournaments_status ON tournaments(status);
+CREATE INDEX IF NOT EXISTS idx_tournaments_registration_deadline ON tournaments(registration_deadline);
+CREATE INDEX IF NOT EXISTS idx_tournaments_start_date ON tournaments(start_date);
+CREATE INDEX IF NOT EXISTS idx_tournaments_created_by ON tournaments(created_by);
 
 -- Table: public.user_profiles
 

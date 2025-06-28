@@ -33,8 +33,19 @@ const Admin: React.FC = () => {
   const [showTournamentForm, setShowTournamentForm] = useState(false);
   const [tournamentForm, setTournamentForm] = useState({
     name: '',
+    description: '',
     start_date: '',
     end_date: '',
+    registration_deadline: '',
+    max_participants: '',
+    min_participants: '2',
+    tournament_format: 'match_play',
+    status: 'draft',
+    registration_open: true,
+    entry_fee: '0',
+    location: '',
+    course: '',
+    rules: '',
     notes: '',
     type: 'tournament'
   });
@@ -135,9 +146,32 @@ const Admin: React.FC = () => {
   const handleTournamentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await createTournament(tournamentForm);
+      const tournamentData = {
+        ...tournamentForm,
+        max_participants: tournamentForm.max_participants ? parseInt(tournamentForm.max_participants) : undefined,
+        min_participants: parseInt(tournamentForm.min_participants),
+        entry_fee: parseFloat(tournamentForm.entry_fee)
+      };
+      await createTournament(tournamentData);
       setShowTournamentForm(false);
-      setTournamentForm({ name: '', start_date: '', end_date: '', notes: '', type: 'tournament' });
+      setTournamentForm({ 
+        name: '', 
+        description: '',
+        start_date: '', 
+        end_date: '', 
+        registration_deadline: '',
+        max_participants: '',
+        min_participants: '2',
+        tournament_format: 'match_play',
+        status: 'draft',
+        registration_open: true,
+        entry_fee: '0',
+        location: '',
+        course: '',
+        rules: '',
+        notes: '', 
+        type: 'tournament' 
+      });
       toast.success('Tournament created successfully!');
       // Refresh tournaments
       const res = await getTournaments();
@@ -148,14 +182,25 @@ const Admin: React.FC = () => {
   };
 
   const handleEditTournament = (t: any) => {
-    setEditTournamentForm({ ...t });
+    setEditTournamentForm({ 
+      ...t,
+      max_participants: t.max_participants ? t.max_participants.toString() : '',
+      min_participants: t.min_participants ? t.min_participants.toString() : '2',
+      entry_fee: t.entry_fee ? t.entry_fee.toString() : '0'
+    });
     setShowEditTournamentForm(true);
   };
 
   const handleUpdateTournament = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await updateTournament(editTournamentForm.id, editTournamentForm);
+      const tournamentData = {
+        ...editTournamentForm,
+        max_participants: editTournamentForm.max_participants ? parseInt(editTournamentForm.max_participants) : undefined,
+        min_participants: parseInt(editTournamentForm.min_participants),
+        entry_fee: parseFloat(editTournamentForm.entry_fee)
+      };
+      await updateTournament(editTournamentForm.id, tournamentData);
       setShowEditTournamentForm(false);
       setEditTournamentForm(null);
       // Refresh tournaments
@@ -607,48 +652,176 @@ const Admin: React.FC = () => {
       {/* Tournament Form Modal (Create) */}
       {showTournamentForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold text-brand-black mb-4">Create Tournament/League</h3>
             <form onSubmit={handleTournamentSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Name *</label>
+                  <input
+                    type="text"
+                    value={tournamentForm.name}
+                    onChange={e => setTournamentForm({ ...tournamentForm, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Type</label>
+                  <select
+                    value={tournamentForm.type || 'tournament'}
+                    onChange={e => setTournamentForm({ ...tournamentForm, type: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  >
+                    <option value="tournament">Tournament</option>
+                    <option value="league">League</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Status</label>
+                  <select
+                    value={tournamentForm.status}
+                    onChange={e => setTournamentForm({ ...tournamentForm, status: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  >
+                    <option value="draft">Draft</option>
+                    <option value="open">Open for Registration</option>
+                    <option value="closed">Registration Closed</option>
+                    <option value="active">Active</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Tournament Format</label>
+                  <select
+                    value={tournamentForm.tournament_format}
+                    onChange={e => setTournamentForm({ ...tournamentForm, tournament_format: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  >
+                    <option value="match_play">Match Play</option>
+                    <option value="stroke_play">Stroke Play</option>
+                    <option value="scramble">Scramble</option>
+                    <option value="best_ball">Best Ball</option>
+                    <option value="stableford">Stableford</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    value={tournamentForm.start_date}
+                    onChange={e => setTournamentForm({ ...tournamentForm, start_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">End Date</label>
+                  <input
+                    type="date"
+                    value={tournamentForm.end_date}
+                    onChange={e => setTournamentForm({ ...tournamentForm, end_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Registration Deadline</label>
+                  <input
+                    type="date"
+                    value={tournamentForm.registration_deadline}
+                    onChange={e => setTournamentForm({ ...tournamentForm, registration_deadline: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Min Participants</label>
+                  <input
+                    type="number"
+                    min="2"
+                    value={tournamentForm.min_participants}
+                    onChange={e => setTournamentForm({ ...tournamentForm, min_participants: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Max Participants</label>
+                  <input
+                    type="number"
+                    min="2"
+                    value={tournamentForm.max_participants}
+                    onChange={e => setTournamentForm({ ...tournamentForm, max_participants: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                    placeholder="No limit"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Entry Fee ($)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={tournamentForm.entry_fee}
+                    onChange={e => setTournamentForm({ ...tournamentForm, entry_fee: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Registration Open</label>
+                  <select
+                    value={tournamentForm.registration_open.toString()}
+                    onChange={e => setTournamentForm({ ...tournamentForm, registration_open: e.target.value === 'true' })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  >
+                    <option value="true">Open</option>
+                    <option value="false">Closed</option>
+                  </select>
+                </div>
+              </div>
+              
               <div>
-                <label className="block text-sm font-medium text-neutral-600 mb-1">Name</label>
+                <label className="block text-sm font-medium text-neutral-600 mb-1">Location</label>
                 <input
                   type="text"
-                  value={tournamentForm.name}
-                  onChange={e => setTournamentForm({ ...tournamentForm, name: e.target.value })}
+                  value={tournamentForm.location}
+                  onChange={e => setTournamentForm({ ...tournamentForm, location: e.target.value })}
                   className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                  required
+                  placeholder="e.g., Pine Valley Golf Club"
                 />
               </div>
+              
               <div>
-                <label className="block text-sm font-medium text-neutral-600 mb-1">Type</label>
-                <select
-                  value={tournamentForm.type || 'tournament'}
-                  onChange={e => setTournamentForm({ ...tournamentForm, type: e.target.value })}
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                >
-                  <option value="tournament">Tournament</option>
-                  <option value="league">League</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-neutral-600 mb-1">Start Date</label>
+                <label className="block text-sm font-medium text-neutral-600 mb-1">Course</label>
                 <input
-                  type="date"
-                  value={tournamentForm.start_date}
-                  onChange={e => setTournamentForm({ ...tournamentForm, start_date: e.target.value })}
+                  type="text"
+                  value={tournamentForm.course}
+                  onChange={e => setTournamentForm({ ...tournamentForm, course: e.target.value })}
                   className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  placeholder="e.g., Championship Course"
                 />
               </div>
+              
               <div>
-                <label className="block text-sm font-medium text-neutral-600 mb-1">End Date</label>
-                <input
-                  type="date"
-                  value={tournamentForm.end_date}
-                  onChange={e => setTournamentForm({ ...tournamentForm, end_date: e.target.value })}
+                <label className="block text-sm font-medium text-neutral-600 mb-1">Description</label>
+                <textarea
+                  value={tournamentForm.description}
+                  onChange={e => setTournamentForm({ ...tournamentForm, description: e.target.value })}
                   className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  rows={3}
+                  placeholder="Brief description of the tournament..."
                 />
               </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-neutral-600 mb-1">Rules</label>
+                <textarea
+                  value={tournamentForm.rules}
+                  onChange={e => setTournamentForm({ ...tournamentForm, rules: e.target.value })}
+                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  rows={4}
+                  placeholder="Tournament rules and regulations..."
+                />
+              </div>
+              
               <div>
                 <label className="block text-sm font-medium text-neutral-600 mb-1">Notes</label>
                 <textarea
@@ -656,8 +829,10 @@ const Admin: React.FC = () => {
                   onChange={e => setTournamentForm({ ...tournamentForm, notes: e.target.value })}
                   className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
                   rows={2}
+                  placeholder="Additional notes..."
                 />
               </div>
+              
               <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-4 pt-4">
                 <button
                   type="button"
@@ -670,7 +845,7 @@ const Admin: React.FC = () => {
                   type="submit"
                   className="px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400"
                 >
-                  Create
+                  Create Tournament
                 </button>
               </div>
             </form>
@@ -681,57 +856,187 @@ const Admin: React.FC = () => {
       {/* Tournament Edit Modal */}
       {showEditTournamentForm && editTournamentForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold text-brand-black mb-4">Edit Tournament/League</h3>
             <form onSubmit={handleUpdateTournament} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Name *</label>
+                  <input
+                    type="text"
+                    value={editTournamentForm.name}
+                    onChange={e => setEditTournamentForm({ ...editTournamentForm, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Type</label>
+                  <select
+                    value={editTournamentForm.type || 'tournament'}
+                    onChange={e => setEditTournamentForm({ ...editTournamentForm, type: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  >
+                    <option value="tournament">Tournament</option>
+                    <option value="league">League</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Status</label>
+                  <select
+                    value={editTournamentForm.status || 'draft'}
+                    onChange={e => setEditTournamentForm({ ...editTournamentForm, status: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  >
+                    <option value="draft">Draft</option>
+                    <option value="open">Open for Registration</option>
+                    <option value="closed">Registration Closed</option>
+                    <option value="active">Active</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Tournament Format</label>
+                  <select
+                    value={editTournamentForm.tournament_format || 'match_play'}
+                    onChange={e => setEditTournamentForm({ ...editTournamentForm, tournament_format: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  >
+                    <option value="match_play">Match Play</option>
+                    <option value="stroke_play">Stroke Play</option>
+                    <option value="scramble">Scramble</option>
+                    <option value="best_ball">Best Ball</option>
+                    <option value="stableford">Stableford</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    value={editTournamentForm.start_date}
+                    onChange={e => setEditTournamentForm({ ...editTournamentForm, start_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">End Date</label>
+                  <input
+                    type="date"
+                    value={editTournamentForm.end_date}
+                    onChange={e => setEditTournamentForm({ ...editTournamentForm, end_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Registration Deadline</label>
+                  <input
+                    type="date"
+                    value={editTournamentForm.registration_deadline}
+                    onChange={e => setEditTournamentForm({ ...editTournamentForm, registration_deadline: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Min Participants</label>
+                  <input
+                    type="number"
+                    min="2"
+                    value={editTournamentForm.min_participants}
+                    onChange={e => setEditTournamentForm({ ...editTournamentForm, min_participants: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Max Participants</label>
+                  <input
+                    type="number"
+                    min="2"
+                    value={editTournamentForm.max_participants}
+                    onChange={e => setEditTournamentForm({ ...editTournamentForm, max_participants: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                    placeholder="No limit"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Entry Fee ($)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editTournamentForm.entry_fee}
+                    onChange={e => setEditTournamentForm({ ...editTournamentForm, entry_fee: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Registration Open</label>
+                  <select
+                    value={editTournamentForm.registration_open?.toString() || 'true'}
+                    onChange={e => setEditTournamentForm({ ...editTournamentForm, registration_open: e.target.value === 'true' })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  >
+                    <option value="true">Open</option>
+                    <option value="false">Closed</option>
+                  </select>
+                </div>
+              </div>
+              
               <div>
-                <label className="block text-sm font-medium text-neutral-600 mb-1">Name</label>
+                <label className="block text-sm font-medium text-neutral-600 mb-1">Location</label>
                 <input
                   type="text"
-                  value={editTournamentForm.name}
-                  onChange={e => setEditTournamentForm({ ...editTournamentForm, name: e.target.value })}
+                  value={editTournamentForm.location || ''}
+                  onChange={e => setEditTournamentForm({ ...editTournamentForm, location: e.target.value })}
                   className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                  required
+                  placeholder="e.g., Pine Valley Golf Club"
                 />
               </div>
+              
               <div>
-                <label className="block text-sm font-medium text-neutral-600 mb-1">Type</label>
-                <select
-                  value={editTournamentForm.type || 'tournament'}
-                  onChange={e => setEditTournamentForm({ ...editTournamentForm, type: e.target.value })}
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                >
-                  <option value="tournament">Tournament</option>
-                  <option value="league">League</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-neutral-600 mb-1">Start Date</label>
+                <label className="block text-sm font-medium text-neutral-600 mb-1">Course</label>
                 <input
-                  type="date"
-                  value={editTournamentForm.start_date}
-                  onChange={e => setEditTournamentForm({ ...editTournamentForm, start_date: e.target.value })}
+                  type="text"
+                  value={editTournamentForm.course || ''}
+                  onChange={e => setEditTournamentForm({ ...editTournamentForm, course: e.target.value })}
                   className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  placeholder="e.g., Championship Course"
                 />
               </div>
+              
               <div>
-                <label className="block text-sm font-medium text-neutral-600 mb-1">End Date</label>
-                <input
-                  type="date"
-                  value={editTournamentForm.end_date}
-                  onChange={e => setEditTournamentForm({ ...editTournamentForm, end_date: e.target.value })}
+                <label className="block text-sm font-medium text-neutral-600 mb-1">Description</label>
+                <textarea
+                  value={editTournamentForm.description || ''}
+                  onChange={e => setEditTournamentForm({ ...editTournamentForm, description: e.target.value })}
                   className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  rows={3}
+                  placeholder="Brief description of the tournament..."
                 />
               </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-neutral-600 mb-1">Rules</label>
+                <textarea
+                  value={editTournamentForm.rules || ''}
+                  onChange={e => setEditTournamentForm({ ...editTournamentForm, rules: e.target.value })}
+                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  rows={4}
+                  placeholder="Tournament rules and regulations..."
+                />
+              </div>
+              
               <div>
                 <label className="block text-sm font-medium text-neutral-600 mb-1">Notes</label>
                 <textarea
-                  value={editTournamentForm.notes}
+                  value={editTournamentForm.notes || ''}
                   onChange={e => setEditTournamentForm({ ...editTournamentForm, notes: e.target.value })}
                   className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
                   rows={2}
+                  placeholder="Additional notes..."
                 />
               </div>
+              
               <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-4 pt-4">
                 <button
                   type="button"
@@ -744,7 +1049,7 @@ const Admin: React.FC = () => {
                   type="submit"
                   className="px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400"
                 >
-                  Save
+                  Save Changes
                 </button>
               </div>
             </form>

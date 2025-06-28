@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
-import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament, saveScorecard } from '../services/api';
+import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament, saveScorecard, createTournament } from '../services/api';
 import { User as UserIcon, Edit3, Save, X, Trophy, Target, TrendingUp, Calendar, MapPin, LogOut, Clock, Users, Plus, Minus, Award, Circle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
@@ -14,9 +14,11 @@ const Profile: React.FC = () => {
   const [matches, setMatches] = useState<Match[]>([]);
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [userTournaments, setUserTournaments] = useState<number[]>([]);
+  const [tournamentParticipants, setTournamentParticipants] = useState<{[key: number]: number}>({});
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tournamentLoading, setTournamentLoading] = useState<number | null>(null);
   const [formData, setFormData] = useState({
     first_name: user?.first_name || '',
     last_name: user?.last_name || '',
@@ -46,6 +48,8 @@ const Profile: React.FC = () => {
           
           // Fetch user's tournament registrations
           const userTournamentIds: number[] = [];
+          const participantCounts: {[key: number]: number} = {};
+          
           for (const tournament of tournamentsResponse.data) {
             try {
               const participantsResponse = await getTournamentParticipants(tournament.id);
@@ -55,11 +59,14 @@ const Profile: React.FC = () => {
               if (isRegistered) {
                 userTournamentIds.push(tournament.id);
               }
+              participantCounts[tournament.id] = participantsResponse.data.length;
             } catch (err) {
               console.error(`Error checking registration for tournament ${tournament.id}:`, err);
+              participantCounts[tournament.id] = 0;
             }
           }
           setUserTournaments(userTournamentIds);
+          setTournamentParticipants(participantCounts);
         } catch (err) {
           setError('Failed to load profile data');
           console.error('Error fetching profile:', err);
@@ -111,12 +118,34 @@ const Profile: React.FC = () => {
     if (!user?.member_id) return;
 
     try {
+      setTournamentLoading(tournamentId);
       await registerUserForTournament(tournamentId, user.member_id);
       setUserTournaments([...userTournaments, tournamentId]);
       setError(null);
-    } catch (err) {
-      setError('Failed to register for tournament');
+      
+      // Show success message
+      alert('Successfully registered for tournament!');
+      
+      // Refresh tournament data and participant counts
+      const tournamentsResponse = await getTournaments();
+      setTournaments(tournamentsResponse.data);
+      
+      // Update participant count for this tournament
+      try {
+        const participantsResponse = await getTournamentParticipants(tournamentId);
+        setTournamentParticipants(prev => ({
+          ...prev,
+          [tournamentId]: participantsResponse.data.length
+        }));
+      } catch (err) {
+        console.error('Error updating participant count:', err);
+      }
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error || 'Failed to register for tournament';
+      setError(errorMessage);
       console.error('Error registering for tournament:', err);
+    } finally {
+      setTournamentLoading(null);
     }
   };
 
@@ -124,12 +153,34 @@ const Profile: React.FC = () => {
     if (!user?.member_id) return;
 
     try {
+      setTournamentLoading(tournamentId);
       await unregisterUserFromTournament(tournamentId, user.member_id);
       setUserTournaments(userTournaments.filter(id => id !== tournamentId));
       setError(null);
-    } catch (err) {
-      setError('Failed to unregister from tournament');
+      
+      // Show success message
+      alert('Successfully unregistered from tournament!');
+      
+      // Refresh tournament data and participant counts
+      const tournamentsResponse = await getTournaments();
+      setTournaments(tournamentsResponse.data);
+      
+      // Update participant count for this tournament
+      try {
+        const participantsResponse = await getTournamentParticipants(tournamentId);
+        setTournamentParticipants(prev => ({
+          ...prev,
+          [tournamentId]: participantsResponse.data.length
+        }));
+      } catch (err) {
+        console.error('Error updating participant count:', err);
+      }
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error || 'Failed to unregister from tournament';
+      setError(errorMessage);
       console.error('Error unregistering from tournament:', err);
+    } finally {
+      setTournamentLoading(null);
     }
   };
 
@@ -220,18 +271,120 @@ const Profile: React.FC = () => {
   };
 
   const getTournamentStatus = (tournament: Tournament) => {
+    // Use the status field from the database if available
+    if (tournament.status) {
+      return tournament.status.charAt(0).toUpperCase() + tournament.status.slice(1);
+    }
+    
+    // Fallback to date-based logic for backward compatibility
     if (!tournament.start_date) return 'No date set';
     
     const startDate = new Date(tournament.start_date);
+    const endDate = tournament.end_date ? new Date(tournament.end_date) : null;
     const now = new Date();
     
-    if (startDate > now) {
+    if (endDate && endDate < now) {
+      return 'Completed';
+    } else if (startDate > now) {
       const daysUntil = Math.ceil((startDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
       return `${daysUntil} day${daysUntil !== 1 ? 's' : ''} away`;
-    } else if (tournament.end_date && new Date(tournament.end_date) < now) {
-      return 'Completed';
     } else {
       return 'In Progress';
+    }
+  };
+
+  const isTournamentAvailable = (tournament: Tournament) => {
+    // Check if tournament status allows registration
+    if (tournament.status === 'completed' || tournament.status === 'cancelled') {
+      return false;
+    }
+    
+    // Check if registration is open
+    if (tournament.registration_open === false) {
+      return false;
+    }
+    
+    // Check registration deadline
+    if (tournament.registration_deadline) {
+      const deadline = new Date(tournament.registration_deadline);
+      const now = new Date();
+      if (deadline < now) {
+        return false;
+      }
+    }
+    
+    // Check participant limits
+    if (tournament.max_participants) {
+      const currentParticipants = tournamentParticipants[tournament.id] || 0;
+      if (currentParticipants >= tournament.max_participants) {
+        return false;
+      }
+    }
+    
+    // Allow registration for draft, open, and active tournaments
+    return true;
+  };
+
+  const isTournamentActive = (tournament: Tournament) => {
+    // Tournament is active if status is 'active' and currently running
+    if (tournament.status !== 'active') {
+      return false;
+    }
+    
+    if (!tournament.start_date) return false;
+    
+    const startDate = new Date(tournament.start_date);
+    const endDate = tournament.end_date ? new Date(tournament.end_date) : null;
+    const now = new Date();
+    
+    // Tournament is active if it's currently running
+    return startDate <= now && (!endDate || endDate >= now);
+  };
+
+  // Filter tournaments to show only available ones
+  const availableTournaments = tournaments.filter(tournament => 
+    isTournamentAvailable(tournament) && !isRegisteredForTournament(tournament.id)
+  );
+
+  // Get user's registered tournaments (including completed ones)
+  const userRegisteredTournaments = tournaments.filter(tournament => 
+    isRegisteredForTournament(tournament.id)
+  );
+
+  // Debug function to create a test tournament
+  const createTestTournament = async () => {
+    try {
+      const testTournament = {
+        name: 'Test Tournament ' + new Date().toLocaleTimeString(),
+        description: 'This is a test tournament',
+        start_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 7 days from now
+        end_date: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 8 days from now
+        registration_deadline: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 6 days from now
+        max_participants: 20,
+        min_participants: 4,
+        tournament_format: 'match_play',
+        status: 'draft',
+        registration_open: true,
+        entry_fee: 25,
+        location: 'Test Golf Club',
+        course: 'Championship Course',
+        rules: 'Standard match play rules apply',
+        notes: 'Test tournament for debugging',
+        type: 'tournament'
+      };
+      
+      const result = await createTournament(testTournament);
+      console.log('Test tournament created:', result.data);
+      
+      // Refresh tournaments
+      const tournamentsResponse = await getTournaments();
+      setTournaments(tournamentsResponse.data);
+      console.log('Tournaments after creating test:', tournamentsResponse.data);
+      
+      alert('Test tournament created! Check console for details.');
+    } catch (error) {
+      console.error('Error creating test tournament:', error);
+      alert('Error creating test tournament: ' + error);
     }
   };
 
@@ -311,6 +464,12 @@ const Profile: React.FC = () => {
                 >
                   <LogOut className="w-4 h-4 mr-2" />
                   Logout
+                </button>
+                <button
+                  onClick={createTestTournament}
+                  className="flex items-center justify-center px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
+                >
+                  Debug: Create Test Tournament
                 </button>
               </>
             ) : (
@@ -425,17 +584,19 @@ const Profile: React.FC = () => {
         </div>
       </div>
 
-      {/* Available Tournaments */}
-      {tournaments.length > 0 && (
+      {/* User's Registered Tournaments */}
+      {userRegisteredTournaments.length > 0 && (
         <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-6">
           <h2 className="text-xl font-bold text-brand-black mb-4 flex items-center">
-            <Award className="w-5 h-5 mr-2" />
-            Available Tournaments
+            <Trophy className="w-5 h-5 mr-2" />
+            My Tournament Registrations
           </h2>
+          <p className="text-sm text-gray-600 mb-4">Tournaments you're currently registered for or have participated in.</p>
           <div className="space-y-4">
-            {tournaments.map((tournament) => {
-              const isRegistered = isRegisteredForTournament(tournament.id);
+            {userRegisteredTournaments.map((tournament) => {
               const status = getTournamentStatus(tournament);
+              const isActive = isTournamentActive(tournament);
+              const isAvailable = isTournamentAvailable(tournament);
               
               return (
                 <div key={tournament.id} className="border border-gray-200 rounded-lg p-4">
@@ -447,43 +608,203 @@ const Profile: React.FC = () => {
                           <span className="flex items-center">
                             <Calendar className="w-4 h-4 mr-1" />
                             {new Date(tournament.start_date).toLocaleDateString()}
+                            {tournament.end_date && tournament.end_date !== tournament.start_date && (
+                              <span> - {new Date(tournament.end_date).toLocaleDateString()}</span>
+                            )}
                           </span>
                         )}
+                        <span className="flex items-center">
+                          <Users className="w-4 h-4 mr-1" />
+                          {tournamentParticipants[tournament.id] || 0} participants
+                          {tournament.max_participants && (
+                            <span className="text-gray-500"> / {tournament.max_participants}</span>
+                          )}
+                        </span>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
                           status === 'Completed' ? 'bg-gray-100 text-gray-600' :
                           status === 'In Progress' ? 'bg-green-100 text-green-600' :
+                          status === 'Active' ? 'bg-green-100 text-green-600' :
+                          status === 'Draft' ? 'bg-yellow-100 text-yellow-600' :
                           'bg-blue-100 text-blue-600'
                         }`}>
                           {status}
                         </span>
+                        {isActive && (
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-600">
+                            Active
+                          </span>
+                        )}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${tournament.registration_open ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}`}>{tournament.registration_open ? 'Registration Open' : 'Registration Closed'}</span>
                       </div>
+                      {tournament.description && (
+                        <p className="text-sm text-gray-700 mt-2">{tournament.description}</p>
+                      )}
                       {tournament.notes && (
                         <p className="text-sm text-gray-600 mt-2">{tournament.notes}</p>
                       )}
+                      <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-500">
+                        {tournament.tournament_format && (
+                          <span className="capitalize">Format: {tournament.tournament_format.replace('_', ' ')}</span>
+                        )}
+                        {tournament.registration_deadline && (
+                          <span>Registration closes: {new Date(tournament.registration_deadline).toLocaleDateString()}</span>
+                        )}
+                        {tournament.entry_fee && tournament.entry_fee > 0 && (
+                          <span>Entry fee: ${tournament.entry_fee}</span>
+                        )}
+                        {tournament.location && (
+                          <span>Location: {tournament.location}</span>
+                        )}
+                        {tournament.course && (
+                          <span>Course: {tournament.course}</span>
+                        )}
+                      </div>
                     </div>
                     <div className="sm:ml-4">
-                      {isRegistered ? (
+                      {isAvailable ? (
                         <button
                           onClick={() => handleTournamentUnregister(tournament.id)}
-                          className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm"
+                          disabled={tournamentLoading === tournament.id}
+                          className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <Minus className="w-4 h-4 mr-1" />
-                          Unregister
+                          {tournamentLoading === tournament.id ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1"></div>
+                              Processing...
+                            </>
+                          ) : (
+                            <>
+                              <Minus className="w-4 h-4 mr-1" />
+                              Unregister
+                            </>
+                          )}
                         </button>
                       ) : (
-                        <button
-                          onClick={() => handleTournamentSignup(tournament.id)}
-                          className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-brand-neon-green/90 transition-colors text-sm"
-                        >
-                          <Plus className="w-4 h-4 mr-1" />
-                          Sign Up
-                        </button>
+                        <span className="text-sm text-gray-500 px-3 py-2">
+                          {status === 'Completed' ? 'Completed' : 'Registered'}
+                        </span>
                       )}
                     </div>
                   </div>
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Available Tournaments */}
+      {availableTournaments.length > 0 && (
+        <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-6">
+          <h2 className="text-xl font-bold text-brand-black mb-4 flex items-center">
+            <Award className="w-5 h-5 mr-2" />
+            Available for Registration
+          </h2>
+          <p className="text-sm text-gray-600 mb-4">Tournaments you can sign up for.</p>
+          <div className="space-y-4">
+            {availableTournaments.map((tournament) => {
+              const status = getTournamentStatus(tournament);
+              const isActive = isTournamentActive(tournament);
+              
+              return (
+                <div key={tournament.id} className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-3 sm:space-y-0">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-gray-900">{tournament.name}</h3>
+                      <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2 text-sm text-gray-600">
+                        {tournament.start_date && (
+                          <span className="flex items-center">
+                            <Calendar className="w-4 h-4 mr-1" />
+                            {new Date(tournament.start_date).toLocaleDateString()}
+                            {tournament.end_date && tournament.end_date !== tournament.start_date && (
+                              <span> - {new Date(tournament.end_date).toLocaleDateString()}</span>
+                            )}
+                          </span>
+                        )}
+                        <span className="flex items-center">
+                          <Users className="w-4 h-4 mr-1" />
+                          {tournamentParticipants[tournament.id] || 0} participants
+                          {tournament.max_participants && (
+                            <span className="text-gray-500"> / {tournament.max_participants}</span>
+                          )}
+                        </span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
+                          status === 'Completed' ? 'bg-gray-100 text-gray-600' :
+                          status === 'In Progress' ? 'bg-green-100 text-green-600' :
+                          status === 'Active' ? 'bg-green-100 text-green-600' :
+                          status === 'Draft' ? 'bg-yellow-100 text-yellow-600' :
+                          'bg-blue-100 text-blue-600'
+                        }`}>
+                          {status}
+                        </span>
+                        {isActive && (
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-600">
+                            Active
+                          </span>
+                        )}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${tournament.registration_open ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}`}>{tournament.registration_open ? 'Registration Open' : 'Registration Closed'}</span>
+                      </div>
+                      {tournament.description && (
+                        <p className="text-sm text-gray-700 mt-2">{tournament.description}</p>
+                      )}
+                      {tournament.notes && (
+                        <p className="text-sm text-gray-600 mt-2">{tournament.notes}</p>
+                      )}
+                      <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-500">
+                        {tournament.tournament_format && (
+                          <span className="capitalize">Format: {tournament.tournament_format.replace('_', ' ')}</span>
+                        )}
+                        {tournament.registration_deadline && (
+                          <span>Registration closes: {new Date(tournament.registration_deadline).toLocaleDateString()}</span>
+                        )}
+                        {tournament.entry_fee && tournament.entry_fee > 0 && (
+                          <span>Entry fee: ${tournament.entry_fee}</span>
+                        )}
+                        {tournament.location && (
+                          <span>Location: {tournament.location}</span>
+                        )}
+                        {tournament.course && (
+                          <span>Course: {tournament.course}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="sm:ml-4">
+                      <button
+                        onClick={() => handleTournamentSignup(tournament.id)}
+                        disabled={tournamentLoading === tournament.id}
+                        className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-brand-neon-green/90 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {tournamentLoading === tournament.id ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-black mr-1"></div>
+                            Processing...
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-4 h-4 mr-1" />
+                            Sign Up
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* No Available Tournaments Message */}
+      {tournaments.length > 0 && availableTournaments.length === 0 && userRegisteredTournaments.length === 0 && (
+        <div className="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-6">
+          <h2 className="text-xl font-bold text-brand-black mb-4 flex items-center">
+            <Award className="w-5 h-5 mr-2" />
+            Tournaments
+          </h2>
+          <div className="text-center py-8">
+            <p className="text-gray-600 mb-2">No tournaments are currently available for registration.</p>
+            <p className="text-sm text-gray-500">All tournaments are either completed or you're already registered for them.</p>
           </div>
         </div>
       )}

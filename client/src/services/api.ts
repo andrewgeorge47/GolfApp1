@@ -50,12 +50,24 @@ export interface User {
 export interface Tournament {
   id: number;
   name: string;
+  description?: string;
   start_date?: string;
   end_date?: string;
+  registration_deadline?: string;
+  max_participants?: number;
+  min_participants?: number;
+  tournament_format?: string;
+  status?: string;
+  registration_open?: boolean;
+  entry_fee?: number;
+  location?: string;
+  course?: string;
+  rules?: string;
   notes?: string;
   type: string;
-  status?: string;
-  created_at: string;
+  created_by?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface LeagueSettings {
@@ -168,11 +180,36 @@ export const login = (email: string, password: string) => api.post('/auth/login'
 export const register = (data: { first_name: string; last_name: string; email: string; password: string; club?: string; role?: string }) => api.post('/auth/register', data);
 export const getCurrentUser = (token: string) => api.get('/auth/me', { headers: { Authorization: `Bearer ${token}` } });
 
-export const createTournament = (data: { name: string; start_date?: string; end_date?: string; notes?: string }) => api.post('/tournaments', data);
+export const createTournament = (data: { 
+  name: string; 
+  description?: string;
+  start_date?: string; 
+  end_date?: string; 
+  registration_deadline?: string;
+  max_participants?: number;
+  min_participants?: number;
+  tournament_format?: string;
+  status?: string;
+  registration_open?: boolean;
+  entry_fee?: number;
+  location?: string;
+  course?: string;
+  rules?: string;
+  notes?: string; 
+  type?: string;
+  created_by?: number;
+}) => api.post('/tournaments', data);
 
 export const getTournaments = () => api.get('/tournaments');
+export const getTournamentsByStatus = (status: string) => api.get(`/tournaments/status/${status}`);
+export const getAvailableTournaments = () => api.get('/tournaments/available');
 export const updateTournament = (id: number, data: any) => api.put(`/tournaments/${id}`, data);
 export const deleteTournament = (id: number) => api.delete(`/tournaments/${id}`);
+
+// Tournament formation management
+export const updateTournamentStatus = (id: number, status: string) => api.put(`/tournaments/${id}/status`, { status });
+export const updateTournamentRegistration = (id: number, registration_open: boolean) => api.put(`/tournaments/${id}/registration`, { registration_open });
+export const getTournamentFormationStats = (id: number) => api.get(`/tournaments/${id}/formation-stats`);
 
 // Tournament participants
 export const getTournamentParticipants = (tournamentId: number) => api.get(`/tournaments/${tournamentId}/participants`);
