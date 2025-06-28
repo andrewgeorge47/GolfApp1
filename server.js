@@ -2312,7 +2312,6 @@ app.post('/api/users/profile-photo', authenticateToken, upload.single('profilePh
     // Upload to GCS
     await blob.save(req.file.buffer, {
       contentType: req.file.mimetype,
-      public: true, // Set to false if you want to use signed URLs instead
       metadata: { cacheControl: 'public, max-age=31536000' }
     });
 
