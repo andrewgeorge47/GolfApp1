@@ -491,29 +491,31 @@ const Profile: React.FC = () => {
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center space-x-6 mb-6 lg:mb-0">
             <div className="relative">
-              <div className="bg-white/20 backdrop-blur-sm rounded-full p-4">
+              <div className="bg-white/20 backdrop-blur-sm rounded-full w-20 h-20 flex items-center justify-center">
                 {user?.profile_photo_url ? (
                   <img 
                     src={user.profile_photo_url} 
                     alt="Profile" 
-                    className="w-12 h-12 rounded-full object-cover"
+                    className="w-20 h-20 rounded-full object-cover"
                   />
                 ) : (
                   <UserIcon className="w-12 h-12 text-white" />
                 )}
               </div>
-              <button
-                onClick={triggerPhotoUpload}
-                disabled={uploadingPhoto}
-                className="absolute -bottom-1 -right-1 bg-brand-neon-green text-brand-black rounded-full p-2 hover:bg-green-400 transition-colors disabled:opacity-50"
-                title="Upload profile photo"
-              >
-                {uploadingPhoto ? (
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-black"></div>
-                ) : (
-                  <Camera className="w-4 h-4" />
-                )}
-              </button>
+              {isEditing && (
+                <button
+                  onClick={triggerPhotoUpload}
+                  disabled={uploadingPhoto}
+                  className="absolute -bottom-1 -right-1 bg-brand-neon-green text-brand-black rounded-full p-2 hover:bg-green-400 transition-colors disabled:opacity-50"
+                  title="Upload profile photo"
+                >
+                  {uploadingPhoto ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-black"></div>
+                  ) : (
+                    <Camera className="w-4 h-4" />
+                  )}
+                </button>
+              )}
             </div>
             <input
               ref={fileInputRef}
