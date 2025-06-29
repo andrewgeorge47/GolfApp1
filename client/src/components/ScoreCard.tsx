@@ -12,9 +12,10 @@ interface ScoreCardProps {
     name: string;
     handicap: number;
   };
+  holes?: number;
 }
 
-const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo }) => {
+const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo, holes = 18 }) => {
   const {
     scoreCard,
     updatePlayerInfo,
@@ -27,7 +28,7 @@ const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo }) => {
     getScoreStats,
     TOTAL_MULLIGANS,
     HOLES
-  } = useScoreCalculator();
+  } = useScoreCalculator(holes);
 
   const [showRules, setShowRules] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);

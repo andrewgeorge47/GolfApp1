@@ -471,6 +471,7 @@ const Profile: React.FC = () => {
           onClose={handleCloseScoreCard}
           onSave={handleSaveScoreCard}
           userInfo={userInfo}
+          holes={holes || 18}
         />
       );
     } else {
@@ -479,6 +480,7 @@ const Profile: React.FC = () => {
           onClose={handleCloseScoreCard}
           onSave={handleSaveScoreCard}
           userInfo={userInfo}
+          holes={holes || 18}
         />
       );
     }

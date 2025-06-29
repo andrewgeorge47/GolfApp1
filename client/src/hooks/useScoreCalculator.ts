@@ -28,16 +28,15 @@ export interface ScoreCardData {
 }
 
 const TOTAL_MULLIGANS = 3; // Standard mulligan count
-const HOLES = 18;
 
-export const useScoreCalculator = () => {
+export const useScoreCalculator = (holes: number = 18) => {
   const [scoreCard, setScoreCard] = useState<ScoreCardData>({
     playerInfo: {
       name: '',
       date: new Date().toISOString().split('T')[0],
       handicap: 0
     },
-    holes: Array.from({ length: HOLES }, (_, i) => ({
+    holes: Array.from({ length: holes }, (_, i) => ({
       hole: i + 1,
       strokes: 0,
       mulligans: 0,
@@ -183,7 +182,7 @@ export const useScoreCalculator = () => {
         date: new Date().toISOString().split('T')[0],
         handicap: 0
       },
-      holes: Array.from({ length: HOLES }, (_, i) => ({
+      holes: Array.from({ length: holes }, (_, i) => ({
         hole: i + 1,
         strokes: 0,
         mulligans: 0,
@@ -193,7 +192,7 @@ export const useScoreCalculator = () => {
       totalMulligans: 0,
       finalScore: 0
     });
-  }, []);
+  }, [holes]);
 
   // Get score statistics
   const getScoreStats = useCallback(() => {
@@ -231,6 +230,6 @@ export const useScoreCalculator = () => {
     resetScoreCard,
     getScoreStats,
     TOTAL_MULLIGANS,
-    HOLES
+    HOLES: holes
   };
 }; 

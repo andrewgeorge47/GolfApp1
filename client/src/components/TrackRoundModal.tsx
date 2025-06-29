@@ -12,19 +12,12 @@ const TrackRoundModal: React.FC<TrackRoundModalProps> = ({
   onClose,
   onSelectRoundType
 }) => {
-  const [selectedRoundType, setSelectedRoundType] = useState<'sim' | 'grass' | null>(null);
-  const [selectedHoles, setSelectedHoles] = useState<9 | 18 | null>(null);
-
-  const handleStartRound = () => {
-    if (selectedRoundType && selectedHoles) {
-      onSelectRoundType(selectedRoundType, selectedHoles);
-    }
+  const handleClose = () => {
+    onClose();
   };
 
-  const handleClose = () => {
-    setSelectedRoundType(null);
-    setSelectedHoles(null);
-    onClose();
+  const handleStartRound = (roundType: 'sim' | 'grass', holes: 9 | 18) => {
+    onSelectRoundType(roundType, holes);
   };
 
   if (!isOpen) return null;
@@ -51,18 +44,9 @@ const TrackRoundModal: React.FC<TrackRoundModalProps> = ({
 
           <div className="space-y-4 mb-6">
             {/* Simulator Option */}
-            <button
-              onClick={() => setSelectedRoundType('sim')}
-              className={`w-full p-4 border-2 rounded-lg transition-all duration-200 group ${
-                selectedRoundType === 'sim' 
-                  ? 'border-brand-neon-green bg-brand-neon-green/5' 
-                  : 'border-gray-200 hover:border-brand-neon-green hover:bg-brand-neon-green/5'
-              }`}
-            >
-              <div className="flex items-center space-x-4">
-                <div className={`rounded-full p-3 transition-colors ${
-                  selectedRoundType === 'sim' ? 'bg-blue-200' : 'bg-blue-100 group-hover:bg-blue-200'
-                }`}>
+            <div className="border-2 border-gray-200 rounded-lg p-4">
+              <div className="flex items-center space-x-4 mb-4">
+                <div className="rounded-full p-3 bg-blue-100">
                   <Target className="w-6 h-6 text-blue-600" />
                 </div>
                 <div className="text-left">
@@ -72,21 +56,36 @@ const TrackRoundModal: React.FC<TrackRoundModalProps> = ({
                   </p>
                 </div>
               </div>
-            </button>
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => handleStartRound('sim', 9)}
+                  className="flex-1 py-2 px-4 border-2 border-gray-200 rounded-lg hover:border-brand-neon-green hover:bg-brand-neon-green/5 transition-all duration-200 group"
+                >
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="rounded-full p-2 bg-orange-100 group-hover:bg-orange-200 transition-colors">
+                      <span className="text-orange-600 font-bold text-sm">9</span>
+                    </div>
+                    <span className="font-medium text-gray-900">9 Holes</span>
+                  </div>
+                </button>
+                <button
+                  onClick={() => handleStartRound('sim', 18)}
+                  className="flex-1 py-2 px-4 border-2 border-gray-200 rounded-lg hover:border-brand-neon-green hover:bg-brand-neon-green/5 transition-all duration-200 group"
+                >
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="rounded-full p-2 bg-purple-100 group-hover:bg-purple-200 transition-colors">
+                      <span className="text-purple-600 font-bold text-sm">18</span>
+                    </div>
+                    <span className="font-medium text-gray-900">18 Holes</span>
+                  </div>
+                </button>
+              </div>
+            </div>
 
             {/* Outdoor Option */}
-            <button
-              onClick={() => setSelectedRoundType('grass')}
-              className={`w-full p-4 border-2 rounded-lg transition-all duration-200 group ${
-                selectedRoundType === 'grass' 
-                  ? 'border-brand-neon-green bg-brand-neon-green/5' 
-                  : 'border-gray-200 hover:border-brand-neon-green hover:bg-brand-neon-green/5'
-              }`}
-            >
-              <div className="flex items-center space-x-4">
-                <div className={`rounded-full p-3 transition-colors ${
-                  selectedRoundType === 'grass' ? 'bg-green-200' : 'bg-green-100 group-hover:bg-green-200'
-                }`}>
+            <div className="border-2 border-gray-200 rounded-lg p-4">
+              <div className="flex items-center space-x-4 mb-4">
+                <div className="rounded-full p-3 bg-green-100">
                   <MapPin className="w-6 h-6 text-green-600" />
                 </div>
                 <div className="text-left">
@@ -96,96 +95,43 @@ const TrackRoundModal: React.FC<TrackRoundModalProps> = ({
                   </p>
                 </div>
               </div>
-            </button>
-          </div>
-
-          {selectedRoundType && (
-            <>
-              <p className="text-gray-600 mb-6">
-                How many holes are you playing?
-              </p>
-
-              <div className="space-y-4 mb-6">
-                {/* 9 Holes Option */}
+              <div className="flex space-x-3">
                 <button
-                  onClick={() => setSelectedHoles(9)}
-                  className={`w-full p-4 border-2 rounded-lg transition-all duration-200 group ${
-                    selectedHoles === 9 
-                      ? 'border-brand-neon-green bg-brand-neon-green/5' 
-                      : 'border-gray-200 hover:border-brand-neon-green hover:bg-brand-neon-green/5'
-                  }`}
+                  onClick={() => handleStartRound('grass', 9)}
+                  className="flex-1 py-2 px-4 border-2 border-gray-200 rounded-lg hover:border-brand-neon-green hover:bg-brand-neon-green/5 transition-all duration-200 group"
                 >
-                  <div className="flex items-center space-x-4">
-                    <div className={`rounded-full p-3 transition-colors ${
-                      selectedHoles === 9 ? 'bg-orange-200' : 'bg-orange-100 group-hover:bg-orange-200'
-                    }`}>
-                      <span className="text-orange-600 font-bold text-lg">9</span>
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="rounded-full p-2 bg-orange-100 group-hover:bg-orange-200 transition-colors">
+                      <span className="text-orange-600 font-bold text-sm">9</span>
                     </div>
-                    <div className="text-left">
-                      <h3 className="font-semibold text-gray-900">9 Holes</h3>
-                      <p className="text-sm text-gray-600">
-                        Front or back nine
-                      </p>
-                    </div>
+                    <span className="font-medium text-gray-900">9 Holes</span>
                   </div>
                 </button>
-
-                {/* 18 Holes Option */}
                 <button
-                  onClick={() => setSelectedHoles(18)}
-                  className={`w-full p-4 border-2 rounded-lg transition-all duration-200 group ${
-                    selectedHoles === 18 
-                      ? 'border-brand-neon-green bg-brand-neon-green/5' 
-                      : 'border-gray-200 hover:border-brand-neon-green hover:bg-brand-neon-green/5'
-                  }`}
+                  onClick={() => handleStartRound('grass', 18)}
+                  className="flex-1 py-2 px-4 border-2 border-gray-200 rounded-lg hover:border-brand-neon-green hover:bg-brand-neon-green/5 transition-all duration-200 group"
                 >
-                  <div className="flex items-center space-x-4">
-                    <div className={`rounded-full p-3 transition-colors ${
-                      selectedHoles === 18 ? 'bg-purple-200' : 'bg-purple-100 group-hover:bg-purple-200'
-                    }`}>
-                      <span className="text-purple-600 font-bold text-lg">18</span>
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="rounded-full p-2 bg-purple-100 group-hover:bg-purple-200 transition-colors">
+                      <span className="text-purple-600 font-bold text-sm">18</span>
                     </div>
-                    <div className="text-left">
-                      <h3 className="font-semibold text-gray-900">18 Holes</h3>
-                      <p className="text-sm text-gray-600">
-                        Full round
-                      </p>
-                    </div>
+                    <span className="font-medium text-gray-900">18 Holes</span>
                   </div>
                 </button>
               </div>
-
-              {selectedHoles && (
-                <div className="flex justify-end space-x-3">
-                  <button
-                    onClick={handleClose}
-                    className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleStartRound}
-                    className="px-6 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors font-medium"
-                  >
-                    Start Round
-                  </button>
-                </div>
-              )}
-            </>
-          )}
+            </div>
+          </div>
         </div>
 
-        {/* Footer - only show if no round type selected */}
-        {!selectedRoundType && (
-          <div className="flex justify-end p-6 border-t border-gray-200">
-            <button
-              onClick={handleClose}
-              className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
+        {/* Footer */}
+        <div className="flex justify-end p-6 border-t border-gray-200">
+          <button
+            onClick={handleClose}
+            className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

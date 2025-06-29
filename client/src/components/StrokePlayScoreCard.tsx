@@ -8,6 +8,7 @@ interface StrokePlayScoreCardProps {
     name: string;
     handicap: number;
   };
+  holes?: number;
 }
 
 interface HoleScore {
@@ -22,7 +23,7 @@ interface PlayerInfo {
   handicap: number;
 }
 
-const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSave, userInfo }) => {
+const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSave, userInfo, holes = 18 }) => {
   const [playerInfo, setPlayerInfo] = useState<PlayerInfo>({
     name: '',
     date: new Date().toISOString().split('T')[0],
@@ -40,8 +41,8 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
     }
   }, [userInfo]);
 
-  const [holes, setHoles] = useState<HoleScore[]>(
-    Array.from({ length: 18 }, (_, i) => ({
+  const [holesState, setHolesState] = useState<HoleScore[]>(
+    Array.from({ length: holes }, (_, i) => ({
       hole: i + 1,
       strokes: 0
     }))
@@ -50,10 +51,10 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
   const [errors, setErrors] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Sample par values
-  const parValues = [4, 3, 4, 5, 4, 3, 4, 4, 4, 4, 3, 4, 5, 4, 3, 4, 4, 4];
+  // Sample par values - extend for 18 holes, but only use the number of holes selected
+  const parValues = [4, 3, 4, 5, 4, 3, 4, 4, 4, 4, 3, 4, 5, 4, 3, 4, 4, 4].slice(0, holes);
 
-  const totalStrokes = holes.reduce((sum, hole) => sum + hole.strokes, 0);
+  const totalStrokes = holesState.reduce((sum, hole) => sum + hole.strokes, 0);
   const totalPar = parValues.reduce((sum, par) => sum + par, 0);
   const scoreToPar = totalStrokes - totalPar;
 
@@ -65,14 +66,14 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
   };
 
   const updateHoleScore = (holeNumber: number, strokes: number) => {
-    setHoles(prev => prev.map(hole => 
+    setHolesState(prev => prev.map(hole => 
       hole.hole === holeNumber ? { ...hole, strokes: Math.max(0, strokes) } : hole
     ));
   };
 
   const resetScoreCard = () => {
     if (window.confirm('Are you sure you want to reset the scorecard? This will clear all scores.')) {
-      setHoles(Array.from({ length: 18 }, (_, i) => ({
+      setHolesState(Array.from({ length: holes }, (_, i) => ({
         hole: i + 1,
         strokes: 0
       })));
@@ -91,7 +92,7 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
       errors.push('Date is required');
     }
     
-    const holesWithScores = holes.filter(hole => hole.strokes > 0).length;
+    const holesWithScores = holesState.filter(hole => hole.strokes > 0).length;
     if (holesWithScores === 0) {
       errors.push('At least one hole must have a score');
     }
@@ -101,7 +102,7 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
 
   const handleSave = async () => {
     console.log('Starting StrokePlay save process...'); // Debug log
-    console.log('Current data:', { playerInfo, holes, totalStrokes, totalPar, scoreToPar }); // Debug log
+    console.log('Current data:', { playerInfo, holes: holesState, totalStrokes, totalPar, scoreToPar }); // Debug log
     
     const validationErrors = validateScoreCard();
     console.log('Validation errors:', validationErrors); // Debug log
@@ -118,7 +119,7 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
       if (onSave) {
         await onSave({
           playerInfo,
-          holes,
+          holes: holesState,
           totalStrokes,
           totalPar,
           scoreToPar,
@@ -295,10 +296,10 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
 
         {/* Score Rows */}
         <div className="space-y-1">
-          {holes.map((hole, index) => {
+          {holesState.map((hole, index) => {
             const par = parValues[hole.hole - 1];
-            const runningTotal = holes.slice(0, index + 1).reduce((sum, h) => sum + h.strokes, 0);
-            const runningToPar = holes.slice(0, index + 1).reduce((sum, h, i) => sum + (h.strokes - parValues[i]), 0);
+            const runningTotal = holesState.slice(0, index + 1).reduce((sum, h) => sum + h.strokes, 0);
+            const runningToPar = holesState.slice(0, index + 1).reduce((sum, h, i) => sum + (h.strokes - parValues[i]), 0);
             
             return (
               <div key={hole.hole} className="grid grid-cols-6 gap-2 items-center py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors">
