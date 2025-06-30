@@ -38,7 +38,7 @@ const ParticipantsTable: React.FC<ParticipantsTableProps> = ({
                 <td className="border border-neutral-300 px-4 py-2">
                   {participant.first_name} {participant.last_name}
                 </td>
-                <td className="border border-neutral-300 px-4 py-2">{participant.email_address}</td>
+                <td className="border border-neutral-300 px-4 py-2">{participant.email}</td>
                 <td className="border border-neutral-300 px-4 py-2">{participant.club}</td>
                 <td className="border border-neutral-300 px-4 py-2">
                   {checkIn ? (

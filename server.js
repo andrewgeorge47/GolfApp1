@@ -162,6 +162,89 @@ app.post('/api/setup-database', async (req, res) => {
       console.log('Migration note:', migrationErr.message);
     }
 
+    // Create course_records table
+    console.log('About to create course_records table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS course_records (
+        id SERIAL PRIMARY KEY,
+        course_id INTEGER REFERENCES simulator_courses_combined(id),
+        club VARCHAR(50), -- NULL for community/global records, club name for club-specific records
+        user_id INTEGER REFERENCES users(member_id),
+        scorecard_id INTEGER REFERENCES scorecards(id),
+        total_strokes INTEGER NOT NULL,
+        date_played DATE NOT NULL,
+        is_current BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(course_id, club)
+      )
+    `);
+    console.log('Course records table ready.');
+
+    // Populate course_records with existing best scores
+    try {
+      const { rows: existingRecords } = await pool.query('SELECT COUNT(*) FROM course_records');
+      if (parseInt(existingRecords[0].count) === 0) {
+        console.log('Populating course_records table with existing best scores...');
+        
+        // Insert community records (global best scores)
+        await pool.query(`
+          INSERT INTO course_records (course_id, club, user_id, scorecard_id, total_strokes, date_played)
+          SELECT 
+            s.course_id,
+            NULL as club,
+            s.user_id,
+            s.id as scorecard_id,
+            s.total_strokes,
+            s.date_played
+          FROM scorecards s
+          INNER JOIN (
+            SELECT 
+              course_id,
+              MIN(total_strokes) as best_score
+            FROM scorecards 
+            WHERE course_id IS NOT NULL AND round_type = 'sim'
+            GROUP BY course_id
+          ) best_scores ON s.course_id = best_scores.course_id 
+            AND s.total_strokes = best_scores.best_score
+            AND s.round_type = 'sim'
+          ON CONFLICT (course_id, club) DO NOTHING
+        `);
+
+        // Insert club records (best scores per club)
+        await pool.query(`
+          INSERT INTO course_records (course_id, club, user_id, scorecard_id, total_strokes, date_played)
+          SELECT 
+            s.course_id,
+            u.club,
+            s.user_id,
+            s.id as scorecard_id,
+            s.total_strokes,
+            s.date_played
+          FROM scorecards s
+          INNER JOIN users u ON s.user_id = u.member_id
+          INNER JOIN (
+            SELECT 
+              s2.course_id,
+              u2.club,
+              MIN(s2.total_strokes) as best_score
+            FROM scorecards s2
+            INNER JOIN users u2 ON s2.user_id = u2.member_id
+            WHERE s2.course_id IS NOT NULL AND s2.round_type = 'sim' AND u2.club IS NOT NULL
+            GROUP BY s2.course_id, u2.club
+          ) best_scores ON s.course_id = best_scores.course_id 
+            AND u.club = best_scores.club
+            AND s.total_strokes = best_scores.best_score
+            AND s.round_type = 'sim'
+          ON CONFLICT (course_id, club) DO NOTHING
+        `);
+
+        console.log('Course records populated successfully');
+      }
+    } catch (courseRecordsErr) {
+      console.log('Course records migration note:', courseRecordsErr.message);
+    }
+
     res.json({ 
       success: true, 
       message: 'Database tables created successfully',
@@ -607,6 +690,31 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   }
 });
 
+// Setup password for existing users
+app.post('/api/auth/setup-password', authenticateToken, async (req, res) => {
+  const { password } = req.body;
+  if (!password) {
+    return res.status(400).json({ error: 'Password is required' });
+  }
+  
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const result = await pool.query(
+      'UPDATE users SET password_hash = $1 WHERE member_id = $2 RETURNING *',
+      [hashedPassword, req.user.member_id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json({ message: 'Password set successfully' });
+  } catch (err) {
+    console.error('Error setting password:', err);
+    res.status(500).json({ error: 'Failed to set password' });
+  }
+});
+
 // Debug route to check database connection and users
 app.get('/api/debug-db', async (req, res) => {
   console.log('DEBUG ROUTE HIT');
@@ -763,7 +871,8 @@ app.put('/api/tournaments/:id', async (req, res) => {
     course,
     rules,
     notes, 
-    type 
+    type,
+    created_by
   } = req.body;
   
   try {
@@ -773,12 +882,12 @@ app.put('/api/tournaments/:id', async (req, res) => {
         registration_deadline = $5, max_participants = $6, min_participants = $7,
         tournament_format = $8, status = $9, registration_open = $10,
         entry_fee = $11, location = $12, course = $13, rules = $14,
-        notes = $15, type = $16, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $17 RETURNING *`,
+        notes = $15, type = $16, created_by = $17, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $18 RETURNING *`,
       [
         name, description, start_date, end_date, registration_deadline,
         max_participants, min_participants, tournament_format, status,
-        registration_open, entry_fee, location, course, rules, notes, type, id
+        registration_open, entry_fee, location, course, rules, notes, type, created_by, id
       ]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Tournament not found' });
@@ -1603,6 +1712,13 @@ async function updateUserProfilesForExistingMatches() {
       `);
     console.log('Scorecards table migration complete.');
     
+    // Add par_values column to simulator_courses_combined table
+    await pool.query(`
+      ALTER TABLE simulator_courses_combined
+        ADD COLUMN IF NOT EXISTS par_values JSONB
+      `);
+    console.log('Simulator courses table par_values column added.');
+    
     // Change handicap column to NUMERIC to support decimal values
     try {
       await pool.query(`
@@ -1734,6 +1850,31 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
     );
     
     console.log('Scorecard saved successfully:', rows[0]); // Debug log
+    
+    // Check and update course records for simulator rounds with course_id
+    if (round_type === 'sim' && course_id && total_strokes) {
+      try {
+        // Get user's club
+        const { rows: userRows } = await pool.query(
+          'SELECT club FROM users WHERE member_id = $1',
+          [req.user.member_id]
+        );
+        
+        if (userRows.length > 0) {
+          await checkAndUpdateCourseRecords(
+            rows[0].id, // scorecardId
+            course_id,  // courseId
+            req.user.member_id, // userId
+            total_strokes, // totalStrokes
+            date_played, // datePlayed
+            userRows[0].club // userClub
+          );
+        }
+      } catch (recordErr) {
+        console.error('Error updating course records:', recordErr);
+        // Don't fail the scorecard save if course record update fails
+      }
+    }
     
     // Recalculate handicap for this user after saving scorecard
     try {
@@ -2329,6 +2470,86 @@ app.get('/api/users/:id/grass-stats', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching user grass stats:', error);
     res.status(500).json({ error: 'Failed to fetch user outdoor statistics' });
+  }
+});
+
+// Get user combined statistics (sim + grass)
+app.get('/api/users/:id/combined-stats', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  
+  console.log('Combined stats requested for user ID:', id);
+  console.log('Authenticated user:', req.user);
+  
+  try {
+    // Get combined statistics for the user
+    const { rows } = await pool.query(`
+      SELECT 
+        COUNT(*) as total_rounds,
+        COUNT(CASE WHEN differential IS NOT NULL THEN 1 END) as rounds_with_differential,
+        AVG(differential) as avg_differential,
+        MIN(differential) as best_differential,
+        MAX(differential) as worst_differential,
+        AVG(total_strokes) as avg_strokes,
+        MIN(total_strokes) as best_strokes,
+        MAX(total_strokes) as worst_strokes,
+        COUNT(DISTINCT course_name) as unique_courses,
+        COUNT(DISTINCT DATE(date_played)) as unique_dates,
+        MIN(date_played) as first_round,
+        MAX(date_played) as last_round,
+        COUNT(CASE WHEN round_type = 'sim' OR round_type IS NULL THEN 1 END) as sim_rounds,
+        COUNT(CASE WHEN round_type = 'grass' THEN 1 END) as grass_rounds
+      FROM scorecards
+      WHERE user_id = $1
+    `, [id]);
+    
+    console.log('Combined stats query result:', rows);
+    
+    if (rows.length === 0) {
+      console.log('No rows returned, sending empty combined stats');
+      return res.json({
+        total_rounds: 0,
+        rounds_with_differential: 0,
+        avg_differential: null,
+        best_differential: null,
+        worst_differential: null,
+        avg_strokes: null,
+        best_strokes: null,
+        worst_strokes: null,
+        unique_courses: 0,
+        unique_dates: 0,
+        first_round: null,
+        last_round: null,
+        sim_rounds: 0,
+        grass_rounds: 0,
+        recent_rounds: []
+      });
+    }
+    
+    const stats = rows[0];
+    
+    // Get recent rounds (last 5) from both types
+    const { rows: recentRounds } = await pool.query(`
+      SELECT 
+        id,
+        date_played,
+        course_name,
+        total_strokes,
+        differential,
+        round_type
+      FROM scorecards
+      WHERE user_id = $1
+      ORDER BY date_played DESC
+      LIMIT 5
+    `, [id]);
+    
+    res.json({
+      ...stats,
+      recent_rounds: recentRounds
+    });
+    
+  } catch (error) {
+    console.error('Error fetching user combined stats:', error);
+    res.status(500).json({ error: 'Failed to fetch user combined statistics' });
   }
 });
 
@@ -2942,6 +3163,719 @@ app.get('/api/simulator-courses/stats', async (req, res) => {
   }
 });
 
+// Update course par values
+app.put('/api/simulator-courses/:id/par-values', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { par_values } = req.body;
+    
+    // Validate par values
+    if (!Array.isArray(par_values) || par_values.length === 0) {
+      return res.status(400).json({ error: 'Par values must be a non-empty array' });
+    }
+    
+    // Validate each par value is between 3 and 6
+    if (par_values.some(par => !Number.isInteger(par) || par < 3 || par > 6)) {
+      return res.status(400).json({ error: 'Par values must be integers between 3 and 6' });
+    }
+    
+    // Update the course with par values
+    const { rows } = await pool.query(`
+      UPDATE simulator_courses_combined 
+      SET par_values = $1, updated_at = NOW()
+      WHERE id = $2
+      RETURNING id, name, par_values
+    `, [par_values, id]);
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+    
+    res.json({
+      message: 'Par values updated successfully',
+      course: rows[0]
+    });
+    
+  } catch (error) {
+    console.error('Error updating course par values:', error);
+    res.status(500).json({ error: 'Failed to update par values' });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 }); 
+
+// Get course records and player statistics for leaderboard
+app.get('/api/leaderboard-stats', async (req, res) => {
+  try {
+    // Get player statistics with more detailed stats
+    const { rows: playerStats } = await pool.query(`
+      SELECT 
+        u.member_id,
+        u.first_name,
+        u.last_name,
+        u.club,
+        u.role,
+        u.sim_handicap,
+        u.grass_handicap,
+        COALESCE(up.total_matches, 0) as total_matches,
+        COALESCE(up.wins, 0) as wins,
+        COALESCE(up.losses, 0) as losses,
+        COALESCE(up.ties, 0) as ties,
+        COALESCE(up.total_points, 0) as total_points,
+        COALESCE(up.win_rate, 0) as win_rate,
+        -- Simulator round stats
+        COALESCE(sim_stats.total_sim_rounds, 0) as total_sim_rounds,
+        COALESCE(sim_stats.avg_sim_score, 0) as avg_sim_score,
+        COALESCE(sim_stats.best_sim_score, 0) as best_sim_score,
+        COALESCE(sim_stats.unique_sim_courses, 0) as unique_sim_courses,
+        -- Recent activity
+        COALESCE(recent_activity.rounds_this_month, 0) as rounds_this_month
+      FROM users u
+      LEFT JOIN user_profiles up ON u.member_id = up.user_id
+      LEFT JOIN (
+        SELECT 
+          user_id,
+          COUNT(*) as total_sim_rounds,
+          ROUND(AVG(total_strokes), 1) as avg_sim_score,
+          MIN(total_strokes) as best_sim_score,
+          COUNT(DISTINCT course_id) as unique_sim_courses
+        FROM scorecards 
+        WHERE round_type = 'simulator'
+        GROUP BY user_id
+      ) sim_stats ON u.member_id = sim_stats.user_id
+      LEFT JOIN (
+        SELECT 
+          user_id,
+          COUNT(*) as rounds_this_month
+        FROM scorecards 
+        WHERE round_type = 'simulator' 
+        AND date_played >= DATE_TRUNC('month', CURRENT_DATE)
+        GROUP BY user_id
+      ) recent_activity ON u.member_id = recent_activity.user_id
+      WHERE u.role IN ('Member', 'Admin', 'Club Pro')
+      ORDER BY sim_stats.total_sim_rounds DESC NULLS LAST, u.last_name, u.first_name
+    `);
+
+    // Get course records
+    let courseRecords = [];
+    try {
+      const { rows } = await pool.query(`
+        SELECT 
+          cr.course_id,
+          sc.name as course_name,
+          sc.location,
+          sc.designer,
+          sc.platforms,
+          cr.total_strokes as best_score,
+          cr.date_played,
+          u.first_name,
+          u.last_name,
+          u.club,
+          cr.user_id,
+          cr.scorecard_id,
+          cr.club as record_club -- NULL for community records, club name for club records
+        FROM course_records cr
+        INNER JOIN simulator_courses_combined sc ON cr.course_id = sc.id
+        INNER JOIN users u ON cr.user_id = u.member_id
+        WHERE cr.is_current = true
+        ORDER BY sc.name, cr.club NULLS FIRST
+      `);
+      courseRecords = rows;
+    } catch (courseRecordsErr) {
+      console.log('Course records table not available yet:', courseRecordsErr.message);
+      // Return empty array if table doesn't exist
+      courseRecords = [];
+    }
+
+    // Get recent matches
+    const { rows: recentMatches } = await pool.query(`
+      SELECT 
+        m.id,
+        p1.first_name as player1_first_name,
+        p1.last_name as player1_last_name,
+        p2.first_name as player2_first_name,
+        p2.last_name as player2_last_name,
+        CASE 
+          WHEN m.winner = p1.first_name || ' ' || p1.last_name THEN p1.first_name || ' ' || p1.last_name
+          WHEN m.winner = p2.first_name || ' ' || p2.last_name THEN p2.first_name || ' ' || p2.last_name
+          ELSE NULL
+        END as winner_name,
+        m.created_at
+      FROM matches m
+      LEFT JOIN users p1 ON m.player1_id = p1.member_id
+      LEFT JOIN users p2 ON m.player2_id = p2.member_id
+      ORDER BY m.created_at DESC
+      LIMIT 10
+    `);
+
+    // Get overall statistics
+    const { rows: overallStats } = await pool.query(`
+      SELECT 
+        COUNT(DISTINCT u.member_id) as total_players,
+        COUNT(DISTINCT m.id) as total_matches,
+        COUNT(DISTINCT s.id) as total_rounds,
+        COUNT(DISTINCT s.course_id) as total_courses_played,
+        ROUND(AVG(s.total_strokes), 1) as avg_score,
+        MIN(s.total_strokes) as best_score_overall
+      FROM users u
+      LEFT JOIN matches m ON (u.member_id = m.player1_id OR u.member_id = m.player2_id)
+      LEFT JOIN scorecards s ON u.member_id = s.user_id AND s.round_type = 'simulator'
+      WHERE u.role IN ('Member', 'Admin', 'Club Pro')
+    `);
+
+    res.json({
+      players: playerStats,
+      courseRecords,
+      recentMatches,
+      overallStats: overallStats[0] || {
+        total_players: 0,
+        total_matches: 0,
+        total_rounds: 0,
+        total_courses_played: 0,
+        avg_score: 0,
+        best_score_overall: 0
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching leaderboard stats:', err);
+    res.status(500).json({ error: 'Failed to fetch leaderboard stats' });
+  }
+}); 
+
+// Function to check and update course records
+async function checkAndUpdateCourseRecords(scorecardId, courseId, userId, totalStrokes, datePlayed, userClub) {
+  try {
+    // First check if the course_records table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'course_records'
+      );
+    `);
+    
+    if (!tableCheck.rows[0].exists) {
+      console.log('Course records table does not exist yet, skipping record update');
+      return;
+    }
+
+    // Check if this is a new club record
+    const clubRecordCheck = await pool.query(`
+      SELECT id, total_strokes FROM course_records 
+      WHERE course_id = $1 AND club = $2 AND is_current = true
+    `, [courseId, userClub]);
+
+    if (clubRecordCheck.rows.length === 0 || totalStrokes < clubRecordCheck.rows[0].total_strokes) {
+      // New club record - mark old record as not current and insert new one
+      if (clubRecordCheck.rows.length > 0) {
+        await pool.query(`
+          UPDATE course_records SET is_current = false, updated_at = NOW()
+          WHERE id = $1
+        `, [clubRecordCheck.rows[0].id]);
+      }
+
+      await pool.query(`
+        INSERT INTO course_records (course_id, club, user_id, scorecard_id, total_strokes, date_played)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (course_id, club) DO UPDATE SET
+          user_id = EXCLUDED.user_id,
+          scorecard_id = EXCLUDED.scorecard_id,
+          total_strokes = EXCLUDED.total_strokes,
+          date_played = EXCLUDED.date_played,
+          is_current = true,
+          updated_at = NOW()
+      `, [courseId, userClub, userId, scorecardId, totalStrokes, datePlayed]);
+
+      console.log(`New club record set for course ${courseId} at ${userClub}: ${totalStrokes} strokes`);
+    }
+
+    // Check if this is a new community/global record
+    const globalRecordCheck = await pool.query(`
+      SELECT id, total_strokes FROM course_records 
+      WHERE course_id = $1 AND club IS NULL AND is_current = true
+    `, [courseId]);
+
+    if (globalRecordCheck.rows.length === 0 || totalStrokes < globalRecordCheck.rows[0].total_strokes) {
+      // New global record - mark old record as not current and insert new one
+      if (globalRecordCheck.rows.length > 0) {
+        await pool.query(`
+          UPDATE course_records SET is_current = false, updated_at = NOW()
+          WHERE id = $1
+        `, [globalRecordCheck.rows[0].id]);
+      }
+
+      await pool.query(`
+        INSERT INTO course_records (course_id, club, user_id, scorecard_id, total_strokes, date_played)
+        VALUES ($1, NULL, $2, $3, $4, $5)
+        ON CONFLICT (course_id, club) DO UPDATE SET
+          user_id = EXCLUDED.user_id,
+          scorecard_id = EXCLUDED.scorecard_id,
+          total_strokes = EXCLUDED.total_strokes,
+          date_played = EXCLUDED.date_played,
+          is_current = true,
+          updated_at = NOW()
+      `, [courseId, userId, scorecardId, totalStrokes, datePlayed]);
+
+      console.log(`New community record set for course ${courseId}: ${totalStrokes} strokes`);
+    }
+
+  } catch (error) {
+    console.error('Error updating course records:', error);
+  }
+}
+
+// Create course records table endpoint
+app.post('/api/setup-course-records', async (req, res) => {
+  try {
+    console.log('Setting up course records table...');
+    
+    // First, ensure the simulator_courses_combined table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS simulator_courses_combined (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        location VARCHAR(255),
+        designer VARCHAR(255),
+        platforms TEXT[],
+        course_types TEXT[],
+        par_values JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('Simulator courses combined table ready.');
+
+    // Create course_records table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS course_records (
+        id SERIAL PRIMARY KEY,
+        course_id INTEGER REFERENCES simulator_courses_combined(id),
+        club VARCHAR(50), -- NULL for community/global records, club name for club-specific records
+        user_id INTEGER REFERENCES users(member_id),
+        scorecard_id INTEGER REFERENCES scorecards(id),
+        total_strokes INTEGER NOT NULL,
+        date_played DATE NOT NULL,
+        is_current BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(course_id, club)
+      )
+    `);
+    console.log('Course records table ready.');
+
+    // Populate course_records with existing best scores if the table is empty
+    const { rows: existingRecords } = await pool.query('SELECT COUNT(*) FROM course_records');
+    if (parseInt(existingRecords[0].count) === 0) {
+      console.log('Populating course_records table with existing best scores...');
+      
+      // Insert community records (global best scores)
+      await pool.query(`
+        INSERT INTO course_records (course_id, club, user_id, scorecard_id, total_strokes, date_played)
+        SELECT 
+          s.course_id,
+          NULL as club,
+          s.user_id,
+          s.id as scorecard_id,
+          s.total_strokes,
+          s.date_played
+        FROM scorecards s
+        INNER JOIN (
+          SELECT 
+            course_id,
+            MIN(total_strokes) as best_score
+          FROM scorecards 
+          WHERE course_id IS NOT NULL AND round_type = 'sim'
+          GROUP BY course_id
+        ) best_scores ON s.course_id = best_scores.course_id 
+          AND s.total_strokes = best_scores.best_score
+          AND s.round_type = 'sim'
+        ON CONFLICT (course_id, club) DO NOTHING
+      `);
+
+      // Insert club records (best scores per club)
+      await pool.query(`
+        INSERT INTO course_records (course_id, club, user_id, scorecard_id, total_strokes, date_played)
+        SELECT 
+          s.course_id,
+          u.club,
+          s.user_id,
+          s.id as scorecard_id,
+          s.total_strokes,
+          s.date_played
+        FROM scorecards s
+        INNER JOIN users u ON s.user_id = u.member_id
+        INNER JOIN (
+          SELECT 
+            s2.course_id,
+            u2.club,
+            MIN(s2.total_strokes) as best_score
+          FROM scorecards s2
+          INNER JOIN users u2 ON s2.user_id = u2.member_id
+          WHERE s2.course_id IS NOT NULL AND s2.round_type = 'sim' AND u2.club IS NOT NULL
+          GROUP BY s2.course_id, u2.club
+        ) best_scores ON s.course_id = best_scores.course_id 
+          AND u.club = best_scores.club
+          AND s.total_strokes = best_scores.best_score
+          AND s.round_type = 'sim'
+        ON CONFLICT (course_id, club) DO NOTHING
+      `);
+
+      console.log('Course records populated successfully');
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Course records table created and populated successfully',
+      tables: ['simulator_courses_combined', 'course_records']
+    });
+  } catch (err) {
+    console.error('Error setting up course records:', err);
+    res.status(500).json({ error: 'Failed to setup course records', details: err.message });
+  }
+});
+
+// Get all users
+
+// Get global community leaderboard statistics
+app.get('/api/global-leaderboard', async (req, res) => {
+  try {
+    // Club-level highlights - break into separate queries
+    let mostCourseRecordsClub = null;
+    let mostCoursesPlayedClub = null;
+    let mostActiveClub = null;
+    let longestStandingRecord = null;
+
+    try {
+      // Most Course Records Held
+      const { rows: mostRecordsResult } = await pool.query(`
+        SELECT u.club, COUNT(DISTINCT cr.course_id) as record_count
+        FROM users u
+        JOIN course_records cr ON u.member_id = cr.user_id
+        WHERE cr.is_current = true
+        GROUP BY u.club
+        ORDER BY record_count DESC
+        LIMIT 1
+      `);
+      mostCourseRecordsClub = mostRecordsResult[0]?.club || null;
+    } catch (err) {
+      console.log('No course records data available');
+    }
+
+    try {
+      // Most Different Courses Played
+      const { rows: mostCoursesResult } = await pool.query(`
+        SELECT u.club, COUNT(DISTINCT s.course_id) as courses_played
+        FROM users u
+        JOIN scorecards s ON u.member_id = s.user_id
+        WHERE s.round_type = 'simulator'
+        GROUP BY u.club
+        ORDER BY courses_played DESC
+        LIMIT 1
+      `);
+      mostCoursesPlayedClub = mostCoursesResult[0]?.club || null;
+    } catch (err) {
+      console.log('No courses played data available');
+    }
+
+    try {
+      // Most Active Club
+      const { rows: mostActiveResult } = await pool.query(`
+        SELECT u.club, COUNT(*) as total_rounds
+        FROM users u
+        JOIN scorecards s ON u.member_id = s.user_id
+        WHERE s.round_type = 'simulator'
+        GROUP BY u.club
+        ORDER BY total_rounds DESC
+        LIMIT 1
+      `);
+      mostActiveClub = mostActiveResult[0]?.club || null;
+    } catch (err) {
+      console.log('No activity data available');
+    }
+
+    try {
+      // Longest Standing Course Record
+      const { rows: longestStandingResult } = await pool.query(`
+        SELECT 
+          cr.course_id,
+          cr.club,
+          cr.date_played,
+          EXTRACT(DAYS FROM NOW() - cr.date_played) as days_standing
+        FROM course_records cr
+        WHERE cr.is_current = true
+        ORDER BY cr.date_played ASC
+        LIMIT 1
+      `);
+      longestStandingRecord = longestStandingResult[0] || null;
+    } catch (err) {
+      console.log('No record data available');
+    }
+
+    // Player-level highlights - break into separate queries
+    let mostRecordsPlayer = null;
+    let mostCoursesPlayer = null;
+    let bestRecentPlayer = null;
+
+    try {
+      // Most Course Records Held by One Player
+      const { rows: mostRecordsPlayerResult } = await pool.query(`
+        SELECT 
+          u.member_id,
+          u.first_name,
+          u.last_name,
+          u.club,
+          COUNT(DISTINCT cr.course_id) as record_count
+        FROM users u
+        JOIN course_records cr ON u.member_id = cr.user_id
+        WHERE cr.is_current = true
+        GROUP BY u.member_id, u.first_name, u.last_name, u.club
+        ORDER BY record_count DESC
+        LIMIT 1
+      `);
+      mostRecordsPlayer = mostRecordsPlayerResult[0] || null;
+    } catch (err) {
+      console.log('No player records data available');
+    }
+
+    try {
+      // Most Courses Played by One Player
+      const { rows: mostCoursesPlayerResult } = await pool.query(`
+        SELECT 
+          u.member_id,
+          u.first_name,
+          u.last_name,
+          u.club,
+          COUNT(DISTINCT s.course_id) as courses_played
+        FROM users u
+        JOIN scorecards s ON u.member_id = s.user_id
+        WHERE s.round_type = 'simulator'
+        GROUP BY u.member_id, u.first_name, u.last_name, u.club
+        ORDER BY courses_played DESC
+        LIMIT 1
+      `);
+      mostCoursesPlayer = mostCoursesPlayerResult[0] || null;
+    } catch (err) {
+      console.log('No player courses data available');
+    }
+
+    try {
+      // Lowest Aggregate Score Over Time (last 30 days)
+      const { rows: bestRecentPlayerResult } = await pool.query(`
+        SELECT 
+          u.member_id,
+          u.first_name,
+          u.last_name,
+          u.club,
+          AVG(s.total_strokes) as avg_score,
+          COUNT(*) as rounds_count
+        FROM users u
+        JOIN scorecards s ON u.member_id = s.user_id
+        WHERE s.round_type = 'simulator'
+        AND s.date_played >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY u.member_id, u.first_name, u.last_name, u.club
+        HAVING COUNT(*) >= 3
+        ORDER BY avg_score ASC
+        LIMIT 1
+      `);
+      bestRecentPlayer = bestRecentPlayerResult[0] || null;
+    } catch (err) {
+      console.log('No recent player data available');
+    }
+
+    // Overall community statistics
+    const { rows: communityStats } = await pool.query(`
+      SELECT 
+        COUNT(DISTINCT u.member_id) as total_players,
+        COUNT(DISTINCT u.club) as total_clubs,
+        COUNT(DISTINCT s.id) as total_rounds,
+        COUNT(DISTINCT s.course_id) as total_courses_played,
+        COUNT(DISTINCT cr.course_id) as total_course_records,
+        ROUND(AVG(s.total_strokes), 1) as avg_score_community,
+        MIN(s.total_strokes) as best_score_ever,
+        COUNT(DISTINCT CASE WHEN s.date_played >= CURRENT_DATE - INTERVAL '7 days' THEN s.id END) as rounds_this_week,
+        COUNT(DISTINCT CASE WHEN s.date_played >= CURRENT_DATE - INTERVAL '30 days' THEN s.id END) as rounds_this_month
+      FROM users u
+      LEFT JOIN scorecards s ON u.member_id = s.user_id AND s.round_type = 'simulator'
+      LEFT JOIN course_records cr ON u.member_id = cr.user_id AND cr.is_current = true
+      WHERE u.role IN ('Member', 'Admin', 'Club Pro')
+    `);
+
+    res.json({
+      clubHighlights: {
+        most_course_records_club: mostCourseRecordsClub,
+        most_courses_played_club: mostCoursesPlayedClub,
+        most_active_club: mostActiveClub,
+        longest_standing_record: longestStandingRecord
+      },
+      playerHighlights: {
+        most_records_player: mostRecordsPlayer,
+        most_courses_player: mostCoursesPlayer,
+        best_recent_player: bestRecentPlayer
+      },
+      communityStats: communityStats[0] || {}
+    });
+  } catch (err) {
+    console.error('Error fetching global leaderboard:', err);
+    res.status(500).json({ error: 'Failed to fetch global leaderboard' });
+  }
+});
+
+// Get individual club leaderboard
+app.get('/api/club-leaderboard/:club', async (req, res) => {
+  try {
+    const { club } = req.params;
+    
+    // Top 3 Players with Most Course Records
+    const { rows: topRecordHolders } = await pool.query(`
+      SELECT 
+        u.member_id,
+        u.first_name,
+        u.last_name,
+        COUNT(DISTINCT cr.course_id) as record_count
+      FROM users u
+      JOIN course_records cr ON u.member_id = cr.user_id
+      WHERE u.club = $1 AND cr.is_current = true
+      GROUP BY u.member_id, u.first_name, u.last_name
+      ORDER BY record_count DESC
+      LIMIT 3
+    `, [club]);
+
+    // Longest Standing Record (in their club)
+    const { rows: longestStandingRecord } = await pool.query(`
+      SELECT 
+        cr.course_id,
+        cr.date_played,
+        EXTRACT(DAYS FROM NOW() - cr.date_played) as days_standing,
+        u.first_name,
+        u.last_name,
+        sc.name as course_name
+      FROM course_records cr
+      JOIN users u ON cr.user_id = u.member_id
+      JOIN simulator_courses_combined sc ON cr.course_id = sc.id
+      WHERE cr.club = $1 AND cr.is_current = true
+      ORDER BY cr.date_played ASC
+      LIMIT 1
+    `, [club]);
+
+    // Most Active Members
+    const { rows: mostActiveMembers } = await pool.query(`
+      SELECT 
+        u.member_id,
+        u.first_name,
+        u.last_name,
+        COUNT(*) as total_rounds,
+        COUNT(CASE WHEN s.date_played >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as rounds_this_month
+      FROM users u
+      JOIN scorecards s ON u.member_id = s.user_id
+      WHERE u.club = $1 AND s.round_type = 'simulator'
+      GROUP BY u.member_id, u.first_name, u.last_name
+      ORDER BY total_rounds DESC
+      LIMIT 5
+    `, [club]);
+
+    // Average Score Across All Club Rounds
+    const { rows: clubAverageScore } = await pool.query(`
+      SELECT 
+        ROUND(AVG(s.total_strokes), 1) as avg_score,
+        COUNT(*) as total_rounds,
+        MIN(s.total_strokes) as best_score,
+        MAX(s.total_strokes) as worst_score
+      FROM users u
+      JOIN scorecards s ON u.member_id = s.user_id
+      WHERE u.club = $1 AND s.round_type = 'simulator'
+    `, [club]);
+
+    // Most Played Course (by the club)
+    const { rows: mostPlayedCourse } = await pool.query(`
+      SELECT 
+        sc.name as course_name,
+        COUNT(*) as play_count,
+        ROUND(AVG(s.total_strokes), 1) as avg_score
+      FROM users u
+      JOIN scorecards s ON u.member_id = s.user_id
+      JOIN simulator_courses_combined sc ON s.course_id = sc.id
+      WHERE u.club = $1 AND s.round_type = 'simulator'
+      GROUP BY sc.name
+      ORDER BY play_count DESC
+      LIMIT 1
+    `, [club]);
+
+    // Most Recent Record Set
+    const { rows: mostRecentRecord } = await pool.query(`
+      SELECT 
+        cr.course_id,
+        cr.date_played,
+        u.first_name,
+        u.last_name,
+        sc.name as course_name,
+        cr.total_strokes
+      FROM course_records cr
+      JOIN users u ON cr.user_id = u.member_id
+      JOIN simulator_courses_combined sc ON cr.course_id = sc.id
+      WHERE cr.club = $1 AND cr.is_current = true
+      ORDER BY cr.date_played DESC
+      LIMIT 1
+    `, [club]);
+
+    // Club course records
+    const { rows: clubCourseRecords } = await pool.query(`
+      SELECT 
+        cr.course_id,
+        cr.total_strokes,
+        cr.date_played,
+        u.first_name,
+        u.last_name,
+        sc.name as course_name,
+        EXTRACT(DAYS FROM NOW() - cr.date_played) as days_standing
+      FROM course_records cr
+      JOIN users u ON cr.user_id = u.member_id
+      JOIN simulator_courses_combined sc ON cr.course_id = sc.id
+      WHERE cr.club = $1 AND cr.is_current = true
+      ORDER BY cr.date_played DESC
+    `, [club]);
+
+    // Club member statistics
+    const { rows: clubMemberStats } = await pool.query(`
+      SELECT 
+        u.member_id,
+        u.first_name,
+        u.last_name,
+        u.sim_handicap,
+        u.grass_handicap,
+        COALESCE(up.total_matches, 0) as total_matches,
+        COALESCE(up.wins, 0) as wins,
+        COALESCE(up.losses, 0) as losses,
+        COALESCE(up.ties, 0) as ties,
+        COALESCE(up.total_points, 0) as total_points,
+        COALESCE(up.win_rate, 0) as win_rate,
+        COUNT(s.id) as total_rounds,
+        ROUND(AVG(s.total_strokes), 1) as avg_score,
+        MIN(s.total_strokes) as best_score,
+        COUNT(DISTINCT s.course_id) as unique_courses,
+        COUNT(CASE WHEN s.date_played >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as rounds_this_month
+      FROM users u
+      LEFT JOIN user_profiles up ON u.member_id = up.user_id
+      LEFT JOIN scorecards s ON u.member_id = s.user_id AND s.round_type = 'simulator'
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      GROUP BY u.member_id, u.first_name, u.last_name, u.sim_handicap, u.grass_handicap, up.total_matches, up.wins, up.losses, up.ties, up.total_points, up.win_rate
+      ORDER BY up.total_points DESC NULLS LAST, up.win_rate DESC NULLS LAST
+    `, [club]);
+
+    res.json({
+      club,
+      topRecordHolders,
+      longestStandingRecord: longestStandingRecord[0] || null,
+      mostActiveMembers,
+      clubAverageScore: clubAverageScore[0] || {},
+      mostPlayedCourse: mostPlayedCourse[0] || null,
+      mostRecentRecord: mostRecentRecord[0] || null,
+      clubCourseRecords,
+      clubMemberStats
+    });
+  } catch (err) {
+    console.error('Error fetching club leaderboard:', err);
+    res.status(500).json({ error: 'Failed to fetch club leaderboard' });
+  }
+});

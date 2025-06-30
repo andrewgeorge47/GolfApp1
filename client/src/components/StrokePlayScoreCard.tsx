@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Save, RotateCcw, Target, TrendingUp, Award } from 'lucide-react';
+import ParValueInputModal from './ParValueInputModal';
+import { updateCourseParValues } from '../services/api';
 
 interface StrokePlayScoreCardProps {
   onClose?: () => void;
@@ -9,6 +11,14 @@ interface StrokePlayScoreCardProps {
     handicap: number;
   };
   holes?: number;
+  course?: {
+    id?: number;
+    name: string;
+    location?: string;
+    designer?: string;
+    par_values?: number[];
+  };
+  nineType?: 'front' | 'back' | null;
 }
 
 interface HoleScore {
@@ -23,7 +33,7 @@ interface PlayerInfo {
   handicap: number;
 }
 
-const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSave, userInfo, holes = 18 }) => {
+const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSave, userInfo, holes = 18, course, nineType }) => {
   const [playerInfo, setPlayerInfo] = useState<PlayerInfo>({
     name: '',
     date: new Date().toISOString().split('T')[0],
@@ -50,9 +60,39 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
 
   const [errors, setErrors] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [showParValueModal, setShowParValueModal] = useState(false);
 
-  // Sample par values - extend for 18 holes, but only use the number of holes selected
-  const parValues = [4, 3, 4, 5, 4, 3, 4, 4, 4, 4, 3, 4, 5, 4, 3, 4, 4, 4].slice(0, holes);
+  // Par values - can be overridden by course data in the future
+  const getParValues = () => {
+    // If course has par data, use it
+    if (course?.par_values) {
+      return course.par_values;
+    }
+    
+    // Default realistic par values for 18 holes
+    const defaultPar18 = [4, 3, 4, 5, 4, 3, 4, 4, 4, 4, 3, 4, 5, 4, 3, 4, 4, 4];
+    
+    // For 9 holes, use first 9 holes
+    if (holes === 9) {
+      return defaultPar18.slice(0, 9);
+    }
+    
+    return defaultPar18;
+  };
+
+  const parValues = (() => {
+    const allParValues = getParValues();
+    if (nineType === 'front') return allParValues.slice(0, 9);
+    if (nineType === 'back') return allParValues.slice(9, 18);
+    return allParValues;
+  })();
+
+  // Check if we need to show the par value modal
+  useEffect(() => {
+    if (course && !course.par_values && !showParValueModal) {
+      setShowParValueModal(true);
+    }
+  }, [course, showParValueModal]);
 
   const totalStrokes = holesState.reduce((sum, hole) => sum + hole.strokes, 0);
   const totalPar = parValues.reduce((sum, par) => sum + par, 0);
@@ -136,6 +176,22 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
     }
   };
 
+  const handleSaveParValues = async (parValues: number[]) => {
+    try {
+      if (course?.id) {
+        await updateCourseParValues(course.id, parValues);
+        // Update the course object with the new par values
+        if (course) {
+          course.par_values = parValues;
+        }
+      }
+      setShowParValueModal(false);
+    } catch (error) {
+      console.error('Error saving par values:', error);
+      alert('Failed to save par values. Please try again.');
+    }
+  };
+
   const getScoreColor = (strokes: number, par: number) => {
     if (strokes === 0) return 'text-gray-400';
     if (strokes === par) return 'text-green-600';
@@ -168,6 +224,18 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
             <div>
               <h1 className="text-3xl font-bold text-brand-black">Stroke Play Scorecard</h1>
               <p className="text-brand-muted-green">Traditional golf scoring</p>
+              {course && (
+                <div className="mt-2 text-sm text-gray-600">
+                  <div className="font-medium">{course.name}</div>
+                  {(course.location || course.designer) && (
+                    <div className="text-gray-500">
+                      {course.location && <span>{course.location}</span>}
+                      {course.location && course.designer && <span> • </span>}
+                      {course.designer && <span>by {course.designer}</span>}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           <div className="flex space-x-2">
@@ -366,6 +434,15 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
           </div>
         </div>
       </div>
+
+      {/* Par Value Input Modal */}
+      <ParValueInputModal
+        isOpen={showParValueModal}
+        onClose={() => setShowParValueModal(false)}
+        onSave={handleSaveParValues}
+        courseName={course?.name || 'Unknown Course'}
+        holes={holes as 9 | 18}
+      />
     </div>
   );
 };

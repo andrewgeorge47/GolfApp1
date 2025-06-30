@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
-import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament, saveScorecard, createTournament, getUserSimStats, getUserGrassStats, uploadProfilePhoto, SimStats } from '../services/api';
-import { User as UserIcon, Edit3, Save, X, Trophy, Target, TrendingUp, Calendar, MapPin, LogOut, Clock, Users, Plus, Minus, Award, Circle, Settings, Camera } from 'lucide-react';
+import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament, saveScorecard, createTournament, getUserSimStats, getUserGrassStats, getUserCombinedStats, uploadProfilePhoto, SimStats } from '../services/api';
+import { User as UserIcon, Edit3, Save, X, Trophy, Target, TrendingUp, Calendar, MapPin, LogOut, Clock, Users, Plus, Minus, Award, Circle, Settings, Camera, BarChart3 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
 import ScoreCard from './ScoreCard';
 import StrokePlayScoreCard from './StrokePlayScoreCard';
+import ProfileTournaments from './ProfileTournaments';
 
 const Profile: React.FC = () => {
   const { user, token, logout } = useAuth();
@@ -20,7 +21,8 @@ const Profile: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [tournamentLoading, setTournamentLoading] = useState<number | null>(null);
   const [simStats, setSimStats] = useState<SimStats | null>(null);
-  const [grassStats, setGrassStats] = useState<SimStats | null>(null);
+  const [combinedStats, setCombinedStats] = useState<SimStats | null>(null);
+  const [statsTab, setStatsTab] = useState<'overview' | 'sim'>('overview');
   const [formData, setFormData] = useState({
     first_name: user?.first_name || '',
     last_name: user?.last_name || '',
@@ -34,8 +36,10 @@ const Profile: React.FC = () => {
   const [showTrackRoundModal, setShowTrackRoundModal] = useState(false);
   const [showScoreCard, setShowScoreCard] = useState(false);
   const [scoreCardType, setScoreCardType] = useState<'mully' | 'stroke' | null>(null);
-  const [roundType, setRoundType] = useState<'sim' | 'grass' | null>(null);
+  const [roundType, setRoundType] = useState<'sim' | null>(null);
   const [holes, setHoles] = useState<9 | 18 | null>(null);
+  const [selectedCourse, setSelectedCourse] = useState<any>(null);
+  const [nineType, setNineType] = useState<'front' | 'back' | null>(null);
 
   // Photo upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -49,22 +53,22 @@ const Profile: React.FC = () => {
           console.log('Fetching data for user ID:', user.member_id);
           console.log('User data:', user);
           
-          const [profileResponse, matchesResponse, tournamentsResponse, simStatsResponse, grassStatsResponse] = await Promise.all([
+          const [profileResponse, matchesResponse, tournamentsResponse, simStatsResponse, combinedStatsResponse] = await Promise.all([
             getUserProfile(user.member_id),
             getMatches(),
             getTournaments(),
             getUserSimStats(user.member_id),
-            getUserGrassStats(user.member_id)
+            getUserCombinedStats(user.member_id)
           ]);
           
           console.log('Sim stats response:', simStatsResponse.data);
-          console.log('Grass stats response:', grassStatsResponse.data);
+          console.log('Combined stats response:', combinedStatsResponse.data);
           
           setProfile(profileResponse.data);
           setMatches(matchesResponse.data);
           setTournaments(tournamentsResponse.data);
           setSimStats(simStatsResponse.data);
-          setGrassStats(grassStatsResponse.data);
+          setCombinedStats(combinedStatsResponse.data);
           
           // Fetch user's tournament registrations
           const userTournamentIds: number[] = [];
@@ -210,12 +214,14 @@ const Profile: React.FC = () => {
     setShowTrackRoundModal(true);
   };
 
-  const handleSelectRoundType = (roundType: 'sim' | 'grass', holes: 9 | 18) => {
+  const handleSelectRoundType = (roundType: 'sim', holes: 9 | 18, course: any, nineType: 'front' | 'back' | null = null) => {
     setScoreCardType('stroke'); // Default to stroke play
     setRoundType(roundType);
     setHoles(holes);
+    setNineType(nineType);
     setShowTrackRoundModal(false);
     setShowScoreCard(true);
+    setSelectedCourse(course);
   };
 
   const handleCloseScoreCard = () => {
@@ -223,6 +229,8 @@ const Profile: React.FC = () => {
     setScoreCardType(null);
     setRoundType(null);
     setHoles(null);
+    setSelectedCourse(null);
+    setNineType(null);
   };
 
   const handleSaveScoreCard = async (scoreCardData: any) => {
@@ -247,7 +255,8 @@ const Profile: React.FC = () => {
         total_strokes: scoreCardData.totalStrokes || scoreCardData.total_strokes || 0,
         total_mulligans: scoreCardData.totalMulligans || scoreCardData.total_mulligans || 0,
         final_score: scoreCardData.finalScore || scoreCardData.final_score || scoreCardData.totalStrokes || 0,
-        round_type: roundType || 'sim'
+        round_type: roundType || 'sim',
+        course_name: selectedCourse?.name || scoreCardData.course_name || ''
       };
 
       console.log('API data being sent:', apiData); // Debug log
@@ -472,6 +481,8 @@ const Profile: React.FC = () => {
           onSave={handleSaveScoreCard}
           userInfo={userInfo}
           holes={holes || 18}
+          course={selectedCourse}
+          nineType={nineType}
         />
       );
     } else {
@@ -481,6 +492,8 @@ const Profile: React.FC = () => {
           onSave={handleSaveScoreCard}
           userInfo={userInfo}
           holes={holes || 18}
+          course={selectedCourse}
+          nineType={nineType}
         />
       );
     }
@@ -691,178 +704,268 @@ const Profile: React.FC = () => {
         )}
       </div>
 
-      {/* Performance Overview */}
+      {/* Performance Statistics */}
       <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-        <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
-          <Target className="w-6 h-6 mr-3" />
-          Simulator Performance
-        </h2>
-        
-        {/* Simulator Round Stats */}
-        {simStats && simStats.total_rounds > 0 ? (
+        {/* Tab Navigation */}
+        <div className="flex flex-wrap gap-2 mb-6">
+          <button
+            onClick={() => setStatsTab('overview')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              statsTab === 'overview'
+                ? 'bg-brand-neon-green text-brand-black'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4 inline mr-2" />
+            Overview
+          </button>
+          <button
+            onClick={() => setStatsTab('sim')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              statsTab === 'sim'
+                ? 'bg-brand-neon-green text-brand-black'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            <Target className="w-4 h-4 inline mr-2" />
+            Simulator
+          </button>
+        </div>
+
+        {/* Overview Tab */}
+        {statsTab === 'overview' && (
           <div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-              <div className="text-center">
-                <div className="text-3xl font-bold text-blue-600 mb-2">{simStats.total_rounds}</div>
-                <div className="text-sm text-gray-600">Total Rounds</div>
-              </div>
-              <div className="text-center">
-                <div className="text-3xl font-bold text-green-600 mb-2">
-                  {simStats.avg_differential ? Number(simStats.avg_differential).toFixed(1) : 'N/A'}
-                </div>
-                <div className="text-sm text-gray-600">Avg Differential</div>
-              </div>
-              <div className="text-center">
-                <div className="text-3xl font-bold text-orange-600 mb-2">
-                  {simStats.best_differential ? Number(simStats.best_differential).toFixed(1) : 'N/A'}
-                </div>
-                <div className="text-sm text-gray-600">Best Differential</div>
-              </div>
-              <div className="text-center">
-                <div className="text-3xl font-bold text-purple-600 mb-2">{simStats.unique_courses}</div>
-                <div className="text-sm text-gray-600">Courses Played</div>
-              </div>
-            </div>
+            <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+              <BarChart3 className="w-6 h-6 mr-3" />
+              Overall Performance
+            </h2>
             
-            {/* Additional Sim Stats */}
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-600 mb-1">Scoring</div>
-                <div className="text-lg font-semibold text-gray-800">
-                  {simStats.avg_strokes && simStats.avg_strokes > 0 ? Number(simStats.avg_strokes).toFixed(1) : 
-                   simStats.avg_differential ? Number(simStats.avg_differential).toFixed(1) : 'N/A'} avg
+            {/* Combined Stats Overview */}
+            {simStats && simStats.total_rounds > 0 ? (
+              <div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-blue-600 mb-2">
+                      {simStats.total_rounds}
+                    </div>
+                    <div className="text-sm text-gray-600">Total Rounds</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-green-600 mb-2">
+                      {simStats.unique_courses}
+                    </div>
+                    <div className="text-sm text-gray-600">Courses Played</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-orange-600 mb-2">
+                      {simStats.avg_differential ? Number(simStats.avg_differential).toFixed(1) : 'N/A'}
+                    </div>
+                    <div className="text-sm text-gray-600">Avg Differential</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-purple-600 mb-2">
+                      {simStats.best_differential ? Number(simStats.best_differential).toFixed(1) : 'N/A'}
+                    </div>
+                    <div className="text-sm text-gray-600">Best Differential</div>
+                  </div>
                 </div>
-                <div className="text-sm text-gray-500">
-                  {simStats.avg_strokes && simStats.avg_strokes > 0 ? 
-                    `Best: ${simStats.best_strokes || 'N/A'} • Worst: ${simStats.worst_strokes || 'N/A'}` :
-                    `Best: ${simStats.best_differential ? Number(simStats.best_differential).toFixed(1) : 'N/A'} • Worst: ${simStats.worst_differential ? Number(simStats.worst_differential).toFixed(1) : 'N/A'}`
-                  }
-                </div>
-                <div className="text-xs text-gray-400 mt-1">
-                  {simStats.avg_strokes && simStats.avg_strokes > 0 ? 'Strokes' : 'Differential'}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Simulator Summary */}
+                  <div className="bg-gray-50 rounded-lg p-6">
+                    <div className="flex items-center mb-4">
+                      <Target className="w-5 h-5 text-blue-600 mr-2" />
+                      <h3 className="text-lg font-semibold text-gray-800">Performance</h3>
+                    </div>
+                    {simStats && simStats.total_rounds > 0 ? (
+                      <div className="space-y-3">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Avg Differential:</span>
+                          <span className="font-semibold">
+                            {simStats.avg_differential ? Number(simStats.avg_differential).toFixed(1) : 'N/A'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Best Differential:</span>
+                          <span className="font-semibold">
+                            {simStats.best_differential ? Number(simStats.best_differential).toFixed(1) : 'N/A'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Courses Played:</span>
+                          <span className="font-semibold">{simStats.unique_courses}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-sm">No simulator rounds yet</p>
+                    )}
+                  </div>
+
+                  {/* Activity Summary */}
+                  <div className="bg-gray-50 rounded-lg p-6">
+                    <div className="flex items-center mb-4">
+                      <Calendar className="w-5 h-5 text-green-600 mr-2" />
+                      <h3 className="text-lg font-semibold text-gray-800">Activity</h3>
+                    </div>
+                    {simStats && simStats.total_rounds > 0 ? (
+                      <div className="space-y-3">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Days Played:</span>
+                          <span className="font-semibold">{simStats.unique_dates}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">First Round:</span>
+                          <span className="font-semibold">
+                            {simStats.first_round ? new Date(simStats.first_round).toLocaleDateString() : 'N/A'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Last Round:</span>
+                          <span className="font-semibold">
+                            {simStats.last_round ? new Date(simStats.last_round).toLocaleDateString() : 'N/A'}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-sm">No activity data yet</p>
+                    )}
+                  </div>
                 </div>
               </div>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-600 mb-1">Activity</div>
-                <div className="text-lg font-semibold text-gray-800">{simStats.unique_dates} days</div>
-                <div className="text-sm text-gray-500">
-                  {simStats.first_round && simStats.last_round ? 
-                    `${new Date(simStats.first_round).toLocaleDateString()} - ${new Date(simStats.last_round).toLocaleDateString()}` : 
-                    'No date range'
-                  }
-                </div>
+            ) : (
+              <div className="text-center py-8">
+                <Target className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-xl font-medium text-gray-900 mb-2">No Rounds Tracked Yet</h3>
+                <p className="text-gray-600 mb-6">Start tracking your simulator rounds to see your performance statistics here.</p>
+                <button
+                  onClick={handleTrackRound}
+                  className="inline-flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors font-medium"
+                >
+                  <Circle className="w-4 h-4 mr-2" />
+                  Track Your First Round
+                </button>
               </div>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-600 mb-1">Recent Activity</div>
-                <div className="text-lg font-semibold text-gray-800">
-                  {simStats.recent_rounds.length} rounds
-                </div>
-                <div className="text-sm text-gray-500">
-                  Last: {simStats.last_round ? new Date(simStats.last_round).toLocaleDateString() : 'N/A'}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <Target className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Simulator Rounds Yet</h3>
-            <p className="text-gray-600 mb-4">Start tracking your simulator rounds to see your performance statistics here.</p>
-            <button
-              onClick={handleTrackRound}
-              className="inline-flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors font-medium"
-            >
-              <Circle className="w-4 h-4 mr-2" />
-              Track Your First Round
-            </button>
+            )}
           </div>
         )}
-      </div>
 
-      {/* Outdoor Performance */}
-      <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-        <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
-          <MapPin className="w-6 h-6 mr-3" />
-          Outdoor Performance
-        </h2>
-        
-        {/* Outdoor Round Stats */}
-        {grassStats && grassStats.total_rounds > 0 ? (
+        {/* Simulator Tab */}
+        {statsTab === 'sim' && (
           <div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-              <div className="text-center">
-                <div className="text-3xl font-bold text-blue-600 mb-2">{grassStats.total_rounds}</div>
-                <div className="text-sm text-gray-600">Total Rounds</div>
-              </div>
-              <div className="text-center">
-                <div className="text-3xl font-bold text-green-600 mb-2">
-                  {grassStats.avg_differential ? Number(grassStats.avg_differential).toFixed(1) : 'N/A'}
-                </div>
-                <div className="text-sm text-gray-600">Avg Differential</div>
-              </div>
-              <div className="text-center">
-                <div className="text-3xl font-bold text-orange-600 mb-2">
-                  {grassStats.best_differential ? Number(grassStats.best_differential).toFixed(1) : 'N/A'}
-                </div>
-                <div className="text-sm text-gray-600">Best Differential</div>
-              </div>
-              <div className="text-center">
-                <div className="text-3xl font-bold text-purple-600 mb-2">{grassStats.unique_courses}</div>
-                <div className="text-sm text-gray-600">Courses Played</div>
-              </div>
-            </div>
+            <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+              <Target className="w-6 h-6 mr-3" />
+              Simulator Performance
+            </h2>
             
-            {/* Additional Outdoor Stats */}
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-600 mb-1">Scoring</div>
-                <div className="text-lg font-semibold text-gray-800">
-                  {grassStats.avg_strokes && grassStats.avg_strokes > 0 ? Number(grassStats.avg_strokes).toFixed(1) : 
-                   grassStats.avg_differential ? Number(grassStats.avg_differential).toFixed(1) : 'N/A'} avg
+            {/* Simulator Round Stats */}
+            {simStats && simStats.total_rounds > 0 ? (
+              <div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-blue-600 mb-2">{simStats.total_rounds}</div>
+                    <div className="text-sm text-gray-600">Total Rounds</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-green-600 mb-2">
+                      {simStats.avg_differential ? Number(simStats.avg_differential).toFixed(1) : 'N/A'}
+                    </div>
+                    <div className="text-sm text-gray-600">Avg Differential</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-orange-600 mb-2">
+                      {simStats.best_differential ? Number(simStats.best_differential).toFixed(1) : 'N/A'}
+                    </div>
+                    <div className="text-sm text-gray-600">Best Differential</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-purple-600 mb-2">{simStats.unique_courses}</div>
+                    <div className="text-sm text-gray-600">Courses Played</div>
+                  </div>
                 </div>
-                <div className="text-sm text-gray-500">
-                  {grassStats.avg_strokes && grassStats.avg_strokes > 0 ? 
-                    `Best: ${grassStats.best_strokes || 'N/A'} • Worst: ${grassStats.worst_strokes || 'N/A'}` :
-                    `Best: ${grassStats.best_differential ? Number(grassStats.best_differential).toFixed(1) : 'N/A'} • Worst: ${grassStats.worst_differential ? Number(grassStats.worst_differential).toFixed(1) : 'N/A'}`
-                  }
+                
+                {/* Additional Sim Stats */}
+                <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="text-sm text-gray-600 mb-1">Scoring</div>
+                    <div className="text-lg font-semibold text-gray-800">
+                      {simStats.avg_strokes && simStats.avg_strokes > 0 ? Number(simStats.avg_strokes).toFixed(1) : 
+                       simStats.avg_differential ? Number(simStats.avg_differential).toFixed(1) : 'N/A'} avg
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {simStats.avg_strokes && simStats.avg_strokes > 0 ? 
+                        `Best: ${simStats.best_strokes || 'N/A'} • Worst: ${simStats.worst_strokes || 'N/A'}` :
+                        `Best: ${simStats.best_differential ? Number(simStats.best_differential).toFixed(1) : 'N/A'} • Worst: ${simStats.worst_differential ? Number(simStats.worst_differential).toFixed(1) : 'N/A'}`
+                      }
+                    </div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      {simStats.avg_strokes && simStats.avg_strokes > 0 ? 'Strokes' : 'Differential'}
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="text-sm text-gray-600 mb-1">Activity</div>
+                    <div className="text-lg font-semibold text-gray-800">{simStats.unique_dates} days</div>
+                    <div className="text-sm text-gray-500">
+                      {simStats.first_round && simStats.last_round ? 
+                        `${new Date(simStats.first_round).toLocaleDateString()} - ${new Date(simStats.last_round).toLocaleDateString()}` : 
+                        'No date range'
+                      }
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="text-sm text-gray-600 mb-1">Recent Activity</div>
+                    <div className="text-lg font-semibold text-gray-800">
+                      {simStats.recent_rounds.length} rounds
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      Last: {simStats.last_round ? new Date(simStats.last_round).toLocaleDateString() : 'N/A'}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-xs text-gray-400 mt-1">
-                  {grassStats.avg_strokes && grassStats.avg_strokes > 0 ? 'Strokes' : 'Differential'}
-                </div>
+
+                {/* Recent Simulator Rounds */}
+                {simStats.recent_rounds.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                      <Clock className="w-5 h-5 mr-2" />
+                      Recent Simulator Rounds
+                    </h3>
+                    <div className="space-y-3">
+                      {simStats.recent_rounds.slice(0, 5).map((round, index) => (
+                        <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <div>
+                            <div className="font-medium text-gray-900">{round.course_name}</div>
+                            <div className="text-sm text-gray-600">
+                              {new Date(round.date_played).toLocaleDateString()} • {round.round_type}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-semibold text-gray-900">{round.total_strokes} strokes</div>
+                            {round.differential && (
+                              <div className="text-sm text-gray-600">
+                                {Number(round.differential).toFixed(1)} differential
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-600 mb-1">Activity</div>
-                <div className="text-lg font-semibold text-gray-800">{grassStats.unique_dates} days</div>
-                <div className="text-sm text-gray-500">
-                  {grassStats.first_round && grassStats.last_round ? 
-                    `${new Date(grassStats.first_round).toLocaleDateString()} - ${new Date(grassStats.last_round).toLocaleDateString()}` : 
-                    'No date range'
-                  }
-                </div>
+            ) : (
+              <div className="text-center py-8">
+                <Target className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No Simulator Rounds Yet</h3>
+                <p className="text-gray-600 mb-4">Start tracking your simulator rounds to see your performance statistics here.</p>
+                <button
+                  onClick={handleTrackRound}
+                  className="inline-flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors font-medium"
+                >
+                  <Circle className="w-4 h-4 mr-2" />
+                  Track Your First Round
+                </button>
               </div>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-600 mb-1">Recent Activity</div>
-                <div className="text-lg font-semibold text-gray-800">
-                  {grassStats.recent_rounds.length} rounds
-                </div>
-                <div className="text-sm text-gray-500">
-                  Last: {grassStats.last_round ? new Date(grassStats.last_round).toLocaleDateString() : 'N/A'}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <MapPin className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Outdoor Rounds Yet</h3>
-            <p className="text-gray-600 mb-4">Start tracking your outdoor rounds to see your performance statistics here.</p>
-            <button
-              onClick={handleTrackRound}
-              className="inline-flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors font-medium"
-            >
-              <Circle className="w-4 h-4 mr-2" />
-              Track Your First Round
-            </button>
+            )}
           </div>
         )}
       </div>
@@ -1055,6 +1158,9 @@ const Profile: React.FC = () => {
         </div>
       )}
 
+      {/* My Tournaments Management Section */}
+      <ProfileTournaments />
+
       {/* Admin Section - Only visible to admins */}
       {user?.role?.toLowerCase() === 'admin' && (
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
@@ -1079,7 +1185,7 @@ const Profile: React.FC = () => {
       <TrackRoundModal
         isOpen={showTrackRoundModal}
         onClose={() => setShowTrackRoundModal(false)}
-        onSelectRoundType={handleSelectRoundType}
+        onSelectRoundType={(roundType, holes, course, nineType) => handleSelectRoundType(roundType, holes, course, nineType)}
       />
     </div>
   );

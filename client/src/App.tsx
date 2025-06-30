@@ -9,6 +9,8 @@ import Profile from './components/Profile';
 import SimulatorCourses from './components/SimulatorCourses';
 import { AuthProvider, useAuth } from './AuthContext';
 import Login from './components/Login';
+import Register from './components/Register';
+import PasswordSetup from './components/PasswordSetup';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -102,6 +104,8 @@ function App() {
               <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
               <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
               <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/password-setup" element={<ProtectedRoute><PasswordSetup /></ProtectedRoute>} />
             </Routes>
           </main>
         </div>

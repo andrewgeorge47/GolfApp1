@@ -154,6 +154,67 @@ export interface SimStats {
   }>;
 }
 
+export interface LeaderboardPlayer {
+  member_id: number;
+  first_name: string;
+  last_name: string;
+  club: string;
+  role: string;
+  sim_handicap?: number;
+  grass_handicap?: number;
+  total_matches: number;
+  wins: number;
+  losses: number;
+  ties: number;
+  total_points: number;
+  win_rate: number;
+  total_sim_rounds: number;
+  avg_sim_score: number;
+  best_sim_score: number;
+  total_sim_courses: number;
+  last_round_date: string;
+  rounds_this_month: number;
+}
+
+export interface CourseRecord {
+  course_id: number;
+  course_name: string;
+  location: string | null;
+  designer: string | null;
+  platforms: string[];
+  best_score: number;
+  date_played: string;
+  first_name: string;
+  last_name: string;
+  club: string;
+  user_id: number;
+  scorecard_id: number;
+  record_club: string | null;
+}
+
+export interface LeaderboardStats {
+  players: LeaderboardPlayer[];
+  courseRecords: CourseRecord[];
+  recentMatches: Array<{
+    id: number;
+    tournament_name?: string;
+    player1_first_name: string;
+    player1_last_name: string;
+    player2_first_name: string;
+    player2_last_name: string;
+    winner_name?: string;
+    created_at: string;
+  }>;
+  overallStats: {
+    total_players: number;
+    total_matches: number;
+    total_rounds: number;
+    total_courses_played: number;
+    avg_score: number;
+    best_score_overall: number;
+  };
+}
+
 // Health check
 export const healthCheck = () => api.get('/health');
 
@@ -167,6 +228,7 @@ export const updateUser = (id: number, userData: Partial<User>) => api.put<User>
 export const deleteUser = (id: number) => api.delete(`/users/${id}`);
 export const getUserSimStats = (id: number) => api.get<SimStats>(`/users/${id}/sim-stats`);
 export const getUserGrassStats = (id: number) => api.get<SimStats>(`/users/${id}/grass-stats`);
+export const getUserCombinedStats = (id: number) => api.get<SimStats>(`/users/${id}/combined-stats`);
 
 // Profile photo upload
 export const uploadProfilePhoto = (file: File) => {
@@ -221,13 +283,148 @@ export const deleteScorecard = (id: number) => api.delete(`/scorecards/${id}`);
 
 // Leaderboard
 export const getLeaderboard = (tournamentId?: number) => {
-  const params = tournamentId ? `?tournament_id=${tournamentId}` : '';
-  return api.get(`/leaderboard${params}`);
+  const url = tournamentId ? `/leaderboard?tournament_id=${tournamentId}` : '/leaderboard';
+  return api.get(url);
+};
+
+export const getLeaderboardStats = async () => {
+  return api.get<LeaderboardStats>('/leaderboard-stats');
+};
+
+// Global Community Leaderboard
+export interface GlobalLeaderboardData {
+  clubHighlights: {
+    most_course_records_club?: string;
+    most_courses_played_club?: string;
+    most_active_club?: string;
+    longest_standing_record?: {
+      course_id: number;
+      club: string;
+      date_played: string;
+      days_standing: number;
+    };
+  };
+  playerHighlights: {
+    most_records_player?: {
+      member_id: number;
+      first_name: string;
+      last_name: string;
+      club: string;
+      record_count: number;
+    };
+    most_courses_player?: {
+      member_id: number;
+      first_name: string;
+      last_name: string;
+      club: string;
+      courses_played: number;
+    };
+    best_recent_player?: {
+      member_id: number;
+      first_name: string;
+      last_name: string;
+      club: string;
+      avg_score: number;
+      rounds_count: number;
+    };
+  };
+  communityStats: {
+    total_players: number;
+    total_clubs: number;
+    total_rounds: number;
+    total_courses_played: number;
+    total_course_records: number;
+    avg_score_community: number;
+    best_score_ever: number;
+    rounds_this_week: number;
+    rounds_this_month: number;
+  };
+}
+
+export const getGlobalLeaderboard = async () => {
+  return api.get<GlobalLeaderboardData>('/global-leaderboard');
+};
+
+// Individual Club Leaderboard
+export interface ClubLeaderboardData {
+  club: string;
+  topRecordHolders: Array<{
+    member_id: number;
+    first_name: string;
+    last_name: string;
+    record_count: number;
+  }>;
+  longestStandingRecord: {
+    course_id: number;
+    date_played: string;
+    days_standing: number;
+    first_name: string;
+    last_name: string;
+    course_name: string;
+  } | null;
+  mostActiveMembers: Array<{
+    member_id: number;
+    first_name: string;
+    last_name: string;
+    total_rounds: number;
+    rounds_this_month: number;
+  }>;
+  clubAverageScore: {
+    avg_score: number;
+    total_rounds: number;
+    best_score: number;
+    worst_score: number;
+  };
+  mostPlayedCourse: {
+    course_name: string;
+    play_count: number;
+    avg_score: number;
+  } | null;
+  mostRecentRecord: {
+    course_id: number;
+    date_played: string;
+    first_name: string;
+    last_name: string;
+    course_name: string;
+    total_strokes: number;
+  } | null;
+  clubCourseRecords: Array<{
+    course_id: number;
+    total_strokes: number;
+    date_played: string;
+    first_name: string;
+    last_name: string;
+    course_name: string;
+    days_standing: number;
+  }>;
+  clubMemberStats: Array<{
+    member_id: number;
+    first_name: string;
+    last_name: string;
+    sim_handicap?: number;
+    grass_handicap?: number;
+    total_matches: number;
+    wins: number;
+    losses: number;
+    ties: number;
+    total_points: number;
+    win_rate: number;
+    total_rounds: number;
+    avg_score: number;
+    best_score: number;
+    unique_courses: number;
+    rounds_this_month: number;
+  }>;
+}
+
+export const getClubLeaderboard = async (club: string) => {
+  return api.get<ClubLeaderboardData>(`/club-leaderboard/${encodeURIComponent(club)}`);
 };
 
 export const login = (email: string, password: string) => api.post('/auth/login', { email, password });
 export const register = (data: { first_name: string; last_name: string; email: string; password: string; club?: string; role?: string }) => api.post('/auth/register', data);
 export const getCurrentUser = (token: string) => api.get('/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+export const setupPassword = (password: string) => api.post('/auth/setup-password', { password });
 
 export const createTournament = (data: { 
   name: string; 
@@ -279,5 +476,17 @@ export const generateTournamentMatches = (tournamentId: number, format: string, 
   api.post(`/tournaments/${tournamentId}/generate-matches`, { format, minMatchesPerPlayer });
 export const updateTournamentMatch = (tournamentId: number, matchId: number, data: any) => 
   api.put(`/tournaments/${tournamentId}/matches/${matchId}`, data);
+
+// Simulator Courses
+export const getSimulatorCourses = (search?: string, platform?: string, limit?: number) => {
+  const params = new URLSearchParams();
+  if (search) params.append('search', search);
+  if (platform) params.append('platform', platform);
+  if (limit) params.append('limit', limit.toString());
+  return api.get(`/simulator-courses?${params.toString()}`);
+};
+
+export const updateCourseParValues = (courseId: number, parValues: number[]) => 
+  api.put(`/simulator-courses/${courseId}/par-values`, { par_values: parValues });
 
 export default api; 

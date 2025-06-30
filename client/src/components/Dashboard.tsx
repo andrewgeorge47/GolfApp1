@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Users, Calendar, TrendingUp, ArrowRight, Play, Award, Settings, User as UserIcon, Star, CheckCircle } from 'lucide-react';
+import { Trophy, Users, Calendar, TrendingUp, ArrowRight, Play, Award, Settings, User as UserIcon, Star, CheckCircle, Globe, Building } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { getUsers, getLeagueSettings, getLeaderboard } from '../services/api';
 import type { User, LeagueSettings } from '../services/api';

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 
 const Login: React.FC = () => {
@@ -25,6 +25,7 @@ const Login: React.FC = () => {
       <div className="text-center mb-6">
         <img src={process.env.PUBLIC_URL + "/logo-color.svg"} alt="Golf League Logo" className="h-16 w-auto mx-auto mb-4" />
         <h1 className="text-3xl font-bold text-brand-black">Login</h1>
+        <p className="text-neutral-600 mt-2">Welcome back to the golf league</p>
       </div>
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
@@ -56,6 +57,15 @@ const Login: React.FC = () => {
           {loading ? 'Logging in...' : 'Login'}
         </button>
       </form>
+      
+      <div className="mt-6 text-center">
+        <p className="text-neutral-600">
+          Don't have an account?{' '}
+          <Link to="/register" className="text-brand-neon-green hover:text-green-400 font-medium">
+            Sign up
+          </Link>
+        </p>
+      </div>
     </div>
   );
 };

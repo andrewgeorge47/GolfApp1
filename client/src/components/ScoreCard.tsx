@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Save, RotateCcw, Info, Circle, Target, TrendingUp, Award } from 'lucide-react';
 import { useScoreCalculator } from '../hooks/useScoreCalculator';
 import PlayerInfo from './PlayerInfo';
 import ScoreRow from './ScoreRow';
 import RulesModal from './RulesModal';
+import ParValueInputModal from './ParValueInputModal';
+import { updateCourseParValues } from '../services/api';
 
 interface ScoreCardProps {
   onClose?: () => void;
@@ -13,9 +15,17 @@ interface ScoreCardProps {
     handicap: number;
   };
   holes?: number;
+  course?: {
+    id?: number;
+    name: string;
+    location?: string;
+    designer?: string;
+    par_values?: number[];
+  };
+  nineType?: 'front' | 'back' | null;
 }
 
-const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo, holes = 18 }) => {
+const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo, holes = 18, course, nineType }) => {
   const {
     scoreCard,
     updatePlayerInfo,
@@ -33,6 +43,7 @@ const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo, holes 
   const [showRules, setShowRules] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [showParValueModal, setShowParValueModal] = useState(false);
 
   const remainingMulligans = getRemainingMulligans();
   const scoreStats = getScoreStats();
@@ -73,8 +84,53 @@ const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo, holes 
     }
   };
 
-  // Sample par values (you can customize these)
-  const parValues = [4, 3, 4, 5, 4, 3, 4, 4, 4, 4, 3, 4, 5, 4, 3, 4, 4, 4];
+  const handleSaveParValues = async (parValues: number[]) => {
+    try {
+      if (course?.id) {
+        await updateCourseParValues(course.id, parValues);
+        // Update the course object with the new par values
+        if (course) {
+          course.par_values = parValues;
+        }
+      }
+      setShowParValueModal(false);
+    } catch (error) {
+      console.error('Error saving par values:', error);
+      alert('Failed to save par values. Please try again.');
+    }
+  };
+
+  // Par values - can be overridden by course data in the future
+  const getParValues = () => {
+    // If course has par data, use it
+    if (course?.par_values) {
+      return course.par_values;
+    }
+    
+    // Default realistic par values for 18 holes
+    const defaultPar18 = [4, 3, 4, 5, 4, 3, 4, 4, 4, 4, 3, 4, 5, 4, 3, 4, 4, 4];
+    
+    // For 9 holes, use first 9 holes
+    if (holes === 9) {
+      return defaultPar18.slice(0, 9);
+    }
+    
+    return defaultPar18;
+  };
+
+  const parValues = (() => {
+    const allParValues = getParValues();
+    if (nineType === 'front') return allParValues.slice(0, 9);
+    if (nineType === 'back') return allParValues.slice(9, 18);
+    return allParValues;
+  })();
+
+  // Check if we need to show the par value modal
+  useEffect(() => {
+    if (course && !course.par_values && !showParValueModal) {
+      setShowParValueModal(true);
+    }
+  }, [course, showParValueModal]);
 
   return (
     <div className="max-w-6xl mx-auto p-4">
@@ -88,6 +144,18 @@ const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo, holes 
             <div>
               <h1 className="text-3xl font-bold text-brand-black">Mully Golf Scorecard</h1>
               <p className="text-brand-muted-green">Track your round with strategic mulligan usage</p>
+              {course && (
+                <div className="mt-2 text-sm text-gray-600">
+                  <div className="font-medium">{course.name}</div>
+                  {(course.location || course.designer) && (
+                    <div className="text-gray-500">
+                      {course.location && <span>{course.location}</span>}
+                      {course.location && course.designer && <span> • </span>}
+                      {course.designer && <span>by {course.designer}</span>}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           <div className="flex space-x-2">
@@ -250,6 +318,15 @@ const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo, holes 
 
       {/* Rules Modal */}
       <RulesModal isOpen={showRules} onClose={() => setShowRules(false)} />
+
+      {/* Par Value Input Modal */}
+      <ParValueInputModal
+        isOpen={showParValueModal}
+        onClose={() => setShowParValueModal(false)}
+        onSave={handleSaveParValues}
+        courseName={course?.name || 'Unknown Course'}
+        holes={holes as 9 | 18}
+      />
     </div>
   );
 };
