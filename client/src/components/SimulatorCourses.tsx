@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
+import api from '../services/api';
 
 interface CombinedCourse {
   id: number;
@@ -75,9 +76,8 @@ const SimulatorCourses: React.FC = () => {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/simulator-courses/stats');
-      const stats = await response.json();
-      setStats(stats);
+      const response = await api.get('/simulator-courses/stats');
+      setStats(response.data);
     } catch (error) {
       console.error('Error fetching stats:', error);
     }
@@ -85,8 +85,8 @@ const SimulatorCourses: React.FC = () => {
 
   const fetchFilters = async () => {
     try {
-      const response = await fetch('/api/gspro-courses/filters');
-      const filters = await response.json();
+      const response = await api.get('/gspro-courses/filters');
+      const filters = response.data;
       setServers(filters.servers || []);
       setDesigners(filters.designers || []);
       setLocations(filters.locations || []);
@@ -115,8 +115,8 @@ const SimulatorCourses: React.FC = () => {
       if (selectedLocation) params.append('location', selectedLocation);
       if (selectedCourseType) params.append('courseType', selectedCourseType);
       
-      const response = await fetch(`/api/simulator-courses?${params}`);
-      const data = await response.json();
+      const response = await api.get(`/simulator-courses?${params}`);
+      const data = response.data;
       setCourses(data.courses);
       setTotalCourses(data.total);
       setTotalPages(data.totalPages);
