@@ -153,4 +153,85 @@ CREATE TABLE IF NOT EXISTS public.users
 TABLESPACE pg_default;
 
 ALTER TABLE IF EXISTS public.users
-    OWNER to golfos_user; 
+    OWNER to golfos_user;
+
+-- Table: public.gspro_courses
+
+-- DROP TABLE IF EXISTS public.gspro_courses;
+
+CREATE TABLE IF NOT EXISTS public.gspro_courses
+(
+    id SERIAL PRIMARY KEY,
+    server character varying(100) COLLATE pg_catalog."default",
+    name character varying(255) COLLATE pg_catalog."default" NOT NULL,
+    updated_date date,
+    location character varying(255) COLLATE pg_catalog."default",
+    designer character varying(255) COLLATE pg_catalog."default",
+    elevation integer,
+    is_par3 boolean DEFAULT false,
+    is_beginner boolean DEFAULT false,
+    is_coastal boolean DEFAULT false,
+    is_desert boolean DEFAULT false,
+    is_fantasy boolean DEFAULT false,
+    is_heathland boolean DEFAULT false,
+    is_historic boolean DEFAULT false,
+    is_links boolean DEFAULT false,
+    is_lowpoly boolean DEFAULT false,
+    is_major_venue boolean DEFAULT false,
+    is_mountain boolean DEFAULT false,
+    is_parkland boolean DEFAULT false,
+    is_tour_stop boolean DEFAULT false,
+    is_training boolean DEFAULT false,
+    is_tropical boolean DEFAULT false,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+)
+
+TABLESPACE pg_default;
+
+ALTER TABLE IF EXISTS public.gspro_courses
+    OWNER to golfos_user;
+
+-- Create indexes for GSPro courses table
+CREATE INDEX IF NOT EXISTS idx_gspro_courses_name ON gspro_courses(name);
+CREATE INDEX IF NOT EXISTS idx_gspro_courses_location ON gspro_courses(location);
+CREATE INDEX IF NOT EXISTS idx_gspro_courses_designer ON gspro_courses(designer);
+CREATE INDEX IF NOT EXISTS idx_gspro_courses_server ON gspro_courses(server);
+
+-- Table: public.trackman_courses
+
+-- DROP TABLE IF EXISTS public.trackman_courses;
+
+CREATE TABLE IF NOT EXISTS public.trackman_courses
+(
+    id SERIAL PRIMARY KEY,
+    name character varying(255) COLLATE pg_catalog."default" NOT NULL,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+)
+
+TABLESPACE pg_default;
+
+ALTER TABLE IF EXISTS public.trackman_courses
+    OWNER to golfos_user;
+
+-- Create indexes for Trackman courses table
+CREATE INDEX IF NOT EXISTS idx_trackman_courses_name ON trackman_courses(name);
+
+-- Table: public.simulator_courses_combined
+
+-- DROP TABLE IF EXISTS public.simulator_courses_combined;
+
+CREATE TABLE IF NOT EXISTS simulator_courses_combined (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    platforms TEXT[] NOT NULL, -- e.g. ARRAY['GSPro', 'Trackman']
+    gspro_id INTEGER,
+    trackman_id INTEGER,
+    location TEXT,
+    designer TEXT,
+    elevation INTEGER,
+    course_types TEXT[],
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_simulator_courses_combined_platforms ON simulator_courses_combined USING gin(platforms);
+CREATE INDEX IF NOT EXISTS idx_simulator_courses_combined_name ON simulator_courses_combined(name); 

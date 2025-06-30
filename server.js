@@ -1633,7 +1633,7 @@ async function updateUserProfilesForExistingMatches() {
 
 // Save scorecard
 app.post('/api/scorecards', authenticateToken, async (req, res) => {
-  const { type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope } = req.body;
+  const { type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, course_name } = req.body;
   
   console.log('Received scorecard data:', req.body); // Debug log
   console.log('User ID:', req.user.member_id); // Debug log
@@ -1672,9 +1672,48 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
     
     console.log('Processed scores data:', scoresData); // Debug log
     
+    // Try to find course_id if course_name is provided
+    let course_id = null;
+    if (course_name) {
+      try {
+        // First try exact match
+        let { rows: courseRows } = await pool.query(
+          'SELECT id FROM simulator_courses_combined WHERE LOWER(name) = LOWER($1) LIMIT 1',
+          [course_name]
+        );
+        
+        // If no exact match, try normalized matching
+        if (courseRows.length === 0) {
+          const normalizedCourseName = course_name
+            .toLowerCase()
+            .replace(/\s+(golf club|country club|the|gc|cc|golf course|course)$/gi, '')
+            .replace(/[^\w\s]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          
+          if (normalizedCourseName) {
+            ({ rows: courseRows } = await pool.query(
+              'SELECT id FROM simulator_courses_combined WHERE LOWER(name) LIKE $1 LIMIT 1',
+              [`%${normalizedCourseName}%`]
+            ));
+          }
+        }
+        
+        if (courseRows.length > 0) {
+          course_id = courseRows[0].id;
+          console.log(`Linked course: "${course_name}" -> ID: ${course_id}`);
+        } else {
+          console.log(`No course match found for: "${course_name}"`);
+        }
+      } catch (courseErr) {
+        console.error('Error finding course:', courseErr);
+        // Don't fail the scorecard save if course linking fails
+      }
+    }
+    
     const { rows } = await pool.query(
-      `INSERT INTO scorecards (user_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, differential)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      `INSERT INTO scorecards (user_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, differential, course_name, course_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
       [
         req.user.member_id,
         type,
@@ -1688,7 +1727,9 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
         round_type || 'sim',
         course_rating || null,
         course_slope || null,
-        differential
+        differential,
+        course_name || null,
+        course_id
       ]
     );
     
@@ -1721,6 +1762,20 @@ app.get('/api/scorecards', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Error fetching scorecards:', err);
     res.status(500).json({ error: 'Failed to fetch scorecards' });
+  }
+});
+
+// Get user's scorecards with course information
+app.get('/api/scorecards/with-courses', authenticateToken, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM scorecards_with_courses WHERE user_id = $1 ORDER BY date_played DESC, created_at DESC',
+      [req.user.member_id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching scorecards with courses:', err);
+    res.status(500).json({ error: 'Failed to fetch scorecards with courses' });
   }
 });
 
@@ -2331,6 +2386,559 @@ app.post('/api/users/profile-photo', authenticateToken, upload.single('profilePh
   } catch (error) {
     console.error('Error uploading profile photo:', error);
     res.status(500).json({ error: 'Failed to upload profile photo' });
+  }
+});
+
+// GSPro Courses API endpoints
+
+// Get all GSPro courses with optional filtering
+app.get('/api/gspro-courses', async (req, res) => {
+  try {
+    const { 
+      search, 
+      server, 
+      designer, 
+      location, 
+      courseType, 
+      limit = 50, 
+      offset = 0 
+    } = req.query;
+    
+    // Define course type mapping
+    const courseTypeMap = {
+      'par3': 'is_par3',
+      'beginner': 'is_beginner',
+      'coastal': 'is_coastal',
+      'desert': 'is_desert',
+      'fantasy': 'is_fantasy',
+      'heathland': 'is_heathland',
+      'historic': 'is_historic',
+      'links': 'is_links',
+      'lowpoly': 'is_lowpoly',
+      'major_venue': 'is_major_venue',
+      'mountain': 'is_mountain',
+      'parkland': 'is_parkland',
+      'tour_stop': 'is_tour_stop',
+      'training': 'is_training',
+      'tropical': 'is_tropical'
+    };
+    
+    let query = `
+      SELECT 
+        id, server, name, updated_date, location, designer, elevation,
+        is_par3, is_beginner, is_coastal, is_desert, is_fantasy, is_heathland,
+        is_historic, is_links, is_lowpoly, is_major_venue, is_mountain, 
+        is_parkland, is_tour_stop, is_training, is_tropical
+      FROM gspro_courses
+      WHERE 1=1
+    `;
+    
+    const params = [];
+    let paramCount = 0;
+    
+    // Add search filter
+    if (search) {
+      paramCount++;
+      query += ` AND (name ILIKE $${paramCount} OR location ILIKE $${paramCount} OR designer ILIKE $${paramCount})`;
+      params.push(`%${search}%`);
+    }
+    
+    // Add server filter
+    if (server) {
+      paramCount++;
+      query += ` AND server = $${paramCount}`;
+      params.push(server);
+    }
+    
+    // Add designer filter
+    if (designer) {
+      paramCount++;
+      query += ` AND designer ILIKE $${paramCount}`;
+      params.push(`%${designer}%`);
+    }
+    
+    // Add location filter
+    if (location) {
+      paramCount++;
+      query += ` AND location ILIKE $${paramCount}`;
+      params.push(`%${location}%`);
+    }
+    
+    // Add course type filter
+    if (courseType && courseTypeMap[courseType]) {
+      query += ` AND ${courseTypeMap[courseType]} = true`;
+    }
+    
+    // Add ordering and pagination
+    query += ` ORDER BY name ASC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
+    params.push(parseInt(limit), parseInt(offset));
+    
+    const { rows } = await pool.query(query, params);
+    
+    // Get total count for pagination
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM gspro_courses
+      WHERE 1=1
+    `;
+    
+    const countParams = [];
+    let countParamCount = 0;
+    
+    if (search) {
+      countParamCount++;
+      countQuery += ` AND (name ILIKE $${countParamCount} OR location ILIKE $${countParamCount} OR designer ILIKE $${countParamCount})`;
+      countParams.push(`%${search}%`);
+    }
+    
+    if (server) {
+      countParamCount++;
+      countQuery += ` AND server = $${countParamCount}`;
+      countParams.push(server);
+    }
+    
+    if (designer) {
+      countParamCount++;
+      countQuery += ` AND designer ILIKE $${countParamCount}`;
+      countParams.push(`%${designer}%`);
+    }
+    
+    if (location) {
+      countParamCount++;
+      countQuery += ` AND location ILIKE $${countParamCount}`;
+      countParams.push(`%${location}%`);
+    }
+    
+    if (courseType && courseTypeMap[courseType]) {
+      countQuery += ` AND ${courseTypeMap[courseType]} = true`;
+    }
+    
+    const { rows: countResult } = await pool.query(countQuery, countParams);
+    const total = parseInt(countResult[0].total);
+    
+    res.json({
+      courses: rows,
+      pagination: {
+        total,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        hasMore: (parseInt(offset) + parseInt(limit)) < total
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching GSPro courses:', error);
+    res.status(500).json({ error: 'Failed to fetch GSPro courses' });
+  }
+});
+
+// Get GSPro courses statistics
+app.get('/api/gspro-courses/stats', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT 
+        COUNT(*) as total_courses,
+        COUNT(DISTINCT server) as unique_servers,
+        COUNT(DISTINCT designer) as unique_designers,
+        COUNT(DISTINCT location) as unique_locations,
+        COUNT(CASE WHEN is_par3 = true THEN 1 END) as par3_courses,
+        COUNT(CASE WHEN is_beginner = true THEN 1 END) as beginner_courses,
+        COUNT(CASE WHEN is_coastal = true THEN 1 END) as coastal_courses,
+        COUNT(CASE WHEN is_desert = true THEN 1 END) as desert_courses,
+        COUNT(CASE WHEN is_fantasy = true THEN 1 END) as fantasy_courses,
+        COUNT(CASE WHEN is_heathland = true THEN 1 END) as heathland_courses,
+        COUNT(CASE WHEN is_historic = true THEN 1 END) as historic_courses,
+        COUNT(CASE WHEN is_links = true THEN 1 END) as links_courses,
+        COUNT(CASE WHEN is_major_venue = true THEN 1 END) as major_venue_courses,
+        COUNT(CASE WHEN is_mountain = true THEN 1 END) as mountain_courses,
+        COUNT(CASE WHEN is_parkland = true THEN 1 END) as parkland_courses,
+        COUNT(CASE WHEN is_tour_stop = true THEN 1 END) as tour_stop_courses,
+        COUNT(CASE WHEN is_training = true THEN 1 END) as training_courses,
+        COUNT(CASE WHEN is_tropical = true THEN 1 END) as tropical_courses
+      FROM gspro_courses
+    `);
+    
+    res.json(rows[0]);
+    
+  } catch (error) {
+    console.error('Error fetching GSPro courses statistics:', error);
+    res.status(500).json({ error: 'Failed to fetch GSPro courses statistics' });
+  }
+});
+
+// Get unique values for filters
+app.get('/api/gspro-courses/filters', async (req, res) => {
+  try {
+    const [servers, designers, locations] = await Promise.all([
+      pool.query('SELECT DISTINCT server FROM gspro_courses WHERE server IS NOT NULL ORDER BY server'),
+      pool.query('SELECT DISTINCT designer FROM gspro_courses WHERE designer IS NOT NULL ORDER BY designer'),
+      pool.query('SELECT DISTINCT location FROM gspro_courses WHERE location IS NOT NULL ORDER BY location')
+    ]);
+    
+    res.json({
+      servers: servers.rows.map(row => row.server),
+      designers: designers.rows.map(row => row.designer),
+      locations: locations.rows.map(row => row.location)
+    });
+    
+  } catch (error) {
+    console.error('Error fetching GSPro courses filters:', error);
+    res.status(500).json({ error: 'Failed to fetch GSPro courses filters' });
+  }
+});
+
+// Get a specific GSPro course by ID
+app.get('/api/gspro-courses/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { rows } = await pool.query(`
+      SELECT 
+        id, server, name, updated_date, location, designer, elevation,
+        is_par3, is_beginner, is_coastal, is_desert, is_fantasy, is_heathland,
+        is_historic, is_links, is_lowpoly, is_major_venue, is_mountain, 
+        is_parkland, is_tour_stop, is_training, is_tropical, created_at
+      FROM gspro_courses
+      WHERE id = $1
+    `, [id]);
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+    
+    res.json(rows[0]);
+    
+  } catch (error) {
+    console.error('Error fetching GSPro course:', error);
+    res.status(500).json({ error: 'Failed to fetch GSPro course' });
+  }
+});
+
+// Import GSPro courses endpoint (admin only)
+app.post('/api/gspro-courses/import', authenticateToken, async (req, res) => {
+  try {
+    // Check if user is admin
+    const { rows: userRows } = await pool.query(
+      'SELECT role FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userRows.length === 0 || userRows[0].role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Import the courses using the import script
+    const { createGsproCoursesTable, importGsproCourses } = require('./import_gspro_courses');
+    
+    await createGsproCoursesTable();
+    await importGsproCourses();
+    
+    res.json({ 
+      success: true, 
+      message: 'GSPro courses imported successfully' 
+    });
+    
+  } catch (error) {
+    console.error('Error importing GSPro courses:', error);
+    res.status(500).json({ error: 'Failed to import GSPro courses' });
+  }
+});
+
+// Trackman Courses API endpoints
+
+// Get all Trackman courses with optional filtering
+app.get('/api/trackman-courses', async (req, res) => {
+  try {
+    const { 
+      search, 
+      limit = 50, 
+      offset = 0 
+    } = req.query;
+    
+    let query = `
+      SELECT id, name, created_at
+      FROM trackman_courses
+      WHERE 1=1
+    `;
+    
+    const params = [];
+    let paramCount = 0;
+    
+    // Add search filter
+    if (search) {
+      paramCount++;
+      query += ` AND name ILIKE $${paramCount}`;
+      params.push(`%${search}%`);
+    }
+    
+    // Add ordering and pagination
+    query += ` ORDER BY name ASC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
+    params.push(parseInt(limit), parseInt(offset));
+    
+    const { rows } = await pool.query(query, params);
+    
+    // Get total count for pagination
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM trackman_courses
+      WHERE 1=1
+    `;
+    
+    const countParams = [];
+    let countParamCount = 0;
+    
+    if (search) {
+      countParamCount++;
+      countQuery += ` AND name ILIKE $${countParamCount}`;
+      countParams.push(`%${search}%`);
+    }
+    
+    const { rows: countResult } = await pool.query(countQuery, countParams);
+    const total = parseInt(countResult[0].total);
+    
+    res.json({
+      courses: rows,
+      pagination: {
+        total,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        hasMore: (parseInt(offset) + parseInt(limit)) < total
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching Trackman courses:', error);
+    res.status(500).json({ error: 'Failed to fetch Trackman courses' });
+  }
+});
+
+// Get a specific Trackman course by ID
+app.get('/api/trackman-courses/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { rows } = await pool.query(`
+      SELECT id, name, created_at
+      FROM trackman_courses
+      WHERE id = $1
+    `, [id]);
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+    
+    res.json(rows[0]);
+    
+  } catch (error) {
+    console.error('Error fetching Trackman course:', error);
+    res.status(500).json({ error: 'Failed to fetch Trackman course' });
+  }
+});
+
+// Get Trackman courses statistics
+app.get('/api/trackman-courses/stats', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT 
+        COUNT(*) as total_courses
+      FROM trackman_courses
+    `);
+    
+    res.json(rows[0]);
+    
+  } catch (error) {
+    console.error('Error fetching Trackman courses statistics:', error);
+    res.status(500).json({ error: 'Failed to fetch Trackman courses statistics' });
+  }
+});
+
+// Import Trackman courses endpoint (admin only)
+app.post('/api/trackman-courses/import', authenticateToken, async (req, res) => {
+  try {
+    // Check if user is admin
+    const { rows: userRows } = await pool.query(
+      'SELECT role FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userRows.length === 0 || userRows[0].role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Import the courses using the import script
+    const { createTrackmanCoursesTable, importTrackmanCourses } = require('./import_trackman_courses');
+    
+    await createTrackmanCoursesTable();
+    await importTrackmanCourses();
+    
+    res.json({ 
+      success: true, 
+      message: 'Trackman courses imported successfully' 
+    });
+    
+  } catch (error) {
+    console.error('Error importing Trackman courses:', error);
+    res.status(500).json({ error: 'Failed to import Trackman courses' });
+  }
+});
+
+// Combined Simulator Courses API
+app.get('/api/simulator-courses', async (req, res) => {
+  try {
+    const { search, platform, server, designer, location, courseType, limit = 20, offset = 0 } = req.query;
+    let query = 'SELECT * FROM simulator_courses_combined WHERE 1=1';
+    const params = [];
+    let paramCount = 0;
+
+    // Platform filter
+    if (platform === 'gspro') {
+      query += ` AND platforms @> ARRAY['GSPro'] AND NOT platforms @> ARRAY['Trackman']`;
+    } else if (platform === 'trackman') {
+      query += ` AND platforms @> ARRAY['Trackman'] AND NOT platforms @> ARRAY['GSPro']`;
+    } else if (platform === 'shared') {
+      query += ` AND platforms @> ARRAY['GSPro'] AND platforms @> ARRAY['Trackman']`;
+    }
+
+    // Search filter
+    if (search) {
+      paramCount++;
+      query += ` AND (name ILIKE $${paramCount}`;
+      params.push(`%${search}%`);
+      paramCount++;
+      query += ` OR location ILIKE $${paramCount}`;
+      params.push(`%${search}%`);
+      paramCount++;
+      query += ` OR designer ILIKE $${paramCount}`;
+      params.push(`%${search}%`);
+      query += ')';
+    }
+
+    // Server filter (GSPro only)
+    if (server) {
+      paramCount++;
+      query += ` AND (platforms @> ARRAY['GSPro'] AND server = $${paramCount})`;
+      params.push(server);
+    }
+    // Designer filter (GSPro only)
+    if (designer) {
+      paramCount++;
+      query += ` AND designer = $${paramCount}`;
+      params.push(designer);
+    }
+    // Location filter (GSPro only)
+    if (location) {
+      paramCount++;
+      query += ` AND location = $${paramCount}`;
+      params.push(location);
+    }
+    // Course type filter (GSPro only)
+    if (courseType) {
+      paramCount++;
+      query += ` AND $${paramCount} = ANY(course_types)`;
+      params.push(courseType.replace('_', ' '));
+    }
+
+    // Pagination
+    paramCount++;
+    query += ` ORDER BY name ASC LIMIT $${paramCount}`;
+    params.push(parseInt(limit));
+    paramCount++;
+    query += ` OFFSET $${paramCount}`;
+    params.push(parseInt(offset));
+
+    const { rows } = await pool.query(query, params);
+
+    // Get total count for pagination
+    let countQuery = 'SELECT COUNT(*) as total FROM simulator_courses_combined WHERE 1=1';
+    const countParams = [];
+    let countParamCount = 0;
+    
+    if (platform === 'gspro') {
+      countQuery += ` AND platforms @> ARRAY['GSPro'] AND NOT platforms @> ARRAY['Trackman']`;
+    } else if (platform === 'trackman') {
+      countQuery += ` AND platforms @> ARRAY['Trackman'] AND NOT platforms @> ARRAY['GSPro']`;
+    } else if (platform === 'shared') {
+      countQuery += ` AND platforms @> ARRAY['GSPro'] AND platforms @> ARRAY['Trackman']`;
+    }
+    
+    if (search) {
+      countParamCount++;
+      countQuery += ` AND (name ILIKE $${countParamCount}`;
+      countParams.push(`%${search}%`);
+      countParamCount++;
+      countQuery += ` OR location ILIKE $${countParamCount}`;
+      countParams.push(`%${search}%`);
+      countParamCount++;
+      countQuery += ` OR designer ILIKE $${countParamCount}`;
+      countParams.push(`%${search}%`);
+      countQuery += ')';
+    }
+    
+    if (server) {
+      countParamCount++;
+      countQuery += ` AND (platforms @> ARRAY['GSPro'] AND server = $${countParamCount})`;
+      countParams.push(server);
+    }
+    if (designer) {
+      countParamCount++;
+      countQuery += ` AND designer = $${countParamCount}`;
+      countParams.push(designer);
+    }
+    if (location) {
+      countParamCount++;
+      countQuery += ` AND location = $${countParamCount}`;
+      countParams.push(location);
+    }
+    if (courseType) {
+      countParamCount++;
+      countQuery += ` AND $${countParamCount} = ANY(course_types)`;
+      countParams.push(courseType.replace('_', ' '));
+    }
+    
+    const { rows: countResult } = await pool.query(countQuery, countParams);
+    const total = parseInt(countResult[0].total);
+    res.json({
+      courses: rows,
+      total,
+      page: Math.floor(offset / limit) + 1,
+      totalPages: Math.ceil(total / limit)
+    });
+  } catch (error) {
+    console.error('Error fetching combined simulator courses:', error);
+    res.status(500).json({ error: 'Failed to fetch courses' });
+  }
+});
+
+// Combined Simulator Courses Stats
+app.get('/api/simulator-courses/stats', async (req, res) => {
+  try {
+    // Get all courses from the combined table
+    const { rows } = await pool.query('SELECT platforms FROM simulator_courses_combined');
+    let total_courses = rows.length;
+    let gspro_courses = 0;
+    let trackman_courses = 0;
+    let shared_courses = 0;
+    let unique_gspro = 0;
+    let unique_trackman = 0;
+    for (const row of rows) {
+      const p = row.platforms;
+      if (p.includes('GSPro') && p.includes('Trackman')) shared_courses++;
+      else if (p.includes('GSPro')) unique_gspro++;
+      else if (p.includes('Trackman')) unique_trackman++;
+      if (p.includes('GSPro')) gspro_courses++;
+      if (p.includes('Trackman')) trackman_courses++;
+    }
+    res.json({
+      total_courses,
+      gspro_courses,
+      trackman_courses,
+      shared_courses,
+      unique_gspro,
+      unique_trackman
+    });
+  } catch (error) {
+    console.error('Error fetching combined simulator stats:', error);
+    res.status(500).json({ error: 'Failed to fetch stats' });
   }
 });
 
