@@ -22,7 +22,7 @@ const pool = new Pool({
 // CORS configuration for production
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://trackmansucks.com', 'https://www.trackmansucks.com']
+    ? ['https://play.nngolf.co', 'https://trackmansucks.com', 'https://www.trackmansucks.com']
     : ['http://localhost:8000', 'http://localhost:3000'],
   credentials: true
 };
