@@ -275,6 +275,10 @@ export const saveScorecard = (scorecardData: {
   total_mulligans: number;
   final_score: number;
   round_type?: 'sim' | 'grass';
+  course_name?: string;
+  teebox?: string;
+  course_rating?: number;
+  course_slope?: number;
 }) => api.post<Scorecard>('/scorecards', scorecardData);
 
 export const getScorecards = () => api.get<Scorecard[]>('/scorecards');
@@ -488,5 +492,8 @@ export const getSimulatorCourses = (search?: string, platform?: string, limit?: 
 
 export const updateCourseParValues = (courseId: number, parValues: number[]) => 
   api.put(`/simulator-courses/${courseId}/par-values`, { par_values: parValues });
+
+export const getCourseTeeboxData = (courseId: number) => 
+  api.get(`/simulator-courses/${courseId}/teebox-data`);
 
 export default api; 

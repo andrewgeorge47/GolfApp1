@@ -1749,7 +1749,7 @@ async function updateUserProfilesForExistingMatches() {
 
 // Save scorecard
 app.post('/api/scorecards', authenticateToken, async (req, res) => {
-  const { type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, course_name } = req.body;
+  const { type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, course_name, teebox } = req.body;
   
   console.log('Received scorecard data:', req.body); // Debug log
   console.log('User ID:', req.user.member_id); // Debug log
@@ -1828,8 +1828,8 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
     }
     
     const { rows } = await pool.query(
-      `INSERT INTO scorecards (user_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, differential, course_name, course_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
+      `INSERT INTO scorecards (user_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, differential, course_name, course_id, teebox)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
       [
         req.user.member_id,
         type,
@@ -1845,7 +1845,8 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
         course_slope || null,
         differential,
         course_name || null,
-        course_id
+        course_id,
+        teebox || null
       ]
     );
     
@@ -1873,6 +1874,17 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
       } catch (recordErr) {
         console.error('Error updating course records:', recordErr);
         // Don't fail the scorecard save if course record update fails
+      }
+    }
+    
+    // Update teebox data in simulator_courses_combined for simulator rounds
+    if (round_type === 'sim' && course_id && teebox && course_rating && course_slope) {
+      try {
+        await updateCourseTeeboxData(course_id, teebox, course_rating, course_slope, date_played);
+        console.log('Teebox data updated after scorecard save');
+      } catch (teeboxErr) {
+        console.error('Error updating teebox data:', teeboxErr);
+        // Don't fail the scorecard save if teebox update fails
       }
     }
     
@@ -3202,6 +3214,45 @@ app.put('/api/simulator-courses/:id/par-values', authenticateToken, async (req, 
   }
 });
 
+// Get existing teebox data for a course
+app.get('/api/simulator-courses/:id/teebox-data', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get teebox data directly from simulator_courses_combined table
+    const { rows } = await pool.query(`
+      SELECT 
+        teebox_data
+      FROM simulator_courses_combined 
+      WHERE id = $1
+    `, [id]);
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+    
+    const teeboxData = rows[0].teebox_data || [];
+    
+    // Transform the JSONB data to match the expected format
+    const transformedData = teeboxData.map(item => ({
+      teebox: item.teebox,
+      course_rating: item.course_rating,
+      course_slope: item.course_slope,
+      usage_count: item.usage_count,
+      last_used: item.last_used
+    }));
+    
+    res.json({
+      teeboxData: transformedData,
+      totalTeeboxes: transformedData.length
+    });
+    
+  } catch (error) {
+    console.error('Error fetching teebox data:', error);
+    res.status(500).json({ error: 'Failed to fetch teebox data' });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 }); 
@@ -3423,6 +3474,67 @@ async function checkAndUpdateCourseRecords(scorecardId, courseId, userId, totalS
 
   } catch (error) {
     console.error('Error updating course records:', error);
+  }
+}
+
+// Function to update teebox data in simulator_courses_combined
+async function updateCourseTeeboxData(courseId, teebox, courseRating, courseSlope, datePlayed) {
+  try {
+    // Get current teebox data for this course
+    const { rows } = await pool.query(`
+      SELECT teebox_data FROM simulator_courses_combined WHERE id = $1
+    `, [courseId]);
+    
+    if (rows.length === 0) {
+      console.log(`Course ${courseId} not found, skipping teebox update`);
+      return;
+    }
+    
+    let teeboxData = rows[0].teebox_data || [];
+    
+    // Find existing teebox entry with same rating and slope
+    const existingIndex = teeboxData.findIndex(item => 
+      item.teebox === teebox && 
+      item.course_rating === parseFloat(courseRating) && 
+      item.course_slope === parseInt(courseSlope)
+    );
+    
+    if (existingIndex >= 0) {
+      // Update existing entry
+      teeboxData[existingIndex].usage_count += 1;
+      teeboxData[existingIndex].last_used = datePlayed;
+    } else {
+      // Add new entry
+      teeboxData.push({
+        teebox: teebox,
+        course_rating: parseFloat(courseRating),
+        course_slope: parseInt(courseSlope),
+        usage_count: 1,
+        first_used: datePlayed,
+        last_used: datePlayed,
+        unique_players: 1
+      });
+    }
+    
+    // Sort by usage count and last used date
+    teeboxData.sort((a, b) => {
+      if (b.usage_count !== a.usage_count) {
+        return b.usage_count - a.usage_count;
+      }
+      return new Date(b.last_used) - new Date(a.last_used);
+    });
+    
+    // Update the course with new teebox data
+    await pool.query(`
+      UPDATE simulator_courses_combined 
+      SET teebox_data = $1, updated_at = CURRENT_TIMESTAMP 
+      WHERE id = $2
+    `, [JSON.stringify(teeboxData), courseId]);
+    
+    console.log(`Updated teebox data for course ${courseId}: ${teebox} (${courseRating}/${courseSlope})`);
+    
+  } catch (error) {
+    console.error('Error updating course teebox data:', error);
   }
 }
 

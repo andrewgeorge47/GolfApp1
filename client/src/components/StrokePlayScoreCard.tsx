@@ -17,6 +17,11 @@ interface StrokePlayScoreCardProps {
     location?: string;
     designer?: string;
     par_values?: number[];
+    teeboxData?: {
+      teebox: string;
+      courseRating: number;
+      courseSlope: number;
+    };
   };
   nineType?: 'front' | 'back' | null;
 }
@@ -157,14 +162,19 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
     try {
       console.log('Calling onSave with stroke play data...'); // Debug log
       if (onSave) {
-        await onSave({
+        // Include teebox data in the scorecard data
+        const scoreCardWithTeebox = {
           playerInfo,
           holes: holesState,
           totalStrokes,
           totalPar,
           scoreToPar,
-          type: 'stroke_play'
-        });
+          type: 'stroke_play',
+          teebox: course?.teeboxData?.teebox,
+          course_rating: course?.teeboxData?.courseRating,
+          course_slope: course?.teeboxData?.courseSlope
+        };
+        await onSave(scoreCardWithTeebox);
       }
       setErrors([]);
       console.log('StrokePlay save completed successfully'); // Debug log

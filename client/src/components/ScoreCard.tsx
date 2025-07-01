@@ -21,6 +21,11 @@ interface ScoreCardProps {
     location?: string;
     designer?: string;
     par_values?: number[];
+    teeboxData?: {
+      teebox: string;
+      courseRating: number;
+      courseSlope: number;
+    };
   };
   nineType?: 'front' | 'back' | null;
 }
@@ -65,7 +70,14 @@ const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo, holes 
     try {
       console.log('Calling onSave with scoreCard data...'); // Debug log
       if (onSave) {
-        await onSave(scoreCard);
+        // Include teebox data in the scorecard data
+        const scoreCardWithTeebox = {
+          ...scoreCard,
+          teebox: course?.teeboxData?.teebox,
+          course_rating: course?.teeboxData?.courseRating,
+          course_slope: course?.teeboxData?.courseSlope
+        };
+        await onSave(scoreCardWithTeebox);
       }
       setErrors([]);
       console.log('Save completed successfully'); // Debug log

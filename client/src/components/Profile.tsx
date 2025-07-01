@@ -38,7 +38,7 @@ const Profile: React.FC = () => {
   const [scoreCardType, setScoreCardType] = useState<'mully' | 'stroke' | null>(null);
   const [roundType, setRoundType] = useState<'sim' | null>(null);
   const [holes, setHoles] = useState<9 | 18 | null>(null);
-  const [selectedCourse, setSelectedCourse] = useState<any>(null);
+  const [selectedCourse, setSelectedCourse] = useState<any & { teeboxData?: { teebox: string; courseRating: number; courseSlope: number } }>(null);
   const [nineType, setNineType] = useState<'front' | 'back' | null>(null);
 
   // Photo upload state
@@ -214,7 +214,7 @@ const Profile: React.FC = () => {
     setShowTrackRoundModal(true);
   };
 
-  const handleSelectRoundType = (roundType: 'sim', holes: 9 | 18, course: any, nineType: 'front' | 'back' | null = null) => {
+  const handleSelectRoundType = (roundType: 'sim', holes: 9 | 18, course: any, nineType: 'front' | 'back' | null = null, teeboxData?: { teebox: string; courseRating: number; courseSlope: number }) => {
     setScoreCardType('stroke'); // Default to stroke play
     setRoundType(roundType);
     setHoles(holes);
@@ -222,6 +222,10 @@ const Profile: React.FC = () => {
     setShowTrackRoundModal(false);
     setShowScoreCard(true);
     setSelectedCourse(course);
+    // Store teebox data for use when saving scorecard
+    if (teeboxData) {
+      setSelectedCourse((prev: any) => ({ ...prev, teeboxData }));
+    }
   };
 
   const handleCloseScoreCard = () => {
@@ -256,7 +260,10 @@ const Profile: React.FC = () => {
         total_mulligans: scoreCardData.totalMulligans || scoreCardData.total_mulligans || 0,
         final_score: scoreCardData.finalScore || scoreCardData.final_score || scoreCardData.totalStrokes || 0,
         round_type: roundType || 'sim',
-        course_name: selectedCourse?.name || scoreCardData.course_name || ''
+        course_name: selectedCourse?.name || scoreCardData.course_name || '',
+        teebox: selectedCourse?.teeboxData?.teebox || scoreCardData.teebox || null,
+        course_rating: selectedCourse?.teeboxData?.courseRating || scoreCardData.course_rating || null,
+        course_slope: selectedCourse?.teeboxData?.courseSlope || scoreCardData.course_slope || null
       };
 
       console.log('API data being sent:', apiData); // Debug log
