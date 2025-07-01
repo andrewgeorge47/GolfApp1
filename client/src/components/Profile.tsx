@@ -1017,156 +1017,160 @@ const Profile: React.FC = () => {
         </div>
       )}
 
-      {/* Tournament Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-        {/* User's Registered Tournaments */}
-        {userRegisteredTournaments.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-lg p-6">
-            <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
-              <Trophy className="w-6 h-6 mr-3" />
-              My Tournaments
-            </h2>
-            <div className="space-y-4">
-              {userRegisteredTournaments.slice(0, 3).map((tournament) => {
-                const status = getTournamentStatus(tournament);
-                const isActive = isTournamentActive(tournament);
-                const isAvailable = isTournamentAvailable(tournament);
-                
-                return (
-                  <div key={tournament.id} className="border border-gray-200 rounded-lg p-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-3 sm:space-y-0">
-                      <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-gray-900">{tournament.name}</h3>
-                        <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2 text-sm text-gray-600">
-                          {tournament.start_date && (
-                            <span className="flex items-center">
-                              <Calendar className="w-4 h-4 mr-1" />
-                              {new Date(tournament.start_date).toLocaleDateString()}
-                            </span>
-                          )}
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
-                            status === 'Completed' ? 'bg-gray-100 text-gray-600' :
-                            status === 'In Progress' ? 'bg-green-100 text-green-600' :
-                            status === 'Active' ? 'bg-green-100 text-green-600' :
-                            status === 'Draft' ? 'bg-yellow-100 text-yellow-600' :
-                            'bg-blue-100 text-blue-600'
-                          }`}>
-                            {status}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="sm:ml-4">
-                        {isAvailable ? (
-                          <button
-                            onClick={() => handleTournamentUnregister(tournament.id)}
-                            disabled={tournamentLoading === tournament.id}
-                            className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {tournamentLoading === tournament.id ? (
-                              <>
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1"></div>
-                                Processing...
-                              </>
+      {/* Tournament Section - Only visible to admins */}
+      {user?.role?.toLowerCase() === 'admin' && (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            {/* User's Registered Tournaments */}
+            {userRegisteredTournaments.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-lg p-6">
+                <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+                  <Trophy className="w-6 h-6 mr-3" />
+                  My Tournaments
+                </h2>
+                <div className="space-y-4">
+                  {userRegisteredTournaments.slice(0, 3).map((tournament) => {
+                    const status = getTournamentStatus(tournament);
+                    const isActive = isTournamentActive(tournament);
+                    const isAvailable = isTournamentAvailable(tournament);
+                    
+                    return (
+                      <div key={tournament.id} className="border border-gray-200 rounded-lg p-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-3 sm:space-y-0">
+                          <div className="flex-1">
+                            <h3 className="text-lg font-semibold text-gray-900">{tournament.name}</h3>
+                            <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2 text-sm text-gray-600">
+                              {tournament.start_date && (
+                                <span className="flex items-center">
+                                  <Calendar className="w-4 h-4 mr-1" />
+                                  {new Date(tournament.start_date).toLocaleDateString()}
+                                </span>
+                              )}
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
+                                status === 'Completed' ? 'bg-gray-100 text-gray-600' :
+                                status === 'In Progress' ? 'bg-green-100 text-green-600' :
+                                status === 'Active' ? 'bg-green-100 text-green-600' :
+                                status === 'Draft' ? 'bg-yellow-100 text-yellow-600' :
+                                'bg-blue-100 text-blue-600'
+                              }`}>
+                                {status}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="sm:ml-4">
+                            {isAvailable ? (
+                              <button
+                                onClick={() => handleTournamentUnregister(tournament.id)}
+                                disabled={tournamentLoading === tournament.id}
+                                className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {tournamentLoading === tournament.id ? (
+                                  <>
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1"></div>
+                                    Processing...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Minus className="w-4 h-4 mr-1" />
+                                    Unregister
+                                  </>
+                                )}
+                              </button>
                             ) : (
-                              <>
-                                <Minus className="w-4 h-4 mr-1" />
-                                Unregister
-                              </>
+                              <span className="text-sm text-gray-500 px-3 py-2">
+                                {status === 'Completed' ? 'Completed' : 'Registered'}
+                              </span>
                             )}
-                          </button>
-                        ) : (
-                          <span className="text-sm text-gray-500 px-3 py-2">
-                            {status === 'Completed' ? 'Completed' : 'Registered'}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Available Tournaments */}
-        {availableTournaments.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-lg p-6">
-            <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
-              <Award className="w-6 h-6 mr-3" />
-              Available Tournaments
-            </h2>
-            <div className="space-y-4">
-              {availableTournaments.slice(0, 3).map((tournament) => {
-                const status = getTournamentStatus(tournament);
-                const isActive = isTournamentActive(tournament);
-                
-                return (
-                  <div key={tournament.id} className="border border-gray-200 rounded-lg p-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-3 sm:space-y-0">
-                      <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-gray-900">{tournament.name}</h3>
-                        <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2 text-sm text-gray-600">
-                          {tournament.start_date && (
-                            <span className="flex items-center">
-                              <Calendar className="w-4 h-4 mr-1" />
-                              {new Date(tournament.start_date).toLocaleDateString()}
-                            </span>
-                          )}
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
-                            status === 'Completed' ? 'bg-gray-100 text-gray-600' :
-                            status === 'In Progress' ? 'bg-green-100 text-green-600' :
-                            status === 'Active' ? 'bg-green-100 text-green-600' :
-                            status === 'Draft' ? 'bg-yellow-100 text-yellow-600' :
-                            'bg-blue-100 text-blue-600'
-                          }`}>
-                            {status}
-                          </span>
+                          </div>
                         </div>
                       </div>
-                      <div className="sm:ml-4">
-                        <button
-                          onClick={() => handleTournamentSignup(tournament.id)}
-                          disabled={tournamentLoading === tournament.id}
-                          className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {tournamentLoading === tournament.id ? (
-                            <>
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-black mr-1"></div>
-                              Processing...
-                            </>
-                          ) : (
-                            <>
-                              <Plus className="w-4 h-4 mr-1" />
-                              Sign Up
-                            </>
-                          )}
-                        </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Available Tournaments */}
+            {availableTournaments.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-lg p-6">
+                <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+                  <Award className="w-6 h-6 mr-3" />
+                  Available Tournaments
+                </h2>
+                <div className="space-y-4">
+                  {availableTournaments.slice(0, 3).map((tournament) => {
+                    const status = getTournamentStatus(tournament);
+                    const isActive = isTournamentActive(tournament);
+                    
+                    return (
+                      <div key={tournament.id} className="border border-gray-200 rounded-lg p-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-3 sm:space-y-0">
+                          <div className="flex-1">
+                            <h3 className="text-lg font-semibold text-gray-900">{tournament.name}</h3>
+                            <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2 text-sm text-gray-600">
+                              {tournament.start_date && (
+                                <span className="flex items-center">
+                                  <Calendar className="w-4 h-4 mr-1" />
+                                  {new Date(tournament.start_date).toLocaleDateString()}
+                                </span>
+                              )}
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
+                                status === 'Completed' ? 'bg-gray-100 text-gray-600' :
+                                status === 'In Progress' ? 'bg-green-100 text-green-600' :
+                                status === 'Active' ? 'bg-green-100 text-green-600' :
+                                status === 'Draft' ? 'bg-yellow-100 text-yellow-600' :
+                                'bg-blue-100 text-blue-600'
+                              }`}>
+                                {status}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="sm:ml-4">
+                            <button
+                              onClick={() => handleTournamentSignup(tournament.id)}
+                              disabled={tournamentLoading === tournament.id}
+                              className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {tournamentLoading === tournament.id ? (
+                                <>
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-black mr-1"></div>
+                                  Processing...
+                                </>
+                              ) : (
+                                <>
+                                  <Plus className="w-4 h-4 mr-1" />
+                                  Sign Up
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* No Available Tournaments Message */}
+          {tournaments.length > 0 && availableTournaments.length === 0 && userRegisteredTournaments.length === 0 && (
+            <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
+              <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+                <Award className="w-6 h-6 mr-3" />
+                Tournaments
+              </h2>
+              <div className="text-center py-8">
+                <p className="text-gray-600 mb-2">No tournaments are currently available for registration.</p>
+                <p className="text-sm text-gray-500">All tournaments are either completed or you're already registered for them.</p>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
 
-      {/* No Available Tournaments Message */}
-      {tournaments.length > 0 && availableTournaments.length === 0 && userRegisteredTournaments.length === 0 && (
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-          <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
-            <Award className="w-6 h-6 mr-3" />
-            Tournaments
-          </h2>
-          <div className="text-center py-8">
-            <p className="text-gray-600 mb-2">No tournaments are currently available for registration.</p>
-            <p className="text-sm text-gray-500">All tournaments are either completed or you're already registered for them.</p>
-          </div>
-        </div>
+          {/* My Tournaments Management Section */}
+          <ProfileTournaments />
+        </>
       )}
-
-      {/* My Tournaments Management Section */}
-      <ProfileTournaments />
 
       {/* Admin Section - Only visible to admins */}
       {user?.role?.toLowerCase() === 'admin' && (

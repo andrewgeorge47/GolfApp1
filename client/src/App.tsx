@@ -24,11 +24,10 @@ function AppContent() {
   const { user, logout } = useAuth();
 
   const navigationItems = [
-    { to: "/", icon: Home, label: "Dashboard" },
+    { to: "/", icon: Home, label: "Home" },
     { to: "/leaderboard", icon: Trophy, label: "Leaderboard" },
-    { to: "/scoring", icon: Plus, label: "Scoring" },
     { to: "/simulator-courses", icon: MapPin, label: "Simulator Courses" },
-    { to: "/profile", icon: User, label: "Profile" },
+    ...(user ? [{ to: "/profile", icon: User, label: "Profile" }] : []),
   ];
 
   return (
@@ -41,7 +40,9 @@ function AppContent() {
                 {/* Logo */}
                 <div className="flex items-center">
                   <div className="flex-shrink-0">
-                    <img src={process.env.PUBLIC_URL + "/logo-color.svg"} alt="Golf League Logo" className="h-10 w-auto" />
+                    <Link to="/">
+                      <img src={process.env.PUBLIC_URL + "/logo-color.svg"} alt="Golf League Logo" className="h-10 w-auto" />
+                    </Link>
                   </div>
                 </div>
 
@@ -62,9 +63,6 @@ function AppContent() {
                   <div className="ml-4 flex items-center space-x-2">
                     {user ? (
                       <>
-                        <span className="text-sm text-neutral-600">
-                          Welcome, {user.first_name}!
-                        </span>
                         <button
                           onClick={logout}
                           className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
@@ -79,12 +77,6 @@ function AppContent() {
                           className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
                         >
                           Login
-                        </Link>
-                        <Link
-                          to="/claim-account"
-                          className="flex items-center px-4 py-2 rounded-md text-sm font-medium bg-brand-neon-green text-brand-black hover:bg-green-400 transition-colors"
-                        >
-                          Claim Account
                         </Link>
                       </>
                     )}
@@ -128,9 +120,6 @@ function AppContent() {
                 <div className="border-t border-gray-200 pt-3 mt-3">
                   {user ? (
                     <>
-                      <div className="px-3 py-2 text-sm text-neutral-600">
-                        Welcome, {user.first_name}!
-                      </div>
                       <button
                         onClick={() => {
                           logout();
@@ -149,13 +138,6 @@ function AppContent() {
                         onClick={() => setMobileMenuOpen(false)}
                       >
                         Login
-                      </Link>
-                      <Link
-                        to="/claim-account"
-                        className="flex items-center px-3 py-3 rounded-md text-base font-medium bg-brand-neon-green text-brand-black hover:bg-green-400 transition-colors"
-                        onClick={() => setMobileMenuOpen(false)}
-                      >
-                        Claim Account
                       </Link>
                     </>
                   )}
