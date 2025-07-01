@@ -3496,7 +3496,7 @@ app.get('/api/leaderboard-stats', async (req, res) => {
           MIN(total_strokes) as best_sim_score,
           COUNT(DISTINCT course_id) as unique_sim_courses
         FROM scorecards 
-        WHERE round_type = 'simulator'
+        WHERE round_type = 'sim'
         GROUP BY user_id
       ) sim_stats ON u.member_id = sim_stats.user_id
       LEFT JOIN (
@@ -3504,7 +3504,7 @@ app.get('/api/leaderboard-stats', async (req, res) => {
           user_id,
           COUNT(*) as rounds_this_month
         FROM scorecards 
-        WHERE round_type = 'simulator' 
+        WHERE round_type = 'sim' 
         AND date_played >= DATE_TRUNC('month', CURRENT_DATE)
         GROUP BY user_id
       ) recent_activity ON u.member_id = recent_activity.user_id
@@ -3575,7 +3575,7 @@ app.get('/api/leaderboard-stats', async (req, res) => {
         MIN(s.total_strokes) as best_score_overall
       FROM users u
       LEFT JOIN matches m ON (u.member_id = m.player1_id OR u.member_id = m.player2_id)
-      LEFT JOIN scorecards s ON u.member_id = s.user_id AND s.round_type = 'simulator'
+      LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL)
       WHERE u.role IN ('Member', 'Admin', 'Club Pro')
     `);
 
@@ -3860,180 +3860,146 @@ app.post('/api/setup-course-records', async (req, res) => {
 // Get global community leaderboard statistics
 app.get('/api/global-leaderboard', async (req, res) => {
   try {
-    // Club-level highlights - break into separate queries
-    let mostCourseRecordsClub = null;
-    let mostCoursesPlayedClub = null;
-    let mostActiveClub = null;
-    let longestStandingRecord = null;
-
-    try {
-      // Most Course Records Held
-      const { rows: mostRecordsResult } = await pool.query(`
-        SELECT u.club, COUNT(DISTINCT cr.course_id) as record_count
-        FROM users u
-        JOIN course_records cr ON u.member_id = cr.user_id
-        WHERE cr.is_current = true
-        GROUP BY u.club
-        ORDER BY record_count DESC
-        LIMIT 1
-      `);
-      mostCourseRecordsClub = mostRecordsResult[0]?.club || null;
-    } catch (err) {
-      console.log('No course records data available');
-    }
-
-    try {
-      // Most Different Courses Played
-      const { rows: mostCoursesResult } = await pool.query(`
-        SELECT u.club, COUNT(DISTINCT s.course_id) as courses_played
-        FROM users u
-        JOIN scorecards s ON u.member_id = s.user_id
-        WHERE s.round_type = 'simulator'
-        GROUP BY u.club
-        ORDER BY courses_played DESC
-        LIMIT 1
-      `);
-      mostCoursesPlayedClub = mostCoursesResult[0]?.club || null;
-    } catch (err) {
-      console.log('No courses played data available');
-    }
-
-    try {
-      // Most Active Club
-      const { rows: mostActiveResult } = await pool.query(`
-        SELECT u.club, COUNT(*) as total_rounds
-        FROM users u
-        JOIN scorecards s ON u.member_id = s.user_id
-        WHERE s.round_type = 'simulator'
-        GROUP BY u.club
-        ORDER BY total_rounds DESC
-        LIMIT 1
-      `);
-      mostActiveClub = mostActiveResult[0]?.club || null;
-    } catch (err) {
-      console.log('No activity data available');
-    }
-
-    try {
-      // Longest Standing Course Record
-      const { rows: longestStandingResult } = await pool.query(`
-        SELECT 
-          cr.course_id,
-          cr.club,
-          cr.date_played,
-          EXTRACT(DAYS FROM NOW() - cr.date_played) as days_standing
-        FROM course_records cr
-        WHERE cr.is_current = true
-        ORDER BY cr.date_played ASC
-        LIMIT 1
-      `);
-      longestStandingRecord = longestStandingResult[0] || null;
-    } catch (err) {
-      console.log('No record data available');
-    }
-
-    // Player-level highlights - break into separate queries
-    let mostRecordsPlayer = null;
-    let mostCoursesPlayer = null;
-    let bestRecentPlayer = null;
-
-    try {
-      // Most Course Records Held by One Player
-      const { rows: mostRecordsPlayerResult } = await pool.query(`
-        SELECT 
-          u.member_id,
-          u.first_name,
-          u.last_name,
-          u.club,
-          COUNT(DISTINCT cr.course_id) as record_count
-        FROM users u
-        JOIN course_records cr ON u.member_id = cr.user_id
-        WHERE cr.is_current = true
-        GROUP BY u.member_id, u.first_name, u.last_name, u.club
-        ORDER BY record_count DESC
-        LIMIT 1
-      `);
-      mostRecordsPlayer = mostRecordsPlayerResult[0] || null;
-    } catch (err) {
-      console.log('No player records data available');
-    }
-
-    try {
-      // Most Courses Played by One Player
-      const { rows: mostCoursesPlayerResult } = await pool.query(`
-        SELECT 
-          u.member_id,
-          u.first_name,
-          u.last_name,
-          u.club,
-          COUNT(DISTINCT s.course_id) as courses_played
-        FROM users u
-        JOIN scorecards s ON u.member_id = s.user_id
-        WHERE s.round_type = 'simulator'
-        GROUP BY u.member_id, u.first_name, u.last_name, u.club
-        ORDER BY courses_played DESC
-        LIMIT 1
-      `);
-      mostCoursesPlayer = mostCoursesPlayerResult[0] || null;
-    } catch (err) {
-      console.log('No player courses data available');
-    }
-
-    try {
-      // Lowest Aggregate Score Over Time (last 30 days)
-      const { rows: bestRecentPlayerResult } = await pool.query(`
-        SELECT 
-          u.member_id,
-          u.first_name,
-          u.last_name,
-          u.club,
-          AVG(s.total_strokes) as avg_score,
-          COUNT(*) as rounds_count
-        FROM users u
-        JOIN scorecards s ON u.member_id = s.user_id
-        WHERE s.round_type = 'simulator'
-        AND s.date_played >= CURRENT_DATE - INTERVAL '30 days'
-        GROUP BY u.member_id, u.first_name, u.last_name, u.club
-        HAVING COUNT(*) >= 3
-        ORDER BY avg_score ASC
-        LIMIT 1
-      `);
-      bestRecentPlayer = bestRecentPlayerResult[0] || null;
-    } catch (err) {
-      console.log('No recent player data available');
-    }
-
-    // Overall community statistics
+    // Community highlight statistics
     const { rows: communityStats } = await pool.query(`
       SELECT 
         COUNT(DISTINCT u.member_id) as total_players,
         COUNT(DISTINCT u.club) as total_clubs,
         COUNT(DISTINCT s.id) as total_rounds,
-        COUNT(DISTINCT s.course_id) as total_courses_played,
         COUNT(DISTINCT cr.course_id) as total_course_records,
-        ROUND(AVG(s.total_strokes), 1) as avg_score_community,
-        MIN(s.total_strokes) as best_score_ever,
-        COUNT(DISTINCT CASE WHEN s.date_played >= CURRENT_DATE - INTERVAL '7 days' THEN s.id END) as rounds_this_week,
-        COUNT(DISTINCT CASE WHEN s.date_played >= CURRENT_DATE - INTERVAL '30 days' THEN s.id END) as rounds_this_month
+        COUNT(DISTINCT s.course_id) as total_courses_played
       FROM users u
-      LEFT JOIN scorecards s ON u.member_id = s.user_id AND s.round_type = 'simulator'
+      LEFT JOIN scorecards s ON u.member_id = s.user_id 
+        AND (s.round_type = 'sim' OR s.round_type IS NULL) 
+        AND s.total_strokes IS NOT NULL 
+        AND s.total_strokes > 0
       LEFT JOIN course_records cr ON u.member_id = cr.user_id AND cr.is_current = true
       WHERE u.role IN ('Member', 'Admin', 'Club Pro')
     `);
 
+    // Count courses with no records
+    const { rows: coursesWithNoRecords } = await pool.query(`
+      SELECT COUNT(*) as courses_without_records
+      FROM (
+        SELECT DISTINCT s.course_id
+        FROM scorecards s
+        JOIN users u ON s.user_id = u.member_id
+        WHERE (s.round_type = 'sim' OR s.round_type IS NULL)
+        AND s.total_strokes IS NOT NULL 
+        AND s.total_strokes > 0
+        AND u.role IN ('Member', 'Admin', 'Club Pro')
+        AND s.course_id NOT IN (
+          SELECT DISTINCT course_id FROM course_records WHERE is_current = true
+        )
+      ) as courses_played
+    `);
+
+    // Club standings - Course Records (All Time)
+    const { rows: courseRecordsAllTime } = await pool.query(`
+      SELECT 
+        u.club,
+        COUNT(DISTINCT cr.course_id) as record_count
+      FROM users u
+      JOIN course_records cr ON u.member_id = cr.user_id
+      WHERE cr.is_current = true
+      GROUP BY u.club
+      ORDER BY record_count DESC
+    `);
+
+    // Club standings - Course Records (Monthly)
+    const { rows: courseRecordsMonthly } = await pool.query(`
+      SELECT 
+        u.club,
+        COUNT(DISTINCT cr.course_id) as record_count
+      FROM users u
+      JOIN course_records cr ON u.member_id = cr.user_id
+      WHERE cr.is_current = true
+      AND cr.date_played >= CURRENT_DATE - INTERVAL '30 days'
+      GROUP BY u.club
+      ORDER BY record_count DESC
+    `);
+
+    // Club standings - Rounds Logged (All Time)
+    const { rows: roundsLoggedAllTime } = await pool.query(`
+      SELECT 
+        u.club,
+        COUNT(*) as rounds_count
+      FROM users u
+      JOIN scorecards s ON u.member_id = s.user_id
+      WHERE (s.round_type = 'sim' OR s.round_type IS NULL)
+      AND s.total_strokes IS NOT NULL 
+      AND s.total_strokes > 0
+      GROUP BY u.club
+      ORDER BY rounds_count DESC
+    `);
+
+    // Club standings - Rounds Logged (Monthly)
+    const { rows: roundsLoggedMonthly } = await pool.query(`
+      SELECT 
+        u.club,
+        COUNT(*) as rounds_count
+      FROM users u
+      JOIN scorecards s ON u.member_id = s.user_id
+      WHERE (s.round_type = 'sim' OR s.round_type IS NULL)
+      AND s.total_strokes IS NOT NULL 
+      AND s.total_strokes > 0
+      AND s.date_played >= CURRENT_DATE - INTERVAL '30 days'
+      GROUP BY u.club
+      ORDER BY rounds_count DESC
+    `);
+
+    // Club standings - Average Score (All Time)
+    const { rows: avgScoreAllTime } = await pool.query(`
+      SELECT 
+        u.club,
+        ROUND(AVG(s.total_strokes), 1) as avg_score,
+        COUNT(*) as rounds_count
+      FROM users u
+      JOIN scorecards s ON u.member_id = s.user_id
+      WHERE (s.round_type = 'sim' OR s.round_type IS NULL)
+      AND s.total_strokes IS NOT NULL 
+      AND s.total_strokes > 0
+      GROUP BY u.club
+      HAVING COUNT(*) >= 5
+      ORDER BY avg_score ASC
+    `);
+
+    // Club standings - Average Score (Monthly)
+    const { rows: avgScoreMonthly } = await pool.query(`
+      SELECT 
+        u.club,
+        ROUND(AVG(s.total_strokes), 1) as avg_score,
+        COUNT(*) as rounds_count
+      FROM users u
+      JOIN scorecards s ON u.member_id = s.user_id
+      WHERE (s.round_type = 'sim' OR s.round_type IS NULL)
+      AND s.total_strokes IS NOT NULL 
+      AND s.total_strokes > 0
+      AND s.date_played >= CURRENT_DATE - INTERVAL '30 days'
+      GROUP BY u.club
+      HAVING COUNT(*) >= 3
+      ORDER BY avg_score ASC
+    `);
+
     res.json({
-      clubHighlights: {
-        most_course_records_club: mostCourseRecordsClub,
-        most_courses_played_club: mostCoursesPlayedClub,
-        most_active_club: mostActiveClub,
-        longest_standing_record: longestStandingRecord
+      communityStats: {
+        ...communityStats[0],
+        courses_without_records: coursesWithNoRecords[0]?.courses_without_records || 0
       },
-      playerHighlights: {
-        most_records_player: mostRecordsPlayer,
-        most_courses_player: mostCoursesPlayer,
-        best_recent_player: bestRecentPlayer
-      },
-      communityStats: communityStats[0] || {}
+      clubStandings: {
+        courseRecords: {
+          allTime: courseRecordsAllTime,
+          monthly: courseRecordsMonthly
+        },
+        roundsLogged: {
+          allTime: roundsLoggedAllTime,
+          monthly: roundsLoggedMonthly
+        },
+        averageScore: {
+          allTime: avgScoreAllTime,
+          monthly: avgScoreMonthly
+        }
+      }
     });
   } catch (err) {
     console.error('Error fetching global leaderboard:', err);
@@ -4041,7 +4007,26 @@ app.get('/api/global-leaderboard', async (req, res) => {
   }
 });
 
-// Get individual club leaderboard
+// Get all clubs (for admin functionality)
+app.get('/api/clubs', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT DISTINCT club 
+      FROM users 
+      WHERE club IS NOT NULL AND club != '' 
+      AND role IN ('Member', 'Admin', 'Club Pro')
+      ORDER BY club
+    `);
+    
+    const clubs = rows.map(row => row.club);
+    res.json(clubs);
+  } catch (err) {
+    console.error('Error fetching clubs:', err);
+    res.status(500).json({ error: 'Failed to fetch clubs' });
+  }
+});
+
+// Get individual club leaderboard (legacy)
 app.get('/api/club-leaderboard/:club', async (req, res) => {
   try {
     const { club } = req.params;
@@ -4088,7 +4073,7 @@ app.get('/api/club-leaderboard/:club', async (req, res) => {
         COUNT(CASE WHEN s.date_played >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as rounds_this_month
       FROM users u
       JOIN scorecards s ON u.member_id = s.user_id
-      WHERE u.club = $1 AND s.round_type = 'simulator'
+      WHERE u.club = $1 AND (s.round_type = 'sim' OR s.round_type IS NULL)
       GROUP BY u.member_id, u.first_name, u.last_name
       ORDER BY total_rounds DESC
       LIMIT 5
@@ -4103,7 +4088,7 @@ app.get('/api/club-leaderboard/:club', async (req, res) => {
         MAX(s.total_strokes) as worst_score
       FROM users u
       JOIN scorecards s ON u.member_id = s.user_id
-      WHERE u.club = $1 AND s.round_type = 'simulator'
+      WHERE u.club = $1 AND (s.round_type = 'sim' OR s.round_type IS NULL)
     `, [club]);
 
     // Most Played Course (by the club)
@@ -4115,7 +4100,7 @@ app.get('/api/club-leaderboard/:club', async (req, res) => {
       FROM users u
       JOIN scorecards s ON u.member_id = s.user_id
       JOIN simulator_courses_combined sc ON s.course_id = sc.id
-      WHERE u.club = $1 AND s.round_type = 'simulator'
+      WHERE u.club = $1 AND (s.round_type = 'sim' OR s.round_type IS NULL)
       GROUP BY sc.name
       ORDER BY play_count DESC
       LIMIT 1
@@ -4176,7 +4161,7 @@ app.get('/api/club-leaderboard/:club', async (req, res) => {
         COUNT(CASE WHEN s.date_played >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as rounds_this_month
       FROM users u
       LEFT JOIN user_profiles up ON u.member_id = up.user_id
-      LEFT JOIN scorecards s ON u.member_id = s.user_id AND s.round_type = 'simulator'
+      LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL)
       WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
       GROUP BY u.member_id, u.first_name, u.last_name, u.sim_handicap, u.grass_handicap, up.total_matches, up.wins, up.losses, up.ties, up.total_points, up.win_rate
       ORDER BY up.total_points DESC NULLS LAST, up.win_rate DESC NULLS LAST
@@ -4192,6 +4177,157 @@ app.get('/api/club-leaderboard/:club', async (req, res) => {
       mostRecentRecord: mostRecentRecord[0] || null,
       clubCourseRecords,
       clubMemberStats
+    });
+  } catch (err) {
+    console.error('Error fetching club leaderboard:', err);
+    res.status(500).json({ error: 'Failed to fetch club leaderboard' });
+  }
+});
+
+// Get individual club leaderboard (new format for ClubLeaderboard component)
+app.get('/api/leaderboard/club/:club', async (req, res) => {
+  try {
+    const { club } = req.params;
+    const { timeFrame = 'allTime' } = req.query;
+    
+    // Determine date filter based on timeFrame
+    const dateFilter = timeFrame === 'monthly' 
+      ? "AND s.date_played >= CURRENT_DATE - INTERVAL '30 days'"
+      : "";
+    
+    // Get club stats - separate queries for better accuracy
+    const { rows: playerCount } = await pool.query(`
+      SELECT COUNT(DISTINCT u.member_id) as total_players
+      FROM users u
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+    `, [club]);
+
+    const { rows: roundsCount } = await pool.query(`
+      SELECT COUNT(s.id) as total_rounds
+      FROM users u
+      LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${dateFilter}
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+    `, [club]);
+
+    const { rows: recordsCount } = await pool.query(`
+      SELECT COUNT(DISTINCT cr.course_id) as total_records
+      FROM users u
+      LEFT JOIN course_records cr ON u.member_id = cr.user_id AND cr.is_current = true ${timeFrame === 'monthly' ? "AND cr.date_played >= CURRENT_DATE - INTERVAL '30 days'" : ""}
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+    `, [club]);
+
+
+
+    // Get both monthly and all-time data regardless of requested timeFrame
+    const monthlyDateFilter = "AND s.date_played >= CURRENT_DATE - INTERVAL '30 days'";
+    const allTimeDateFilter = "";
+    
+    // Get course records rankings for both time frames
+    const monthlyRecordsFilter = "AND cr.date_played >= CURRENT_DATE - INTERVAL '30 days'";
+    const allTimeRecordsFilter = "";
+    
+    const { rows: courseRecordsMonthly } = await pool.query(`
+      SELECT 
+        u.member_id as player_id,
+        CONCAT(u.first_name, ' ', u.last_name) as player_name,
+        COUNT(DISTINCT cr.course_id) as record_count
+      FROM users u
+      LEFT JOIN course_records cr ON u.member_id = cr.user_id AND cr.is_current = true ${monthlyRecordsFilter}
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      GROUP BY u.member_id, u.first_name, u.last_name
+      HAVING COUNT(DISTINCT cr.course_id) > 0
+      ORDER BY record_count DESC
+    `, [club]);
+
+    const { rows: courseRecordsAllTime } = await pool.query(`
+      SELECT 
+        u.member_id as player_id,
+        CONCAT(u.first_name, ' ', u.last_name) as player_name,
+        COUNT(DISTINCT cr.course_id) as record_count
+      FROM users u
+      LEFT JOIN course_records cr ON u.member_id = cr.user_id AND cr.is_current = true ${allTimeRecordsFilter}
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      GROUP BY u.member_id, u.first_name, u.last_name
+      HAVING COUNT(DISTINCT cr.course_id) > 0
+      ORDER BY record_count DESC
+    `, [club]);
+
+    // Get rounds logged rankings for both time frames
+    const { rows: roundsLoggedMonthly } = await pool.query(`
+      SELECT 
+        u.member_id as player_id,
+        CONCAT(u.first_name, ' ', u.last_name) as player_name,
+        COUNT(s.id) as rounds_count
+      FROM users u
+      LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${monthlyDateFilter}
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      GROUP BY u.member_id, u.first_name, u.last_name
+      HAVING COUNT(s.id) > 0
+      ORDER BY rounds_count DESC
+    `, [club]);
+
+    const { rows: roundsLoggedAllTime } = await pool.query(`
+      SELECT 
+        u.member_id as player_id,
+        CONCAT(u.first_name, ' ', u.last_name) as player_name,
+        COUNT(s.id) as rounds_count
+      FROM users u
+      LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${allTimeDateFilter}
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      GROUP BY u.member_id, u.first_name, u.last_name
+      HAVING COUNT(s.id) > 0
+      ORDER BY rounds_count DESC
+    `, [club]);
+
+    // Get average score rankings for both time frames
+    const { rows: averageScoreMonthly } = await pool.query(`
+      SELECT 
+        u.member_id as player_id,
+        CONCAT(u.first_name, ' ', u.last_name) as player_name,
+        ROUND(AVG(s.total_strokes), 1) as avg_score,
+        COUNT(s.id) as rounds_count
+      FROM users u
+      LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${monthlyDateFilter}
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      GROUP BY u.member_id, u.first_name, u.last_name
+      HAVING COUNT(s.id) > 0
+      ORDER BY avg_score ASC
+    `, [club]);
+
+    const { rows: averageScoreAllTime } = await pool.query(`
+      SELECT 
+        u.member_id as player_id,
+        CONCAT(u.first_name, ' ', u.last_name) as player_name,
+        ROUND(AVG(s.total_strokes), 1) as avg_score,
+        COUNT(s.id) as rounds_count
+      FROM users u
+      LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${allTimeDateFilter}
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      GROUP BY u.member_id, u.first_name, u.last_name
+      HAVING COUNT(s.id) > 0
+      ORDER BY avg_score ASC
+    `, [club]);
+
+    res.json({
+      clubStats: {
+        total_players: playerCount[0]?.total_players || 0,
+        total_rounds: roundsCount[0]?.total_rounds || 0,
+        total_records: recordsCount[0]?.total_records || 0
+      },
+      playerRankings: {
+        courseRecords: {
+          monthly: courseRecordsMonthly,
+          allTime: courseRecordsAllTime
+        },
+        roundsLogged: {
+          monthly: roundsLoggedMonthly,
+          allTime: roundsLoggedAllTime
+        },
+        averageScore: {
+          monthly: averageScoreMonthly,
+          allTime: averageScoreAllTime
+        }
+      }
     });
   } catch (err) {
     console.error('Error fetching club leaderboard:', err);

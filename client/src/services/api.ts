@@ -297,51 +297,47 @@ export const getLeaderboardStats = async () => {
 
 // Global Community Leaderboard
 export interface GlobalLeaderboardData {
-  clubHighlights: {
-    most_course_records_club?: string;
-    most_courses_played_club?: string;
-    most_active_club?: string;
-    longest_standing_record?: {
-      course_id: number;
-      club: string;
-      date_played: string;
-      days_standing: number;
-    };
-  };
-  playerHighlights: {
-    most_records_player?: {
-      member_id: number;
-      first_name: string;
-      last_name: string;
-      club: string;
-      record_count: number;
-    };
-    most_courses_player?: {
-      member_id: number;
-      first_name: string;
-      last_name: string;
-      club: string;
-      courses_played: number;
-    };
-    best_recent_player?: {
-      member_id: number;
-      first_name: string;
-      last_name: string;
-      club: string;
-      avg_score: number;
-      rounds_count: number;
-    };
-  };
   communityStats: {
     total_players: number;
     total_clubs: number;
     total_rounds: number;
-    total_courses_played: number;
     total_course_records: number;
-    avg_score_community: number;
-    best_score_ever: number;
-    rounds_this_week: number;
-    rounds_this_month: number;
+    total_courses_played: number;
+    courses_without_records: number;
+  };
+  clubStandings: {
+    courseRecords: {
+      allTime: Array<{
+        club: string;
+        record_count: number;
+      }>;
+      monthly: Array<{
+        club: string;
+        record_count: number;
+      }>;
+    };
+    roundsLogged: {
+      allTime: Array<{
+        club: string;
+        rounds_count: number;
+      }>;
+      monthly: Array<{
+        club: string;
+        rounds_count: number;
+      }>;
+    };
+    averageScore: {
+      allTime: Array<{
+        club: string;
+        avg_score: number;
+        rounds_count: number;
+      }>;
+      monthly: Array<{
+        club: string;
+        avg_score: number;
+        rounds_count: number;
+      }>;
+    };
   };
 }
 
@@ -423,6 +419,10 @@ export interface ClubLeaderboardData {
 
 export const getClubLeaderboard = async (club: string) => {
   return api.get<ClubLeaderboardData>(`/club-leaderboard/${encodeURIComponent(club)}`);
+};
+
+export const getAllClubs = async () => {
+  return api.get<string[]>('/clubs');
 };
 
 export const login = (email: string, password: string) => api.post('/auth/login', { email, password });
