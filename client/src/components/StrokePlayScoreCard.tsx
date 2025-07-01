@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Save, RotateCcw, Target, TrendingUp, Award } from 'lucide-react';
 import ParValueInputModal from './ParValueInputModal';
 import { updateCourseParValues } from '../services/api';
+import { useAuth } from '../AuthContext';
 
 interface StrokePlayScoreCardProps {
   onClose?: () => void;
@@ -39,6 +40,7 @@ interface PlayerInfo {
 }
 
 const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSave, userInfo, holes = 18, course, nineType }) => {
+  const { user } = useAuth();
   const [playerInfo, setPlayerInfo] = useState<PlayerInfo>({
     name: '',
     date: new Date().toISOString().split('T')[0],
@@ -95,9 +97,15 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
   // Check if we need to show the par value modal
   useEffect(() => {
     if (course && !course.par_values && !showParValueModal) {
-      setShowParValueModal(true);
+      // Only show the modal if user is logged in
+      if (user) {
+        setShowParValueModal(true);
+      } else {
+        // If user is not logged in, show a message that they need to log in to set par values
+        alert('You need to be logged in to set par values for this course. Please log in and try again.');
+      }
     }
-  }, [course, showParValueModal]);
+  }, [course, showParValueModal, user]);
 
   const totalStrokes = holesState.reduce((sum, hole) => sum + hole.strokes, 0);
   const totalPar = parValues.reduce((sum, par) => sum + par, 0);
@@ -189,6 +197,7 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
   const handleSaveParValues = async (parValues: number[]) => {
     try {
       if (course?.id) {
+        console.log('Saving par values:', { courseId: course.id, parValues });
         await updateCourseParValues(course.id, parValues);
         // Update the course object with the new par values
         if (course) {
@@ -196,9 +205,20 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
         }
       }
       setShowParValueModal(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving par values:', error);
-      alert('Failed to save par values. Please try again.');
+      console.error('Error response:', error.response);
+      
+      // Check if it's an authentication error
+      if (error.response?.status === 401) {
+        alert('You need to be logged in to save par values. Please log in and try again.');
+      } else if (error.response?.status === 403) {
+        alert('You do not have permission to save par values for this course.');
+      } else if (error.response?.data?.error) {
+        alert(`Error: ${error.response.data.error}`);
+      } else {
+        alert('Failed to save par values. Please try again.');
+      }
     }
   };
 

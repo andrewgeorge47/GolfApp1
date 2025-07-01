@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Target, Search, MapPin, Loader2, Info, ExternalLink } from 'lucide-react';
-import { getSimulatorCourses, getCourseTeeboxData } from '../services/api';
+import { getSimulatorCourses, getCourseTeeboxData, updateCourseTeeboxData } from '../services/api';
 
 interface SimulatorCourse {
   id: number;
@@ -42,6 +42,19 @@ const TrackRoundModal: React.FC<TrackRoundModalProps> = ({
     last_used: string;
   }>>([]);
   const [loadingTeeboxData, setLoadingTeeboxData] = useState(false);
+
+  // Teebox order and color map
+  const TEEBOX_ORDER = ['Black', 'Blue', 'White', 'Green', 'Yellow', 'Red', 'Junior', 'PAR3'];
+  const TEEBOX_COLORS: { [key: string]: string } = {
+    Black: 'bg-gray-800 text-white border-gray-700',
+    Blue: 'bg-blue-200 text-blue-900 border-blue-300',
+    White: 'bg-white text-gray-900 border-gray-300',
+    Green: 'bg-green-200 text-green-900 border-green-300',
+    Yellow: 'bg-yellow-200 text-yellow-900 border-yellow-300',
+    Red: 'bg-red-200 text-red-900 border-red-300',
+    Junior: 'bg-cyan-200 text-cyan-900 border-cyan-300',
+    PAR3: 'bg-purple-200 text-purple-900 border-purple-300',
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -114,9 +127,32 @@ const TrackRoundModal: React.FC<TrackRoundModalProps> = ({
     }
   };
 
-  const handleStartRound = () => {
-    if (selectedHoles && selectedCourse) {
-      onSelectRoundType('sim', selectedHoles, selectedCourse, nineType, teeboxData || undefined);
+  const handleStartRound = async () => {
+    if (selectedHoles && selectedCourse && teeboxData?.teebox) {
+      try {
+        // Save teebox data immediately when starting the round
+        console.log('Saving teebox data before starting round:', {
+          courseId: selectedCourse.id,
+          teebox: teeboxData.teebox,
+          rating: teeboxData.courseRating,
+          slope: teeboxData.courseSlope
+        });
+        
+        await updateCourseTeeboxData(
+          selectedCourse.id,
+          teeboxData.teebox,
+          teeboxData.courseRating,
+          teeboxData.courseSlope
+        );
+        
+        console.log('Teebox data saved successfully');
+      } catch (error) {
+        console.error('Error saving teebox data:', error);
+        // Don't block the round from starting if teebox save fails
+      }
+      
+      // Start the round regardless of teebox save success
+      onSelectRoundType('sim', selectedHoles, selectedCourse, nineType, teeboxData);
     }
   };
 
@@ -133,6 +169,11 @@ const TrackRoundModal: React.FC<TrackRoundModalProps> = ({
     setTeeboxData(null);
     setExistingTeeboxData([]);
   };
+
+  // Helper to check if any teeboxes are missing ratings/slopes
+  function hasMissingTeeboxRatings(teeboxData: typeof existingTeeboxData) {
+    return teeboxData.some(t => !t.course_rating || !t.course_slope);
+  }
 
   if (!isOpen) return null;
 
@@ -357,63 +398,112 @@ const TrackRoundModal: React.FC<TrackRoundModalProps> = ({
 
               {/* Teebox Selection */}
               <div className="mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">Teebox Selection</h3>
-                
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                  {existingTeeboxData.length > 0 ? 'Choose a Teebox' : 'Add a Teebox'}
+                </h3>
                 {loadingTeeboxData ? (
                   <div className="flex items-center justify-center py-4">
                     <Loader2 className="w-5 h-5 animate-spin text-gray-400 mr-2" />
-                    <span className="text-gray-600">Loading existing teebox data...</span>
+                    <span className="text-gray-600">Loading teeboxes...</span>
                   </div>
                 ) : existingTeeboxData.length > 0 ? (
                   <>
                     <div className="mb-3">
-                      <h4 className="text-sm font-medium text-gray-700 mb-2">Previously used teeboxes:</h4>
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                        {existingTeeboxData.map((item, index) => (
-                          <button
-                            key={index}
-                            onClick={() => setTeeboxData({ 
-                              teebox: item.teebox, 
-                              courseRating: item.course_rating, 
-                              courseSlope: item.course_slope 
-                            })}
-                            className={`px-3 py-2 border-2 rounded-lg text-center text-sm font-medium transition-colors ${
-                              teeboxData?.teebox === item.teebox && 
-                              teeboxData?.courseRating === item.course_rating && 
-                              teeboxData?.courseSlope === item.course_slope
-                                ? 'border-brand-neon-green bg-brand-neon-green/10 text-brand-black'
-                                : 'border-gray-200 hover:border-gray-300 text-gray-700'
-                            }`}
-                          >
-                            <div className="font-medium">{item.teebox}</div>
-                            <div className="text-xs text-gray-500">
-                              {item.course_rating}/{item.course_slope}
-                            </div>
-                          </button>
-                        ))}
+                        {existingTeeboxData
+                          .slice()
+                          .sort((a, b) => TEEBOX_ORDER.indexOf(a.teebox) - TEEBOX_ORDER.indexOf(b.teebox))
+                          .map((item, index) => (
+                            <button
+                              key={index}
+                              onClick={() => setTeeboxData({ 
+                                teebox: item.teebox, 
+                                courseRating: item.course_rating, 
+                                courseSlope: item.course_slope 
+                              })}
+                              className={`px-3 py-2 border-2 rounded-lg text-center text-sm font-medium transition-colors ${
+                                teeboxData?.teebox === item.teebox && 
+                                teeboxData?.courseRating === item.course_rating && 
+                                teeboxData?.courseSlope === item.course_slope
+                                  ? 'border-brand-neon-green bg-brand-neon-green/10 text-brand-black'
+                                  : `${TEEBOX_COLORS[item.teebox] || 'bg-gray-50 border-gray-200'} hover:border-gray-400'`
+                              }`}
+                            >
+                              <div className="font-medium">{item.teebox}</div>
+                              <div className="text-xs text-gray-500">
+                                {item.course_rating}/{item.course_slope}
+                              </div>
+                            </button>
+                          ))}
                       </div>
                     </div>
-                    
-
+                    {/* Show tip only if there are missing/incomplete teeboxes/ratings */}
+                    {hasMissingTeeboxRatings(existingTeeboxData) && (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mt-3">
+                        <div className="flex items-center space-x-2">
+                          <Info className="w-4 h-4 text-yellow-600 flex-shrink-0" />
+                          <div className="text-xs text-yellow-800">
+                            <span>Need help finding ratings? </span>
+                            <a
+                              href="https://simulatorgolftour.com/courses"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium"
+                            >
+                              <ExternalLink className="w-3 h-3 mr-1" />
+                              Visit Course Database
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="text-center text-gray-500 py-4">
-                    <p>No previous teebox data found for this course.</p>
-                    <p className="text-sm mt-1">Please enter the teebox, rating, and slope manually.</p>
+                    <p>No teeboxes found for this course. Please enter the teebox, rating, and slope manually.</p>
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mt-3 inline-block">
+                      <div className="flex items-center space-x-2">
+                        <Info className="w-4 h-4 text-yellow-600 flex-shrink-0" />
+                        <div className="text-xs text-yellow-800">
+                          <span>Need help finding ratings? </span>
+                          <a
+                            href="https://simulatorgolftour.com/courses"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium"
+                          >
+                            <ExternalLink className="w-3 h-3 mr-1" />
+                            Visit Course Database
+                          </a>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
-                
-                <input
-                  type="text"
-                  placeholder="Or enter custom teebox name..."
-                  value={teeboxData?.teebox || ''}
-                  onChange={(e) => setTeeboxData(prev => ({ 
-                    teebox: e.target.value, 
-                    courseRating: prev?.courseRating || 72, 
-                    courseSlope: prev?.courseSlope || 113 
-                  }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                />
+                {/* Teebox dropdown for new teeboxes */}
+                {(!teeboxData?.teebox || !existingTeeboxData.some(t => t.teebox === teeboxData.teebox)) && (
+                  <div className="mt-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {existingTeeboxData.length > 0 ? 'Add Another Teebox' : 'Select Teebox'}
+                    </label>
+                    <select
+                      value={teeboxData?.teebox || ''}
+                      onChange={(e) => setTeeboxData(prev => ({ 
+                        teebox: e.target.value, 
+                        courseRating: prev?.courseRating || 72, 
+                        courseSlope: prev?.courseSlope || 113 
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                    >
+                      <option value="">Select a teebox...</option>
+                      {TEEBOX_ORDER.map(teebox => (
+                        <option key={teebox} value={teebox}>
+                          {teebox}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Course Rating and Slope */}
@@ -425,16 +515,29 @@ const TrackRoundModal: React.FC<TrackRoundModalProps> = ({
                       Course Rating
                     </label>
                     <input
-                      type="number"
-                      min="60"
-                      max="80"
-                      step="0.1"
-                      value={teeboxData?.courseRating || 72}
-                      onChange={(e) => setTeeboxData(prev => ({ 
-                        teebox: prev?.teebox || '', 
-                        courseRating: parseFloat(e.target.value) || 72, 
-                        courseSlope: prev?.courseSlope || 113 
-                      }))}
+                      type="text"
+                      inputMode="decimal"
+                      value={teeboxData?.courseRating || ''}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        const numValue = parseFloat(value);
+                        setTeeboxData(prev => ({ 
+                          teebox: prev?.teebox || '', 
+                          courseRating: value === '' ? 72 : (isNaN(numValue) ? 72 : numValue), 
+                          courseSlope: prev?.courseSlope || 113 
+                        }));
+                      }}
+                      onBlur={(e) => {
+                        const value = parseFloat(e.target.value);
+                        if (isNaN(value) || value < 60 || value > 80) {
+                          setTeeboxData(prev => ({ 
+                            teebox: prev?.teebox || '', 
+                            courseRating: 72, 
+                            courseSlope: prev?.courseSlope || 113 
+                          }));
+                        }
+                      }}
+                      placeholder="72.0"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-neon-green focus:border-transparent text-center text-lg font-semibold"
                     />
                     <p className="text-xs text-gray-500 mt-1">
@@ -446,41 +549,34 @@ const TrackRoundModal: React.FC<TrackRoundModalProps> = ({
                       Course Slope
                     </label>
                     <input
-                      type="number"
-                      min="55"
-                      max="155"
-                      value={teeboxData?.courseSlope || 113}
-                      onChange={(e) => setTeeboxData(prev => ({ 
-                        teebox: prev?.teebox || '', 
-                        courseRating: prev?.courseRating || 72, 
-                        courseSlope: parseInt(e.target.value) || 113 
-                      }))}
+                      type="text"
+                      inputMode="numeric"
+                      value={teeboxData?.courseSlope || ''}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        const numValue = parseInt(value);
+                        setTeeboxData(prev => ({ 
+                          teebox: prev?.teebox || '', 
+                          courseRating: prev?.courseRating || 72, 
+                          courseSlope: value === '' ? 113 : (isNaN(numValue) ? 113 : numValue)
+                        }));
+                      }}
+                      onBlur={(e) => {
+                        const value = parseInt(e.target.value);
+                        if (isNaN(value) || value < 55 || value > 155) {
+                          setTeeboxData(prev => ({ 
+                            teebox: prev?.teebox || '', 
+                            courseRating: prev?.courseRating || 72, 
+                            courseSlope: 113
+                          }));
+                        }
+                      }}
+                      placeholder="113"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-neon-green focus:border-transparent text-center text-lg font-semibold"
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       Difficulty rating relative to scratch (typically 55-155)
                     </p>
-                  </div>
-                </div>
-              </div>
-
-
-
-              {/* Help Link - Compact */}
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                <div className="flex items-center space-x-2">
-                  <Info className="w-4 h-4 text-yellow-600 flex-shrink-0" />
-                  <div className="text-xs text-yellow-800">
-                    <span>Need help finding ratings? </span>
-                    <a
-                      href="https://simulatorgolftour.com/courses"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium"
-                    >
-                      <ExternalLink className="w-3 h-3 mr-1" />
-                      Visit Course Database
-                    </a>
                   </div>
                 </div>
               </div>

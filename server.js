@@ -3181,15 +3181,31 @@ app.put('/api/simulator-courses/:id/par-values', authenticateToken, async (req, 
     const { id } = req.params;
     const { par_values } = req.body;
     
+    console.log('Par values update request:', { id, par_values, userId: req.user.member_id });
+    
     // Validate par values
     if (!Array.isArray(par_values) || par_values.length === 0) {
+      console.log('Validation failed: par_values is not a non-empty array');
       return res.status(400).json({ error: 'Par values must be a non-empty array' });
     }
     
     // Validate each par value is between 3 and 6
     if (par_values.some(par => !Number.isInteger(par) || par < 3 || par > 6)) {
+      console.log('Validation failed: par values out of range');
       return res.status(400).json({ error: 'Par values must be integers between 3 and 6' });
     }
+    
+    // Check if course exists first
+    const { rows: courseCheck } = await pool.query(`
+      SELECT id, name FROM simulator_courses_combined WHERE id = $1
+    `, [id]);
+    
+    if (courseCheck.length === 0) {
+      console.log('Course not found with ID:', id);
+      return res.status(404).json({ error: 'Course not found' });
+    }
+    
+    console.log('Found course:', courseCheck[0]);
     
     // Update the course with par values
     const { rows } = await pool.query(`
@@ -3197,11 +3213,9 @@ app.put('/api/simulator-courses/:id/par-values', authenticateToken, async (req, 
       SET par_values = $1, updated_at = NOW()
       WHERE id = $2
       RETURNING id, name, par_values
-    `, [par_values, id]);
+    `, [JSON.stringify(par_values), id]);
     
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Course not found' });
-    }
+    console.log('Update result:', rows[0]);
     
     res.json({
       message: 'Par values updated successfully',
@@ -3210,7 +3224,7 @@ app.put('/api/simulator-courses/:id/par-values', authenticateToken, async (req, 
     
   } catch (error) {
     console.error('Error updating course par values:', error);
-    res.status(500).json({ error: 'Failed to update par values' });
+    res.status(500).json({ error: 'Failed to update par values', details: error.message });
   }
 });
 
@@ -3231,16 +3245,42 @@ app.get('/api/simulator-courses/:id/teebox-data', async (req, res) => {
       return res.status(404).json({ error: 'Course not found' });
     }
     
-    const teeboxData = rows[0].teebox_data || [];
+    let teeboxData = rows[0].teebox_data || {};
+    console.log('Raw teebox data from database:', teeboxData);
+    console.log('Teebox data type:', typeof teeboxData);
+    console.log('Is array?', Array.isArray(teeboxData));
+    
+    // Handle case where teebox_data might be stored as an array instead of object
+    if (Array.isArray(teeboxData)) {
+      console.log('Converting array to object format...');
+      const arrayData = teeboxData;
+      teeboxData = {};
+      arrayData.forEach((item, index) => {
+        if (item && typeof item === 'object' && item.teebox) {
+          teeboxData[item.teebox] = {
+            rating: item.course_rating || item.rating,
+            slope: item.course_slope || item.slope,
+            usage_count: item.usage_count || 1,
+            last_used: item.last_used || null
+          };
+        }
+      });
+      console.log('Converted to object:', teeboxData);
+    }
     
     // Transform the JSONB data to match the expected format
-    const transformedData = teeboxData.map(item => ({
-      teebox: item.teebox,
-      course_rating: item.course_rating,
-      course_slope: item.course_slope,
-      usage_count: item.usage_count,
-      last_used: item.last_used
-    }));
+    const transformedData = Object.entries(teeboxData).map(([teebox, data]) => {
+      console.log(`Processing teebox ${teebox}:`, data);
+      return {
+        teebox,
+        course_rating: data.rating,
+        course_slope: data.slope,
+        usage_count: data.usage_count || null,
+        last_used: data.last_used || null
+      };
+    });
+    
+    console.log('Transformed teebox data:', transformedData);
     
     res.json({
       teeboxData: transformedData,
@@ -3250,6 +3290,54 @@ app.get('/api/simulator-courses/:id/teebox-data', async (req, res) => {
   } catch (error) {
     console.error('Error fetching teebox data:', error);
     res.status(500).json({ error: 'Failed to fetch teebox data' });
+  }
+});
+
+// Update course teebox data
+app.put('/api/simulator-courses/:id/teebox-data', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { teebox, course_rating, course_slope } = req.body;
+    
+    console.log('Teebox data update request:', { id, teebox, course_rating, course_slope, userId: req.user.member_id });
+    
+    // Validate input
+    if (!teebox || !course_rating || !course_slope) {
+      return res.status(400).json({ error: 'Teebox, course rating, and course slope are required' });
+    }
+    
+    // Validate rating and slope ranges
+    if (course_rating < 60 || course_rating > 80) {
+      return res.status(400).json({ error: 'Course rating must be between 60 and 80' });
+    }
+    
+    if (course_slope < 55 || course_slope > 155) {
+      return res.status(400).json({ error: 'Course slope must be between 55 and 155' });
+    }
+    
+    // Check if course exists
+    const { rows: courseCheck } = await pool.query(`
+      SELECT id, name FROM simulator_courses_combined WHERE id = $1
+    `, [id]);
+    
+    if (courseCheck.length === 0) {
+      console.log('Course not found with ID:', id);
+      return res.status(404).json({ error: 'Course not found' });
+    }
+    
+    console.log('Found course:', courseCheck[0]);
+    
+    // Update teebox data using the existing function
+    await updateCourseTeeboxData(id, teebox, course_rating, course_slope, new Date().toISOString().split('T')[0]);
+    
+    res.json({
+      message: 'Teebox data updated successfully',
+      course: courseCheck[0]
+    });
+    
+  } catch (error) {
+    console.error('Error updating course teebox data:', error);
+    res.status(500).json({ error: 'Failed to update teebox data', details: error.message });
   }
 });
 
@@ -3480,6 +3568,8 @@ async function checkAndUpdateCourseRecords(scorecardId, courseId, userId, totalS
 // Function to update teebox data in simulator_courses_combined
 async function updateCourseTeeboxData(courseId, teebox, courseRating, courseSlope, datePlayed) {
   try {
+    console.log(`Updating teebox data for course ${courseId}: ${teebox} (${courseRating}/${courseSlope})`);
+    
     // Get current teebox data for this course
     const { rows } = await pool.query(`
       SELECT teebox_data FROM simulator_courses_combined WHERE id = $1
@@ -3490,48 +3580,50 @@ async function updateCourseTeeboxData(courseId, teebox, courseRating, courseSlop
       return;
     }
     
-    let teeboxData = rows[0].teebox_data || [];
+    let teeboxData = rows[0].teebox_data || {};
+    console.log('Current teebox data:', teeboxData);
     
-    // Find existing teebox entry with same rating and slope
-    const existingIndex = teeboxData.findIndex(item => 
-      item.teebox === teebox && 
-      item.course_rating === parseFloat(courseRating) && 
-      item.course_slope === parseInt(courseSlope)
-    );
-    
-    if (existingIndex >= 0) {
-      // Update existing entry
-      teeboxData[existingIndex].usage_count += 1;
-      teeboxData[existingIndex].last_used = datePlayed;
-    } else {
-      // Add new entry
-      teeboxData.push({
-        teebox: teebox,
-        course_rating: parseFloat(courseRating),
-        course_slope: parseInt(courseSlope),
-        usage_count: 1,
-        first_used: datePlayed,
-        last_used: datePlayed,
-        unique_players: 1
-      });
+    // Ensure teeboxData is an object, not an array
+    if (Array.isArray(teeboxData)) {
+      console.log('Converting array teebox data to object...');
+      teeboxData = {};
     }
     
-    // Sort by usage count and last used date
-    teeboxData.sort((a, b) => {
-      if (b.usage_count !== a.usage_count) {
-        return b.usage_count - a.usage_count;
-      }
-      return new Date(b.last_used) - new Date(a.last_used);
-    });
+    // Check if this teebox already exists with the same rating/slope
+    if (teeboxData[teebox] && 
+        teeboxData[teebox].rating === parseFloat(courseRating) && 
+        teeboxData[teebox].slope === parseInt(courseSlope)) {
+      // Update existing teebox usage count
+      teeboxData[teebox].usage_count = (teeboxData[teebox].usage_count || 0) + 1;
+      teeboxData[teebox].last_used = datePlayed;
+      console.log(`Updated existing teebox ${teebox} usage count to ${teeboxData[teebox].usage_count}`);
+    } else {
+      // Add new teebox or update with new rating/slope
+      teeboxData[teebox] = {
+        rating: parseFloat(courseRating),
+        slope: parseInt(courseSlope),
+        usage_count: 1,
+        first_used: datePlayed,
+        last_used: datePlayed
+      };
+      console.log(`Added new teebox ${teebox} with rating ${courseRating} and slope ${courseSlope}`);
+    }
     
     // Update the course with new teebox data
+    console.log('About to save teebox data:', JSON.stringify(teeboxData, null, 2));
     await pool.query(`
       UPDATE simulator_courses_combined 
       SET teebox_data = $1, updated_at = CURRENT_TIMESTAMP 
       WHERE id = $2
     `, [JSON.stringify(teeboxData), courseId]);
     
-    console.log(`Updated teebox data for course ${courseId}: ${teebox} (${courseRating}/${courseSlope})`);
+    // Verify the data was saved correctly
+    const { rows: verifyRows } = await pool.query(`
+      SELECT teebox_data FROM simulator_courses_combined WHERE id = $1
+    `, [courseId]);
+    
+    console.log('Verified saved teebox data:', verifyRows[0].teebox_data);
+    console.log(`Successfully updated teebox data for course ${courseId}`);
     
   } catch (error) {
     console.error('Error updating course teebox data:', error);

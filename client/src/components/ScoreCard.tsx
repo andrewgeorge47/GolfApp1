@@ -6,6 +6,7 @@ import ScoreRow from './ScoreRow';
 import RulesModal from './RulesModal';
 import ParValueInputModal from './ParValueInputModal';
 import { updateCourseParValues } from '../services/api';
+import { useAuth } from '../AuthContext';
 
 interface ScoreCardProps {
   onClose?: () => void;
@@ -31,6 +32,7 @@ interface ScoreCardProps {
 }
 
 const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo, holes = 18, course, nineType }) => {
+  const { user } = useAuth();
   const {
     scoreCard,
     updatePlayerInfo,
@@ -99,6 +101,7 @@ const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo, holes 
   const handleSaveParValues = async (parValues: number[]) => {
     try {
       if (course?.id) {
+        console.log('Saving par values:', { courseId: course.id, parValues });
         await updateCourseParValues(course.id, parValues);
         // Update the course object with the new par values
         if (course) {
@@ -106,9 +109,20 @@ const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo, holes 
         }
       }
       setShowParValueModal(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving par values:', error);
-      alert('Failed to save par values. Please try again.');
+      console.error('Error response:', error.response);
+      
+      // Check if it's an authentication error
+      if (error.response?.status === 401) {
+        alert('You need to be logged in to save par values. Please log in and try again.');
+      } else if (error.response?.status === 403) {
+        alert('You do not have permission to save par values for this course.');
+      } else if (error.response?.data?.error) {
+        alert(`Error: ${error.response.data.error}`);
+      } else {
+        alert('Failed to save par values. Please try again.');
+      }
     }
   };
 
@@ -140,9 +154,15 @@ const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo, holes 
   // Check if we need to show the par value modal
   useEffect(() => {
     if (course && !course.par_values && !showParValueModal) {
-      setShowParValueModal(true);
+      // Only show the modal if user is logged in
+      if (user) {
+        setShowParValueModal(true);
+      } else {
+        // If user is not logged in, show a message that they need to log in to set par values
+        alert('You need to be logged in to set par values for this course. Please log in and try again.');
+      }
     }
-  }, [course, showParValueModal]);
+  }, [course, showParValueModal, user]);
 
   return (
     <div className="max-w-6xl mx-auto p-4">
