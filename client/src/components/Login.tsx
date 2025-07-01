@@ -47,6 +47,11 @@ const Login: React.FC = () => {
             className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
             required
           />
+          <div className="text-right mt-1">
+            <Link to="/reset-password" className="text-sm text-brand-neon-green hover:text-green-400">
+              Forgot password?
+            </Link>
+          </div>
         </div>
         {error && <div className="text-red-600 text-sm text-center">{error}</div>}
         <button
@@ -59,10 +64,10 @@ const Login: React.FC = () => {
       </form>
       
       <div className="mt-6 text-center">
-        <p className="text-neutral-600">
-          Don't have an account?{' '}
-          <Link to="/register" className="text-brand-neon-green hover:text-green-400 font-medium">
-            Sign up
+        <p className="text-neutral-600 text-sm">
+          New member?{' '}
+          <Link to="/claim-account" className="text-brand-neon-green hover:text-green-400 font-medium">
+            Claim your account
           </Link>
         </p>
       </div>

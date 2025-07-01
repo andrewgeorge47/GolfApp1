@@ -426,7 +426,9 @@ export const getClubLeaderboard = async (club: string) => {
 };
 
 export const login = (email: string, password: string) => api.post('/auth/login', { email, password });
-export const register = (data: { first_name: string; last_name: string; email: string; password: string; club?: string; role?: string }) => api.post('/auth/register', data);
+export const checkEmail = (email: string) => api.post('/auth/check-email', { email });
+export const claimAccount = (email: string, password: string) => api.post('/auth/claim-account', { email, password });
+export const resetPassword = (email: string, password: string) => api.post('/auth/reset-password', { email, password });
 export const getCurrentUser = (token: string) => api.get('/auth/me', { headers: { Authorization: `Bearer ${token}` } });
 export const setupPassword = (password: string) => api.post('/auth/setup-password', { password });
 

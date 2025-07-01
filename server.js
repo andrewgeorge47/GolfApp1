@@ -653,6 +653,121 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+// Check if email exists for account claiming
+app.post('/api/auth/check-email', async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+  try {
+    const result = await pool.query('SELECT member_id, first_name, last_name, email_address, club, role, password_hash FROM users WHERE email_address = $1', [email]);
+    const user = result.rows[0];
+    if (!user) {
+      return res.status(404).json({ error: 'No account found with this email address' });
+    }
+    
+    // Return user info but don't include password_hash
+    const { password_hash, ...userInfo } = user;
+    res.json({ 
+      user: userInfo,
+      hasPassword: !!password_hash 
+    });
+  } catch (err) {
+    console.error('Error checking email:', err);
+    res.status(500).json({ error: 'Failed to check email' });
+  }
+});
+
+// Set password for existing user (account claiming)
+app.post('/api/auth/claim-account', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+  
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+  }
+  
+  try {
+    // Check if user exists
+    const userCheck = await pool.query('SELECT member_id, password_hash FROM users WHERE email_address = $1', [email]);
+    const user = userCheck.rows[0];
+    
+    if (!user) {
+      return res.status(404).json({ error: 'No account found with this email address' });
+    }
+    
+    if (user.password_hash) {
+      return res.status(409).json({ error: 'Account already has a password set' });
+    }
+    
+    // Hash and set the password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const result = await pool.query(
+      'UPDATE users SET password_hash = $1 WHERE member_id = $2 RETURNING member_id, first_name, last_name, email_address, club, role',
+      [hashedPassword, user.member_id]
+    );
+    
+    const updatedUser = result.rows[0];
+    
+    // Create user profile if it doesn't exist
+    await pool.query(
+      'INSERT INTO user_profiles (user_id, total_matches, wins, losses, ties, total_points, win_rate, last_updated) VALUES ($1, 0, 0, 0, 0, 0, 0, NOW()) ON CONFLICT (user_id) DO NOTHING',
+      [user.member_id]
+    );
+    
+    // Generate token and log user in
+    const token = jwt.sign({ member_id: updatedUser.member_id, email_address: updatedUser.email_address, role: updatedUser.role }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: updatedUser });
+  } catch (err) {
+    console.error('Error claiming account:', err);
+    res.status(500).json({ error: 'Failed to claim account' });
+  }
+});
+
+// Reset password for existing user
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+  
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+  }
+  
+  try {
+    // Check if user exists and has a password
+    const userCheck = await pool.query('SELECT member_id, password_hash FROM users WHERE email_address = $1', [email]);
+    const user = userCheck.rows[0];
+    
+    if (!user) {
+      return res.status(404).json({ error: 'No account found with this email address' });
+    }
+    
+    if (!user.password_hash) {
+      return res.status(400).json({ error: 'Account has not been claimed yet. Please use "Claim Account" instead.' });
+    }
+    
+    // Hash and update the password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const result = await pool.query(
+      'UPDATE users SET password_hash = $1 WHERE member_id = $2 RETURNING member_id, first_name, last_name, email_address, club, role',
+      [hashedPassword, user.member_id]
+    );
+    
+    const updatedUser = result.rows[0];
+    
+    // Generate token and log user in
+    const token = jwt.sign({ member_id: updatedUser.member_id, email_address: updatedUser.email_address, role: updatedUser.role }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: updatedUser });
+  } catch (err) {
+    console.error('Error resetting password:', err);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
 // Login endpoint
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;

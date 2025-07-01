@@ -478,7 +478,7 @@ const Profile: React.FC = () => {
   if (showScoreCard && scoreCardType) {
     const userInfo = {
       name: `${user?.first_name} ${user?.last_name}`.trim(),
-      handicap: user?.handicap || 0
+      handicap: user?.sim_handicap || user?.handicap || 0
     };
 
     if (scoreCardType === 'mully') {
