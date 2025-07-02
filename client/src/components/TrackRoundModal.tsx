@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Target, Search, MapPin, Loader2, Info, ExternalLink } from 'lucide-react';
+import { X, Target, Search, MapPin, Loader2, Info, ExternalLink, ArrowLeft } from 'lucide-react';
 import { getSimulatorCourses, getCourseTeeboxData, updateCourseTeeboxData } from '../services/api';
 
 interface SimulatorCourse {
@@ -192,12 +192,12 @@ const TrackRoundModal: React.FC<TrackRoundModalProps> = ({
                 onClick={step === 'course' ? handleBackToHoles : handleBackToCourse}
                 className="text-gray-400 hover:text-gray-600 transition-colors"
               >
-                <X className="w-5 h-5 rotate-45" />
+                <ArrowLeft className="w-5 h-5" />
               </button>
             )}
             <h2 className="text-xl font-bold text-brand-black">
               {step === 'holes' ? 'Track a Simulator Round' : 
-               step === 'course' ? 'Select Course' : 'Set Course Rating & Slope'}
+               step === 'course' ? 'Change number of holes' : 'Change Course Selection'}
             </h2>
           </div>
           <button
@@ -387,14 +387,6 @@ const TrackRoundModal: React.FC<TrackRoundModalProps> = ({
             </>
           ) : step === 'teebox' && selectedCourse ? (
             <>
-              <div className="mb-4">
-                <p className="text-gray-600 mb-2">
-                  Set course rating and slope for {selectedCourse.name}
-                </p>
-                <p className="text-sm text-gray-500">
-                  This helps calculate accurate handicaps and differentials
-                </p>
-              </div>
 
               {/* Teebox Selection */}
               <div className="mb-4">

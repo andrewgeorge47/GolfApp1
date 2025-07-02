@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
-import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament, saveScorecard, createTournament, getUserSimStats, getUserGrassStats, getUserCombinedStats, uploadProfilePhoto, SimStats } from '../services/api';
+import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament, saveScorecard, createTournament, getUserSimStats, getUserGrassStats, getUserCombinedStats, uploadProfilePhoto, SimStats, getCurrentUser } from '../services/api';
 import { User as UserIcon, Edit3, Save, X, Trophy, Target, TrendingUp, Calendar, MapPin, LogOut, Clock, Users, Plus, Minus, Award, Circle, Settings, Camera, BarChart3 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
@@ -9,7 +9,7 @@ import StrokePlayScoreCard from './StrokePlayScoreCard';
 import ProfileTournaments from './ProfileTournaments';
 
 const Profile: React.FC = () => {
-  const { user, token, logout } = useAuth();
+  const { user, token, logout, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [matches, setMatches] = useState<Match[]>([]);
@@ -45,61 +45,74 @@ const Profile: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      if (user?.member_id) {
-        try {
-          setLoading(true);
-          console.log('Fetching data for user ID:', user.member_id);
-          console.log('User data:', user);
-          
-          const [profileResponse, matchesResponse, tournamentsResponse, simStatsResponse, combinedStatsResponse] = await Promise.all([
-            getUserProfile(user.member_id),
-            getMatches(),
-            getTournaments(),
-            getUserSimStats(user.member_id),
-            getUserCombinedStats(user.member_id)
-          ]);
-          
-          console.log('Sim stats response:', simStatsResponse.data);
-          console.log('Combined stats response:', combinedStatsResponse.data);
-          
-          setProfile(profileResponse.data);
-          setMatches(matchesResponse.data);
-          setTournaments(tournamentsResponse.data);
-          setSimStats(simStatsResponse.data);
-          setCombinedStats(combinedStatsResponse.data);
-          
-          // Fetch user's tournament registrations
-          const userTournamentIds: number[] = [];
-          const participantCounts: {[key: number]: number} = {};
-          
-          for (const tournament of tournamentsResponse.data) {
-            try {
-              const participantsResponse = await getTournamentParticipants(tournament.id);
-              const isRegistered = participantsResponse.data.some((participant: any) => 
-                participant.member_id === user.member_id
-              );
-              if (isRegistered) {
-                userTournamentIds.push(tournament.id);
-              }
-              participantCounts[tournament.id] = participantsResponse.data.length;
-            } catch (err) {
-              console.error(`Error checking registration for tournament ${tournament.id}:`, err);
-              participantCounts[tournament.id] = 0;
-            }
-          }
-          setUserTournaments(userTournamentIds);
-          setTournamentParticipants(participantCounts);
-        } catch (err) {
-          setError('Failed to load profile data');
-          console.error('Error fetching profile:', err);
-        } finally {
-          setLoading(false);
-        }
-      }
-    };
+  // Handicap animation state
+  const [simHandicapAnimating, setSimHandicapAnimating] = useState(false);
+  const [simHandicapDirection, setSimHandicapDirection] = useState<'up' | 'down' | null>(null);
+  const [grassHandicapAnimating, setGrassHandicapAnimating] = useState(false);
+  const [grassHandicapDirection, setGrassHandicapDirection] = useState<'up' | 'down' | null>(null);
 
+  const fetchData = async () => {
+    if (user?.member_id) {
+      try {
+        setLoading(true);
+        console.log('Fetching data for user ID:', user.member_id);
+        console.log('User data:', user);
+        
+        const [profileResponse, matchesResponse, tournamentsResponse, simStatsResponse, combinedStatsResponse] = await Promise.all([
+          getUserProfile(user.member_id),
+          getMatches(),
+          getTournaments(),
+          getUserSimStats(user.member_id),
+          getUserCombinedStats(user.member_id)
+        ]);
+        
+        console.log('Sim stats response:', simStatsResponse.data);
+        console.log('Combined stats response:', combinedStatsResponse.data);
+        
+        // Check for handicap changes before updating state
+        const oldSimHandicap = user?.sim_handicap || 0;
+        const oldGrassHandicap = user?.grass_handicap || 0;
+        
+        setProfile(profileResponse.data);
+        setMatches(matchesResponse.data);
+        setTournaments(tournamentsResponse.data);
+        setSimStats(simStatsResponse.data);
+        setCombinedStats(combinedStatsResponse.data);
+        
+        // After updating stats, we need to refresh the user data to get updated handicaps
+        // This will be handled by the parent component or context
+        
+        // Fetch user's tournament registrations
+        const userTournamentIds: number[] = [];
+        const participantCounts: {[key: number]: number} = {};
+        
+        for (const tournament of tournamentsResponse.data) {
+          try {
+            const participantsResponse = await getTournamentParticipants(tournament.id);
+            const isRegistered = participantsResponse.data.some((participant: any) => 
+              participant.member_id === user.member_id
+            );
+            if (isRegistered) {
+              userTournamentIds.push(tournament.id);
+            }
+            participantCounts[tournament.id] = participantsResponse.data.length;
+          } catch (err) {
+            console.error(`Error checking registration for tournament ${tournament.id}:`, err);
+            participantCounts[tournament.id] = 0;
+          }
+        }
+        setUserTournaments(userTournamentIds);
+        setTournamentParticipants(participantCounts);
+      } catch (err) {
+        setError('Failed to load profile data');
+        console.error('Error fetching profile:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
     fetchData();
   }, [user?.member_id]);
 
@@ -214,7 +227,8 @@ const Profile: React.FC = () => {
     setShowTrackRoundModal(true);
   };
 
-  const handleSelectRoundType = (roundType: 'sim', holes: 9 | 18, course: any, nineType: 'front' | 'back' | null = null, teeboxData?: { teebox: string; courseRating: number; courseSlope: number }) => {
+  const handleSelectRoundType = (roundType: 'sim', holes: 9 | 18, course: any, nineType: 'front' | 'back' | null = null, teeboxData?: { teebox: string; courseRating: number | null; courseSlope: number | null }) => {
+    console.log('handleSelectRoundType called with:', { roundType, holes, course, nineType, teeboxData }); // Debug log
     setScoreCardType('stroke'); // Default to stroke play
     setRoundType(roundType);
     setHoles(holes);
@@ -224,7 +238,10 @@ const Profile: React.FC = () => {
     setSelectedCourse(course);
     // Store teebox data for use when saving scorecard
     if (teeboxData) {
+      console.log('Setting teebox data:', teeboxData); // Debug log
       setSelectedCourse((prev: any) => ({ ...prev, teeboxData }));
+    } else {
+      console.log('No teebox data provided'); // Debug log
     }
   };
 
@@ -266,6 +283,7 @@ const Profile: React.FC = () => {
         course_slope: selectedCourse?.teeboxData?.courseSlope || scoreCardData.course_slope || null
       };
 
+      console.log('Selected course teebox data:', selectedCourse?.teeboxData); // Debug log
       console.log('API data being sent:', apiData); // Debug log
 
       // Save to the backend
@@ -274,8 +292,28 @@ const Profile: React.FC = () => {
       
       if (response && response.data) {
         console.log('Scorecard saved with ID:', response.data.id);
-        // Show success message
-        alert('Scorecard saved successfully!');
+        
+        // Store current user data for comparison
+        const oldUser = user;
+        
+        // Refresh user data to get updated handicaps
+        await refreshUser();
+        
+        // Refresh profile data to show the new round
+        await fetchData();
+        
+        // Get the updated user data by calling the API directly
+        try {
+          const updatedUserResponse = await getCurrentUser(token!);
+          const updatedUser = updatedUserResponse.data.user;
+          
+          // Check for handicap changes
+          checkHandicapChanges(oldUser, updatedUser);
+        } catch (error) {
+          console.error('Error getting updated user data:', error);
+        }
+        
+        // Close the scorecard without showing success message
         handleCloseScoreCard();
       } else {
         throw new Error('Invalid response from server');
@@ -393,6 +431,21 @@ const Profile: React.FC = () => {
     isRegisteredForTournament(tournament.id)
   );
 
+  // Debug function to test handicap change animation
+  const testHandicapChange = () => {
+    console.log('Testing handicap change animation');
+    
+    // Trigger sim handicap animation (improvement)
+    setSimHandicapDirection('down');
+    setSimHandicapAnimating(true);
+    
+    // Trigger grass handicap animation (worsening) after a short delay
+    setTimeout(() => {
+      setGrassHandicapDirection('up');
+      setGrassHandicapAnimating(true);
+    }, 1000);
+  };
+
   // Debug function to create a test tournament
   const createTestTournament = async () => {
     try {
@@ -464,6 +517,124 @@ const Profile: React.FC = () => {
 
   const triggerPhotoUpload = () => {
     fileInputRef.current?.click();
+  };
+
+  // Function to check for handicap changes
+  const checkHandicapChanges = (oldUser: User | null, newUser: User | null) => {
+    console.log('checkHandicapChanges called with:', { oldUser, newUser });
+    
+    if (!oldUser || !newUser) {
+      console.log('Missing user data, returning early');
+      return;
+    }
+    
+    const oldSimHandicap = oldUser.sim_handicap || 0;
+    const oldGrassHandicap = oldUser.grass_handicap || 0;
+    const newSimHandicap = newUser.sim_handicap || 0;
+    const newGrassHandicap = newUser.grass_handicap || 0;
+    
+    console.log('Handicap comparison:', {
+      oldSimHandicap,
+      newSimHandicap,
+      oldGrassHandicap,
+      newGrassHandicap
+    });
+    
+    // Detect sim handicap change
+    if (Math.abs(newSimHandicap - oldSimHandicap) > 0.01) { // Account for floating point precision
+      const direction = newSimHandicap > oldSimHandicap ? 'up' : 'down';
+      console.log('Sim handicap changed:', { direction, oldValue: oldSimHandicap, newValue: newSimHandicap });
+      setSimHandicapDirection(direction);
+      setSimHandicapAnimating(true);
+    }
+    
+    // Detect grass handicap change
+    if (Math.abs(newGrassHandicap - oldGrassHandicap) > 0.01) { // Account for floating point precision
+      const direction = newGrassHandicap > oldGrassHandicap ? 'up' : 'down';
+      console.log('Grass handicap changed:', { direction, oldValue: oldGrassHandicap, newValue: newGrassHandicap });
+      setGrassHandicapDirection(direction);
+      setGrassHandicapAnimating(true);
+    }
+  };
+
+  // Animated handicap number component
+  const AnimatedHandicapNumber = ({ 
+    value, 
+    isAnimating, 
+    direction, 
+    onAnimationComplete 
+  }: { 
+    value: number; 
+    isAnimating: boolean; 
+    direction: 'up' | 'down' | null; 
+    onAnimationComplete: () => void;
+  }) => {
+    const [displayValue, setDisplayValue] = useState(value);
+    const [color, setColor] = useState('text-blue-300');
+    const [size, setSize] = useState('text-lg');
+
+    useEffect(() => {
+      if (isAnimating && direction) {
+        // Initial delay
+        setTimeout(() => {
+          // Set color based on direction
+          // Green for handicap going down (improvement), red for going up (worsening)
+          setColor(direction === 'down' ? 'text-green-400' : 'text-red-400');
+          
+          // Grow in size
+          setSize('text-2xl');
+          
+          // Animate the number with variable speed
+          const startValue = direction === 'down' ? value + 0.7 : value - 0.7;
+          const endValue = value;
+          const steps = 7; // 7 steps to count by 0.1
+          const stepValue = (endValue - startValue) / steps;
+          
+          let currentStep = 0;
+          
+          const animateStep = () => {
+            currentStep++;
+            const currentValue = startValue + (stepValue * currentStep);
+            setDisplayValue(currentValue);
+            
+            if (currentStep >= steps) {
+              // Pause at the end
+              setTimeout(() => {
+                // Shrink back to original size
+                setSize('text-lg');
+                setTimeout(() => {
+                  setColor('text-blue-300'); // Reset to normal color
+                  onAnimationComplete();
+                }, 300); // Wait for size transition to complete
+              }, 500); // 500ms pause before shrinking
+              return;
+            }
+            
+            // Variable speed: slow -> fast -> slow
+            let delay;
+            if (currentStep <= 2) {
+              delay = 150; // Slow start
+            } else if (currentStep >= 5) {
+              delay = 150; // Slow end
+            } else {
+              delay = 80; // Fast middle
+            }
+            
+            setTimeout(animateStep, delay);
+          };
+          
+          // Start the animation
+          setTimeout(animateStep, 200); // 200ms delay before starting
+          
+        }, 300); // 300ms initial delay
+      }
+    }, [isAnimating, direction, value, onAnimationComplete]);
+
+    return (
+      <span className={`font-bold transition-all duration-300 ${color} ${size}`}>
+        {displayValue.toFixed(1)}
+      </span>
+    );
   };
 
   if (loading) {
@@ -615,7 +786,7 @@ const Profile: React.FC = () => {
         </div>
 
         {/* Handicap Information in Hero */}
-        {user?.sim_handicap && parseFloat(user.sim_handicap) > 0 && (
+        {user?.sim_handicap !== null && user?.sim_handicap !== undefined && (
           <div className="mt-6 pt-6 border-t border-white/20">
             <div className="flex justify-start">
               <div className="bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20 flex items-center space-x-3">
@@ -625,7 +796,15 @@ const Profile: React.FC = () => {
                 <div>
                   <span className="text-sm font-medium text-white">NN Handicap</span>
                   <span className="text-lg font-bold text-blue-300 ml-2">
-                    {parseFloat(user.sim_handicap).toFixed(1)}
+                    <AnimatedHandicapNumber
+                      value={parseFloat(user.sim_handicap)}
+                      isAnimating={simHandicapAnimating}
+                      direction={simHandicapDirection}
+                      onAnimationComplete={() => {
+                        setSimHandicapAnimating(false);
+                        setSimHandicapDirection(null);
+                      }}
+                    />
                   </span>
                 </div>
                 <div className="text-xs text-white/60 ml-2">
@@ -1180,13 +1359,22 @@ const Profile: React.FC = () => {
             Admin Panel
           </h2>
           <p className="text-sm text-gray-600 mb-6">Administrative tools and tournament management.</p>
-          <div className="flex justify-center">
+          <div className="flex flex-wrap gap-4 justify-center">
             <button
               onClick={() => navigate('/admin')}
               className="flex items-center justify-center px-8 py-4 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors font-medium text-lg"
             >
               <Settings className="w-6 h-6 mr-3" />
               Tournament Management
+            </button>
+            
+            {/* Test Handicap Change Animation Button */}
+            <button
+              onClick={testHandicapChange}
+              className="flex items-center justify-center px-6 py-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium text-lg"
+            >
+              <TrendingUp className="w-6 h-6 mr-3" />
+              Test Handicap Animation
             </button>
           </div>
         </div>
@@ -1196,8 +1384,10 @@ const Profile: React.FC = () => {
       <TrackRoundModal
         isOpen={showTrackRoundModal}
         onClose={() => setShowTrackRoundModal(false)}
-        onSelectRoundType={(roundType, holes, course, nineType) => handleSelectRoundType(roundType, holes, course, nineType)}
+        onSelectRoundType={(roundType, holes, course, nineType, teeboxData) => handleSelectRoundType(roundType, holes, course, nineType, teeboxData)}
       />
+
+      
     </div>
   );
 };

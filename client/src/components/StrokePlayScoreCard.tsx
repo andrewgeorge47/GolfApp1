@@ -3,6 +3,7 @@ import { Save, RotateCcw, Target, TrendingUp, Award } from 'lucide-react';
 import ParValueInputModal from './ParValueInputModal';
 import { updateCourseParValues } from '../services/api';
 import { useAuth } from '../AuthContext';
+import { calculateHandicapDifferential } from '../utils/handicapUtils';
 
 interface StrokePlayScoreCardProps {
   onClose?: () => void;
@@ -20,8 +21,8 @@ interface StrokePlayScoreCardProps {
     par_values?: number[];
     teeboxData?: {
       teebox: string;
-      courseRating: number;
-      courseSlope: number;
+      courseRating: number | null;
+      courseSlope: number | null;
     };
   };
   nineType?: 'front' | 'back' | null;
@@ -114,6 +115,13 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
   const totalPar = parValues.reduce((sum, par) => sum + par, 0);
   const scoreToPar = totalStrokes - totalPar;
 
+  // Calculate handicap differential if course rating and slope are available
+  const handicapDifferential = calculateHandicapDifferential(
+    totalStrokes,
+    course?.teeboxData?.courseRating || 0,
+    course?.teeboxData?.courseSlope || 0
+  );
+
   const updatePlayerInfo = (field: keyof PlayerInfo, value: string | number) => {
     setPlayerInfo(prev => ({
       ...prev,
@@ -153,12 +161,17 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
       errors.push('At least one hole must have a score');
     }
     
+    // Check if handicap differential can be calculated
+    if (totalStrokes > 0 && handicapDifferential === null) {
+      errors.push('Handicap differential cannot be calculated. Please ensure course rating and slope are available.');
+    }
+    
     return errors;
   };
 
   const handleSave = async () => {
     console.log('Starting StrokePlay save process...'); // Debug log
-    console.log('Current data:', { playerInfo, holes: holesState, totalStrokes, totalPar, scoreToPar }); // Debug log
+    console.log('Current data:', { playerInfo, holes: holesState, totalStrokes, totalPar, scoreToPar, handicapDifferential }); // Debug log
     
     const validationErrors = validateScoreCard();
     console.log('Validation errors:', validationErrors); // Debug log
@@ -183,8 +196,10 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
           type: 'stroke_play',
           teebox: course?.teeboxData?.teebox,
           course_rating: course?.teeboxData?.courseRating,
-          course_slope: course?.teeboxData?.courseSlope
+          course_slope: course?.teeboxData?.courseSlope,
+          handicap_differential: handicapDifferential // Add the calculated differential
         };
+        console.log('Scorecard data being sent:', scoreCardWithTeebox); // Debug log
         await onSave(scoreCardWithTeebox);
       }
       setErrors([]);
@@ -316,8 +331,33 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
                   {scoreToPar > 0 ? `+${scoreToPar}` : scoreToPar}
                 </div>
               </div>
+              {handicapDifferential !== null && (
+                <div className="text-center">
+                  <div className="text-sm text-gray-600">Handicap Differential</div>
+                  <div className="text-2xl font-bold text-purple-600">
+                    {handicapDifferential.toFixed(1)}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
+          {handicapDifferential === null && totalStrokes > 0 && course?.teeboxData && (
+            <div className="mt-3 text-sm text-gray-600">
+              <div className="flex items-center justify-center space-x-4">
+                <span>Course Rating: {course.teeboxData.courseRating}</span>
+                <span>Slope: {course.teeboxData.courseSlope}</span>
+                <span>Teebox: {course.teeboxData.teebox}</span>
+              </div>
+              <div className="mt-2 text-center">
+                <span className="text-orange-600 font-medium">✓ Handicap differential will be calculated on submission</span>
+              </div>
+            </div>
+          )}
+          {handicapDifferential === null && totalStrokes > 0 && !course?.teeboxData && (
+            <div className="mt-3 text-sm text-red-600 text-center">
+              <span className="font-medium">⚠️ Handicap differential cannot be calculated - missing course rating and slope data</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -450,7 +490,7 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
           <Award className="w-5 h-5 mr-2" />
           Final Summary
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="bg-blue-50 rounded-lg p-4 text-center">
             <div className="text-2xl font-bold text-blue-600">{totalStrokes}</div>
             <div className="text-sm text-gray-600">Total Strokes</div>
@@ -465,7 +505,27 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
             </div>
             <div className="text-sm text-gray-600">Score to Par</div>
           </div>
+          {handicapDifferential !== null && (
+            <div className="bg-purple-50 rounded-lg p-4 text-center">
+              <div className="text-2xl font-bold text-purple-600">
+                {handicapDifferential.toFixed(1)}
+              </div>
+              <div className="text-sm text-gray-600">Handicap Differential</div>
+            </div>
+          )}
         </div>
+        {handicapDifferential !== null && (
+          <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+            <div className="text-sm text-purple-700">
+              <div className="font-medium mb-1">Handicap Differential Details:</div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                <div>Course Rating: <span className="font-semibold">{course?.teeboxData?.courseRating}</span></div>
+                <div>Course Slope: <span className="font-semibold">{course?.teeboxData?.courseSlope}</span></div>
+                <div>Teebox: <span className="font-semibold">{course?.teeboxData?.teebox}</span></div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Par Value Input Modal */}

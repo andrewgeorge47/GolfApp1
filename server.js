@@ -1899,6 +1899,7 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
   
   console.log('Received scorecard data:', req.body); // Debug log
   console.log('User ID:', req.user.member_id); // Debug log
+  console.log('Differential calculation inputs:', { total_strokes, course_rating, course_slope }); // Debug log
   
   if (!type || !player_name || !date_played || !scores) {
     console.log('Missing required fields:', { type, player_name, date_played, scores: !!scores });
@@ -1918,6 +1919,9 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
   ) {
     differential = ((parseFloat(total_strokes) - parseFloat(course_rating)) * 113) / parseFloat(course_slope);
     differential = Math.round(differential * 1000000) / 1000000; // round to 6 decimals for consistency
+    console.log('Differential calculated:', differential); // Debug log
+  } else {
+    console.log('Differential calculation failed - missing or invalid data'); // Debug log
   }
   
   try {
@@ -2039,8 +2043,8 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
     
     // Recalculate handicap for this user after saving scorecard
     try {
-      await calculateAndUpdateHandicaps();
-      console.log('Handicap recalculated after scorecard save');
+      await calculateAndUpdateUserHandicap(req.user.member_id);
+      console.log('Handicap recalculated for current user after scorecard save');
     } catch (handicapErr) {
       console.error('Error recalculating handicap:', handicapErr);
       // Don't fail the scorecard save if handicap calculation fails
@@ -2304,6 +2308,82 @@ app.get('/api/tournaments/:id/formation-stats', async (req, res) => {
   }
 });
 
+// Calculate and update handicaps for a single user
+async function calculateAndUpdateUserHandicap(userId) {
+  try {
+    // Get user info
+    const { rows: userRows } = await pool.query(
+      'SELECT member_id, first_name, last_name FROM users WHERE member_id = $1',
+      [userId]
+    );
+
+    if (userRows.length === 0) {
+      console.log(`User ${userId} not found for handicap calculation`);
+      return;
+    }
+
+    const user = userRows[0];
+
+    // Calculate sim handicap
+    const { rows: simScorecards } = await pool.query(`
+      SELECT differential, date_played
+      FROM scorecards
+      WHERE user_id = $1 
+        AND differential IS NOT NULL 
+        AND (round_type = 'sim' OR round_type IS NULL)
+      ORDER BY date_played DESC
+      LIMIT 20
+    `, [userId]);
+
+    // Calculate grass handicap
+    const { rows: grassScorecards } = await pool.query(`
+      SELECT differential, date_played
+      FROM scorecards
+      WHERE user_id = $1 
+        AND differential IS NOT NULL 
+        AND round_type = 'grass'
+      ORDER BY date_played DESC
+      LIMIT 20
+    `, [userId]);
+
+    // Calculate sim handicap
+    let simHandicap = 0;
+    if (simScorecards.length > 0) {
+      const simDifferentials = simScorecards
+        .map(s => parseFloat(s.differential))
+        .filter(diff => !isNaN(diff) && isFinite(diff))
+        .sort((a, b) => a - b);
+
+      if (simDifferentials.length > 0) {
+        simHandicap = calculateHandicapFromDifferentials(simDifferentials);
+      }
+    }
+
+    // Calculate grass handicap
+    let grassHandicap = 0;
+    if (grassScorecards.length > 0) {
+      const grassDifferentials = grassScorecards
+        .map(s => parseFloat(s.differential))
+        .filter(diff => !isNaN(diff) && isFinite(diff))
+        .sort((a, b) => a - b);
+
+      if (grassDifferentials.length > 0) {
+        grassHandicap = calculateHandicapFromDifferentials(grassDifferentials);
+      }
+    }
+
+    // Update the user's handicaps
+    await pool.query(
+      'UPDATE users SET sim_handicap = $1, grass_handicap = $2 WHERE member_id = $3',
+      [simHandicap, grassHandicap, userId]
+    );
+
+    console.log(`${user.first_name} ${user.last_name}: Sim: ${simHandicap} (${simScorecards.length} rounds), Grass: ${grassHandicap} (${grassScorecards.length} rounds)`);
+  } catch (error) {
+    console.error('Error calculating handicap for user:', error);
+  }
+}
+
 // Calculate and update user handicaps based on scorecard differentials
 async function calculateAndUpdateHandicaps() {
   try {
@@ -2405,7 +2485,7 @@ function calculateHandicapFromDifferentials(differentials) {
   }
 }
 
-// Calculate handicaps endpoint
+// Calculate handicaps endpoint (for all users - admin use only)
 app.post('/api/calculate-handicaps', async (req, res) => {
   try {
     await calculateAndUpdateHandicaps();
@@ -2413,6 +2493,24 @@ app.post('/api/calculate-handicaps', async (req, res) => {
   } catch (error) {
     console.error('Error in calculate handicaps endpoint:', error);
     res.status(500).json({ error: 'Failed to calculate handicaps' });
+  }
+});
+
+// Calculate handicap for specific user endpoint
+app.post('/api/calculate-handicaps/:userId', authenticateToken, async (req, res) => {
+  const { userId } = req.params;
+  
+  // Only allow users to calculate their own handicap or admins to calculate any
+  if (req.user.member_id !== parseInt(userId) && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+  
+  try {
+    await calculateAndUpdateUserHandicap(parseInt(userId));
+    res.json({ success: true, message: 'Handicap calculated and updated successfully' });
+  } catch (error) {
+    console.error('Error in calculate user handicap endpoint:', error);
+    res.status(500).json({ error: 'Failed to calculate handicap' });
   }
 });
 
