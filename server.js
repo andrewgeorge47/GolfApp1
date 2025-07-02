@@ -1803,7 +1803,7 @@ async function updateUserProfilesForExistingMatches() {
         type VARCHAR(50) NOT NULL CHECK (type IN ('stroke_play', 'mully_golf')),
         player_name VARCHAR(255) NOT NULL,
         date_played DATE NOT NULL,
-        handicap INTEGER DEFAULT 0,
+        handicap NUMERIC(5,2) DEFAULT 0,
         scores JSONB NOT NULL,
         total_strokes INTEGER DEFAULT 0,
         total_mulligans INTEGER DEFAULT 0,
@@ -1843,6 +1843,37 @@ async function updateUserProfilesForExistingMatches() {
       console.log('Users table handicap column updated to NUMERIC.');
     } catch (handicapErr) {
       console.log('Handicap column migration note:', handicapErr.message);
+    }
+    
+    // Change scorecards table handicap column to NUMERIC to support decimal values
+    try {
+      // Drop the view first since it depends on the handicap column
+      await pool.query(`DROP VIEW IF EXISTS scorecards_with_courses`);
+      
+      await pool.query(`
+        ALTER TABLE scorecards 
+        ALTER COLUMN handicap TYPE NUMERIC(5,2) USING handicap::numeric
+      `);
+      console.log('Scorecards table handicap column updated to NUMERIC.');
+      
+      // Recreate the view
+      await pool.query(`
+        CREATE OR REPLACE VIEW scorecards_with_courses AS
+        SELECT 
+          s.*,
+          c.name as course_full_name,
+          c.platforms as course_platforms,
+          c.location as course_location,
+          c.designer as course_designer,
+          c.elevation as course_elevation,
+          c.course_types as course_types
+        FROM scorecards s
+        LEFT JOIN simulator_courses_combined c ON s.course_id = c.id
+        ORDER BY s.date_played DESC, s.created_at DESC
+      `);
+      console.log('Scorecards with courses view recreated.');
+    } catch (scorecardHandicapErr) {
+      console.log('Scorecards handicap column migration note:', scorecardHandicapErr.message);
     }
     
     // Add separate handicap fields for sim and grass rounds
@@ -1942,6 +1973,9 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
       }
     }
     
+    // Parse handicap to ensure it's a number
+    const parsedHandicap = handicap ? parseFloat(handicap) : 0;
+    
     const { rows } = await pool.query(
       `INSERT INTO scorecards (user_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, differential, course_name, course_id, teebox)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
@@ -1950,7 +1984,7 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
         type,
         player_name,
         date_played,
-        handicap || 0,
+        parsedHandicap,
         JSON.stringify(scoresData),
         total_strokes || 0,
         total_mulligans || 0,

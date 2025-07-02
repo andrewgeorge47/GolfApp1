@@ -26,7 +26,7 @@ function AppContent() {
   const navigationItems = [
     { to: "/", icon: Home, label: "Home" },
     { to: "/leaderboard", icon: Trophy, label: "Leaderboard" },
-    { to: "/simulator-courses", icon: MapPin, label: "Simulator Courses" },
+    { to: "/simulator-courses", icon: MapPin, label: "Neighborhood Courses" },
     ...(user ? [{ to: "/profile", icon: User, label: "Profile" }] : []),
   ];
 
@@ -41,7 +41,7 @@ function AppContent() {
                 <div className="flex items-center">
                   <div className="flex-shrink-0">
                     <Link to="/">
-                      <img src={process.env.PUBLIC_URL + "/logo-color.svg"} alt="Golf League Logo" className="h-10 w-auto" />
+                      <img src={process.env.PUBLIC_URL + "/Logo_N_Dark.png"} alt="NN Logo" className="h-10 w-auto" />
                     </Link>
                   </div>
                 </div>

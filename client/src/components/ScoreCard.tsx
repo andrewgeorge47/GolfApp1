@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Save, RotateCcw, Info, Circle, Target, TrendingUp, Award } from 'lucide-react';
 import { useScoreCalculator } from '../hooks/useScoreCalculator';
 import PlayerInfo from './PlayerInfo';
@@ -51,6 +51,7 @@ const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo, holes 
   const [errors, setErrors] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [showParValueModal, setShowParValueModal] = useState(false);
+  const hasShownParModal = useRef(false);
 
   const remainingMulligans = getRemainingMulligans();
   const scoreStats = getScoreStats();
@@ -153,16 +154,18 @@ const ScoreCard: React.FC<ScoreCardProps> = ({ onClose, onSave, userInfo, holes 
 
   // Check if we need to show the par value modal
   useEffect(() => {
-    if (course && !course.par_values && !showParValueModal) {
+    if (course && !course.par_values && !hasShownParModal.current) {
       // Only show the modal if user is logged in
       if (user) {
         setShowParValueModal(true);
+        hasShownParModal.current = true;
       } else {
         // If user is not logged in, show a message that they need to log in to set par values
         alert('You need to be logged in to set par values for this course. Please log in and try again.');
+        hasShownParModal.current = true;
       }
     }
-  }, [course, showParValueModal, user]);
+  }, [course, user]);
 
   return (
     <div className="max-w-6xl mx-auto p-4">

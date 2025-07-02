@@ -51,36 +51,17 @@ const ParValueInputModal: React.FC<ParValueInputModalProps> = ({
     onSave(parValues);
   };
 
-  const handleQuickFill = (template: 'standard' | 'par3' | 'championship') => {
-    let templateValues: number[];
-    
-    switch (template) {
-      case 'standard':
-        templateValues = holes === 18 
-          ? [4, 3, 4, 5, 4, 3, 4, 4, 4, 4, 3, 4, 5, 4, 3, 4, 4, 4] // Par 72
-          : [4, 3, 4, 5, 4, 3, 4, 4, 4]; // Par 36
-        break;
-      case 'par3':
-        templateValues = Array.from({ length: holes }, () => 3); // All par 3s
-        break;
-      case 'championship':
-        templateValues = holes === 18
-          ? [4, 4, 4, 5, 4, 3, 4, 4, 4, 4, 3, 4, 5, 4, 4, 4, 3, 4] // Par 71
-          : [4, 4, 4, 5, 4, 3, 4, 4, 4]; // Par 35
-        break;
-      default:
-        templateValues = Array.from({ length: holes }, () => 4);
-    }
-    
-    setParValues(templateValues);
-    setErrors([]);
-  };
-
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <div>
@@ -107,25 +88,6 @@ const ParValueInputModal: React.FC<ParValueInputModalProps> = ({
                 <p className="font-medium mb-1">You're the first to submit a score for this course!</p>
                 <p>You're helping the community by setting the par values. Once saved, all future players will see the correct par for each hole.</p>
               </div>
-            </div>
-          </div>
-
-          {/* Quick Fill Templates */}
-          <div className="mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">Quick Fill Templates</h3>
-            <div className="flex space-x-3">
-              <button
-                onClick={() => handleQuickFill('standard')}
-                className="px-4 py-2 bg-green-100 text-green-800 rounded-lg hover:bg-green-200 transition-colors text-sm font-medium"
-              >
-                Standard Course
-              </button>
-              <button
-                onClick={() => handleQuickFill('championship')}
-                className="px-4 py-2 bg-purple-100 text-purple-800 rounded-lg hover:bg-purple-200 transition-colors text-sm font-medium"
-              >
-                Championship
-              </button>
             </div>
           </div>
 

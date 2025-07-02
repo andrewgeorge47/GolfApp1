@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Save, RotateCcw, Target, TrendingUp, Award } from 'lucide-react';
 import ParValueInputModal from './ParValueInputModal';
 import { updateCourseParValues } from '../services/api';
@@ -68,6 +68,7 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
   const [errors, setErrors] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [showParValueModal, setShowParValueModal] = useState(false);
+  const hasShownParModal = useRef(false);
 
   // Par values - can be overridden by course data in the future
   const getParValues = () => {
@@ -96,16 +97,18 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
 
   // Check if we need to show the par value modal
   useEffect(() => {
-    if (course && !course.par_values && !showParValueModal) {
+    if (course && !course.par_values && !hasShownParModal.current) {
       // Only show the modal if user is logged in
       if (user) {
         setShowParValueModal(true);
+        hasShownParModal.current = true;
       } else {
         // If user is not logged in, show a message that they need to log in to set par values
         alert('You need to be logged in to set par values for this course. Please log in and try again.');
+        hasShownParModal.current = true;
       }
     }
-  }, [course, showParValueModal, user]);
+  }, [course, user]);
 
   const totalStrokes = holesState.reduce((sum, hole) => sum + hole.strokes, 0);
   const totalPar = parValues.reduce((sum, par) => sum + par, 0);

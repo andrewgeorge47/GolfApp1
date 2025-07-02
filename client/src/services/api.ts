@@ -426,6 +426,8 @@ export const getAllClubs = async () => {
 };
 
 export const login = (email: string, password: string) => api.post('/auth/login', { email, password });
+export const register = (userData: { first_name: string; last_name: string; email: string; password: string; club?: string }) => 
+  api.post('/auth/register', userData);
 export const checkEmail = (email: string) => api.post('/auth/check-email', { email });
 export const claimAccount = (email: string, password: string) => api.post('/auth/claim-account', { email, password });
 export const resetPassword = (email: string, password: string) => api.post('/auth/reset-password', { email, password });

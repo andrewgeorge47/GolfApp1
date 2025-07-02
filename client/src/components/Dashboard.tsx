@@ -22,22 +22,14 @@ const Dashboard: React.FC = () => {
         <div className="text-center mb-8 md:mb-12">
           {/* Logo with Animation */}
           <div className="mb-6 md:mb-8 transform hover:scale-105 transition-transform duration-300">
-            <img src={process.env.PUBLIC_URL + "/logo-color.svg"} alt="Neighborhood National Logo" className="h-20 w-auto md:h-28 mx-auto drop-shadow-2xl" />
-          </div>
-
-          {/* Badge */}
-          <div className="inline-flex items-center bg-brand-neon-green/20 backdrop-blur-sm border border-brand-neon-green/30 rounded-full px-4 py-2 md:px-6 md:py-2 mb-4 md:mb-6 opacity-0 animate-[fadeIn_0.8s_ease-out_0.2s_forwards]">
-            <Star className="w-3 h-3 md:w-4 md:h-4 text-brand-neon-green mr-2" />
-            <span className="text-brand-neon-green font-semibold text-xs md:text-sm">✨ Brand New Platform</span>
+            <img src={process.env.PUBLIC_URL + "/Logo_Full_Light.png"} alt="Neighborhood National Logo" className="h-20 w-auto md:h-28 mx-auto drop-shadow-2xl" />
           </div>
 
           {/* Main Headline */}
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-black text-white mb-4 md:mb-6 leading-tight px-2">
             <span className="bg-gradient-to-r from-brand-neon-green via-white to-brand-neon-green bg-clip-text text-transparent">
-              Neighborhood National
+              Player Portal
             </span>
-            <br />
-            <span className="text-2xl md:text-4xl lg:text-5xl font-bold text-white/90">League</span>
           </h1>
 
           {/* Subtitle */}
@@ -46,15 +38,6 @@ const Dashboard: React.FC = () => {
             <br className="hidden sm:block" />
             Track, compete, and connect across all clubs.
           </p>
-
-          {/* Welcome Message for Logged In Users */}
-          {user && (
-            <div className="bg-white/15 backdrop-blur-md rounded-2xl px-6 py-3 md:px-8 md:py-4 mb-6 md:mb-8 inline-block border border-white/20 opacity-0 animate-[fadeIn_0.8s_ease-out_0.4s_forwards] mx-4">
-              <p className="text-white font-semibold text-base md:text-lg">
-                Welcome back, <span className="text-brand-neon-green font-bold">{user.first_name} {user.last_name}</span>! 🏌️‍♂️
-              </p>
-            </div>
-          )}
 
           {/* Feature Highlights */}
           <div className="flex md:grid md:grid-cols-3 gap-4 md:gap-6 mb-8 md:mb-12 max-w-4xl mx-auto px-4 overflow-x-auto md:overflow-visible scrollbar-hide">
