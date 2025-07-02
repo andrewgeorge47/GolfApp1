@@ -431,20 +431,7 @@ const Profile: React.FC = () => {
     isRegisteredForTournament(tournament.id)
   );
 
-  // Debug function to test handicap change animation
-  const testHandicapChange = () => {
-    console.log('Testing handicap change animation');
-    
-    // Trigger sim handicap animation (improvement)
-    setSimHandicapDirection('down');
-    setSimHandicapAnimating(true);
-    
-    // Trigger grass handicap animation (worsening) after a short delay
-    setTimeout(() => {
-      setGrassHandicapDirection('up');
-      setGrassHandicapAnimating(true);
-    }, 1000);
-  };
+
 
   // Debug function to create a test tournament
   const createTestTournament = async () => {
@@ -1359,22 +1346,13 @@ const Profile: React.FC = () => {
             Admin Panel
           </h2>
           <p className="text-sm text-gray-600 mb-6">Administrative tools and tournament management.</p>
-          <div className="flex flex-wrap gap-4 justify-center">
+          <div className="flex justify-center">
             <button
               onClick={() => navigate('/admin')}
               className="flex items-center justify-center px-8 py-4 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors font-medium text-lg"
             >
               <Settings className="w-6 h-6 mr-3" />
               Tournament Management
-            </button>
-            
-            {/* Test Handicap Change Animation Button */}
-            <button
-              onClick={testHandicapChange}
-              className="flex items-center justify-center px-6 py-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium text-lg"
-            >
-              <TrendingUp className="w-6 h-6 mr-3" />
-              Test Handicap Animation
             </button>
           </div>
         </div>
