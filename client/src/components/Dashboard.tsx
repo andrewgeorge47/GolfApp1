@@ -22,7 +22,7 @@ const Dashboard: React.FC = () => {
         <div className="text-center mb-8 md:mb-12">
           {/* Logo with Animation */}
           <div className="mb-6 md:mb-8 transform hover:scale-105 transition-transform duration-300">
-            <img src={process.env.PUBLIC_URL + "/Logo_Full_Light.png"} alt="Neighborhood National Logo" className="h-20 w-auto md:h-28 mx-auto drop-shadow-2xl" />
+            <img src={process.env.PUBLIC_URL + "/logo_full_Light.png"} alt="Neighborhood National Logo" className="h-20 w-auto md:h-28 mx-auto drop-shadow-2xl" />
           </div>
 
           {/* Main Headline */}
