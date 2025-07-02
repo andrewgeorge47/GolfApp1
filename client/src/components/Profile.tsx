@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
-import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament, saveScorecard, createTournament, getUserSimStats, getUserGrassStats, getUserCombinedStats, uploadProfilePhoto, SimStats, getCurrentUser } from '../services/api';
+import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament, saveScorecard, createTournament, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser } from '../services/api';
 import { User as UserIcon, Edit3, Save, X, Trophy, Target, TrendingUp, Calendar, MapPin, LogOut, Clock, Users, Plus, Minus, Award, Circle, Settings, Camera, BarChart3 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
@@ -22,7 +22,8 @@ const Profile: React.FC = () => {
   const [tournamentLoading, setTournamentLoading] = useState<number | null>(null);
   const [simStats, setSimStats] = useState<SimStats | null>(null);
   const [combinedStats, setCombinedStats] = useState<SimStats | null>(null);
-  const [statsTab, setStatsTab] = useState<'overview' | 'sim'>('overview');
+  const [courseRecords, setCourseRecords] = useState<UserCourseRecord[]>([]);
+  const [statsTab, setStatsTab] = useState<'overview' | 'sim' | 'records'>('overview');
   const [formData, setFormData] = useState({
     first_name: user?.first_name || '',
     last_name: user?.last_name || '',
@@ -58,12 +59,13 @@ const Profile: React.FC = () => {
         console.log('Fetching data for user ID:', user.member_id);
         console.log('User data:', user);
         
-        const [profileResponse, matchesResponse, tournamentsResponse, simStatsResponse, combinedStatsResponse] = await Promise.all([
+        const [profileResponse, matchesResponse, tournamentsResponse, simStatsResponse, combinedStatsResponse, courseRecordsResponse] = await Promise.all([
           getUserProfile(user.member_id),
           getMatches(),
           getTournaments(),
           getUserSimStats(user.member_id),
-          getUserCombinedStats(user.member_id)
+          getUserCombinedStats(user.member_id),
+          getUserCourseRecords(user.member_id)
         ]);
         
         console.log('Sim stats response:', simStatsResponse.data);
@@ -78,6 +80,7 @@ const Profile: React.FC = () => {
         setTournaments(tournamentsResponse.data);
         setSimStats(simStatsResponse.data);
         setCombinedStats(combinedStatsResponse.data);
+        setCourseRecords(courseRecordsResponse.data);
         
         // After updating stats, we need to refresh the user data to get updated handicaps
         // This will be handled by the parent component or context
@@ -430,8 +433,6 @@ const Profile: React.FC = () => {
   const userRegisteredTournaments = tournaments.filter(tournament => 
     isRegisteredForTournament(tournament.id)
   );
-
-
 
   // Debug function to create a test tournament
   const createTestTournament = async () => {
@@ -954,6 +955,17 @@ const Profile: React.FC = () => {
             <Target className="w-4 h-4 inline mr-2" />
             Simulator
           </button>
+          <button
+            onClick={() => setStatsTab('records')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              statsTab === 'records'
+                ? 'bg-brand-neon-green text-brand-black'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            <Trophy className="w-4 h-4 inline mr-2" />
+            Course Records
+          </button>
         </div>
 
         {/* Overview Tab */}
@@ -1238,6 +1250,138 @@ const Profile: React.FC = () => {
             )}
           </div>
         )}
+
+        {/* Course Records Tab */}
+        {statsTab === 'records' && (
+          <div>
+            <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+              <Trophy className="w-6 h-6 mr-3" />
+              Course Records
+            </h2>
+            
+            {/* Merge club and community records for the same course */}
+            {(() => {
+              // Map course_id to { club: record, community: record }
+              const merged: Record<number, { club?: UserCourseRecord; community?: UserCourseRecord }> = {};
+              courseRecords.forEach(record => {
+                if (!merged[record.course_id]) merged[record.course_id] = {};
+                if (record.record_club === null) {
+                  merged[record.course_id].community = record;
+                } else {
+                  merged[record.course_id].club = record;
+                }
+              });
+              const mergedList = Object.values(merged);
+
+              if (mergedList.length > 0) {
+                return (
+                  <div>
+                    {/* Summary Stats */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
+                      <div className="text-center">
+                        <div className="text-3xl font-bold text-blue-600 mb-2">
+                          {mergedList.length}
+                        </div>
+                        <div className="text-sm text-gray-600">Unique Courses</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-3xl font-bold text-green-600 mb-2">
+                          {user && courseRecords.filter(r => r.record_club === user.club).length}
+                        </div>
+                        <div className="text-sm text-gray-600">No5 Records</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-3xl font-bold text-purple-600 mb-2">
+                          {courseRecords.filter(r => r.record_club === null).length}
+                        </div>
+                        <div className="text-sm text-gray-600">Community Records</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-3xl font-bold text-orange-600 mb-2">
+                          {courseRecords.length > 0 ? Math.max(...courseRecords.map(r => r.days_standing)) : 0}
+                        </div>
+                        <div className="text-sm text-gray-600">Longest Standing (Days)</div>
+                      </div>
+                    </div>
+
+                    {/* Course Records List */}
+                    <div className="space-y-4">
+                      {mergedList.map(({ club, community }) => {
+                        // Prefer to show the best score and most recent date
+                        const record = club && community
+                          ? (club.best_score <= community.best_score ? club : community)
+                          : club || community;
+                        if (!record) return null;
+                        return (
+                          <div key={record.course_id} className="bg-gray-50 rounded-lg p-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-3 sm:space-y-0">
+                              <div className="flex-1">
+                                <div className="flex items-center space-x-2 mb-2">
+                                  <h3 className="text-lg font-semibold text-gray-900">{record.course_name}</h3>
+                                  {club && (
+                                    <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
+                                      No5 Record
+                                    </span>
+                                  )}
+                                  {community && (
+                                    <span className="px-2 py-1 bg-purple-100 text-purple-800 text-xs font-medium rounded-full">
+                                      Community Record
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-4 text-sm text-gray-600">
+                                  {record.location && (
+                                    <span className="flex items-center">
+                                      <MapPin className="w-4 h-4 mr-1" />
+                                      {record.location}
+                                    </span>
+                                  )}
+                                  {record.designer && (
+                                    <span className="flex items-center">
+                                      <UserIcon className="w-4 h-4 mr-1" />
+                                      {record.designer}
+                                    </span>
+                                  )}
+                                  <span className="flex items-center">
+                                    <Calendar className="w-4 h-4 mr-1" />
+                                    {new Date(record.date_played).toLocaleDateString()}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-2xl font-bold text-gray-900 mb-1">
+                                  {record.best_score} strokes
+                                </div>
+                                <div className="text-sm text-gray-600">
+                                  {record.days_standing} days standing
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              } else {
+                return (
+                  <div className="text-center py-8">
+                    <Trophy className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-xl font-medium text-gray-900 mb-2">No Course Records Yet</h3>
+                    <p className="text-gray-600 mb-6">Start playing simulator rounds to set course records for your club and the community.</p>
+                    <button
+                      onClick={handleTrackRound}
+                      className="inline-flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors font-medium"
+                    >
+                      <Circle className="w-4 h-4 mr-2" />
+                      Track Your First Round
+                    </button>
+                  </div>
+                );
+              }
+            })()}
+          </div>
+        )}
       </div>
 
       {/* Recent Matches */}
@@ -1461,8 +1605,6 @@ const Profile: React.FC = () => {
         onClose={() => setShowTrackRoundModal(false)}
         onSelectRoundType={(roundType, holes, course, nineType, teeboxData) => handleSelectRoundType(roundType, holes, course, nineType, teeboxData)}
       />
-
-      
     </div>
   );
 };

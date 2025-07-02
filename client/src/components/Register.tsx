@@ -45,7 +45,7 @@ const Register: React.FC = () => {
 
       // Automatically log them in after successful registration
       await login(formData.email, formData.password);
-      navigate('/');
+      navigate('/profile');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error || 'Registration failed';
       setError(errorMessage);

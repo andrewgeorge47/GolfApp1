@@ -192,6 +192,19 @@ export interface CourseRecord {
   record_club: string | null;
 }
 
+export interface UserCourseRecord {
+  course_id: number;
+  record_club: string | null;
+  best_score: number;
+  date_played: string;
+  scorecard_id: number;
+  course_name: string;
+  location: string | null;
+  designer: string | null;
+  platforms: string[];
+  days_standing: number;
+}
+
 export interface LeaderboardStats {
   players: LeaderboardPlayer[];
   courseRecords: CourseRecord[];
@@ -229,6 +242,8 @@ export const deleteUser = (id: number) => api.delete(`/users/${id}`);
 export const getUserSimStats = (id: number) => api.get<SimStats>(`/users/${id}/sim-stats`);
 export const getUserGrassStats = (id: number) => api.get<SimStats>(`/users/${id}/grass-stats`);
 export const getUserCombinedStats = (id: number) => api.get<SimStats>(`/users/${id}/combined-stats`);
+
+export const getUserCourseRecords = (userId: number) => api.get(`/user-course-records/${userId}`);
 
 // Profile photo upload
 export const uploadProfilePhoto = (file: File) => {

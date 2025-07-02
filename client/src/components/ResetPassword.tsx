@@ -67,7 +67,7 @@ const ResetPassword: React.FC = () => {
       await resetPassword(email, password);
       // Automatically log them in after successful password reset
       await login(email, password);
-      navigate('/');
+      navigate('/profile');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to reset password');
     } finally {

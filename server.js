@@ -2552,6 +2552,41 @@ app.get('/api/handicaps', async (req, res) => {
   }
 });
 
+// Get user's course records
+app.get('/api/user-course-records/:userId', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Only allow users to view their own records or admins to view any
+    if (req.user.member_id !== parseInt(userId) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    
+    const { rows } = await pool.query(`
+      SELECT 
+        cr.course_id,
+        cr.club as record_club,
+        cr.total_strokes as best_score,
+        cr.date_played,
+        cr.scorecard_id,
+        sc.name as course_name,
+        sc.location,
+        sc.designer,
+        sc.platforms,
+        EXTRACT(DAYS FROM NOW() - cr.date_played) as days_standing
+      FROM course_records cr
+      INNER JOIN simulator_courses_combined sc ON cr.course_id = sc.id
+      WHERE cr.user_id = $1 AND cr.is_current = true
+      ORDER BY cr.date_played DESC
+    `, [userId]);
+    
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching user course records:', error);
+    res.status(500).json({ error: 'Failed to fetch course records' });
+  }
+});
+
 // Get user simulator round statistics
 app.get('/api/users/:id/sim-stats', authenticateToken, async (req, res) => {
   const { id } = req.params;

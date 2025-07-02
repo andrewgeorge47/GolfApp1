@@ -14,7 +14,7 @@ const Login: React.FC = () => {
     setError('');
     try {
       await login(email, password);
-      navigate('/');
+      navigate('/profile');
     } catch (err: any) {
       setError('Invalid email or password');
     }

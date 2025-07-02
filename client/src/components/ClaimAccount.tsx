@@ -67,7 +67,7 @@ const ClaimAccount: React.FC = () => {
       await claimAccount(email, password);
       // Automatically log them in after successful account claiming
       await login(email, password);
-      navigate('/');
+      navigate('/profile');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to claim account');
     } finally {
