@@ -50,8 +50,35 @@ describe('Handicap Utilities', () => {
       expect(result).toBe(8.3);
     });
 
-    it('should calculate handicap index for 10-19 differentials', () => {
+    it('should calculate handicap index for 15-19 differentials', () => {
+      const differentials = [5.2, 6.1, 7.3, 8.0, 9.1, 10.2, 11.0, 12.1, 13.0, 14.1, 15.0, 16.1, 17.0, 18.1, 19.0];
+      const result = calculateHandicapIndex(differentials);
+      // Best 7: [5.2, 6.1, 7.3, 8.0, 9.1, 10.2, 11.0]
+      // Average: (5.2 + 6.1 + 7.3 + 8.0 + 9.1 + 10.2 + 11.0) / 7 = 8.128571...
+      // Handicap: 8.128571... * 0.96 = 7.803428...
+      expect(result).toBe(7.8);
+    });
+
+    it('should calculate handicap index for 10-14 differentials', () => {
       const differentials = [5.2, 6.1, 7.3, 8.0, 9.1, 10.2, 11.0, 12.1, 13.0, 14.1];
+      const result = calculateHandicapIndex(differentials);
+      // Best 6: [5.2, 6.1, 7.3, 8.0, 9.1, 10.2]
+      // Average: (5.2 + 6.1 + 7.3 + 8.0 + 9.1 + 10.2) / 6 = 7.65
+      // Handicap: 7.65 * 0.96 = 7.344
+      expect(result).toBe(7.3);
+    });
+
+    it('should calculate handicap index for 5-9 differentials', () => {
+      const differentials = [5.2, 6.1, 7.3, 8.0, 9.1];
+      const result = calculateHandicapIndex(differentials);
+      // Best 5: [5.2, 6.1, 7.3, 8.0, 9.1]
+      // Average: (5.2 + 6.1 + 7.3 + 8.0 + 9.1) / 5 = 7.14
+      // Handicap: 7.14 * 0.96 = 6.8544
+      expect(result).toBe(6.9);
+    });
+
+    it('should calculate handicap index for 3-4 differentials', () => {
+      const differentials = [5.2, 6.1, 7.3];
       const result = calculateHandicapIndex(differentials);
       // Best 3: [5.2, 6.1, 7.3]
       // Average: (5.2 + 6.1 + 7.3) / 3 = 6.2
@@ -59,16 +86,8 @@ describe('Handicap Utilities', () => {
       expect(result).toBe(6.0);
     });
 
-    it('should calculate handicap index for 5-9 differentials', () => {
-      const differentials = [5.2, 6.1, 7.3, 8.0, 9.1];
-      const result = calculateHandicapIndex(differentials);
-      // Best 1: [5.2]
-      // Handicap: 5.2 * 0.96 = 4.992
-      expect(result).toBe(5.0);
-    });
-
-    it('should calculate handicap index for 1-4 differentials', () => {
-      const differentials = [5.2, 6.1, 7.3];
+    it('should calculate handicap index for 1-2 differentials', () => {
+      const differentials = [5.2, 6.1];
       const result = calculateHandicapIndex(differentials);
       // Best 1: [5.2]
       // Handicap: 5.2 * 0.96 = 4.992
@@ -83,9 +102,10 @@ describe('Handicap Utilities', () => {
       const differentials = [5.2, NaN, 6.1, Infinity, 7.3, -1, 8.0];
       const result = calculateHandicapIndex(differentials);
       // Valid differentials: [5.2, 6.1, 7.3, 8.0]
-      // Best 1: [5.2]
-      // Handicap: 5.2 * 0.96 = 4.992
-      expect(result).toBe(5.0);
+      // Best 3 of 3: [5.2, 6.1, 7.3]
+      // Average: (5.2 + 6.1 + 7.3) / 3 = 6.2
+      // Handicap: 6.2 * 0.96 = 5.952
+      expect(result).toBe(6.0);
     });
   });
 }); 

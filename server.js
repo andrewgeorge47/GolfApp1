@@ -2469,19 +2469,33 @@ function calculateHandicapFromDifferentials(differentials) {
     const best8 = differentials.slice(0, 8);
     const average = best8.reduce((sum, diff) => sum + diff, 0) / 8;
     return Math.round(average * 0.96 * 10) / 10; // USGA formula
+  } else if (differentials.length >= 15) {
+    // Use best 7 out of last 15
+    const best7 = differentials.slice(0, 7);
+    const average = best7.reduce((sum, diff) => sum + diff, 0) / 7;
+    return Math.round(average * 0.96 * 10) / 10;
   } else if (differentials.length >= 10) {
-    // Use best 3 out of last 10
+    // Use best 6 out of last 10
+    const best6 = differentials.slice(0, 6);
+    const average = best6.reduce((sum, diff) => sum + diff, 0) / 6;
+    return Math.round(average * 0.96 * 10) / 10;
+  } else if (differentials.length >= 5) {
+    // Use best 5 out of last 5
+    const best5 = differentials.slice(0, 5);
+    const average = best5.reduce((sum, diff) => sum + diff, 0) / 5;
+    return Math.round(average * 0.96 * 10) / 10;
+  } else if (differentials.length >= 3) {
+    // Use best 3 out of last 3
     const best3 = differentials.slice(0, 3);
     const average = best3.reduce((sum, diff) => sum + diff, 0) / 3;
     return Math.round(average * 0.96 * 10) / 10;
-  } else if (differentials.length >= 5) {
-    // Use best 1 out of last 5
+  } else if (differentials.length >= 1) {
+    // Use best 1 out of last 1
     const best1 = differentials[0];
     return Math.round(best1 * 0.96 * 10) / 10;
   } else {
-    // Use the best differential available
-    const best1 = differentials[0];
-    return Math.round(best1 * 0.96 * 10) / 10;
+    // No differentials available
+    return 0;
   }
 }
 
@@ -2589,7 +2603,7 @@ app.get('/api/users/:id/sim-stats', authenticateToken, async (req, res) => {
     
     const stats = rows[0];
     
-    // Get recent rounds (last 5)
+    // Get recent rounds (last 20)
     const { rows: recentRounds } = await pool.query(`
       SELECT 
         id,
@@ -2602,7 +2616,7 @@ app.get('/api/users/:id/sim-stats', authenticateToken, async (req, res) => {
       WHERE user_id = $1 
         AND (round_type = 'sim' OR round_type IS NULL)
       ORDER BY date_played DESC
-      LIMIT 5
+      LIMIT 20
     `, [id]);
     
     // Get course breakdown
@@ -2686,7 +2700,7 @@ app.get('/api/users/:id/grass-stats', authenticateToken, async (req, res) => {
     
     const stats = rows[0];
     
-    // Get recent rounds (last 5)
+    // Get recent rounds (last 20)
     const { rows: recentRounds } = await pool.query(`
       SELECT 
         id,
@@ -2699,7 +2713,7 @@ app.get('/api/users/:id/grass-stats', authenticateToken, async (req, res) => {
       WHERE user_id = $1 
         AND round_type = 'grass'
       ORDER BY date_played DESC
-      LIMIT 5
+      LIMIT 20
     `, [id]);
     
     // Get course breakdown
@@ -2786,7 +2800,7 @@ app.get('/api/users/:id/combined-stats', authenticateToken, async (req, res) => 
     
     const stats = rows[0];
     
-    // Get recent rounds (last 5) from both types
+    // Get recent rounds (last 20) from both types
     const { rows: recentRounds } = await pool.query(`
       SELECT 
         id,
@@ -2798,7 +2812,7 @@ app.get('/api/users/:id/combined-stats', authenticateToken, async (req, res) => 
       FROM scorecards
       WHERE user_id = $1
       ORDER BY date_played DESC
-      LIMIT 5
+      LIMIT 20
     `, [id]);
     
     res.json({

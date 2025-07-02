@@ -35,7 +35,7 @@ export const calculateHandicapDifferential = (
 };
 
 /**
- * Calculate handicap index from differentials using USGA rules
+ * Calculate handicap index from differentials using USGA 2020+ rules
  * @param differentials - Array of handicap differentials (best first)
  * @returns Handicap index rounded to 1 decimal place
  */
@@ -56,17 +56,32 @@ export const calculateHandicapIndex = (differentials: number[]): number => {
     const best8 = validDifferentials.slice(0, 8);
     const average = best8.reduce((sum, diff) => sum + diff, 0) / 8;
     handicapIndex = average * 0.96; // USGA formula
+  } else if (validDifferentials.length >= 15) {
+    // Use best 7 out of last 15
+    const best7 = validDifferentials.slice(0, 7);
+    const average = best7.reduce((sum, diff) => sum + diff, 0) / 7;
+    handicapIndex = average * 0.96;
   } else if (validDifferentials.length >= 10) {
-    // Use best 3 out of last 10
+    // Use best 6 out of last 10
+    const best6 = validDifferentials.slice(0, 6);
+    const average = best6.reduce((sum, diff) => sum + diff, 0) / 6;
+    handicapIndex = average * 0.96;
+  } else if (validDifferentials.length >= 5) {
+    // Use best 5 out of last 5
+    const best5 = validDifferentials.slice(0, 5);
+    const average = best5.reduce((sum, diff) => sum + diff, 0) / 5;
+    handicapIndex = average * 0.96;
+  } else if (validDifferentials.length >= 3) {
+    // Use best 3 out of last 3
     const best3 = validDifferentials.slice(0, 3);
     const average = best3.reduce((sum, diff) => sum + diff, 0) / 3;
     handicapIndex = average * 0.96;
-  } else if (validDifferentials.length >= 5) {
-    // Use best 1 out of last 5
+  } else if (validDifferentials.length >= 1) {
+    // Use best 1 out of last 1
     handicapIndex = validDifferentials[0] * 0.96;
   } else {
-    // Use the best differential available
-    handicapIndex = validDifferentials[0] * 0.96;
+    // No valid differentials
+    return 0;
   }
 
   // Round to 1 decimal place

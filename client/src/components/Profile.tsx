@@ -506,6 +506,57 @@ const Profile: React.FC = () => {
     fileInputRef.current?.click();
   };
 
+  // Function to determine which rounds are used for handicap calculation
+  const getHandicapRounds = (rounds: Array<{ id: number; date_played: string; course_name: string; total_strokes: number; differential: number | null; round_type: string }>) => {
+    // Filter rounds with valid differentials and sort by date (newest first)
+    const validRounds = rounds
+      .filter(round => round.differential !== null)
+      .sort((a, b) => new Date(b.date_played).getTime() - new Date(a.date_played).getTime());
+    
+    console.log('Handicap calculation debug:', {
+      totalRounds: rounds.length,
+      roundsWithDifferentials: validRounds.length,
+      roundsWithoutDifferentials: rounds.length - validRounds.length,
+      roundsWithoutDifferentialsList: rounds.filter(round => round.differential === null).map(r => ({ id: r.id, course: r.course_name, date: r.date_played }))
+    });
+    
+    if (validRounds.length === 0) return [];
+    
+    let roundsToUse: typeof validRounds = [];
+    
+    // USGA Handicap System 2020+ rules
+    if (validRounds.length >= 20) {
+      // Use best 8 out of last 20
+      roundsToUse = validRounds.slice(0, 20).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 8);
+      console.log('Using best 8 out of last 20 (20+ rounds available)');
+    } else if (validRounds.length >= 15) {
+      // Use best 7 out of last 15
+      roundsToUse = validRounds.slice(0, 15).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 7);
+      console.log('Using best 7 out of last 15 (15-19 rounds available)');
+    } else if (validRounds.length >= 10) {
+      // Use best 6 out of last 10
+      roundsToUse = validRounds.slice(0, 10).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 6);
+      console.log('Using best 6 out of last 10 (10-14 rounds available)');
+    } else if (validRounds.length >= 5) {
+      // Use best 5 out of last 5
+      roundsToUse = validRounds.slice(0, 5).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 5);
+      console.log('Using best 5 out of last 5 (5-9 rounds available)');
+    } else if (validRounds.length >= 3) {
+      // Use best 3 out of last 3
+      roundsToUse = validRounds.slice(0, 3).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 3);
+      console.log('Using best 3 out of last 3 (3-4 rounds available)');
+    } else if (validRounds.length >= 1) {
+      // Use best 1 out of last 1
+      roundsToUse = validRounds.slice(0, 1).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 1);
+      console.log('Using best 1 out of last 1 (1-2 rounds available)');
+    }
+    
+    console.log('Rounds being used for handicap:', roundsToUse.map(r => ({ id: r.id, course: r.course_name, differential: r.differential })));
+    
+    // Return the IDs of rounds being used for handicap calculation
+    return roundsToUse.map(round => round.id);
+  };
+
   // Function to check for handicap changes
   const checkHandicapChanges = (oldUser: User | null, newUser: User | null) => {
     console.log('checkHandicapChanges called with:', { oldUser, newUser });
@@ -1100,28 +1151,74 @@ const Profile: React.FC = () => {
                   <div>
                     <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
                       <Clock className="w-5 h-5 mr-2" />
-                      Recent Simulator Rounds
+                      Recent Simulator Rounds ({simStats.recent_rounds.slice(0, 20).length} of {simStats.total_rounds})
                     </h3>
-                    <div className="space-y-3">
-                      {simStats.recent_rounds.slice(0, 5).map((round, index) => (
-                        <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                          <div>
-                            <div className="font-medium text-gray-900">{round.course_name}</div>
-                            <div className="text-sm text-gray-600">
-                              {new Date(round.date_played).toLocaleDateString()} • {round.round_type}
+                    <div className="max-h-96 overflow-y-auto space-y-3 pr-2">
+                      {(() => {
+                        const handicapRoundIds = getHandicapRounds(simStats.recent_rounds);
+                        return simStats.recent_rounds.slice(0, 20).map((round, index) => {
+                          const isHandicapRound = handicapRoundIds.includes(round.id);
+                          return (
+                            <div key={index} className={`flex items-center justify-between p-3 rounded-lg ${
+                              isHandicapRound ? 'bg-green-50 border border-green-200' : 'bg-gray-50'
+                            }`}>
+                                                          <div className="flex items-center space-x-3">
+                              <div>
+                                <div className="font-medium text-gray-900">{round.course_name}</div>
+                                <div className="text-sm text-gray-600">
+                                  {new Date(round.date_played).toLocaleDateString()} • {round.round_type}
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-1">
+                                {isHandicapRound && (
+                                  <>
+                                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                    <span className="text-xs text-green-700 font-medium">Handicap</span>
+                                  </>
+                                )}
+                                {!round.differential && (
+                                  <>
+                                    <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                                    <span className="text-xs text-gray-600">No Differential</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                              <div className="text-right">
+                                <div className="font-semibold text-gray-900">{round.total_strokes} strokes</div>
+                                {round.differential && (
+                                  <div className={`text-sm ${isHandicapRound ? 'text-green-700 font-medium' : 'text-gray-600'}`}>
+                                    {Number(round.differential).toFixed(1)} differential
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                    {(() => {
+                      const handicapRoundIds = getHandicapRounds(simStats.recent_rounds);
+                      const handicapRoundsCount = handicapRoundIds.length;
+                      const totalRounds = simStats.recent_rounds.length;
+                      const roundsWithDifferentials = simStats.recent_rounds.filter(r => r.differential !== null).length;
+                      const roundsWithoutDifferentials = totalRounds - roundsWithDifferentials;
+                      
+                      if (handicapRoundsCount > 0) {
+                        return (
+                          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <div className="text-sm text-blue-800 space-y-1">
+                              <div><strong>Handicap Calculation:</strong> Using {handicapRoundsCount} best differential{handicapRoundsCount !== 1 ? 's' : ''} from your recent rounds</div>
+                              <div className="text-xs text-blue-600">
+                                {roundsWithDifferentials} of {totalRounds} rounds have differentials
+                                {roundsWithoutDifferentials > 0 && ` • ${roundsWithoutDifferentials} rounds missing course rating/slope data`}
+                              </div>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className="font-semibold text-gray-900">{round.total_strokes} strokes</div>
-                            {round.differential && (
-                              <div className="text-sm text-gray-600">
-                                {Number(round.differential).toFixed(1)} differential
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 )}
               </div>
