@@ -119,7 +119,8 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
   const handicapDifferential = calculateHandicapDifferential(
     totalStrokes,
     course?.teeboxData?.courseRating || 0,
-    course?.teeboxData?.courseSlope || 0
+    course?.teeboxData?.courseSlope || 0,
+    holes // pass holes (9 or 18)
   );
 
   const updatePlayerInfo = (field: keyof PlayerInfo, value: string | number) => {

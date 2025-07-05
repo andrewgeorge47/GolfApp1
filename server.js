@@ -1823,7 +1823,9 @@ async function updateUserProfilesForExistingMatches() {
         ADD COLUMN IF NOT EXISTS course_name VARCHAR(255),
         ADD COLUMN IF NOT EXISTS differential NUMERIC,
         ADD COLUMN IF NOT EXISTS csv_timestamp VARCHAR(50),
-        ADD COLUMN IF NOT EXISTS round_type VARCHAR(20) DEFAULT 'sim'
+        ADD COLUMN IF NOT EXISTS round_type VARCHAR(20) DEFAULT 'sim',
+        ADD COLUMN IF NOT EXISTS holes_played INTEGER DEFAULT 18,
+        ADD COLUMN IF NOT EXISTS nine_type VARCHAR(10) DEFAULT NULL
       `);
     console.log('Scorecards table migration complete.');
     
@@ -1917,9 +1919,24 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
     !isNaN(parseFloat(course_slope)) &&
     parseFloat(course_slope) !== 0
   ) {
-    differential = ((parseFloat(total_strokes) - parseFloat(course_rating)) * 113) / parseFloat(course_slope);
-    differential = Math.round(differential * 1000000) / 1000000; // round to 6 decimals for consistency
-    console.log('Differential calculated:', differential); // Debug log
+    // Get holes played from request body, default to 18
+    const holesPlayed = req.body.holes_played || 18;
+    const nineType = req.body.nine_type || null;
+    let usedRating = parseFloat(course_rating);
+    let usedSlope = parseFloat(course_slope);
+    let baseDifferential;
+    if (holesPlayed === 9) {
+      // Always halve rating and slope for 9-hole rounds (since all are 18-hole values)
+      usedRating = usedRating / 2;
+      usedSlope = usedSlope / 2;
+      baseDifferential = ((parseFloat(total_strokes) - usedRating) * 113) / usedSlope;
+      baseDifferential = baseDifferential * 2; // Double for USGA 9-hole rule
+      console.log('9-hole round: halved rating/slope, doubled differential');
+    } else {
+      baseDifferential = ((parseFloat(total_strokes) - usedRating) * 113) / usedSlope;
+    }
+    differential = Math.round(baseDifferential * 1000000) / 1000000; // round to 6 decimals for consistency
+    console.log('Differential calculated:', differential, 'for', holesPlayed, 'holes'); // Debug log
   } else {
     console.log('Differential calculation failed - missing or invalid data'); // Debug log
   }
@@ -1981,8 +1998,8 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
     const parsedHandicap = handicap ? parseFloat(handicap) : 0;
     
     const { rows } = await pool.query(
-      `INSERT INTO scorecards (user_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, differential, course_name, course_id, teebox)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
+      `INSERT INTO scorecards (user_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, differential, course_name, course_id, teebox, holes_played, nine_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
       [
         req.user.member_id,
         type,
@@ -1999,7 +2016,9 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
         differential,
         course_name || null,
         course_id,
-        teebox || null
+        teebox || null,
+        req.body.holes_played || 18,
+        req.body.nine_type || null
       ]
     );
     
@@ -2326,7 +2345,7 @@ async function calculateAndUpdateUserHandicap(userId) {
 
     // Calculate sim handicap
     const { rows: simScorecards } = await pool.query(`
-      SELECT differential, date_played
+      SELECT differential, date_played, holes_played, nine_type
       FROM scorecards
       WHERE user_id = $1 
         AND differential IS NOT NULL 
@@ -2337,7 +2356,7 @@ async function calculateAndUpdateUserHandicap(userId) {
 
     // Calculate grass handicap
     const { rows: grassScorecards } = await pool.query(`
-      SELECT differential, date_played
+      SELECT differential, date_played, holes_played, nine_type
       FROM scorecards
       WHERE user_id = $1 
         AND differential IS NOT NULL 
@@ -2378,7 +2397,11 @@ async function calculateAndUpdateUserHandicap(userId) {
       [simHandicap, grassHandicap, userId]
     );
 
-    console.log(`${user.first_name} ${user.last_name}: Sim: ${simHandicap} (${simScorecards.length} rounds), Grass: ${grassHandicap} (${grassScorecards.length} rounds)`);
+    // Log 9-hole round information
+    const simNineHoleRounds = simScorecards.filter(s => s.holes_played === 9).length;
+    const grassNineHoleRounds = grassScorecards.filter(s => s.holes_played === 9).length;
+    
+    console.log(`${user.first_name} ${user.last_name}: Sim: ${simHandicap} (${simScorecards.length} rounds, ${simNineHoleRounds} 9-hole), Grass: ${grassHandicap} (${grassScorecards.length} rounds, ${grassNineHoleRounds} 9-hole)`);
   } catch (error) {
     console.error('Error calculating handicap for user:', error);
   }
@@ -2401,7 +2424,7 @@ async function calculateAndUpdateHandicaps() {
     for (const user of users) {
       // Calculate sim handicap
       const { rows: simScorecards } = await pool.query(`
-        SELECT differential, date_played
+        SELECT differential, date_played, holes_played, nine_type
         FROM scorecards
         WHERE user_id = $1 
           AND differential IS NOT NULL 
@@ -2412,7 +2435,7 @@ async function calculateAndUpdateHandicaps() {
 
       // Calculate grass handicap
       const { rows: grassScorecards } = await pool.query(`
-        SELECT differential, date_played
+        SELECT differential, date_played, holes_played, nine_type
         FROM scorecards
         WHERE user_id = $1 
           AND differential IS NOT NULL 
@@ -2453,7 +2476,11 @@ async function calculateAndUpdateHandicaps() {
         [simHandicap, grassHandicap, user.member_id]
       );
 
-      console.log(`${user.first_name} ${user.last_name}: Sim: ${simHandicap} (${simScorecards.length} rounds), Grass: ${grassHandicap} (${grassScorecards.length} rounds)`);
+      // Log 9-hole round information
+      const simNineHoleRounds = simScorecards.filter(s => s.holes_played === 9).length;
+      const grassNineHoleRounds = grassScorecards.filter(s => s.holes_played === 9).length;
+      
+      console.log(`${user.first_name} ${user.last_name}: Sim: ${simHandicap} (${simScorecards.length} rounds, ${simNineHoleRounds} 9-hole), Grass: ${grassHandicap} (${grassScorecards.length} rounds, ${grassNineHoleRounds} 9-hole)`);
     }
 
     console.log('Handicap calculation complete!');

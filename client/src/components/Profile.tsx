@@ -283,7 +283,9 @@ const Profile: React.FC = () => {
         course_name: selectedCourse?.name || scoreCardData.course_name || '',
         teebox: selectedCourse?.teeboxData?.teebox || scoreCardData.teebox || null,
         course_rating: selectedCourse?.teeboxData?.courseRating || scoreCardData.course_rating || null,
-        course_slope: selectedCourse?.teeboxData?.courseSlope || scoreCardData.course_slope || null
+        course_slope: selectedCourse?.teeboxData?.courseSlope || scoreCardData.course_slope || null,
+        holes_played: holes || 18,
+        nine_type: nineType || null
       };
 
       console.log('Selected course teebox data:', selectedCourse?.teeboxData); // Debug log

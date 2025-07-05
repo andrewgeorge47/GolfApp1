@@ -12,7 +12,8 @@
 export const calculateHandicapDifferential = (
   totalStrokes: number,
   courseRating: number,
-  courseSlope: number
+  courseSlope: number,
+  holesPlayed: number = 18
 ): number | null => {
   // Validate inputs
   if (
@@ -27,9 +28,18 @@ export const calculateHandicapDifferential = (
     return null;
   }
 
-  // USGA formula: ((Score - Course Rating) × 113) ÷ Slope Rating
-  const differential = ((totalStrokes - courseRating) * 113) / courseSlope;
-  
+  let usedRating = courseRating;
+  let usedSlope = courseSlope;
+  let differential: number;
+  if (holesPlayed === 9) {
+    usedRating = usedRating / 2;
+    usedSlope = usedSlope / 2;
+    differential = ((totalStrokes - usedRating) * 113) / usedSlope;
+    differential = differential * 2; // Double for USGA 9-hole rule
+  } else {
+    differential = ((totalStrokes - usedRating) * 113) / usedSlope;
+  }
+
   // Round to 6 decimal places for consistency with server calculations
   return Math.round(differential * 1000000) / 1000000;
 };
