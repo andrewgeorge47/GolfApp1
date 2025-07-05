@@ -2861,12 +2861,26 @@ app.get('/api/users/:id/combined-stats', authenticateToken, async (req, res) => 
   }
 });
 
-// Google Cloud Storage setup using environment variables
-const gcs = new Storage({
-  projectId: process.env.GCP_PROJECT_ID,
-  keyFilename: process.env.GCS_KEYFILE_PATH
-});
-const bucket = gcs.bucket(process.env.GCS_BUCKET_NAME);
+// Google Cloud Storage setup using environment variables (conditional)
+let gcs = null;
+let bucket = null;
+
+if (process.env.GCP_PROJECT_ID && process.env.GCS_BUCKET_NAME && process.env.GCS_KEYFILE_PATH) {
+  try {
+    gcs = new Storage({
+      projectId: process.env.GCP_PROJECT_ID,
+      keyFilename: process.env.GCS_KEYFILE_PATH
+    });
+    bucket = gcs.bucket(process.env.GCS_BUCKET_NAME);
+    console.log('Google Cloud Storage initialized successfully');
+  } catch (error) {
+    console.warn('Google Cloud Storage initialization failed:', error.message);
+    gcs = null;
+    bucket = null;
+  }
+} else {
+  console.log('Google Cloud Storage not configured - file uploads will be disabled');
+}
 
 // Use memory storage for multer
 const upload = multer({
@@ -2886,6 +2900,11 @@ app.post('/api/users/profile-photo', authenticateToken, upload.single('profilePh
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Check if GCS is configured
+    if (!gcs || !bucket) {
+      return res.status(503).json({ error: 'File upload service is not configured' });
     }
 
     const userId = req.user.member_id;
