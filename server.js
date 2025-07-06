@@ -277,7 +277,7 @@ app.put('/api/users/:id', async (req, res) => {
       [first_name, last_name, email, club, handicap, id]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
-    res.json(rows[0]);
+    res.json(transformUserData(rows[0]));
   } catch (err) {
     console.error('Error updating user:', err);
     res.status(500).json({ error: 'Failed to update user' });
@@ -642,7 +642,7 @@ app.post('/api/auth/register', async (req, res) => {
     );
 
     const token = jwt.sign({ member_id: user.member_id, email_address: user.email_address, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user });
+    res.json({ token, user: transformUserData(user) });
   } catch (err) {
     if (err.code === '23505') {
       res.status(409).json({ error: 'Email already exists' });
@@ -719,7 +719,7 @@ app.post('/api/auth/claim-account', async (req, res) => {
     
     // Generate token and log user in
     const token = jwt.sign({ member_id: updatedUser.member_id, email_address: updatedUser.email_address, role: updatedUser.role }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user: updatedUser });
+    res.json({ token, user: transformUserData(updatedUser) });
   } catch (err) {
     console.error('Error claiming account:', err);
     res.status(500).json({ error: 'Failed to claim account' });
@@ -761,7 +761,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     
     // Generate token and log user in
     const token = jwt.sign({ member_id: updatedUser.member_id, email_address: updatedUser.email_address, role: updatedUser.role }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user: updatedUser });
+    res.json({ token, user: transformUserData(updatedUser) });
   } catch (err) {
     console.error('Error resetting password:', err);
     res.status(500).json({ error: 'Failed to reset password' });
@@ -785,7 +785,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     const token = jwt.sign({ member_id: user.member_id, email_address: user.email_address, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user });
+    res.json({ token, user: transformUserData(user) });
   } catch (err) {
     console.error('Error logging in:', err);
     res.status(500).json({ error: 'Failed to login' });
@@ -798,7 +798,7 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     const result = await pool.query('SELECT * FROM users WHERE member_id = $1', [req.user.member_id]);
     const user = result.rows[0];
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json({ user });
+    res.json({ user: transformUserData(user) });
   } catch (err) {
     console.error('Error fetching user info:', err);
     res.status(500).json({ error: 'Failed to fetch user info' });
@@ -4561,3 +4561,13 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch club leaderboard' });
   }
 });
+
+// Helper function to transform user data from database format to frontend format
+function transformUserData(user) {
+  if (!user) return null;
+  return {
+    ...user,
+    email: user.email_address, // Map email_address to email for frontend
+    email_address: user.email_address // Keep original for backward compatibility
+  };
+}
