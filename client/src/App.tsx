@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
-import { Home, Users, Trophy, Settings, BarChart3, Plus, User, Menu, X, MapPin } from 'lucide-react';
+import { Home, Users, Trophy, Settings, BarChart3, Plus, User, Menu, X, MapPin, Award } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Leaderboard from './components/Leaderboard';
 import Scoring from './components/Scoring';
@@ -9,6 +9,7 @@ import TournamentManagement from './components/TournamentManagement';
 import Profile from './components/Profile';
 import SimulatorCourses from './components/SimulatorCourses';
 import UserTrackingPage from './components/UserTrackingPage';
+import AvailableTournaments from './components/AvailableTournaments';
 import { AuthProvider, useAuth } from './AuthContext';
 import Login from './components/Login';
 import PasswordSetup from './components/PasswordSetup';
@@ -163,6 +164,7 @@ function AppContent() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/leaderboard" element={<Leaderboard />} />
+              <Route path="/tournaments" element={<ProtectedRoute><AvailableTournaments /></ProtectedRoute>} />
               <Route path="/scoring" element={<Scoring />} />
               <Route path="/simulator-courses" element={<SimulatorCourses />} />
               <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />

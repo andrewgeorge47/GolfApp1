@@ -2725,7 +2725,7 @@ app.get('/api/tournaments/available', async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT * FROM tournaments 
-      WHERE status IN ('draft', 'active') 
+      WHERE status IN ('open') 
       AND registration_open = true 
       AND (registration_deadline IS NULL OR registration_deadline >= CURRENT_DATE)
       ORDER BY start_date ASC, id DESC
@@ -2734,6 +2734,26 @@ app.get('/api/tournaments/available', async (req, res) => {
   } catch (err) {
     console.error('Error fetching available tournaments:', err);
     res.status(500).json({ error: 'Failed to fetch available tournaments' });
+  }
+});
+
+// Get tournaments that a user is registered for
+app.get('/api/tournaments/user/:userId', async (req, res) => {
+  const { userId } = req.params;
+  
+  try {
+    const { rows } = await pool.query(`
+      SELECT t.*
+      FROM tournaments t
+      INNER JOIN participation p ON t.id = p.tournament_id
+      WHERE p.user_member_id = $1
+      ORDER BY t.start_date ASC, t.id DESC
+    `, [userId]);
+    
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching user tournaments:', err);
+    res.status(500).json({ error: 'Failed to fetch user tournaments' });
   }
 });
 

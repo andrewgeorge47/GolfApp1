@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
-import { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser } from '../services/api';
-import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser, getUserTournaments } from '../services/api';
+import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
 import ScoreCard from './ScoreCard';
 import StrokePlayScoreCard from './StrokePlayScoreCard';
@@ -18,6 +18,7 @@ const Profile: React.FC = () => {
   const [simStats, setSimStats] = useState<SimStats | null>(null);
   const [combinedStats, setCombinedStats] = useState<SimStats | null>(null);
   const [courseRecords, setCourseRecords] = useState<UserCourseRecord[]>([]);
+  const [userTournaments, setUserTournaments] = useState<any[]>([]);
   const [statsTab, setStatsTab] = useState<'overview' | 'sim' | 'records'>('overview');
   const [formData, setFormData] = useState({
     first_name: user?.first_name || '',
@@ -54,12 +55,13 @@ const Profile: React.FC = () => {
         console.log('Fetching data for user ID:', user.member_id);
         console.log('User data:', user);
         
-        const [profileResponse, matchesResponse, simStatsResponse, combinedStatsResponse, courseRecordsResponse] = await Promise.all([
+        const [profileResponse, matchesResponse, simStatsResponse, combinedStatsResponse, courseRecordsResponse, userTournamentsResponse] = await Promise.all([
           getUserProfile(user.member_id),
           getMatches(),
           getUserSimStats(user.member_id),
           getUserCombinedStats(user.member_id),
-          getUserCourseRecords(user.member_id)
+          getUserCourseRecords(user.member_id),
+          getUserTournaments(user.member_id)
         ]);
         
         console.log('Sim stats response:', simStatsResponse.data);
@@ -74,6 +76,7 @@ const Profile: React.FC = () => {
         setSimStats(simStatsResponse.data);
         setCombinedStats(combinedStatsResponse.data);
         setCourseRecords(courseRecordsResponse.data);
+        setUserTournaments(userTournamentsResponse.data);
         
         // After updating stats, we need to refresh the user data to get updated handicaps
         // This will be handled by the parent component or context
@@ -1206,6 +1209,66 @@ const Profile: React.FC = () => {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* My Tournaments */}
+      {userTournaments.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-brand-black flex items-center">
+              <Trophy className="w-6 h-6 mr-3" />
+              My Tournaments
+            </h2>
+            <Link
+              to="/tournaments"
+              className="flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors"
+            >
+              <Award className="w-4 h-4 mr-2" />
+              Browse All Tournaments
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {userTournaments.map((tournament) => (
+              <div key={tournament.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-brand-neon-green transition-all group">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold text-brand-black group-hover:text-brand-neon-green transition-colors">
+                    {tournament.name}
+                  </h3>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    tournament.status === 'active' ? 'bg-green-100 text-green-800' :
+                    tournament.status === 'open' ? 'bg-blue-100 text-blue-800' :
+                    tournament.status === 'completed' ? 'bg-gray-100 text-gray-800' :
+                    tournament.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                    'bg-yellow-100 text-yellow-800'
+                  }`}>
+                    {tournament.status || 'draft'}
+                  </span>
+                </div>
+                <div className="text-sm text-neutral-600 mb-2">
+                  {tournament.tournament_format || 'match_play'} • {tournament.type || 'tournament'}
+                </div>
+                {tournament.start_date && (
+                  <div className="text-xs text-neutral-500 mb-2">
+                    <Calendar className="inline w-4 h-4 mr-1" />
+                    {new Date(tournament.start_date).toLocaleDateString()}
+                  </div>
+                )}
+                {tournament.location && (
+                  <div className="text-xs text-neutral-500 mb-2">
+                    <MapPin className="inline w-4 h-4 mr-1" />
+                    {tournament.location}
+                  </div>
+                )}
+                {tournament.entry_fee && tournament.entry_fee > 0 && (
+                  <div className="text-xs text-neutral-500 mb-2">
+                    <DollarSign className="inline w-4 h-4 mr-1" />
+                    ${tournament.entry_fee} entry fee
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
