@@ -5,6 +5,7 @@ import Dashboard from './components/Dashboard';
 import Leaderboard from './components/Leaderboard';
 import Scoring from './components/Scoring';
 import Admin from './components/Admin';
+import TournamentManagement from './components/TournamentManagement';
 import Profile from './components/Profile';
 import SimulatorCourses from './components/SimulatorCourses';
 import UserTrackingPage from './components/UserTrackingPage';
@@ -156,6 +157,7 @@ function AppContent() {
               <Route path="/simulator-courses" element={<SimulatorCourses />} />
               <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
               <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
+              <Route path="/tournament-management" element={<ProtectedRoute><TournamentManagement /></ProtectedRoute>} />
               <Route path="/user-tracking" element={<ProtectedRoute><UserTrackingPage /></ProtectedRoute>} />
               <Route path="/login" element={<Login />} />
               <Route path="/claim-account" element={<ClaimAccount />} />

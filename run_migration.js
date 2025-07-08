@@ -10,10 +10,10 @@ const pool = new Pool({
 
 async function runMigration() {
   try {
-    console.log('Running migration to add created_at column to users table...');
+    console.log('Running migration to add team_size and hole_count columns to tournaments table...');
     
     // Read the SQL migration file
-    const sql = fs.readFileSync('add_created_at_to_users.sql', 'utf8');
+    const sql = fs.readFileSync('add_team_size_to_tournaments.sql', 'utf8');
     // Split by semicolon, filter out empty statements
     const statements = sql.split(';').map(s => s.trim()).filter(Boolean);
     
@@ -25,17 +25,23 @@ async function runMigration() {
     
     console.log('Migration completed successfully!');
     
-    // Verify the column was added
+    // Verify the columns were added
     const result = await pool.query(`
       SELECT column_name, data_type 
       FROM information_schema.columns 
-      WHERE table_name = 'users' AND column_name = 'created_at'
+      WHERE table_name = 'tournaments' AND column_name IN (
+        'team_size', 'hole_count', 'tee', 'pins', 'putting_gimme', 
+        'elevation', 'stimp', 'mulligan', 'game_play', 'firmness', 
+        'wind', 'handicap_enabled'
+      )
     `);
     
-    if (result.rows.length > 0) {
-      console.log('✅ created_at column successfully added to users table');
+    if (result.rows.length === 12) {
+      console.log('✅ All simulator settings columns successfully added to tournaments table');
     } else {
-      console.log('❌ created_at column not found in users table');
+      console.log('❌ Some columns not found in tournaments table');
+      console.log('Found columns:', result.rows.map(r => r.column_name));
+      console.log('Expected 12 columns, found', result.rows.length);
     }
     
   } catch (error) {

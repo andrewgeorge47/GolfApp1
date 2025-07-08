@@ -65,9 +65,23 @@ export interface Tournament {
   entry_fee?: number;
   location?: string;
   course?: string;
+  course_id?: number;
   rules?: string;
   notes?: string;
   type: string;
+  club_restriction?: string;
+  team_size?: number;
+  hole_configuration?: string;
+  tee?: string;
+  pins?: string;
+  putting_gimme?: string;
+  elevation?: string;
+  stimp?: string;
+  mulligan?: string;
+  game_play?: string;
+  firmness?: string;
+  wind?: string;
+  handicap_enabled?: boolean;
   created_by?: number;
   created_at?: string;
   updated_at?: string;
@@ -463,16 +477,62 @@ export const createTournament = (data: {
   entry_fee?: number;
   location?: string;
   course?: string;
+  course_id?: number;
   rules?: string;
   notes?: string; 
   type?: string;
+  club_restriction?: string;
+  team_size?: number;
+  hole_configuration?: string;
+  tee?: string;
+  pins?: string;
+  putting_gimme?: string;
+  elevation?: string;
+  stimp?: string;
+  mulligan?: string;
+  game_play?: string;
+  firmness?: string;
+  wind?: string;
+  handicap_enabled?: boolean;
   created_by?: number;
 }) => api.post('/tournaments', data);
 
 export const getTournaments = () => api.get('/tournaments');
 export const getTournamentsByStatus = (status: string) => api.get(`/tournaments/status/${status}`);
 export const getAvailableTournaments = () => api.get('/tournaments/available');
-export const updateTournament = (id: number, data: any) => api.put(`/tournaments/${id}`, data);
+export const updateTournament = (id: number, data: {
+  name?: string;
+  description?: string;
+  start_date?: string;
+  end_date?: string;
+  registration_deadline?: string;
+  max_participants?: number;
+  min_participants?: number;
+  tournament_format?: string;
+  status?: string;
+  registration_open?: boolean;
+  entry_fee?: number;
+  location?: string;
+  course?: string;
+  course_id?: number;
+  rules?: string;
+  notes?: string;
+  type?: string;
+  club_restriction?: string;
+  team_size?: number;
+  hole_configuration?: string;
+  tee?: string;
+  pins?: string;
+  putting_gimme?: string;
+  elevation?: string;
+  stimp?: string;
+  mulligan?: string;
+  game_play?: string;
+  firmness?: string;
+  wind?: string;
+  handicap_enabled?: boolean;
+  created_by?: number;
+}) => api.put(`/tournaments/${id}`, data);
 export const deleteTournament = (id: number) => api.delete(`/tournaments/${id}`);
 
 // Tournament formation management
@@ -499,6 +559,71 @@ export const generateTournamentMatches = (tournamentId: number, format: string, 
   api.post(`/tournaments/${tournamentId}/generate-matches`, { format, minMatchesPerPlayer });
 export const updateTournamentMatch = (tournamentId: number, matchId: number, data: any) => 
   api.put(`/tournaments/${tournamentId}/matches/${matchId}`, data);
+
+// Team management API functions
+export interface Team {
+  id: number;
+  tournament_id: number;
+  name: string;
+  captain_id: number;
+  captain_first_name: string;
+  captain_last_name: string;
+  captain_club: string;
+  max_players: number;
+  created_at: string;
+  updated_at: string;
+  players: Array<{
+    user_member_id: number;
+    first_name: string;
+    last_name: string;
+    club: string;
+  }>;
+}
+
+export interface TeamScore {
+  id: number;
+  team_id: number;
+  tournament_id: number;
+  total_score: number;
+  hole_scores?: any;
+  submitted_by: number;
+  submitted_at: string;
+  team_name: string;
+  captain_first_name: string;
+  captain_last_name: string;
+  captain_club: string;
+  players: Array<{
+    user_member_id: number;
+    first_name: string;
+    last_name: string;
+    club: string;
+    is_captain: boolean;
+  }>;
+}
+
+export const createTeam = (tournamentId: number, data: { 
+  name: string; 
+  captain_id: number; 
+  player_ids?: number[]; 
+}) => api.post<Team>(`/tournaments/${tournamentId}/teams`, data);
+
+export const getTeams = (tournamentId: number) => api.get<Team[]>(`/tournaments/${tournamentId}/teams`);
+
+export const updateTeam = (tournamentId: number, teamId: number, data: { 
+  name?: string; 
+  captain_id?: number; 
+  player_ids?: number[]; 
+}) => api.put<Team>(`/tournaments/${tournamentId}/teams/${teamId}`, data);
+
+export const deleteTeam = (tournamentId: number, teamId: number) => api.delete(`/tournaments/${tournamentId}/teams/${teamId}`);
+
+export const submitTeamScore = (tournamentId: number, teamId: number, data: { 
+  total_score: number; 
+  hole_scores?: any; 
+  submitted_by: number; 
+}) => api.post<TeamScore>(`/tournaments/${tournamentId}/teams/${teamId}/score`, data);
+
+export const getTeamScores = (tournamentId: number) => api.get<TeamScore[]>(`/tournaments/${tournamentId}/team-scores`);
 
 // Simulator Courses
 export const getSimulatorCourses = (search?: string, platform?: string, limit?: number) => {

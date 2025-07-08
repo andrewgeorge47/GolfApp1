@@ -103,7 +103,9 @@ const Admin: React.FC = () => {
         min_participants: '8',
         max_participants: '32',
         entry_fee: '50',
-        status: 'draft'
+        status: 'draft',
+        rules: 'Standard stroke play rules apply. Lowest total score wins. Ties will be decided by scorecard playoff.',
+        notes: 'Championship format - individual stroke play'
       }
     },
     {
@@ -116,7 +118,9 @@ const Admin: React.FC = () => {
         min_participants: '4',
         max_participants: '16',
         entry_fee: '25',
-        status: 'draft'
+        status: 'draft',
+        rules: 'Match play format. Win holes to win matches. Ties result in halved holes.',
+        notes: 'Match play format - head-to-head competition'
       }
     },
     {
@@ -130,20 +134,54 @@ const Admin: React.FC = () => {
         min_participants: '8',
         max_participants: '24',
         entry_fee: '100',
-        status: 'draft'
+        status: 'draft',
+        rules: 'League format with multiple rounds. Points awarded for wins, ties, and losses.',
+        notes: 'League format - ongoing competition'
       }
     },
     {
-      id: 'fun',
-      name: 'Fun Tournament',
+      id: 'scramble',
+      name: 'Scramble Tournament',
       icon: '🎉',
-      description: 'Casual tournament with scramble format',
+      description: 'Team scramble format tournament',
       settings: {
         tournament_format: 'scramble',
         min_participants: '4',
         max_participants: '20',
         entry_fee: '10',
-        status: 'draft'
+        status: 'draft',
+        rules: 'Scramble format. Teams of 4 players. All players hit, best shot is selected. Team captain submits final score.',
+        notes: 'Scramble format - team competition with 4 players per team'
+      }
+    },
+    {
+      id: 'best_ball',
+      name: 'Best Ball Tournament',
+      icon: '🎯',
+      description: 'Best ball format tournament',
+      settings: {
+        tournament_format: 'best_ball',
+        min_participants: '4',
+        max_participants: '16',
+        entry_fee: '15',
+        status: 'draft',
+        rules: 'Best ball format. Teams of 2 players. Each player plays their own ball, best score on each hole counts.',
+        notes: 'Best ball format - team competition with 2 players per team'
+      }
+    },
+    {
+      id: 'stableford',
+      name: 'Stableford Tournament',
+      icon: '📊',
+      description: 'Stableford scoring tournament',
+      settings: {
+        tournament_format: 'stableford',
+        min_participants: '4',
+        max_participants: '20',
+        entry_fee: '20',
+        status: 'draft',
+        rules: 'Stableford scoring. Points awarded based on score relative to par. Highest total points wins.',
+        notes: 'Stableford format - points-based scoring'
       }
     },
     {
@@ -1891,6 +1929,8 @@ const Admin: React.FC = () => {
               </div>
             </div>
           </div>
+
+
         </div>
       </div>
 

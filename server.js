@@ -941,9 +941,23 @@ app.post('/api/tournaments', async (req, res) => {
     entry_fee,
     location,
     course,
+    course_id,
     rules,
     notes, 
     type,
+    club_restriction,
+    team_size,
+    hole_configuration,
+    tee,
+    pins,
+    putting_gimme,
+    elevation,
+    stimp,
+    mulligan,
+    game_play,
+    firmness,
+    wind,
+    handicap_enabled,
     created_by
   } = req.body;
   
@@ -954,13 +968,19 @@ app.post('/api/tournaments', async (req, res) => {
       `INSERT INTO tournaments (
         name, description, start_date, end_date, registration_deadline,
         max_participants, min_participants, tournament_format, status,
-        registration_open, entry_fee, location, course, rules, notes, type, created_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
+        registration_open, entry_fee, location, course, course_id, rules, notes, type, 
+        club_restriction, team_size, hole_configuration, tee, pins, putting_gimme, elevation,
+        stimp, mulligan, game_play, firmness, wind, handicap_enabled, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31) RETURNING *`,
       [
         name, description, start_date, end_date, registration_deadline,
         max_participants, min_participants || 2, tournament_format || 'match_play', 
         status || 'draft', registration_open !== false, entry_fee || 0,
-        location, course, rules, notes, type || 'tournament', created_by
+        location, course, course_id, rules, notes, type || 'tournament', 
+        club_restriction || 'open', team_size, hole_configuration || '18', tee || 'Red',
+        pins || 'Friday', putting_gimme || '8', elevation || 'Course', stimp || '11',
+        mulligan || 'No', game_play || 'Force Realistic', firmness || 'Normal',
+        wind || 'None', handicap_enabled || false, created_by
       ]
     );
     res.json(rows[0]);
@@ -998,9 +1018,23 @@ app.put('/api/tournaments/:id', async (req, res) => {
     entry_fee,
     location,
     course,
+    course_id,
     rules,
     notes, 
     type,
+    club_restriction,
+    team_size,
+    hole_configuration,
+    tee,
+    pins,
+    putting_gimme,
+    elevation,
+    stimp,
+    mulligan,
+    game_play,
+    firmness,
+    wind,
+    handicap_enabled,
     created_by
   } = req.body;
   
@@ -1010,13 +1044,18 @@ app.put('/api/tournaments/:id', async (req, res) => {
         name = $1, description = $2, start_date = $3, end_date = $4, 
         registration_deadline = $5, max_participants = $6, min_participants = $7,
         tournament_format = $8, status = $9, registration_open = $10,
-        entry_fee = $11, location = $12, course = $13, rules = $14,
-        notes = $15, type = $16, created_by = $17, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $18 RETURNING *`,
+        entry_fee = $11, location = $12, course = $13, course_id = $14, rules = $15,
+        notes = $16, type = $17, club_restriction = $18, team_size = $19, hole_configuration = $20,
+        tee = $21, pins = $22, putting_gimme = $23, elevation = $24, stimp = $25,
+        mulligan = $26, game_play = $27, firmness = $28, wind = $29, handicap_enabled = $30,
+        created_by = $31, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $32 RETURNING *`,
       [
         name, description, start_date, end_date, registration_deadline,
         max_participants, min_participants, tournament_format, status,
-        registration_open, entry_fee, location, course, rules, notes, type, created_by, id
+        registration_open, entry_fee, location, course, course_id, rules, notes, type,
+        club_restriction, team_size, hole_configuration, tee, pins, putting_gimme, elevation,
+        stimp, mulligan, game_play, firmness, wind, handicap_enabled, created_by, id
       ]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Tournament not found' });
@@ -1479,6 +1518,476 @@ app.put('/api/tournaments/:id/matches/:matchId', async (req, res) => {
   } catch (err) {
     console.error('Error updating match:', err);
     res.status(500).json({ error: 'Failed to update match' });
+  }
+});
+
+// ===== TEAM MANAGEMENT ENDPOINTS =====
+
+// Create a new team for a tournament
+app.post('/api/tournaments/:id/teams', async (req, res) => {
+  const { id } = req.params;
+  const { name, captain_id, player_ids = [] } = req.body;
+  
+  if (!name || !captain_id) {
+    return res.status(400).json({ error: 'Team name and captain are required' });
+  }
+  
+  try {
+    // Check if tournament exists and is a scramble format
+    const tournamentResult = await pool.query(
+      'SELECT * FROM tournaments WHERE id = $1',
+      [id]
+    );
+    
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    const tournament = tournamentResult.rows[0];
+    if (tournament.tournament_format !== 'scramble') {
+      return res.status(400).json({ error: 'Teams can only be created for scramble tournaments' });
+    }
+    
+    // Check if captain is registered for tournament
+    const captainCheck = await pool.query(
+      'SELECT * FROM participation WHERE tournament_id = $1 AND user_member_id = $2',
+      [id, captain_id]
+    );
+    
+    if (captainCheck.rows.length === 0) {
+      return res.status(400).json({ error: 'Captain must be registered for the tournament' });
+    }
+    
+    // Check if team name is unique for this tournament
+    const nameCheck = await pool.query(
+      'SELECT * FROM tournament_teams WHERE tournament_id = $1 AND name = $2',
+      [id, name]
+    );
+    
+    if (nameCheck.rows.length > 0) {
+      return res.status(409).json({ error: 'Team name already exists for this tournament' });
+    }
+    
+    // Create the team
+    const teamResult = await pool.query(
+      'INSERT INTO tournament_teams (tournament_id, name, captain_id) VALUES ($1, $2, $3) RETURNING *',
+      [id, name, captain_id]
+    );
+    
+    const team = teamResult.rows[0];
+    
+    // Add captain as team member with is_captain = true
+    await pool.query(
+      'INSERT INTO team_members (team_id, user_member_id, is_captain) VALUES ($1, $2, true)',
+      [team.id, captain_id]
+    );
+    
+    // Add other team members (excluding captain)
+    if (player_ids.length > 0) {
+      const memberIds = player_ids.filter(playerId => playerId !== captain_id);
+      if (memberIds.length > 0) {
+        const memberValues = memberIds.map(playerId => `(${team.id}, ${playerId}, false)`).join(', ');
+        await pool.query(
+          `INSERT INTO team_members (team_id, user_member_id, is_captain) VALUES ${memberValues}`
+        );
+      }
+    }
+    
+    // Get complete team data with captain and members
+    const completeTeamResult = await pool.query(
+      `SELECT 
+        tt.*,
+        u.first_name as captain_first_name,
+        u.last_name as captain_last_name,
+        u.club as captain_club
+       FROM tournament_teams tt
+       JOIN users u ON tt.captain_id = u.member_id
+       WHERE tt.id = $1`,
+      [team.id]
+    );
+    
+    // Get team members
+    const membersResult = await pool.query(
+      `SELECT 
+        tm.user_member_id,
+        u.first_name,
+        u.last_name,
+        u.club,
+        tm.is_captain
+       FROM team_members tm
+       JOIN users u ON tm.user_member_id = u.member_id
+       WHERE tm.team_id = $1 AND tm.is_captain = false
+       ORDER BY u.last_name, u.first_name`,
+      [team.id]
+    );
+    
+    const completeTeam = {
+      ...completeTeamResult.rows[0],
+      players: membersResult.rows
+    };
+    
+    res.json(completeTeam);
+  } catch (err) {
+    console.error('Error creating team:', err);
+    res.status(500).json({ error: 'Failed to create team' });
+  }
+});
+
+// Get all teams for a tournament
+app.get('/api/tournaments/:id/teams', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // Get teams with captain information
+    const teamsResult = await pool.query(
+      `SELECT 
+        tt.*,
+        u.first_name as captain_first_name,
+        u.last_name as captain_last_name,
+        u.club as captain_club
+       FROM tournament_teams tt
+       JOIN users u ON tt.captain_id = u.member_id
+       WHERE tt.tournament_id = $1
+       ORDER BY tt.name`,
+      [id]
+    );
+    
+    // Get team members for each team
+    const teams = await Promise.all(teamsResult.rows.map(async (team) => {
+      const membersResult = await pool.query(
+        `SELECT 
+          tm.user_member_id,
+          u.first_name,
+          u.last_name,
+          u.club,
+          tm.is_captain
+         FROM team_members tm
+         JOIN users u ON tm.user_member_id = u.member_id
+         WHERE tm.team_id = $1 AND tm.is_captain = false
+         ORDER BY u.last_name, u.first_name`,
+        [team.id]
+      );
+      
+      return {
+        ...team,
+        players: membersResult.rows
+      };
+    }));
+    
+    res.json(teams);
+  } catch (err) {
+    console.error('Error fetching teams:', err);
+    res.status(500).json({ error: 'Failed to fetch teams' });
+  }
+});
+
+// Update a team
+app.put('/api/tournaments/:id/teams/:teamId', async (req, res) => {
+  const { id, teamId } = req.params;
+  const { name, captain_id, player_ids = [] } = req.body;
+  
+  try {
+    // Check if team exists
+    const teamCheck = await pool.query(
+      'SELECT * FROM tournament_teams WHERE id = $1 AND tournament_id = $2',
+      [teamId, id]
+    );
+    
+    if (teamCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+    
+    // Update team name and captain if provided
+    if (name || captain_id) {
+      const updateFields = [];
+      const updateValues = [];
+      let paramCount = 1;
+      
+      if (name) {
+        updateFields.push(`name = $${paramCount}`);
+        updateValues.push(name);
+        paramCount++;
+      }
+      
+      if (captain_id) {
+        updateFields.push(`captain_id = $${paramCount}`);
+        updateValues.push(captain_id);
+        paramCount++;
+      }
+      
+      updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
+      updateValues.push(teamId);
+      
+      await pool.query(
+        `UPDATE tournament_teams SET ${updateFields.join(', ')} WHERE id = $${paramCount}`,
+        updateValues
+      );
+    }
+    
+    // Update team members if provided
+    if (player_ids.length >= 0) {
+      // Remove existing members (but keep captain)
+      await pool.query(
+        'DELETE FROM team_members WHERE team_id = $1 AND is_captain = false',
+        [teamId]
+      );
+      
+      // Add new members (excluding captain)
+      const newCaptainId = captain_id || teamCheck.rows[0].captain_id;
+      const memberIds = player_ids.filter(playerId => playerId !== newCaptainId);
+      
+      if (memberIds.length > 0) {
+        const memberValues = memberIds.map(playerId => `(${teamId}, ${playerId}, false)`).join(', ');
+        await pool.query(
+          `INSERT INTO team_members (team_id, user_member_id, is_captain) VALUES ${memberValues}`
+        );
+      }
+    }
+    
+    // Get updated team data
+    const updatedTeamResult = await pool.query(
+      `SELECT 
+        tt.*,
+        u.first_name as captain_first_name,
+        u.last_name as captain_last_name,
+        u.club as captain_club
+       FROM tournament_teams tt
+       JOIN users u ON tt.captain_id = u.member_id
+       WHERE tt.id = $1`,
+      [teamId]
+    );
+    
+    // Get updated team members
+    const membersResult = await pool.query(
+      `SELECT 
+        tm.user_member_id,
+        u.first_name,
+        u.last_name,
+        u.club,
+        tm.is_captain
+       FROM team_members tm
+       JOIN users u ON tm.user_member_id = u.member_id
+       WHERE tm.team_id = $1 AND tm.is_captain = false
+       ORDER BY u.last_name, u.first_name`,
+      [teamId]
+    );
+    
+    const updatedTeam = {
+      ...updatedTeamResult.rows[0],
+      players: membersResult.rows
+    };
+    
+    res.json(updatedTeam);
+  } catch (err) {
+    console.error('Error updating team:', err);
+    res.status(500).json({ error: 'Failed to update team' });
+  }
+});
+
+// Delete a team
+app.delete('/api/tournaments/:id/teams/:teamId', async (req, res) => {
+  const { id, teamId } = req.params;
+  
+  try {
+    const { rows } = await pool.query(
+      'DELETE FROM tournament_teams WHERE id = $1 AND tournament_id = $2 RETURNING *',
+      [teamId, id]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+    
+    res.json({ success: true, message: 'Team deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting team:', err);
+    res.status(500).json({ error: 'Failed to delete team' });
+  }
+});
+
+// Submit team score
+app.post('/api/tournaments/:id/teams/:teamId/score', async (req, res) => {
+  const { id, teamId } = req.params;
+  const { total_score, hole_scores, submitted_by } = req.body;
+  
+  if (!total_score || !submitted_by) {
+    return res.status(400).json({ error: 'Total score and submitter are required' });
+  }
+  
+  try {
+    // Check if team exists and belongs to tournament
+    const teamCheck = await pool.query(
+      'SELECT * FROM tournament_teams WHERE id = $1 AND tournament_id = $2',
+      [teamId, id]
+    );
+    
+    if (teamCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+    
+    const team = teamCheck.rows[0];
+    
+    // Check if submitter is the team captain or an admin
+    console.log('Checking user permissions:', { submitted_by, team_captain_id: team.captain_id });
+    
+    const userCheck = await pool.query(
+      'SELECT role FROM users WHERE member_id = $1',
+      [submitted_by]
+    );
+    
+    console.log('User check result:', userCheck.rows);
+    
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found', submitted_by });
+    }
+    
+    const user = userCheck.rows[0];
+    const isAdmin = user.role === 'admin' || user.role === 'Admin';
+    const isClubPro = user.role === 'Club Pro';
+    const isCaptain = submitted_by === team.captain_id;
+    
+    console.log('Permission check:', { isAdmin, isClubPro, isCaptain, user_role: user.role });
+    
+    if (!isAdmin && !isClubPro && !isCaptain) {
+      return res.status(403).json({ error: 'Only team captain, admin, or club pro can submit scores' });
+    }
+    
+    // Convert hole_scores from array format to object format for storage
+    let holeScoresObject = null;
+    if (hole_scores && Array.isArray(hole_scores)) {
+      holeScoresObject = {};
+      hole_scores.forEach(hole => {
+        if (hole.hole && hole.score !== undefined) {
+          holeScoresObject[hole.hole] = hole.score;
+        }
+      });
+    } else if (hole_scores && typeof hole_scores === 'object') {
+      holeScoresObject = hole_scores;
+    }
+    
+    // Store hole-by-hole scores in tournament_team_scores table
+    const teamScoreResult = await pool.query(
+      `INSERT INTO tournament_team_scores (team_id, tournament_id, total_score, hole_scores, submitted_by)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (team_id, tournament_id) 
+       DO UPDATE SET 
+         total_score = $3,
+         hole_scores = $4,
+         submitted_by = $5,
+         submitted_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [teamId, id, total_score, holeScoresObject, submitted_by]
+    );
+    
+    // Update or create team standings
+    const standingsResult = await pool.query(
+      `INSERT INTO team_standings (tournament_id, team_id, total_score, updated_at)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+       ON CONFLICT (tournament_id, team_id) 
+       DO UPDATE SET 
+         total_score = $3,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [id, teamId, total_score]
+    );
+    
+    res.json({
+      success: true,
+      team_id: teamId,
+      tournament_id: id,
+      total_score: total_score,
+      hole_scores: hole_scores,
+      standings: standingsResult.rows[0]
+    });
+  } catch (err) {
+    console.error('Error submitting team score:', err);
+    console.error('Request body:', req.body);
+    console.error('Team ID:', teamId, 'Tournament ID:', id);
+    res.status(500).json({ error: 'Failed to submit team score', details: err.message });
+  }
+});
+
+// Get team scores for a tournament
+app.get('/api/tournaments/:id/team-scores', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const { rows } = await pool.query(
+      `SELECT 
+        tts.*,
+        tt.name as team_name,
+        captain.first_name as captain_first_name,
+        captain.last_name as captain_last_name,
+        captain.club as captain_club,
+        submitter.first_name as submitted_by_first_name,
+        submitter.last_name as submitted_by_last_name
+       FROM tournament_team_scores tts
+       JOIN tournament_teams tt ON tts.team_id = tt.id
+       JOIN users captain ON tt.captain_id = captain.member_id
+       JOIN users submitter ON tts.submitted_by = submitter.member_id
+       WHERE tts.tournament_id = $1
+       ORDER BY tts.total_score ASC, tts.submitted_at ASC`,
+      [id]
+    );
+    
+    // For each team score, fetch the team members
+    const teamScoresWithPlayers = await Promise.all(
+      rows.map(async (score) => {
+        const teamMembersResult = await pool.query(
+          `SELECT 
+            tm.user_member_id,
+            u.first_name,
+            u.last_name,
+            u.club,
+            tm.is_captain
+           FROM team_members tm
+           JOIN users u ON tm.user_member_id = u.member_id
+           WHERE tm.team_id = $1 AND tm.tournament_id = $2
+           ORDER BY tm.is_captain DESC, u.first_name ASC`,
+          [score.team_id, id]
+        );
+        
+        return {
+          ...score,
+          players: teamMembersResult.rows
+        };
+      })
+    );
+    
+    res.json(teamScoresWithPlayers);
+  } catch (err) {
+    console.error('Error fetching team scores:', err);
+    res.status(500).json({ error: 'Failed to fetch team scores' });
+  }
+});
+
+// Get detailed team score with hole-by-hole scores
+app.get('/api/tournaments/:id/teams/:teamId/score-details', async (req, res) => {
+  const { id, teamId } = req.params;
+  
+  try {
+    const { rows } = await pool.query(
+      `SELECT 
+        tts.*,
+        tt.name as team_name,
+        u.first_name as captain_first_name,
+        u.last_name as captain_last_name,
+        u.club as captain_club
+       FROM tournament_team_scores tts
+       JOIN tournament_teams tt ON tts.team_id = tt.id
+       JOIN users u ON tts.submitted_by = u.member_id
+       WHERE tts.tournament_id = $1 AND tts.team_id = $2`,
+      [id, teamId]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Team score not found' });
+    }
+    
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching team score details:', err);
+    res.status(500).json({ error: 'Failed to fetch team score details' });
   }
 });
 

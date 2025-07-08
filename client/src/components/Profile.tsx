@@ -600,14 +600,24 @@ const Profile: React.FC = () => {
                 </div>
               </div>
               {user?.role?.toLowerCase() === 'admin' && (
-                <button
-                  onClick={() => navigate('/user-tracking')}
-                  className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-4 py-2 border border-brand-neon-green/40 flex items-center space-x-2 shadow-sm transition-colors font-medium"
-                  style={{ minWidth: 'fit-content' }}
-                >
-                  <BarChart3 className="w-4 h-4" />
-                  <span>User Tracking Dashboard</span>
-                </button>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    onClick={() => navigate('/user-tracking')}
+                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-4 py-2 border border-brand-neon-green/40 flex items-center space-x-2 shadow-sm transition-colors font-medium"
+                    style={{ minWidth: 'fit-content' }}
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                    <span>User Tracking Dashboard</span>
+                  </button>
+                  <button
+                    onClick={() => navigate('/tournament-management')}
+                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-4 py-2 border border-brand-neon-green/40 flex items-center space-x-2 shadow-sm transition-colors font-medium"
+                    style={{ minWidth: 'fit-content' }}
+                  >
+                    <Settings className="w-4 h-4" />
+                    <span>Tournament Management</span>
+                  </button>
+                </div>
               )}
             </div>
           </div>
