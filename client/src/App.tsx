@@ -21,6 +21,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return user ? <>{children}</> : <Navigate to="/login" />;
 }
 
+function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="p-8 text-center">Loading...</div>;
+  if (!user) return <Navigate to="/login" />;
+  if (user.role?.toLowerCase() !== 'admin') {
+    return <Navigate to="/" />;
+  }
+  return <>{children}</>;
+}
+
 function AppContent() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user, logout } = useAuth();
@@ -157,7 +167,7 @@ function AppContent() {
               <Route path="/simulator-courses" element={<SimulatorCourses />} />
               <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
               <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
-              <Route path="/tournament-management" element={<ProtectedRoute><TournamentManagement /></ProtectedRoute>} />
+              <Route path="/tournament-management" element={<AdminProtectedRoute><TournamentManagement /></AdminProtectedRoute>} />
               <Route path="/user-tracking" element={<ProtectedRoute><UserTrackingPage /></ProtectedRoute>} />
               <Route path="/login" element={<Login />} />
               <Route path="/claim-account" element={<ClaimAccount />} />
