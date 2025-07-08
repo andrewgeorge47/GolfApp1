@@ -1578,17 +1578,17 @@ app.post('/api/tournaments/:id/teams', async (req, res) => {
     
     // Add captain as team member with is_captain = true
     await pool.query(
-      'INSERT INTO team_members (team_id, user_member_id, is_captain) VALUES ($1, $2, true)',
-      [team.id, captain_id]
+      'INSERT INTO team_members (team_id, tournament_id, user_member_id, is_captain) VALUES ($1, $2, $3, true)',
+      [team.id, id, captain_id]
     );
     
     // Add other team members (excluding captain)
     if (player_ids.length > 0) {
       const memberIds = player_ids.filter(playerId => playerId !== captain_id);
       if (memberIds.length > 0) {
-        const memberValues = memberIds.map(playerId => `(${team.id}, ${playerId}, false)`).join(', ');
+        const memberValues = memberIds.map(playerId => `(${team.id}, ${id}, ${playerId}, false)`).join(', ');
         await pool.query(
-          `INSERT INTO team_members (team_id, user_member_id, is_captain) VALUES ${memberValues}`
+          `INSERT INTO team_members (team_id, tournament_id, user_member_id, is_captain) VALUES ${memberValues}`
         );
       }
     }
@@ -1737,9 +1737,9 @@ app.put('/api/tournaments/:id/teams/:teamId', async (req, res) => {
       const memberIds = player_ids.filter(playerId => playerId !== newCaptainId);
       
       if (memberIds.length > 0) {
-        const memberValues = memberIds.map(playerId => `(${teamId}, ${playerId}, false)`).join(', ');
+        const memberValues = memberIds.map(playerId => `(${teamId}, ${id}, ${playerId}, false)`).join(', ');
         await pool.query(
-          `INSERT INTO team_members (team_id, user_member_id, is_captain) VALUES ${memberValues}`
+          `INSERT INTO team_members (team_id, tournament_id, user_member_id, is_captain) VALUES ${memberValues}`
         );
       }
     }

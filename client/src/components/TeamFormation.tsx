@@ -293,21 +293,21 @@ const TeamFormation: React.FC<TeamFormationProps> = ({
       <div className="bg-white rounded-xl p-6 border border-neutral-200">
         
         {/* Formed Teams header and Create Team button in a flex row */}
-        {teams.length > 0 && (
-          <div className="flex items-center justify-between mb-4">
-            <h5 className="text-lg font-semibold text-brand-black">Formed Teams</h5>
-            {availablePlayers.length > 0 && (
-              <button
-                onClick={() => setShowCreateTeamModal(true)}
-                className="px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center"
-                disabled={availablePlayers.length === 0}
-              >
-                <UserPlus className="w-4 h-4 mr-2" />
-                Create New Team
-              </button>
-            )}
-          </div>
-        )}
+        <div className="flex items-center justify-between mb-4">
+          <h5 className="text-lg font-semibold text-brand-black">
+            {teams.length > 0 ? 'Formed Teams' : 'Team Formation'}
+          </h5>
+          {availablePlayers.length > 0 && (
+            <button
+              onClick={() => setShowCreateTeamModal(true)}
+              className="px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center"
+              disabled={availablePlayers.length === 0}
+            >
+              <UserPlus className="w-4 h-4 mr-2" />
+              Create New Team
+            </button>
+          )}
+        </div>
 
         {/* Teams List */}
         {teams.length > 0 && (
