@@ -1,25 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
-import { getUserProfile, updateUser, getMatches, getTournaments, getTournamentParticipants, registerUserForTournament, unregisterUserFromTournament, User, UserProfile, Match, Tournament, saveScorecard, createTournament, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser } from '../services/api';
-import { User as UserIcon, Edit3, Save, X, Trophy, Target, TrendingUp, Calendar, MapPin, LogOut, Clock, Users, Plus, Minus, Award, Circle, Settings, Camera, BarChart3 } from 'lucide-react';
+import { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser } from '../services/api';
+import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
 import ScoreCard from './ScoreCard';
 import StrokePlayScoreCard from './StrokePlayScoreCard';
-import ProfileTournaments from './ProfileTournaments';
 
 const Profile: React.FC = () => {
   const { user, token, logout, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [matches, setMatches] = useState<Match[]>([]);
-  const [tournaments, setTournaments] = useState<Tournament[]>([]);
-  const [userTournaments, setUserTournaments] = useState<number[]>([]);
-  const [tournamentParticipants, setTournamentParticipants] = useState<{[key: number]: number}>({});
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tournamentLoading, setTournamentLoading] = useState<number | null>(null);
   const [simStats, setSimStats] = useState<SimStats | null>(null);
   const [combinedStats, setCombinedStats] = useState<SimStats | null>(null);
   const [courseRecords, setCourseRecords] = useState<UserCourseRecord[]>([]);
@@ -59,10 +54,9 @@ const Profile: React.FC = () => {
         console.log('Fetching data for user ID:', user.member_id);
         console.log('User data:', user);
         
-        const [profileResponse, matchesResponse, tournamentsResponse, simStatsResponse, combinedStatsResponse, courseRecordsResponse] = await Promise.all([
+        const [profileResponse, matchesResponse, simStatsResponse, combinedStatsResponse, courseRecordsResponse] = await Promise.all([
           getUserProfile(user.member_id),
           getMatches(),
-          getTournaments(),
           getUserSimStats(user.member_id),
           getUserCombinedStats(user.member_id),
           getUserCourseRecords(user.member_id)
@@ -77,35 +71,12 @@ const Profile: React.FC = () => {
         
         setProfile(profileResponse.data);
         setMatches(matchesResponse.data);
-        setTournaments(tournamentsResponse.data);
         setSimStats(simStatsResponse.data);
         setCombinedStats(combinedStatsResponse.data);
         setCourseRecords(courseRecordsResponse.data);
         
         // After updating stats, we need to refresh the user data to get updated handicaps
         // This will be handled by the parent component or context
-        
-        // Fetch user's tournament registrations
-        const userTournamentIds: number[] = [];
-        const participantCounts: {[key: number]: number} = {};
-        
-        for (const tournament of tournamentsResponse.data) {
-          try {
-            const participantsResponse = await getTournamentParticipants(tournament.id);
-            const isRegistered = participantsResponse.data.some((participant: any) => 
-              participant.member_id === user.member_id
-            );
-            if (isRegistered) {
-              userTournamentIds.push(tournament.id);
-            }
-            participantCounts[tournament.id] = participantsResponse.data.length;
-          } catch (err) {
-            console.error(`Error checking registration for tournament ${tournament.id}:`, err);
-            participantCounts[tournament.id] = 0;
-          }
-        }
-        setUserTournaments(userTournamentIds);
-        setTournamentParticipants(participantCounts);
       } catch (err) {
         setError('Failed to load profile data');
         console.error('Error fetching profile:', err);
@@ -150,80 +121,9 @@ const Profile: React.FC = () => {
     setError(null);
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
 
-  const handleTournamentSignup = async (tournamentId: number) => {
-    if (!user?.member_id) return;
 
-    try {
-      setTournamentLoading(tournamentId);
-      await registerUserForTournament(tournamentId, user.member_id);
-      setUserTournaments([...userTournaments, tournamentId]);
-      setError(null);
-      
-      // Show success message
-      alert('Successfully registered for tournament!');
-      
-      // Refresh tournament data and participant counts
-      const tournamentsResponse = await getTournaments();
-      setTournaments(tournamentsResponse.data);
-      
-      // Update participant count for this tournament
-      try {
-        const participantsResponse = await getTournamentParticipants(tournamentId);
-        setTournamentParticipants(prev => ({
-          ...prev,
-          [tournamentId]: participantsResponse.data.length
-        }));
-      } catch (err) {
-        console.error('Error updating participant count:', err);
-      }
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.error || 'Failed to register for tournament';
-      setError(errorMessage);
-      console.error('Error registering for tournament:', err);
-    } finally {
-      setTournamentLoading(null);
-    }
-  };
 
-  const handleTournamentUnregister = async (tournamentId: number) => {
-    if (!user?.member_id) return;
-
-    try {
-      setTournamentLoading(tournamentId);
-      await unregisterUserFromTournament(tournamentId, user.member_id);
-      setUserTournaments(userTournaments.filter(id => id !== tournamentId));
-      setError(null);
-      
-      // Show success message
-      alert('Successfully unregistered from tournament!');
-      
-      // Refresh tournament data and participant counts
-      const tournamentsResponse = await getTournaments();
-      setTournaments(tournamentsResponse.data);
-      
-      // Update participant count for this tournament
-      try {
-        const participantsResponse = await getTournamentParticipants(tournamentId);
-        setTournamentParticipants(prev => ({
-          ...prev,
-          [tournamentId]: participantsResponse.data.length
-        }));
-      } catch (err) {
-        console.error('Error updating participant count:', err);
-      }
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.error || 'Failed to unregister from tournament';
-      setError(errorMessage);
-      console.error('Error unregistering from tournament:', err);
-    } finally {
-      setTournamentLoading(null);
-    }
-  };
 
   // Track Round Handlers
   const handleTrackRound = () => {
@@ -351,127 +251,7 @@ const Profile: React.FC = () => {
     }
   };
 
-  const isRegisteredForTournament = (tournamentId: number) => {
-    return userTournaments.includes(tournamentId);
-  };
 
-  const getTournamentStatus = (tournament: Tournament) => {
-    // Use the status field from the database if available
-    if (tournament.status) {
-      return tournament.status.charAt(0).toUpperCase() + tournament.status.slice(1);
-    }
-    
-    // Fallback to date-based logic for backward compatibility
-    if (!tournament.start_date) return 'No date set';
-    
-    const startDate = new Date(tournament.start_date);
-    const endDate = tournament.end_date ? new Date(tournament.end_date) : null;
-    const now = new Date();
-    
-    if (endDate && endDate < now) {
-      return 'Completed';
-    } else if (startDate > now) {
-      const daysUntil = Math.ceil((startDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-      return `${daysUntil} day${daysUntil !== 1 ? 's' : ''} away`;
-    } else {
-      return 'In Progress';
-    }
-  };
-
-  const isTournamentAvailable = (tournament: Tournament) => {
-    // Check if tournament status allows registration
-    if (tournament.status === 'completed' || tournament.status === 'cancelled') {
-      return false;
-    }
-    
-    // Check if registration is open
-    if (tournament.registration_open === false) {
-      return false;
-    }
-    
-    // Check registration deadline
-    if (tournament.registration_deadline) {
-      const deadline = new Date(tournament.registration_deadline);
-      const now = new Date();
-      if (deadline < now) {
-        return false;
-      }
-    }
-    
-    // Check participant limits
-    if (tournament.max_participants) {
-      const currentParticipants = tournamentParticipants[tournament.id] || 0;
-      if (currentParticipants >= tournament.max_participants) {
-        return false;
-      }
-    }
-    
-    // Allow registration for draft, open, and active tournaments
-    return true;
-  };
-
-  const isTournamentActive = (tournament: Tournament) => {
-    // Tournament is active if status is 'active' and currently running
-    if (tournament.status !== 'active') {
-      return false;
-    }
-    
-    if (!tournament.start_date) return false;
-    
-    const startDate = new Date(tournament.start_date);
-    const endDate = tournament.end_date ? new Date(tournament.end_date) : null;
-    const now = new Date();
-    
-    // Tournament is active if it's currently running
-    return startDate <= now && (!endDate || endDate >= now);
-  };
-
-  // Filter tournaments to show only available ones
-  const availableTournaments = tournaments.filter(tournament => 
-    isTournamentAvailable(tournament) && !isRegisteredForTournament(tournament.id)
-  );
-
-  // Get user's registered tournaments (including completed ones)
-  const userRegisteredTournaments = tournaments.filter(tournament => 
-    isRegisteredForTournament(tournament.id)
-  );
-
-  // Debug function to create a test tournament
-  const createTestTournament = async () => {
-    try {
-      const testTournament = {
-        name: 'Test Tournament ' + new Date().toLocaleTimeString(),
-        description: 'This is a test tournament',
-        start_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 7 days from now
-        end_date: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 8 days from now
-        registration_deadline: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 6 days from now
-        max_participants: 20,
-        min_participants: 4,
-        tournament_format: 'match_play',
-        status: 'draft',
-        registration_open: true,
-        entry_fee: 25,
-        location: 'Test Golf Club',
-        course: 'Championship Course',
-        rules: 'Standard match play rules apply',
-        notes: 'Test tournament for debugging',
-        type: 'tournament'
-      };
-      
-      const result = await createTournament(testTournament);
-      console.log('Test tournament created:', result.data);
-      
-      // Refresh tournaments
-      const tournamentsResponse = await getTournaments();
-      setTournaments(tournamentsResponse.data);
-      console.log('Tournaments after creating test:', tournamentsResponse.data);
-      
-      alert('Test tournament created! Check console for details.');
-    } catch (error) {
-      console.error('Error creating test tournament:', error);
-      alert('Error creating test tournament: ' + error);
-    }
-  };
 
   // Photo upload handlers
   const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -719,7 +499,7 @@ const Profile: React.FC = () => {
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-6xl mx-auto relative pb-16 sm:pb-6">
       {/* Golf Passport Header */}
       <div className="bg-gradient-to-br from-brand-dark-green to-brand-muted-green rounded-2xl shadow-xl p-6 mb-8 text-white">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
@@ -760,8 +540,17 @@ const Profile: React.FC = () => {
             />
             <div>
               <div className="flex items-center space-x-3 mb-2">
-                <h1 className="text-3xl lg:text-4xl font-bold">
+                <h1 className="text-3xl lg:text-4xl font-bold flex items-center">
                   {user?.first_name} {user?.last_name}
+                  {!isEditing && (
+                    <button
+                      onClick={() => setIsEditing(true)}
+                      className="ml-3 flex items-center justify-center p-2 bg-white/10 backdrop-blur-sm text-white rounded-full hover:bg-white/20 transition-all duration-200 border border-white/20 hover:border-white/30 shadow-lg hover:shadow-xl"
+                      title="Edit Profile"
+                    >
+                      <Edit3 className="w-5 h-5" />
+                    </button>
+                  )}
                 </h1>
                 <div className="bg-white/20 backdrop-blur-sm rounded-full px-3 py-1 text-sm font-medium">
                   {user?.role?.toLowerCase() === 'admin' ? 'Admin' : 'Member'}
@@ -773,63 +562,21 @@ const Profile: React.FC = () => {
                   {user?.club || 'No club specified'}
                 </span>
                 <span className="flex items-center">
-                  <Calendar className="w-4 h-4 mr-2" />
+                  <Clock className="w-4 h-4 mr-2" />
                   Member since {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}
                 </span>
               </div>
             </div>
           </div>
           <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-            {!isEditing ? (
-              <>
-                <button
-                  onClick={handleTrackRound}
-                  className="flex items-center justify-center px-6 py-3 bg-white/20 backdrop-blur-sm text-white rounded-lg hover:bg-white/30 transition-colors font-medium"
-                >
-                  <Circle className="w-5 h-5 mr-2" />
-                  Track Round
-                </button>
-                <button
-                  onClick={() => setIsEditing(true)}
-                  className="flex items-center justify-center px-6 py-3 bg-white/20 backdrop-blur-sm text-white rounded-lg hover:bg-white/30 transition-colors font-medium"
-                >
-                  <Edit3 className="w-5 h-5 mr-2" />
-                  Edit Profile
-                </button>
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center justify-center px-6 py-3 bg-red-500/80 text-white rounded-lg hover:bg-red-500 transition-colors font-medium"
-                >
-                  <LogOut className="w-5 h-5 mr-2" />
-                  Logout
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={handleSave}
-                  disabled={loading}
-                  className="flex items-center justify-center px-6 py-3 bg-white/20 backdrop-blur-sm text-white rounded-lg hover:bg-white/30 transition-colors font-medium disabled:opacity-50"
-                >
-                  <Save className="w-5 h-5 mr-2" />
-                  Save
-                </button>
-                <button
-                  onClick={handleCancel}
-                  className="flex items-center justify-center px-6 py-3 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors font-medium"
-                >
-                  <X className="w-5 h-5 mr-2" />
-                  Cancel
-                </button>
-              </>
-            )}
+            {/* Removed Track Round and User Tracking Dashboard buttons from here */}
           </div>
         </div>
 
         {/* Handicap Information in Hero */}
         {user?.sim_handicap !== null && user?.sim_handicap !== undefined && (
           <div className="mt-6 pt-6 border-t border-white/20">
-            <div className="flex justify-start">
+            <div className="flex flex-wrap gap-4 items-center">
               <div className="bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20 flex items-center space-x-3">
                 <div className="bg-blue-500/20 rounded-full p-1">
                   <TrendingUp className="w-4 h-4 text-blue-300" />
@@ -852,6 +599,16 @@ const Profile: React.FC = () => {
                   App Tracked
                 </div>
               </div>
+              {user?.role?.toLowerCase() === 'admin' && (
+                <button
+                  onClick={() => navigate('/user-tracking')}
+                  className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-4 py-2 border border-brand-neon-green/40 flex items-center space-x-2 shadow-sm transition-colors font-medium"
+                  style={{ minWidth: 'fit-content' }}
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  <span>User Tracking Dashboard</span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -932,7 +689,24 @@ const Profile: React.FC = () => {
       </div>
 
       {/* Performance Statistics */}
-      <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
+      <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 relative">
+        {/* Track Round Floating Action Button (FAB) */}
+        {!isEditing && (
+          <button
+            onClick={handleTrackRound}
+            className="
+              fixed bottom-6 left-1/2 -translate-x-1/2 w-[90vw] max-w-xs rounded-full px-6 py-4 z-50 flex items-center justify-center
+              bg-brand-neon-green text-brand-black shadow-2xl hover:bg-green-400 transition-all font-bold text-lg
+              focus:outline-none focus:ring-4 focus:ring-brand-neon-green/40 group
+              sm:absolute sm:top-6 sm:right-6 sm:left-auto sm:bottom-auto sm:translate-x-0
+              sm:w-auto sm:max-w-none sm:px-6 sm:py-2 sm:rounded-full
+            "
+            title="Track your golf round and update your stats!"
+          >
+            <Circle className="w-7 h-7 mr-3" />
+            <span>Track Round</span>
+          </button>
+        )}
         {/* Tab Navigation */}
         <div className="flex flex-wrap gap-2 mb-6">
           <button
@@ -965,7 +739,7 @@ const Profile: React.FC = () => {
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            <Trophy className="w-4 h-4 inline mr-2" />
+            <Award className="w-4 h-4 inline mr-2" />
             Course Records
           </button>
         </div>
@@ -1042,7 +816,7 @@ const Profile: React.FC = () => {
                   {/* Activity Summary */}
                   <div className="bg-gray-50 rounded-lg p-6">
                     <div className="flex items-center mb-4">
-                      <Calendar className="w-5 h-5 text-green-600 mr-2" />
+                      <Clock className="w-5 h-5 text-green-600 mr-2" />
                       <h3 className="text-lg font-semibold text-gray-800">Activity</h3>
                     </div>
                     {simStats && simStats.total_rounds > 0 ? (
@@ -1257,7 +1031,7 @@ const Profile: React.FC = () => {
         {statsTab === 'records' && (
           <div>
             <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
-              <Trophy className="w-6 h-6 mr-3" />
+              <Award className="w-6 h-6 mr-3" />
               Course Records
             </h2>
             
@@ -1345,7 +1119,7 @@ const Profile: React.FC = () => {
                                     </span>
                                   )}
                                   <span className="flex items-center">
-                                    <Calendar className="w-4 h-4 mr-1" />
+                                    <Clock className="w-4 h-4 mr-1" />
                                     {new Date(record.date_played).toLocaleDateString()}
                                   </span>
                                 </div>
@@ -1368,7 +1142,7 @@ const Profile: React.FC = () => {
               } else {
                 return (
                   <div className="text-center py-8">
-                    <Trophy className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                    <Award className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                     <h3 className="text-xl font-medium text-gray-900 mb-2">No Course Records Yet</h3>
                     <p className="text-gray-600 mb-6">Start playing simulator rounds to set course records for your club and the community.</p>
                     <button
@@ -1399,7 +1173,7 @@ const Profile: React.FC = () => {
               return (
                 <div key={match.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-gray-50 rounded-lg space-y-2 sm:space-y-0">
                   <div className="flex items-center space-x-3">
-                    <Users className="w-5 h-5 text-gray-500" />
+                    <UserIcon className="w-5 h-5 text-gray-500" />
                     <div>
                       <p className="font-medium text-gray-900">
                         Match #{match.id}
@@ -1426,180 +1200,9 @@ const Profile: React.FC = () => {
         </div>
       )}
 
-      {/* Tournament Section - Only visible to admins */}
-      {user?.role?.toLowerCase() === 'admin' && (
-        <>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-            {/* User's Registered Tournaments */}
-            {userRegisteredTournaments.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-lg p-6">
-                <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
-                  <Trophy className="w-6 h-6 mr-3" />
-                  My Tournaments
-                </h2>
-                <div className="space-y-4">
-                  {userRegisteredTournaments.slice(0, 3).map((tournament) => {
-                    const status = getTournamentStatus(tournament);
-                    const isActive = isTournamentActive(tournament);
-                    const isAvailable = isTournamentAvailable(tournament);
-                    
-                    return (
-                      <div key={tournament.id} className="border border-gray-200 rounded-lg p-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-3 sm:space-y-0">
-                          <div className="flex-1">
-                            <h3 className="text-lg font-semibold text-gray-900">{tournament.name}</h3>
-                            <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2 text-sm text-gray-600">
-                              {tournament.start_date && (
-                                <span className="flex items-center">
-                                  <Calendar className="w-4 h-4 mr-1" />
-                                  {new Date(tournament.start_date).toLocaleDateString()}
-                                </span>
-                              )}
-                              <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
-                                status === 'Completed' ? 'bg-gray-100 text-gray-600' :
-                                status === 'In Progress' ? 'bg-green-100 text-green-600' :
-                                status === 'Active' ? 'bg-green-100 text-green-600' :
-                                status === 'Draft' ? 'bg-yellow-100 text-yellow-600' :
-                                'bg-blue-100 text-blue-600'
-                              }`}>
-                                {status}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="sm:ml-4">
-                            {isAvailable ? (
-                              <button
-                                onClick={() => handleTournamentUnregister(tournament.id)}
-                                disabled={tournamentLoading === tournament.id}
-                                className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {tournamentLoading === tournament.id ? (
-                                  <>
-                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1"></div>
-                                    Processing...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Minus className="w-4 h-4 mr-1" />
-                                    Unregister
-                                  </>
-                                )}
-                              </button>
-                            ) : (
-                              <span className="text-sm text-gray-500 px-3 py-2">
-                                {status === 'Completed' ? 'Completed' : 'Registered'}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
 
-            {/* Available Tournaments */}
-            {availableTournaments.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-lg p-6">
-                <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
-                  <Award className="w-6 h-6 mr-3" />
-                  Available Tournaments
-                </h2>
-                <div className="space-y-4">
-                  {availableTournaments.slice(0, 3).map((tournament) => {
-                    const status = getTournamentStatus(tournament);
-                    const isActive = isTournamentActive(tournament);
-                    
-                    return (
-                      <div key={tournament.id} className="border border-gray-200 rounded-lg p-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-3 sm:space-y-0">
-                          <div className="flex-1">
-                            <h3 className="text-lg font-semibold text-gray-900">{tournament.name}</h3>
-                            <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2 text-sm text-gray-600">
-                              {tournament.start_date && (
-                                <span className="flex items-center">
-                                  <Calendar className="w-4 h-4 mr-1" />
-                                  {new Date(tournament.start_date).toLocaleDateString()}
-                                </span>
-                              )}
-                              <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${
-                                status === 'Completed' ? 'bg-gray-100 text-gray-600' :
-                                status === 'In Progress' ? 'bg-green-100 text-green-600' :
-                                status === 'Active' ? 'bg-green-100 text-green-600' :
-                                status === 'Draft' ? 'bg-yellow-100 text-yellow-600' :
-                                'bg-blue-100 text-blue-600'
-                              }`}>
-                                {status}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="sm:ml-4">
-                            <button
-                              onClick={() => handleTournamentSignup(tournament.id)}
-                              disabled={tournamentLoading === tournament.id}
-                              className="flex items-center justify-center w-full sm:w-auto px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {tournamentLoading === tournament.id ? (
-                                <>
-                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-black mr-1"></div>
-                                  Processing...
-                                </>
-                              ) : (
-                                <>
-                                  <Plus className="w-4 h-4 mr-1" />
-                                  Sign Up
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
 
-          {/* No Available Tournaments Message */}
-          {tournaments.length > 0 && availableTournaments.length === 0 && userRegisteredTournaments.length === 0 && (
-            <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-              <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
-                <Award className="w-6 h-6 mr-3" />
-                Tournaments
-              </h2>
-              <div className="text-center py-8">
-                <p className="text-gray-600 mb-2">No tournaments are currently available for registration.</p>
-                <p className="text-sm text-gray-500">All tournaments are either completed or you're already registered for them.</p>
-              </div>
-            </div>
-          )}
 
-          {/* My Tournaments Management Section */}
-          <ProfileTournaments />
-        </>
-      )}
-
-      {/* Admin Section - Only visible to admins */}
-      {user?.role?.toLowerCase() === 'admin' && (
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-          <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
-            <Settings className="w-6 h-6 mr-3" />
-            Admin Panel
-          </h2>
-          <p className="text-sm text-gray-600 mb-6">Administrative tools and tournament management.</p>
-          <div className="flex justify-center">
-            <button
-              onClick={() => navigate('/admin')}
-              className="flex items-center justify-center px-8 py-4 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors font-medium text-lg"
-            >
-              <Settings className="w-6 h-6 mr-3" />
-              Tournament Management
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Track Round Modal */}
       <TrackRoundModal

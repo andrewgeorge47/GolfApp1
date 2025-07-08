@@ -7,6 +7,7 @@ import Scoring from './components/Scoring';
 import Admin from './components/Admin';
 import Profile from './components/Profile';
 import SimulatorCourses from './components/SimulatorCourses';
+import UserTrackingPage from './components/UserTrackingPage';
 import { AuthProvider, useAuth } from './AuthContext';
 import Login from './components/Login';
 import PasswordSetup from './components/PasswordSetup';
@@ -155,6 +156,7 @@ function AppContent() {
               <Route path="/simulator-courses" element={<SimulatorCourses />} />
               <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
               <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
+              <Route path="/user-tracking" element={<ProtectedRoute><UserTrackingPage /></ProtectedRoute>} />
               <Route path="/login" element={<Login />} />
               <Route path="/claim-account" element={<ClaimAccount />} />
               <Route path="/reset-password" element={<ResetPassword />} />

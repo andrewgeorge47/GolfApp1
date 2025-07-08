@@ -835,9 +835,23 @@ app.get('/api/debug-db', async (req, res) => {
   console.log('DEBUG ROUTE HIT');
   try {
     const db = await pool.query('SELECT current_database()');
-    const users = await pool.query('SELECT member_id, first_name, email_address FROM users');
-    res.json({ db: db.rows[0], users: users.rows });
+    const users = await pool.query('SELECT member_id, first_name, email_address, role, club FROM users LIMIT 5');
+    const scorecards = await pool.query('SELECT COUNT(*) as count FROM scorecards');
+    const userCount = await pool.query('SELECT COUNT(*) as count FROM users');
+    console.log('Debug response:', {
+      db: db.rows[0],
+      userCount: userCount.rows[0],
+      scorecardCount: scorecards.rows[0],
+      sampleUser: users.rows[0]
+    });
+    res.json({ 
+      db: db.rows[0], 
+      users: users.rows,
+      userCount: userCount.rows[0],
+      scorecardCount: scorecards.rows[0]
+    });
   } catch (err) {
+    console.error('Debug endpoint error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -4571,3 +4585,168 @@ function transformUserData(user) {
     email_address: user.email_address // Keep original for backward compatibility
   };
 }
+
+// Get admin user tracking statistics
+app.get('/api/admin/user-tracking-stats', authenticateToken, async (req, res) => {
+  try {
+    // Check if user is admin
+    const { rows: userRows } = await pool.query(
+      'SELECT role FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userRows.length === 0 || userRows[0].role !== 'Admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Get total users and claimed accounts
+    console.log('Fetching user stats...');
+    const { rows: userStats } = await pool.query(`
+      SELECT 
+        COUNT(*) as total_users,
+        COUNT(CASE WHEN password_hash IS NOT NULL THEN 1 END) as claimed_accounts,
+        COUNT(CASE WHEN password_hash IS NULL THEN 1 END) as unclaimed_accounts
+      FROM users
+    `);
+    console.log('User stats result:', userStats);
+
+    // Get rounds tracked by day for the last 30 days
+    console.log('Fetching rounds by day...');
+    const { rows: roundsByDay } = await pool.query(`
+      SELECT 
+        DATE(date_played) as date,
+        COUNT(*) as rounds_count
+      FROM scorecards 
+      WHERE date_played >= CURRENT_DATE - INTERVAL '30 days'
+      GROUP BY DATE(date_played)
+      ORDER BY date DESC
+    `);
+    console.log('Rounds by day result:', roundsByDay);
+
+    // Get rounds tracked by day for the last 7 days (more detailed)
+    console.log('Fetching recent rounds by day...');
+    const { rows: recentRoundsByDay } = await pool.query(`
+      SELECT 
+        DATE(date_played) as date,
+        COUNT(*) as rounds_count,
+        COUNT(CASE WHEN round_type = 'sim' OR round_type IS NULL THEN 1 END) as sim_rounds,
+        COUNT(CASE WHEN round_type = 'grass' THEN 1 END) as grass_rounds
+      FROM scorecards 
+      WHERE date_played >= CURRENT_DATE - INTERVAL '7 days'
+      GROUP BY DATE(date_played)
+      ORDER BY date DESC
+    `);
+    console.log('Recent rounds by day result:', recentRoundsByDay);
+
+    // Get top users by rounds in last 30 days
+    console.log('Fetching top users...');
+    const { rows: topUsers } = await pool.query(`
+      SELECT 
+        u.first_name,
+        u.last_name,
+        u.club,
+        COUNT(s.id) as rounds_count
+      FROM users u
+      LEFT JOIN scorecards s ON u.member_id = s.user_id 
+        AND s.date_played >= CURRENT_DATE - INTERVAL '30 days'
+      GROUP BY u.member_id, u.first_name, u.last_name, u.club
+      HAVING COUNT(s.id) > 0
+      ORDER BY rounds_count DESC
+      LIMIT 10
+    `);
+    console.log('Top users result:', topUsers);
+
+    // Get club statistics
+    console.log('Fetching club stats...');
+    const { rows: clubStats } = await pool.query(`
+      SELECT 
+        club,
+        COUNT(*) as total_users,
+        COUNT(CASE WHEN password_hash IS NOT NULL THEN 1 END) as claimed_accounts,
+        COUNT(CASE WHEN password_hash IS NULL THEN 1 END) as unclaimed_accounts
+      FROM users
+      WHERE club IS NOT NULL
+      GROUP BY club
+      ORDER BY total_users DESC
+    `);
+    console.log('Club stats result:', clubStats);
+
+    res.json({
+      userStats: userStats[0],
+      roundsByDay,
+      recentRoundsByDay,
+      topUsers,
+      clubStats
+    });
+  } catch (err) {
+    console.error('Error fetching admin user tracking stats:', err);
+    res.status(500).json({ error: 'Failed to fetch admin user tracking stats' });
+  }
+});
+
+// Get detailed user tracking data for a specific date range
+app.get('/api/admin/user-tracking-details', authenticateToken, async (req, res) => {
+  try {
+    // Check if user is admin
+    const { rows: userRows } = await pool.query(
+      'SELECT role FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userRows.length === 0 || userRows[0].role !== 'Admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { startDate, endDate, club } = req.query;
+    
+    let whereClause = '';
+    let params = [];
+    let paramIndex = 1;
+
+    if (startDate && endDate) {
+      whereClause += `WHERE s.date_played >= $${paramIndex} AND s.date_played <= $${paramIndex + 1}`;
+      params.push(startDate, endDate);
+      paramIndex += 2;
+    } else if (startDate) {
+      whereClause += `WHERE s.date_played >= $${paramIndex}`;
+      params.push(startDate);
+      paramIndex += 1;
+    } else if (endDate) {
+      whereClause += `WHERE s.date_played <= $${paramIndex}`;
+      params.push(endDate);
+      paramIndex += 1;
+    }
+
+    if (club) {
+      const clubCondition = whereClause ? 'AND' : 'WHERE';
+      whereClause += ` ${clubCondition} u.club = $${paramIndex}`;
+      params.push(club);
+    }
+
+    const { rows: detailedStats } = await pool.query(`
+      SELECT 
+        u.member_id,
+        u.first_name,
+        u.last_name,
+        u.email_address,
+        u.club,
+        u.role,
+        CASE WHEN u.password_hash IS NOT NULL THEN true ELSE false END as has_claimed_account,
+        COUNT(s.id) as total_rounds,
+        COUNT(CASE WHEN s.round_type = 'sim' OR s.round_type IS NULL THEN 1 END) as sim_rounds,
+        COUNT(CASE WHEN s.round_type = 'grass' THEN 1 END) as grass_rounds,
+        MIN(s.date_played) as first_round_date,
+        MAX(s.date_played) as last_round_date
+      FROM users u
+      LEFT JOIN scorecards s ON u.member_id = s.user_id
+      ${whereClause}
+      GROUP BY u.member_id, u.first_name, u.last_name, u.email_address, u.club, u.role, u.password_hash
+      ORDER BY total_rounds DESC, u.last_name, u.first_name
+    `, params);
+
+    res.json(detailedStats);
+  } catch (err) {
+    console.error('Error fetching detailed user tracking data:', err);
+    res.status(500).json({ error: 'Failed to fetch detailed user tracking data' });
+  }
+});

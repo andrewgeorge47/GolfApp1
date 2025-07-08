@@ -518,4 +518,59 @@ export const updateCourseTeeboxData = (courseId: number, teebox: string, courseR
 export const getCourseTeeboxData = (courseId: number) => 
   api.get(`/simulator-courses/${courseId}/teebox-data`);
 
+// Admin user tracking interfaces
+export interface UserTrackingStats {
+  userStats: {
+    total_users: string;
+    claimed_accounts: string;
+    unclaimed_accounts: string;
+  };
+  roundsByDay: Array<{
+    date: string;
+    rounds_count: string;
+  }>;
+  recentRoundsByDay: Array<{
+    date: string;
+    rounds_count: string;
+    sim_rounds: string;
+    grass_rounds: string;
+  }>;
+  topUsers: Array<{
+    first_name: string;
+    last_name: string;
+    club: string;
+    rounds_count: string;
+  }>;
+  clubStats: Array<{
+    club: string;
+    total_users: string;
+    claimed_accounts: string;
+    unclaimed_accounts: string;
+  }>;
+}
+
+export interface UserTrackingDetails {
+  member_id: number;
+  first_name: string;
+  last_name: string;
+  email_address: string;
+  club: string;
+  role: string;
+  has_claimed_account: boolean;
+  total_rounds: number;
+  sim_rounds: number;
+  grass_rounds: number;
+  first_round_date: string | null;
+  last_round_date: string | null;
+}
+
+// Admin user tracking API functions
+export const getUserTrackingStats = () => api.get<UserTrackingStats>('/admin/user-tracking-stats');
+
+export const getUserTrackingDetails = (params?: {
+  startDate?: string;
+  endDate?: string;
+  club?: string;
+}) => api.get<UserTrackingDetails[]>('/admin/user-tracking-details', { params });
+
 export default api; 
