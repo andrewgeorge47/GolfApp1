@@ -18,6 +18,7 @@ interface Match {
   winner_id?: number;
   winner_first_name?: string;
   winner_last_name?: string;
+  group_number?: number;
 }
 
 interface MatchGeneratorProps {
@@ -75,6 +76,18 @@ const MatchGenerator: React.FC<MatchGeneratorProps> = ({
     console.log('MatchGenerator - tournamentCheckIns:', tournamentCheckIns);
     return tournamentCheckIns.filter(c => c.status === 'checked_in').length;
   };
+
+  // Color palette for group badges
+  const groupColors = [
+    'bg-purple-100 text-purple-800',
+    'bg-blue-100 text-blue-800',
+    'bg-green-100 text-green-800',
+    'bg-yellow-100 text-yellow-800',
+    'bg-pink-100 text-pink-800',
+    'bg-red-100 text-red-800',
+    'bg-indigo-100 text-indigo-800',
+    'bg-teal-100 text-teal-800',
+  ];
 
   return (
     <div className="space-y-6">
@@ -163,9 +176,10 @@ const MatchGenerator: React.FC<MatchGeneratorProps> = ({
                   className="w-full px-3 py-2 border border-purple-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 >
                   <option value="optimized">Optimized (Balanced)</option>
-                  <option value="random">Random</option>
-                  <option value="seeded">Seeded (by Handicap)</option>
+                  <option value="par3_match_play">3 Hole Matchplay (4-player groups)</option>
                   <option value="round_robin">Round Robin</option>
+                  <option value="single_elimination">Single Elimination</option>
+                  <option value="random_pairs">Random Pairs</option>
                 </select>
               </div>
               
@@ -264,11 +278,11 @@ const MatchGenerator: React.FC<MatchGeneratorProps> = ({
               <thead className="bg-neutral-50">
                 <tr>
                   <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Match #</th>
+                  <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Group</th>
                   <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Player 1</th>
                   <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Player 2</th>
                   <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Status</th>
                   <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Winner</th>
-                  <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -276,6 +290,17 @@ const MatchGenerator: React.FC<MatchGeneratorProps> = ({
                   <tr key={match.id} className="hover:bg-neutral-50">
                     <td className="border border-neutral-300 px-4 py-3 font-medium">
                       #{match.match_number}
+                    </td>
+                    <td className="border border-neutral-300 px-4 py-3">
+                      {match.group_number ? (
+                        <span
+                          className={`px-2 py-1 rounded-full text-sm font-medium ${groupColors[(match.group_number - 1) % groupColors.length]}`}
+                        >
+                          Group {match.group_number}
+                        </span>
+                      ) : (
+                        <span className="text-neutral-400 text-sm">-</span>
+                      )}
                     </td>
                     <td className="border border-neutral-300 px-4 py-3">
                       <div className="font-medium">
@@ -315,26 +340,6 @@ const MatchGenerator: React.FC<MatchGeneratorProps> = ({
                         <span className="text-neutral-500">Not decided</span>
                       )}
                     </td>
-                    <td className="border border-neutral-300 px-4 py-3">
-                      {match.status === 'pending' ? (
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => handleUpdateMatchResult(match.id, match.player1_id)}
-                            className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
-                          >
-                            {match.player1_first_name} Wins
-                          </button>
-                          <button
-                            onClick={() => handleUpdateMatchResult(match.id, match.player2_id)}
-                            className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
-                          >
-                            {match.player2_first_name} Wins
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-sm text-neutral-500">Completed</span>
-                      )}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -369,6 +374,7 @@ const MatchGenerator: React.FC<MatchGeneratorProps> = ({
                   className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
                 >
                   <option value="optimized">Optimized (Recommended)</option>
+                  <option value="par3_match_play">3 Hole Matchplay (4-player groups)</option>
                   <option value="round_robin">Round Robin</option>
                   <option value="single_elimination">Single Elimination</option>
                   <option value="random_pairs">Random Pairs</option>

@@ -117,6 +117,7 @@ const AvailableTournaments: React.FC = () => {
   const getFormatDisplayName = (format: string) => {
     switch (format) {
       case 'match_play': return 'Match Play';
+      case 'par3_match_play': return '3 Hole Matchplay';
       case 'stroke_play': return 'Stroke Play';
       case 'scramble': return 'Scramble';
       case 'best_ball': return 'Best Ball';
@@ -169,6 +170,7 @@ const AvailableTournaments: React.FC = () => {
           >
             <option value="all">All Formats</option>
             <option value="match_play">Match Play</option>
+            <option value="par3_match_play">3 Hole Matchplay</option>
             <option value="stroke_play">Stroke Play</option>
             <option value="scramble">Scramble</option>
             <option value="best_ball">Best Ball</option>

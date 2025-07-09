@@ -1377,8 +1377,15 @@ app.get('/api/tournaments/:id/stats', async (req, res) => {
         scores JSONB,
         match_date DATE DEFAULT CURRENT_DATE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        group_number INTEGER,
         UNIQUE(tournament_id, player1_id, player2_id)
       )
+    `);
+    
+    // Add group_number column if it doesn't exist
+    await pool.query(`
+      ALTER TABLE tournament_matches 
+      ADD COLUMN IF NOT EXISTS group_number INTEGER
     `);
     console.log('Tournament matches table ready.');
   } catch (migrationErr) {
@@ -1449,16 +1456,30 @@ app.post('/api/tournaments/:id/generate-matches', async (req, res) => {
     } else if (format === 'random_pairs') {
       // Generate random pairs (single round)
       matches = generateRandomPairs(players);
+    } else if (format === 'par3_match_play') {
+      // Generate 3-hole match play matches (4-player groups)
+      matches = generatePar3MatchPlayMatches(players);
     }
     
     // Insert matches into database
     if (matches.length > 0) {
-      const matchValues = matches.map((match, index) => 
-        `(${id}, ${match.player1_id}, ${match.player2_id}, ${index + 1}, 'pending')`
-      ).join(', ');
+      console.log(`Generating matches for format: ${format}`);
+      console.log(`Sample match data:`, matches.slice(0, 2));
+      
+      const matchValues = matches.map((match, index) => {
+        const groupNumber = match.group_number ? `, ${match.group_number}` : '';
+        return `(${id}, ${match.player1_id}, ${match.player2_id}, ${index + 1}, 'pending'${groupNumber})`;
+      }).join(', ');
+      
+      const columns = format === 'par3_match_play' 
+        ? '(tournament_id, player1_id, player2_id, match_number, status, group_number)'
+        : '(tournament_id, player1_id, player2_id, match_number, status)';
+      
+      console.log(`Using columns: ${columns}`);
+      console.log(`Sample match values:`, matchValues.split(',').slice(0, 2));
       
       await pool.query(`
-        INSERT INTO tournament_matches (tournament_id, player1_id, player2_id, match_number, status)
+        INSERT INTO tournament_matches ${columns}
         VALUES ${matchValues}
       `);
     }
@@ -2203,6 +2224,78 @@ function generateOptimizedMatches(players, minMatchesPerPlayer = 3) {
     }
   }
   
+  return matches;
+}
+
+// Helper function to generate 3-hole match play matches (4-player groups, partial round robin for 5-7)
+function generatePar3MatchPlayMatches(players) {
+  const matches = [];
+  const playerIds = players.map(p => p.user_member_id).filter(id => id !== null);
+  if (playerIds.length < 4) {
+    // If less than 4 players, fall back to regular match play
+    return generateOptimizedMatches(players, 3);
+  }
+  const shuffledPlayers = [...playerIds].sort(() => Math.random() - 0.5);
+  let groups = [];
+  let i = 0;
+  while (i < shuffledPlayers.length) {
+    let remaining = shuffledPlayers.length - i;
+    let groupSize = 4;
+    if (remaining === 5 || remaining === 6 || remaining === 7) {
+      groupSize = remaining;
+    } else if (remaining < 4) {
+      groupSize = remaining;
+    }
+    groups.push(shuffledPlayers.slice(i, i + groupSize));
+    i += groupSize;
+  }
+  groups.forEach((group, groupIndex) => {
+    const n = group.length;
+    if (n <= 4) {
+      // Full round robin
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          matches.push({ player1_id: group[i], player2_id: group[j], group_number: groupIndex + 1 });
+        }
+      }
+    } else if (n === 5) {
+      // Partial round robin for 5: each player gets 3 matches
+      const schedule = [
+        [0, 4], [0, 2], [0, 3],
+        [1, 2], [1, 3], [1, 4],
+        [2, 4], [2, 3]
+      ];
+      schedule.forEach(([a, b]) => {
+        matches.push({ player1_id: group[a], player2_id: group[b], group_number: groupIndex + 1 });
+      });
+    } else if (n === 6) {
+      // Partial round robin for 6: each player gets 3 matches
+      const schedule = [
+        [0, 1], [0, 2], [0, 3],
+        [1, 2], [1, 4], [1, 5],
+        [2, 4], [2, 5],
+        [3, 4], [3, 5],
+        [4, 5], [3, 0],
+      ];
+      schedule.forEach(([a, b]) => {
+        matches.push({ player1_id: group[a], player2_id: group[b], group_number: groupIndex + 1 });
+      });
+    } else if (n === 7) {
+      // Partial round robin for 7: each player gets 3 matches
+      const schedule = [
+        [0, 1], [0, 2], [0, 3],
+        [1, 2], [1, 4], [1, 5],
+        [2, 4], [2, 6],
+        [3, 4], [3, 5], [3, 6],
+        [4, 5], [4, 6],
+        [5, 6], [5, 0],
+        [6, 1],
+      ];
+      schedule.forEach(([a, b]) => {
+        matches.push({ player1_id: group[a], player2_id: group[b], group_number: groupIndex + 1 });
+      });
+    }
+  });
   return matches;
 }
 

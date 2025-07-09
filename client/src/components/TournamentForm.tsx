@@ -162,6 +162,22 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
       }
     },
     {
+      id: 'par3_match_play',
+      name: '3 Hole Matchplay',
+      icon: '🏌️',
+      description: '3-hole course match play with 4-player groups',
+      settings: {
+        tournament_format: 'par3_match_play',
+        min_participants: '4',
+        max_participants: '20',
+        entry_fee: '15',
+        status: 'draft',
+        hole_configuration: '3',
+        rules: '3-hole match play format. Players grouped into 4-player groups. Each player plays 3 matches against their group members.',
+        notes: '3-hole match play - 4-player groups with 3 matches each'
+      }
+    },
+    {
       id: 'league',
       name: 'Season League',
       icon: '📅',
@@ -444,6 +460,7 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
                   className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
                 >
                   <option value="match_play">Match Play</option>
+                  <option value="par3_match_play">3 Hole Matchplay</option>
                   <option value="stroke_play">Stroke Play</option>
                   <option value="scramble">Scramble</option>
                   <option value="best_ball">Best Ball</option>

@@ -52,7 +52,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
 
   // Helper function to determine if tournament requires matches
   const requiresMatches = (tournamentFormat: string) => {
-    return tournamentFormat === 'match_play';
+    return tournamentFormat === 'match_play' || tournamentFormat === 'par3_match_play';
   };
 
   // Helper function to determine if tournament requires check-in
@@ -121,6 +121,11 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
         settings.requiresMatches = true;
         settings.matchFormat = 'head_to_head';
         settings.description = 'Match play format - head-to-head competition. Win holes to win matches.';
+        break;
+      case 'par3_match_play':
+        settings.requiresMatches = true;
+        settings.matchFormat = 'group_play';
+        settings.description = '3-hole match play format - 4-player groups. Each player plays 3 matches against their group members.';
         break;
       case 'stroke_play':
         settings.requiresMatches = false;
