@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
 import { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser, getUserTournaments } from '../services/api';
-import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign } from 'lucide-react';
+import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign, MessageSquare } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
 import ScoreCard from './ScoreCard';
@@ -556,7 +556,8 @@ const Profile: React.FC = () => {
                   )}
                 </h1>
                 <div className="bg-white/20 backdrop-blur-sm rounded-full px-3 py-1 text-sm font-medium">
-                  {user?.role?.toLowerCase() === 'admin' ? 'Admin' : 'Member'}
+                  {user?.role?.toLowerCase() === 'admin' ? 'Admin' : 
+                   user?.role?.toLowerCase() === 'ambassador' ? 'Ambassador' : 'Member'}
                 </div>
               </div>
               <div className="flex items-center space-x-4 text-white/90">
@@ -620,6 +621,30 @@ const Profile: React.FC = () => {
                     <Settings className="w-4 h-4" />
                     <span>Tournament Management</span>
                   </button>
+                  <a
+                    href="https://docs.google.com/forms/d/e/1FAIpQLSdgJYkNMW4RzG8wZFVt8zS1sfe_m8Ejtvg23OSUUggOVtQOSw/viewform"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-4 py-2 border border-brand-neon-green/40 flex items-center space-x-2 shadow-sm transition-colors font-medium"
+                    style={{ minWidth: 'fit-content' }}
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    <span>Platform Feedback</span>
+                  </a>
+                </div>
+              )}
+              {user?.role?.toLowerCase() === 'ambassador' && (
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <a
+                    href="https://docs.google.com/forms/d/e/1FAIpQLSdgJYkNMW4RzG8wZFVt8zS1sfe_m8Ejtvg23OSUUggOVtQOSw/viewform"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-4 py-2 border border-brand-neon-green/40 flex items-center space-x-2 shadow-sm transition-colors font-medium"
+                    style={{ minWidth: 'fit-content' }}
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    <span>Platform Feedback</span>
+                  </a>
                 </div>
               )}
             </div>
