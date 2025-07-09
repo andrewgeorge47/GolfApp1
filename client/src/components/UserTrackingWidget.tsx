@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Users, UserCheck, Calendar, TrendingUp, BarChart3, Filter, Clock } from 'lucide-react';
-import { getUserTrackingStats, getUserTrackingDetails, type UserTrackingStats, type UserTrackingDetails } from '../services/api';
+import { Users, UserCheck, Calendar, TrendingUp, BarChart3, Filter, Clock, Edit3, Save, X } from 'lucide-react';
+import { getUserTrackingStats, getUserTrackingDetails, updateUser, type UserTrackingStats, type UserTrackingDetails } from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../AuthContext';
 
@@ -19,6 +19,12 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
     endDate: ''
   });
   const [selectedClub, setSelectedClub] = useState<string>('');
+  const [editingUserId, setEditingUserId] = useState<number | null>(null);
+  const [editingRole, setEditingRole] = useState<string>('');
+  const [updatingRole, setUpdatingRole] = useState<number | null>(null);
+
+  // Available roles for editing
+  const availableRoles = ['Member', 'Admin', 'Club Pro', 'Ambassador'];
 
   useEffect(() => {
     console.log('Current user:', user);
@@ -70,6 +76,7 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
       if (selectedClub) params.club = selectedClub;
 
       const response = await getUserTrackingDetails(params);
+      console.log('User tracking details response:', response.data);
       setDetails(response.data);
     } catch (error: any) {
       console.error('Error fetching user tracking details:', error);
@@ -84,6 +91,71 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
     fetchDetails();
   };
 
+  const handleEditRole = (userId: number, currentRole: string) => {
+    console.log('Edit role clicked for user ID:', userId, 'current role:', currentRole);
+    setEditingUserId(userId);
+    setEditingRole(currentRole);
+  };
+
+  const handleSaveRole = async (userId: number) => {
+    // Get the user's current name for the confirmation
+    const user = details.find(u => u.member_id === userId);
+    const userName = user ? `${user.first_name} ${user.last_name}` : 'User';
+    
+    // Show confirmation dialog
+    if (!window.confirm(`Are you sure you want to change ${userName}'s role to "${editingRole}"?`)) {
+      return;
+    }
+    
+    setUpdatingRole(userId);
+    
+    try {
+      if (!user) throw new Error('User not found');
+      await updateUser(userId, {
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email_address,
+        club: user.club,
+        role: editingRole
+      });
+      toast.success(`Role updated successfully for ${userName}`);
+      
+      // Update the local state
+      setDetails(prevDetails => 
+        prevDetails.map(user => 
+          user.member_id === userId 
+            ? { ...user, role: editingRole }
+            : user
+        )
+      );
+      
+      setEditingUserId(null);
+      setEditingRole('');
+    } catch (error: any) {
+      console.error('Error updating user role:', error);
+      toast.error(`Failed to update role: ${error.response?.data?.error || error.message}`);
+    } finally {
+      setUpdatingRole(null);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingUserId(null);
+    setEditingRole('');
+  };
+
+  const getRoleBadgeColor = (role: string) => {
+    switch (role.toLowerCase()) {
+      case 'admin':
+        return 'bg-red-100 text-red-800';
+      case 'ambassador':
+        return 'bg-purple-100 text-purple-800';
+      case 'club pro':
+        return 'bg-blue-100 text-blue-800';
+      default:
+        return 'bg-neutral-100 text-neutral-700';
+    }
+  };
 
 
   const formatDate = (dateString: string) => {
@@ -336,12 +408,14 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
               <h4 className="text-lg font-semibold text-brand-black">
                 User Details ({details.length} users)
               </h4>
-              <button
-                onClick={() => setShowDetails(false)}
-                className="px-4 py-2 bg-neutral-600 text-white rounded-lg font-medium hover:bg-neutral-700 transition-colors"
-              >
-                Back to Overview
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setShowDetails(false)}
+                  className="px-4 py-2 bg-neutral-600 text-white rounded-lg font-medium hover:bg-neutral-700 transition-colors"
+                >
+                  Back to Overview
+                </button>
+              </div>
             </div>
 
             {loading ? (
@@ -350,61 +424,99 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
                 <p className="text-neutral-600 mt-2">Loading user details...</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse border border-neutral-300 rounded-lg">
+              <div className="overflow-x-auto border border-neutral-300 rounded-lg">
+                <table className="w-full min-w-[900px] border-collapse">
                   <thead className="bg-neutral-100">
                     <tr>
-                      <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Name</th>
-                      <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Email</th>
-                      <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Club</th>
-                      <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Role</th>
-                      <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Claimed</th>
-                      <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Total Rounds</th>
-                      <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Sim</th>
-                      <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Grass</th>
-                      <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Last Round</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[40%]">Name</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[12%]">Club</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[18%]">Role</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[12%]">Claimed</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[18%]">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {details.map((user) => (
-                      <tr key={user.member_id} className="hover:bg-neutral-50">
-                        <td className="border border-neutral-300 px-4 py-3 font-medium">
-                          {user.first_name} {user.last_name}
-                        </td>
-                        <td className="border border-neutral-300 px-4 py-3 text-neutral-600">
-                          {user.email_address}
-                        </td>
-                        <td className="border border-neutral-300 px-4 py-3">
-                          <span className="px-2 py-1 bg-neutral-100 text-neutral-700 text-sm rounded">
-                            {user.club}
-                          </span>
-                        </td>
-                        <td className="border border-neutral-300 px-4 py-3 text-neutral-600">
-                          {user.role}
-                        </td>
-                        <td className="border border-neutral-300 px-4 py-3">
-                          <span className={`px-2 py-1 text-sm rounded ${
-                            user.has_claimed_account 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-yellow-100 text-yellow-800'
-                          }`}>
-                            {user.has_claimed_account ? 'Yes' : 'No'}
-                          </span>
-                        </td>
-                        <td className="border border-neutral-300 px-4 py-3 font-medium">
-                          {user.total_rounds}
-                        </td>
-                        <td className="border border-neutral-300 px-4 py-3 text-neutral-600">
-                          {user.sim_rounds}
-                        </td>
-                        <td className="border border-neutral-300 px-4 py-3 text-neutral-600">
-                          {user.grass_rounds}
-                        </td>
-                        <td className="border border-neutral-300 px-4 py-3 text-neutral-600">
-                          {user.last_round_date ? formatDate(user.last_round_date) : 'N/A'}
-                        </td>
-                      </tr>
-                    ))}
+                    {details.map((user) => {
+                      console.log('Rendering user:', user.first_name, user.last_name, 'with role:', user.role);
+                      console.log('Will render edit button for user:', user.first_name, user.last_name);
+                      return (
+                        <tr key={user.member_id} className="hover:bg-neutral-50">
+                          <td className="border border-neutral-300 px-3 py-3">
+                            <div>
+                              <div className="font-medium text-sm">
+                                {user.first_name} {user.last_name}
+                              </div>
+                              <div className="text-xs text-neutral-500 mt-1">
+                                {user.email_address}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="border border-neutral-300 px-3 py-3">
+                            <span className="px-2 py-1 bg-neutral-100 text-neutral-700 text-xs rounded font-medium">
+                              {user.club}
+                            </span>
+                          </td>
+                          <td className="border border-neutral-300 px-3 py-3 text-neutral-600">
+                            {editingUserId === user.member_id ? (
+                              <div className="flex items-center space-x-2">
+                                <select
+                                  value={editingRole}
+                                  onChange={(e) => setEditingRole(e.target.value)}
+                                  className="w-full px-2 py-1 border border-neutral-300 rounded-md text-xs focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                                >
+                                  {availableRoles.map((role) => (
+                                    <option key={role} value={role}>
+                                      {role}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  onClick={() => handleSaveRole(user.member_id)}
+                                  className="p-1 text-green-600 hover:text-green-800 transition-colors disabled:opacity-50"
+                                  title="Save Role"
+                                  disabled={updatingRole === user.member_id}
+                                >
+                                  {updatingRole === user.member_id ? (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                                  ) : (
+                                    <Save className="w-4 h-4" />
+                                  )}
+                                </button>
+                                <button
+                                  onClick={handleCancelEdit}
+                                  className="p-1 text-neutral-600 hover:text-neutral-800 transition-colors"
+                                  title="Cancel Edit"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className={`px-2 py-1 text-xs rounded font-medium ${getRoleBadgeColor(user.role)}`}>
+                                {user.role}
+                              </span>
+                            )}
+                          </td>
+                          <td className="border border-neutral-300 px-3 py-3">
+                            <span className={`px-2 py-1 text-xs rounded font-medium ${
+                              user.has_claimed_account 
+                                ? 'bg-green-100 text-green-800' 
+                                : 'bg-yellow-100 text-yellow-800'
+                            }`}>
+                              {user.has_claimed_account ? 'Yes' : 'No'}
+                            </span>
+                          </td>
+                          <td className="border border-neutral-300 px-3 py-3 text-neutral-600">
+                            <button
+                              onClick={() => handleEditRole(user.member_id, user.role)}
+                              className="px-3 py-1 bg-blue-600 text-white hover:bg-blue-700 transition-colors rounded text-xs font-medium shadow-sm"
+                              title="Edit Role"
+                            >
+                              Edit
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

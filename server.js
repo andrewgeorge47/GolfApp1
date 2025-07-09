@@ -268,14 +268,29 @@ app.get('/api/users', async (req, res) => {
 });
 
 // Update user profile
-app.put('/api/users/:id', async (req, res) => {
+app.put('/api/users/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { first_name, last_name, email, club, handicap } = req.body;
+  const { first_name, last_name, email, club, handicap, role } = req.body;
+  
+  // Check if user is admin (only admins can update roles)
+  if (role && req.user?.role?.toLowerCase() !== 'admin') {
+    return res.status(403).json({ error: 'Only admins can update user roles' });
+  }
+  
   try {
-    const { rows } = await pool.query(
-      `UPDATE users SET first_name = $1, last_name = $2, email_address = $3, club = $4, handicap = $5 WHERE member_id = $6 RETURNING *`,
-      [first_name, last_name, email, club, handicap, id]
-    );
+    let query, params;
+    
+    if (role) {
+      // Update including role
+      query = `UPDATE users SET first_name = $1, last_name = $2, email_address = $3, club = $4, handicap = $5, role = $6 WHERE member_id = $7 RETURNING *`;
+      params = [first_name, last_name, email, club, handicap, role, id];
+    } else {
+      // Update without role
+      query = `UPDATE users SET first_name = $1, last_name = $2, email_address = $3, club = $4, handicap = $5 WHERE member_id = $6 RETURNING *`;
+      params = [first_name, last_name, email, club, handicap, id];
+    }
+    
+    const { rows } = await pool.query(query, params);
     if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
     res.json(transformUserData(rows[0]));
   } catch (err) {
