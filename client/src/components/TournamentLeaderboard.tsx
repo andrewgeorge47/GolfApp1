@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Medal, Award, Crown } from 'lucide-react';
-import { getTeamScores, getSimulatorCourses } from '../services/api';
+import { Trophy, Medal, Award, Crown, Eye } from 'lucide-react';
+import { getTeamScores, getSimulatorCourse } from '../services/api';
+import DetailedScorecard from './DetailedScorecard';
 
 interface TeamScore {
   id: number;
@@ -41,6 +42,8 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
   const [teamScores, setTeamScores] = useState<TeamScore[]>([]);
   const [loading, setLoading] = useState(false);
   const [courseData, setCourseData] = useState<any>(null);
+  const [selectedTeamScore, setSelectedTeamScore] = useState<TeamScore | null>(null);
+  const [showDetailedScorecard, setShowDetailedScorecard] = useState(false);
 
   const fetchTeamScores = async () => {
     try {
@@ -58,10 +61,9 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
     if (!courseId) return;
     
     try {
-      const response = await getSimulatorCourses('', '', 1000);
-      const course = response.data.courses?.find((c: any) => c.id === courseId);
-      if (course) {
-        setCourseData(course);
+      const response = await getSimulatorCourse(courseId);
+      if (response.data) {
+        setCourseData(response.data);
       }
     } catch (error) {
       console.error('Error fetching course data:', error);
@@ -133,6 +135,16 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
     }
   };
 
+  const handleTeamClick = (teamScore: TeamScore) => {
+    setSelectedTeamScore(teamScore);
+    setShowDetailedScorecard(true);
+  };
+
+  const handleCloseDetailedScorecard = () => {
+    setShowDetailedScorecard(false);
+    setSelectedTeamScore(null);
+  };
+
   const sortedScores = [...teamScores].sort((a, b) => a.total_score - b.total_score);
 
   if (loading) {
@@ -183,11 +195,12 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                 <th className="px-6 py-4 text-left text-sm font-semibold text-neutral-600">Team</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-neutral-600">Players</th>
                 <th className="px-6 py-4 text-center text-sm font-semibold text-neutral-600">Score</th>
+                <th className="px-6 py-4 text-center text-sm font-semibold text-neutral-600">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-200">
               {sortedScores.map((score, index) => (
-                <tr key={score.id} className="hover:bg-neutral-50 transition-colors">
+                <tr key={score.id} className="hover:bg-neutral-50 transition-colors cursor-pointer" onClick={() => handleTeamClick(score)}>
                   <td className="px-6 py-4">
                     <div className="flex items-center space-x-2">
                       {getPositionIcon(index + 1)}
@@ -226,14 +239,34 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                       );
                     })()}
                   </td>
-                  </tr>
+                  <td className="px-6 py-4 text-center">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleTeamClick(score);
+                      }}
+                      className="px-3 py-1 bg-brand-neon-green text-brand-black rounded-lg text-sm font-medium hover:bg-green-400 transition-colors flex items-center space-x-1"
+                    >
+                      <Eye className="w-4 h-4" />
+                      <span>View</span>
+                    </button>
+                  </td>
+                </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
 
-
+      {/* Detailed Scorecard Modal */}
+      {showDetailedScorecard && selectedTeamScore && (
+        <DetailedScorecard
+          teamScore={selectedTeamScore}
+          courseData={courseData}
+          tournamentSettings={tournamentSettings}
+          onClose={handleCloseDetailedScorecard}
+        />
+      )}
     </div>
   );
 };

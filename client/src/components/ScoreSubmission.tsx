@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Users, Target, Award, Crown, CheckCircle } from 'lucide-react';
-import { updateTournamentMatch, submitTeamScore, getSimulatorCourses, getTeamScores } from '../services/api';
+import { updateTournamentMatch, submitTeamScore, getSimulatorCourses, getSimulatorCourse, getTeamScores } from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../AuthContext';
 
@@ -114,6 +114,12 @@ const ScoreSubmission: React.FC<ScoreSubmissionProps> = ({
   tournamentSettings,
   courseId
 }) => {
+  console.log('ScoreSubmission component props:', {
+    tournamentId,
+    tournamentFormat,
+    courseId,
+    tournamentSettings
+  });
   const { user } = useAuth();
   const [courseData, setCourseData] = useState<CourseData | null>(null);
   const [courseLoading, setCourseLoading] = useState(false);
@@ -124,14 +130,24 @@ const ScoreSubmission: React.FC<ScoreSubmissionProps> = ({
   // Fetch course data if courseId is provided
   useEffect(() => {
     const fetchCourseData = async () => {
-      if (!courseId) return;
+      if (!courseId) {
+        console.log('No courseId provided, skipping course data fetch');
+        return;
+      }
+      
+      console.log('Fetching course data for courseId:', courseId);
       
       try {
         setCourseLoading(true);
-        const response = await getSimulatorCourses('', '', 1000);
-        const course = response.data.courses?.find((c: any) => c.id === courseId);
-        if (course) {
-          setCourseData(course);
+        const response = await getSimulatorCourse(courseId);
+        console.log('Course data response:', response.data);
+        
+        if (response.data) {
+          setCourseData(response.data);
+          console.log('Course data set successfully:', response.data);
+          console.log('Par values:', response.data.par_values);
+        } else {
+          console.log('No course data found for courseId:', courseId);
         }
       } catch (error) {
         console.error('Error fetching course data:', error);
@@ -781,6 +797,7 @@ const ScoreSubmission: React.FC<ScoreSubmissionProps> = ({
                         // Calculate the correct par value index based on hole configuration
                         const parValueIndex = startHole - 1 + index;
                         const parValue = courseData?.par_values?.[parValueIndex] || 4;
+                        console.log(`Hole ${hole.hole}: parValueIndex=${parValueIndex}, parValue=${parValue}, courseData.par_values=`, courseData?.par_values);
                         return (
                           <tr key={hole.hole} className="hover:bg-neutral-50">
                             <td className="border border-neutral-300 px-3 py-2 text-center text-sm font-medium text-neutral-600">
@@ -940,6 +957,7 @@ const ScoreSubmission: React.FC<ScoreSubmissionProps> = ({
                         // Calculate the correct par value index based on hole configuration
                         const parValueIndex = startHole - 1 + index;
                         const parValue = courseData?.par_values?.[parValueIndex] || 4;
+                        console.log(`Team scoring - Hole ${hole.hole}: parValueIndex=${parValueIndex}, parValue=${parValue}, courseData.par_values=`, courseData?.par_values);
                         return (
                           <tr key={hole.hole} className="hover:bg-neutral-50">
                             <td className="border border-neutral-300 px-3 py-2 text-center text-sm font-medium text-neutral-600">

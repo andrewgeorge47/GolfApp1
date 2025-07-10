@@ -635,6 +635,11 @@ export const getSimulatorCourses = (search?: string, platform?: string, limit?: 
   return api.get(`/simulator-courses?${params.toString()}`);
 };
 
+// Get a single simulator course by ID
+export const getSimulatorCourse = (id: number) => {
+  return api.get(`/simulator-courses/${id}`);
+};
+
 export const updateCourseParValues = (courseId: number, parValues: number[]) => 
   api.put(`/simulator-courses/${courseId}/par-values`, { par_values: parValues });
 

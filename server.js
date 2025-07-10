@@ -4008,6 +4008,26 @@ app.post('/api/trackman-courses/import', authenticateToken, async (req, res) => 
   }
 });
 
+// Get a single simulator course by ID
+app.get('/api/simulator-courses/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { rows } = await pool.query(`
+      SELECT * FROM simulator_courses_combined WHERE id = $1
+    `, [id]);
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+    
+    res.json(rows[0]);
+  } catch (error) {
+    console.error('Error fetching simulator course:', error);
+    res.status(500).json({ error: 'Failed to fetch course' });
+  }
+});
+
 // Combined Simulator Courses API
 app.get('/api/simulator-courses', async (req, res) => {
   try {
