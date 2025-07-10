@@ -14,12 +14,15 @@ import {
   TrendingDown,
   Flag,
   BarChart3,
-  Clock
+  Clock,
+  Eye,
+  ChevronRight
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
-import { getGlobalLeaderboard, getClubLeaderboard, getAllClubs, GlobalLeaderboardData } from '../services/api';
+import { getGlobalLeaderboard, getClubLeaderboard, getAllClubs, GlobalLeaderboardData, getTournaments } from '../services/api';
 import api from '../services/api';
 import ClubLeaderboard from './ClubLeaderboard';
+import TournamentLeaderboard from './TournamentLeaderboard';
 
 // Define the ClubLeaderboardData interface to match what the server returns
 interface ClubLeaderboardData {
@@ -78,11 +81,16 @@ const Leaderboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [clubLoading, setClubLoading] = useState(false);
   const [clubError, setClubError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'global' | 'club'>('global');
+  const [activeTab, setActiveTab] = useState<'global' | 'club' | 'tournaments'>('global');
 
   // Global leaderboard specific state
   const [timeFrame, setTimeFrame] = useState<'monthly' | 'allTime'>('allTime');
   const [activeCategory, setActiveCategory] = useState<'courseRecords' | 'roundsLogged' | 'averageScore'>('courseRecords');
+
+  // Tournaments state
+  const [tournaments, setTournaments] = useState<any[]>([]);
+  const [tournamentsLoading, setTournamentsLoading] = useState(false);
+  const [selectedTournament, setSelectedTournament] = useState<any | null>(null);
 
   // Check if user is admin
   const isAdmin = user?.role === 'Admin';
@@ -131,6 +139,25 @@ const Leaderboard: React.FC = () => {
       fetchClubData();
     }
   }, [user?.club, activeTab, timeFrame]);
+
+  // Fetch tournaments when needed
+  useEffect(() => {
+    const fetchTournaments = async () => {
+      setTournamentsLoading(true);
+      try {
+        const response = await getTournaments();
+        setTournaments(response.data || []);
+      } catch (error) {
+        console.error('Error fetching tournaments:', error);
+      } finally {
+        setTournamentsLoading(false);
+      }
+    };
+
+    if (activeTab === 'tournaments') {
+      fetchTournaments();
+    }
+  }, [activeTab]);
 
   // Fetch specific club data
   const fetchClubData = async () => {
@@ -338,65 +365,47 @@ const Leaderboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Mobile: Single Table */}
-          <div className="lg:hidden overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Rank
-                  </th>
-                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Club
-                  </th>
-                  <th className="px-3 sm:px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {getCategoryTitle()}
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {getCurrentData().length > 0 ? (
-                  getCurrentData().map((item, index) => (
-                    <tr key={item.club} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
+          {/* Mobile: Card Layout */}
+          <div className="lg:hidden space-y-3">
+            {getCurrentData().length > 0 ? (
+              getCurrentData().map((item, index) => (
+                <div key={item.club} className="bg-white rounded-lg shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="flex items-center justify-center w-10 h-10 bg-gray-100 rounded-full flex-shrink-0">
+                        {getRankIcon(index + 1)}
+                      </div>
+                      <div className="flex-1 min-w-0">
                         <div className="flex items-center">
-                          <div className="flex items-center justify-center w-6 h-6 sm:w-8 sm:h-8 bg-gray-100 rounded-full">
-                            {getRankIcon(index + 1)}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="font-medium text-gray-900 text-sm sm:text-base">{item.club}</div>
+                          <h3 className="font-semibold text-gray-900 text-base truncate">{item.club}</h3>
                           {item.club === user?.club && (
-                            <span className="ml-2 bg-brand-neon-green/10 text-brand-neon-green text-xs font-medium px-2 py-0.5 rounded border border-brand-neon-green/20">
+                            <span className="ml-2 bg-brand-neon-green/10 text-brand-neon-green text-xs font-medium px-2 py-0.5 rounded-full border border-brand-neon-green/20 flex-shrink-0">
                               My Club
                             </span>
                           )}
                         </div>
-                      </td>
-                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap text-right">
-                        <div className="text-base sm:text-lg font-semibold text-gray-900">
-                          {getValueDisplay(item)}
-                          {getValueSuffix() && <span className="text-xs sm:text-sm text-gray-500 ml-1">{getValueSuffix()}</span>}
-                        </div>
-                        {activeCategory === 'averageScore' && 'rounds_count' in item && (
-                          <div className="text-xs sm:text-sm text-gray-500">({item.rounds_count} rounds)</div>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={3} className="px-6 py-8 sm:py-12 text-center">
-                      <Activity className="w-8 h-8 sm:w-12 sm:h-12 text-gray-400 mx-auto mb-2 sm:mb-4" />
-                      <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-1 sm:mb-2">No Data Available</h3>
-                      <p className="text-gray-500 text-sm sm:text-base">No clubs have data for this category and time frame.</p>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="text-lg font-bold text-gray-900">
+                        {getValueDisplay(item)}
+                        {getValueSuffix() && <span className="text-sm text-gray-500 ml-1">{getValueSuffix()}</span>}
+                      </div>
+                      {activeCategory === 'averageScore' && 'rounds_count' in item && (
+                        <div className="text-xs text-gray-500 mt-1">({item.rounds_count} rounds)</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-8 text-center">
+                <Activity className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No Data Available</h3>
+                <p className="text-gray-500">No clubs have data for this category and time frame.</p>
+              </div>
+            )}
           </div>
 
           {/* Desktop: Three Column Layout */}
@@ -541,6 +550,17 @@ const Leaderboard: React.FC = () => {
               My Club
             </button>
           )}
+          <button
+            onClick={() => setActiveTab('tournaments')}
+            className={`inline-flex items-center px-3 sm:px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              activeTab === 'tournaments'
+                ? 'bg-brand-neon-green text-white shadow-sm'
+                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            <Trophy className="w-4 h-4 mr-2" />
+            Tournaments
+          </button>
         </div>
 
         {activeTab === 'global' && <GlobalLeaderboard />}
@@ -556,6 +576,97 @@ const Leaderboard: React.FC = () => {
             timeFrame={timeFrame}
             onTimeFrameChange={setTimeFrame}
           />
+        )}
+
+        {/* Tournaments Tab */}
+        {activeTab === 'tournaments' && (
+          <div className="space-y-6">
+            {selectedTournament ? (
+              <div>
+                <div className="flex items-center justify-between mb-6">
+                  <button
+                    onClick={() => setSelectedTournament(null)}
+                    className="flex items-center space-x-2 text-brand-neon-green hover:text-green-600 transition-colors"
+                  >
+                    <ChevronRight className="w-4 h-4 rotate-180" />
+                    <span>Back to Tournaments</span>
+                  </button>
+                </div>
+                <TournamentLeaderboard
+                  tournamentId={selectedTournament.id}
+                  tournamentFormat={selectedTournament.tournament_format}
+                  courseId={selectedTournament.course_id}
+                  tournamentSettings={{
+                    holeConfiguration: selectedTournament.hole_configuration || '18',
+                    tee: selectedTournament.tee || 'Red',
+                    pins: selectedTournament.pins || 'Friday',
+                    puttingGimme: selectedTournament.putting_gimme || '8',
+                    elevation: selectedTournament.elevation || 'Course',
+                    stimp: selectedTournament.stimp || '11',
+                    mulligan: selectedTournament.mulligan || 'No',
+                    gamePlay: selectedTournament.game_play || 'Force Realistic',
+                    firmness: selectedTournament.firmness || 'Normal',
+                    wind: selectedTournament.wind || 'None',
+                    handicapEnabled: selectedTournament.handicap_enabled || false
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center space-x-3">
+                    <Trophy className="w-6 h-6 text-brand-neon-green" />
+                    <h3 className="text-xl font-semibold text-gray-900">Tournament Leaderboards</h3>
+                  </div>
+                </div>
+
+                {tournamentsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-neon-green"></div>
+                  </div>
+                ) : tournaments.length > 0 ? (
+                  <div className="space-y-4">
+                    {tournaments.map((tournament) => (
+                      <div
+                        key={tournament.id}
+                        className="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors cursor-pointer border border-gray-200"
+                        onClick={() => setSelectedTournament(tournament)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <h4 className="font-semibold text-gray-900 mb-1">{tournament.name}</h4>
+                            <p className="text-sm text-gray-600 mb-2">{tournament.description}</p>
+                            <div className="flex items-center space-x-4 text-xs text-gray-500">
+                              <span className="flex items-center space-x-1">
+                                <Calendar className="w-3 h-3" />
+                                <span>{new Date(tournament.start_date).toLocaleDateString()}</span>
+                              </span>
+                              <span className="flex items-center space-x-1">
+                                <Users className="w-3 h-3" />
+                                <span>{tournament.tournament_format.replace('_', ' ')}</span>
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Eye className="w-4 h-4 text-gray-400" />
+                            <ChevronRight className="w-4 h-4 text-gray-400" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Trophy className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <h4 className="text-lg font-medium text-gray-900 mb-2">No Tournaments Available</h4>
+                    <p className="text-gray-500 text-sm">
+                      There are no tournaments available to view at this time.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

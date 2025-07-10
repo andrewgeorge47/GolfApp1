@@ -1674,43 +1674,45 @@ app.get('/api/tournaments/:id/teams', async (req, res) => {
   const { id } = req.params;
   
   try {
-    // Get teams with captain information
-    const teamsResult = await pool.query(
-      `SELECT 
-        tt.*,
-        u.first_name as captain_first_name,
-        u.last_name as captain_last_name,
-        u.club as captain_club
-       FROM tournament_teams tt
-       JOIN users u ON tt.captain_id = u.member_id
-       WHERE tt.tournament_id = $1
-       ORDER BY tt.name`,
+    // Get teams with captain information and all team members in a single optimized query
+    const { rows } = await pool.query(
+      `WITH teams_data AS (
+        SELECT 
+          tt.*,
+          captain.first_name as captain_first_name,
+          captain.last_name as captain_last_name,
+          captain.club as captain_club
+         FROM tournament_teams tt
+         JOIN users captain ON tt.captain_id = captain.member_id
+         WHERE tt.tournament_id = $1
+       ),
+       team_members_data AS (
+         SELECT 
+           tm.team_id,
+           json_agg(
+             json_build_object(
+               'user_member_id', tm.user_member_id,
+               'first_name', u.first_name,
+               'last_name', u.last_name,
+               'club', u.club,
+               'is_captain', tm.is_captain
+             ) ORDER BY tm.is_captain DESC, u.last_name ASC, u.first_name ASC
+           ) as players
+         FROM team_members tm
+         JOIN users u ON tm.user_member_id = u.member_id
+         WHERE tm.tournament_id = $1
+         GROUP BY tm.team_id
+       )
+       SELECT 
+         td.*,
+         COALESCE(tmd.players, '[]'::json) as players
+       FROM teams_data td
+       LEFT JOIN team_members_data tmd ON td.id = tmd.team_id
+       ORDER BY td.name`,
       [id]
     );
     
-    // Get team members for each team
-    const teams = await Promise.all(teamsResult.rows.map(async (team) => {
-      const membersResult = await pool.query(
-        `SELECT 
-          tm.user_member_id,
-          u.first_name,
-          u.last_name,
-          u.club,
-          tm.is_captain
-         FROM team_members tm
-         JOIN users u ON tm.user_member_id = u.member_id
-         WHERE tm.team_id = $1 AND tm.is_captain = false
-         ORDER BY u.last_name, u.first_name`,
-        [team.id]
-      );
-      
-      return {
-        ...team,
-        players: membersResult.rows
-      };
-    }));
-    
-    res.json(teams);
+    res.json(rows);
   } catch (err) {
     console.error('Error fetching teams:', err);
     res.status(500).json({ error: 'Failed to fetch teams' });
@@ -1780,38 +1782,44 @@ app.put('/api/tournaments/:id/teams/:teamId', async (req, res) => {
       }
     }
     
-    // Get updated team data
+    // Get updated team data with all team members in a single optimized query
     const updatedTeamResult = await pool.query(
-      `SELECT 
-        tt.*,
-        u.first_name as captain_first_name,
-        u.last_name as captain_last_name,
-        u.club as captain_club
-       FROM tournament_teams tt
-       JOIN users u ON tt.captain_id = u.member_id
-       WHERE tt.id = $1`,
+      `WITH team_data AS (
+        SELECT 
+          tt.*,
+          captain.first_name as captain_first_name,
+          captain.last_name as captain_last_name,
+          captain.club as captain_club
+         FROM tournament_teams tt
+         JOIN users captain ON tt.captain_id = captain.member_id
+         WHERE tt.id = $1
+       ),
+       team_members_data AS (
+         SELECT 
+           tm.team_id,
+           json_agg(
+             json_build_object(
+               'user_member_id', tm.user_member_id,
+               'first_name', u.first_name,
+               'last_name', u.last_name,
+               'club', u.club,
+               'is_captain', tm.is_captain
+             ) ORDER BY tm.is_captain DESC, u.last_name ASC, u.first_name ASC
+           ) as players
+         FROM team_members tm
+         JOIN users u ON tm.user_member_id = u.member_id
+         WHERE tm.team_id = $1
+         GROUP BY tm.team_id
+       )
+       SELECT 
+         td.*,
+         COALESCE(tmd.players, '[]'::json) as players
+       FROM team_data td
+       LEFT JOIN team_members_data tmd ON td.id = tmd.team_id`,
       [teamId]
     );
     
-    // Get updated team members
-    const membersResult = await pool.query(
-      `SELECT 
-        tm.user_member_id,
-        u.first_name,
-        u.last_name,
-        u.club,
-        tm.is_captain
-       FROM team_members tm
-       JOIN users u ON tm.user_member_id = u.member_id
-       WHERE tm.team_id = $1 AND tm.is_captain = false
-       ORDER BY u.last_name, u.first_name`,
-      [teamId]
-    );
-    
-    const updatedTeam = {
-      ...updatedTeamResult.rows[0],
-      players: membersResult.rows
-    };
+    const updatedTeam = updatedTeamResult.rows[0];
     
     res.json(updatedTeam);
   } catch (err) {
@@ -1948,49 +1956,51 @@ app.get('/api/tournaments/:id/team-scores', async (req, res) => {
   const { id } = req.params;
   
   try {
+    // Get team scores with all team members in a single optimized query
     const { rows } = await pool.query(
-      `SELECT 
-        tts.*,
-        tt.name as team_name,
-        captain.first_name as captain_first_name,
-        captain.last_name as captain_last_name,
-        captain.club as captain_club,
-        submitter.first_name as submitted_by_first_name,
-        submitter.last_name as submitted_by_last_name
-       FROM tournament_team_scores tts
-       JOIN tournament_teams tt ON tts.team_id = tt.id
-       JOIN users captain ON tt.captain_id = captain.member_id
-       JOIN users submitter ON tts.submitted_by = submitter.member_id
-       WHERE tts.tournament_id = $1
-       ORDER BY tts.total_score ASC, tts.submitted_at ASC`,
+      `WITH team_scores AS (
+        SELECT 
+          tts.*,
+          tt.name as team_name,
+          captain.first_name as captain_first_name,
+          captain.last_name as captain_last_name,
+          captain.club as captain_club,
+          submitter.first_name as submitted_by_first_name,
+          submitter.last_name as submitted_by_last_name
+         FROM tournament_team_scores tts
+         JOIN tournament_teams tt ON tts.team_id = tt.id
+         JOIN users captain ON tt.captain_id = captain.member_id
+         JOIN users submitter ON tts.submitted_by = submitter.member_id
+         WHERE tts.tournament_id = $1
+       ),
+       team_members_data AS (
+         SELECT 
+           tm.team_id,
+           tm.tournament_id,
+           json_agg(
+             json_build_object(
+               'user_member_id', tm.user_member_id,
+               'first_name', u.first_name,
+               'last_name', u.last_name,
+               'club', u.club,
+               'is_captain', tm.is_captain
+             ) ORDER BY tm.is_captain DESC, u.first_name ASC
+           ) as players
+         FROM team_members tm
+         JOIN users u ON tm.user_member_id = u.member_id
+         WHERE tm.tournament_id = $1
+         GROUP BY tm.team_id, tm.tournament_id
+       )
+       SELECT 
+         ts.*,
+         COALESCE(tmd.players, '[]'::json) as players
+       FROM team_scores ts
+       LEFT JOIN team_members_data tmd ON ts.team_id = tmd.team_id
+       ORDER BY ts.total_score ASC, ts.submitted_at ASC`,
       [id]
     );
     
-    // For each team score, fetch the team members
-    const teamScoresWithPlayers = await Promise.all(
-      rows.map(async (score) => {
-        const teamMembersResult = await pool.query(
-          `SELECT 
-            tm.user_member_id,
-            u.first_name,
-            u.last_name,
-            u.club,
-            tm.is_captain
-           FROM team_members tm
-           JOIN users u ON tm.user_member_id = u.member_id
-           WHERE tm.team_id = $1 AND tm.tournament_id = $2
-           ORDER BY tm.is_captain DESC, u.first_name ASC`,
-          [score.team_id, id]
-        );
-        
-        return {
-          ...score,
-          players: teamMembersResult.rows
-        };
-      })
-    );
-    
-    res.json(teamScoresWithPlayers);
+    res.json(rows);
   } catch (err) {
     console.error('Error fetching team scores:', err);
     res.status(500).json({ error: 'Failed to fetch team scores' });
@@ -2003,16 +2013,44 @@ app.get('/api/tournaments/:id/teams/:teamId/score-details', async (req, res) => 
   
   try {
     const { rows } = await pool.query(
-      `SELECT 
-        tts.*,
-        tt.name as team_name,
-        u.first_name as captain_first_name,
-        u.last_name as captain_last_name,
-        u.club as captain_club
-       FROM tournament_team_scores tts
-       JOIN tournament_teams tt ON tts.team_id = tt.id
-       JOIN users u ON tts.submitted_by = u.member_id
-       WHERE tts.tournament_id = $1 AND tts.team_id = $2`,
+      `WITH team_score AS (
+        SELECT 
+          tts.*,
+          tt.name as team_name,
+          captain.first_name as captain_first_name,
+          captain.last_name as captain_last_name,
+          captain.club as captain_club,
+          submitter.first_name as submitted_by_first_name,
+          submitter.last_name as submitted_by_last_name
+         FROM tournament_team_scores tts
+         JOIN tournament_teams tt ON tts.team_id = tt.id
+         JOIN users captain ON tt.captain_id = captain.member_id
+         JOIN users submitter ON tts.submitted_by = submitter.member_id
+         WHERE tts.tournament_id = $1 AND tts.team_id = $2
+       ),
+       team_members_data AS (
+         SELECT 
+           tm.team_id,
+           tm.tournament_id,
+           json_agg(
+             json_build_object(
+               'user_member_id', tm.user_member_id,
+               'first_name', u.first_name,
+               'last_name', u.last_name,
+               'club', u.club,
+               'is_captain', tm.is_captain
+             ) ORDER BY tm.is_captain DESC, u.first_name ASC
+           ) as players
+         FROM team_members tm
+         JOIN users u ON tm.user_member_id = u.member_id
+         WHERE tm.tournament_id = $1 AND tm.team_id = $2
+         GROUP BY tm.team_id, tm.tournament_id
+       )
+       SELECT 
+         ts.*,
+         COALESCE(tmd.players, '[]'::json) as players
+       FROM team_score ts
+       LEFT JOIN team_members_data tmd ON ts.team_id = tmd.team_id`,
       [id, teamId]
     );
     

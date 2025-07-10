@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Medal, Award, Crown, Eye } from 'lucide-react';
+import { Trophy, Medal, Award, Crown, Eye, ChevronRight } from 'lucide-react';
 import { getTeamScores, getSimulatorCourse } from '../services/api';
 import DetailedScorecard from './DetailedScorecard';
 
@@ -187,7 +187,8 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
 
       {/* Leaderboard Table */}
       <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* Desktop Table */}
+        <div className="hidden lg:block overflow-x-auto">
           <table className="w-full">
             <thead className="bg-neutral-50 border-b border-neutral-200">
               <tr>
@@ -240,16 +241,66 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                     })()}
                   </td>
                   <td className="px-6 py-4 text-center">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleTeamClick(score);
-                      }}
-                      className="px-3 py-1 bg-brand-neon-green text-brand-black rounded-lg text-sm font-medium hover:bg-green-400 transition-colors flex items-center space-x-1"
-                    >
-                      <Eye className="w-4 h-4" />
-                      <span>View</span>
-                    </button>
+                    <div className="flex items-center justify-center space-x-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTeamClick(score);
+                        }}
+                        className="px-3 py-1 bg-brand-neon-green text-brand-black rounded-lg text-sm font-medium hover:bg-green-400 transition-colors flex items-center space-x-1"
+                      >
+                        <Eye className="w-4 h-4" />
+                        <span>View</span>
+                      </button>
+                      <ChevronRight className="w-4 h-4 text-neutral-400" />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Mobile Table */}
+        <div className="lg:hidden">
+          <table className="w-full">
+            <thead className="bg-neutral-50 border-b border-neutral-200">
+              <tr>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-neutral-600">Pos</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-neutral-600">Team</th>
+                <th className="px-3 py-3 text-center text-xs font-semibold text-neutral-600">Score</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-200">
+              {sortedScores.map((score, index) => (
+                <tr key={score.id} className="hover:bg-neutral-50 transition-colors cursor-pointer" onClick={() => handleTeamClick(score)}>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center space-x-2">
+                      {getPositionIcon(index + 1)}
+                      <span className="text-sm font-medium text-neutral-600">
+                        {index + 1}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-semibold text-brand-black text-sm">{score.team_name}</span>
+                      {index === 0 && <Crown className="w-3 h-3 text-yellow-500" />}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    <div className="flex items-center justify-center space-x-2">
+                      {(() => {
+                        const scoreData = calculateRelativeScore(score.total_score);
+                        return (
+                          <span className="flex items-center justify-center gap-1 text-lg">
+                            <span className={`font-bold ${scoreData.color}`}>{scoreData.relative}</span>
+                            <span className="text-neutral-600 text-sm">{scoreData.total}</span>
+                          </span>
+                        );
+                      })()}
+                      <ChevronRight className="w-4 h-4 text-neutral-400" />
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { X, Crown, Users } from 'lucide-react';
 
 interface TeamScore {
   id: number;
@@ -102,6 +102,22 @@ const DetailedScorecard: React.FC<DetailedScorecardProps> = ({
           >
             <X className="w-6 h-6" />
           </button>
+        </div>
+
+        {/* Team Members */}
+        <div className="bg-neutral-50 rounded-lg p-4 mb-6">
+          <h4 className="text-lg font-semibold text-brand-black mb-3">Players</h4>
+          <div className="space-y-1">
+            {teamScore.players?.map((player, index) => (
+              <div key={player.user_member_id} className="flex items-center space-x-2">
+                <span className="text-sm text-neutral-600">
+                  {player.first_name} {player.last_name}
+                </span>
+                {player.is_captain && <Crown className="w-3 h-3 text-yellow-500" />}
+                <span className="text-xs text-neutral-500">({player.club})</span>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="overflow-x-auto">

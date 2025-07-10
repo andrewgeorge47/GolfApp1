@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Calendar, MapPin, Users, DollarSign, UserPlus, Clock, Search } from 'lucide-react';
-import { getAvailableTournaments, registerUserForTournament, getUserTournaments } from '../services/api';
+import { getAvailableTournaments, registerUserForTournament, unregisterUserFromTournament, getUserTournaments } from '../services/api';
 import { useAuth } from '../AuthContext';
 import { toast } from 'react-toastify';
 
@@ -79,6 +79,25 @@ const AvailableTournaments: React.FC = () => {
     } catch (error: any) {
       console.error('Error registering for tournament:', error);
       toast.error(error.response?.data?.error || 'Failed to register for tournament');
+    }
+  };
+
+  const handleUnregister = async (tournamentId: number) => {
+    if (!user?.member_id) {
+      toast.error('You must be logged in to unregister from tournaments');
+      return;
+    }
+
+    try {
+      await unregisterUserFromTournament(tournamentId, user.member_id);
+      toast.success('Successfully unregistered from tournament!');
+      
+      // Refresh user tournaments
+      const userRes = await getUserTournaments(user.member_id);
+      setUserTournaments(userRes.data);
+    } catch (error: any) {
+      console.error('Error unregistering from tournament:', error);
+      toast.error(error.response?.data?.error || 'Failed to unregister from tournament');
     }
   };
 
@@ -196,17 +215,18 @@ const AvailableTournaments: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredTournaments.map((tournament) => (
-            <div key={tournament.id} className="p-4 bg-white border border-neutral-200 rounded-lg shadow-sm hover:border-brand-neon-green transition-all group">
+            <div key={tournament.id} className={`p-4 bg-white border rounded-lg shadow-sm transition-all group ${
+              isUserRegistered(tournament.id) 
+                ? 'border-green-300 bg-green-50/30' 
+                : 'border-neutral-200 hover:border-brand-neon-green'
+            }`}>
               <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold text-brand-black group-hover:text-brand-neon-green transition-colors">
-                  {tournament.name}
-                </h3>
+                <div className="flex items-center">
+                  <h3 className="font-semibold text-brand-black group-hover:text-brand-neon-green transition-colors">
+                    {tournament.name}
+                  </h3>
+                </div>
                 <div className="flex items-center space-x-2">
-                  {tournament.registration_open && (
-                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      Registration Open
-                    </span>
-                  )}
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(tournament.status || 'draft')}`}>
                     {tournament.status || 'draft'}
                   </span>
@@ -261,19 +281,28 @@ const AvailableTournaments: React.FC = () => {
                 </div>
               )}
               
-              <div className="mt-4">
+              <div className="mt-4 space-y-2">
                 {isUserRegistered(tournament.id) ? (
-                  <div className="flex items-center justify-center px-3 py-2 bg-green-100 text-green-800 rounded-lg text-sm font-medium">
-                    <UserPlus className="w-4 h-4 mr-2" />
-                    Registered
-                  </div>
+                  <>
+                    <div className="flex items-center justify-center px-3 py-2 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm font-medium">
+                      <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                      ✓ Registered
+                    </div>
+                    <button
+                      onClick={() => handleUnregister(tournament.id)}
+                      className="w-full flex items-center justify-center px-3 py-2 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors"
+                    >
+                      <UserPlus className="w-4 h-4 mr-2 rotate-45" />
+                      Unregister
+                    </button>
+                  </>
                 ) : (
                   <button
                     onClick={() => handleRegister(tournament.id)}
-                    className="w-full flex items-center justify-center px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors"
+                    className="w-full flex items-center justify-center px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors shadow-sm hover:shadow-md"
                   >
                     <UserPlus className="w-4 h-4 mr-2" />
-                    Register
+                    Register Now
                   </button>
                 )}
               </div>
