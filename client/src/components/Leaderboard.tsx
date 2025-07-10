@@ -254,41 +254,7 @@ const Leaderboard: React.FC = () => {
     };
 
       return (
-    <div className="max-w-6xl mx-auto space-y-8">
-      {/* Page Header */}
-      <div className="text-center">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Neighborhood National Community Leaderboard</h1>
-        <p className="text-gray-600">See where your club stacks up!</p>
-      </div>
-
-      {/* Navigation Chips */}
-      <div className="flex flex-wrap gap-2 justify-center">
-        <button
-          onClick={() => setActiveTab('global')}
-          className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-            activeTab === 'global'
-              ? 'bg-brand-neon-green text-white shadow-sm'
-              : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-          }`}
-        >
-          <Globe className="w-4 h-4 mr-2" />
-          NN Community
-        </button>
-        {user?.club && (
-          <button
-            onClick={() => setActiveTab('club')}
-            className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-              activeTab === 'club'
-                ? 'bg-brand-neon-green text-white shadow-sm'
-                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-            }`}
-          >
-            <Building className="w-4 h-4 mr-2" />
-            My Club
-          </button>
-        )}
-
-      </div>
+    <div className="space-y-6 sm:space-y-8">
 
 
 
@@ -335,36 +301,39 @@ const Leaderboard: React.FC = () => {
             <div className="flex p-1">
               <button
                 onClick={() => setActiveCategory('courseRecords')}
-                className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+                className={`flex-1 py-3 px-3 sm:px-4 text-sm font-medium rounded-md transition-colors ${
                   activeCategory === 'courseRecords'
                     ? 'bg-brand-neon-green text-white'
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                 }`}
               >
-                <Trophy className="w-4 h-4 inline mr-2" />
-                Records
+                <Trophy className="w-4 h-4 inline mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Records</span>
+                <span className="sm:hidden">Rec</span>
               </button>
               <button
                 onClick={() => setActiveCategory('roundsLogged')}
-                className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+                className={`flex-1 py-3 px-3 sm:px-4 text-sm font-medium rounded-md transition-colors ${
                   activeCategory === 'roundsLogged'
                     ? 'bg-brand-neon-green text-white'
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                 }`}
               >
-                <Target className="w-4 h-4 inline mr-2" />
-                Rounds
+                <Target className="w-4 h-4 inline mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Rounds</span>
+                <span className="sm:hidden">Rnd</span>
               </button>
               <button
                 onClick={() => setActiveCategory('averageScore')}
-                className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+                className={`flex-1 py-3 px-3 sm:px-4 text-sm font-medium rounded-md transition-colors ${
                   activeCategory === 'averageScore'
                     ? 'bg-brand-neon-green text-white'
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                 }`}
               >
-                <BarChart3 className="w-4 h-4 inline mr-2" />
-                Average
+                <BarChart3 className="w-4 h-4 inline mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Average</span>
+                <span className="sm:hidden">Avg</span>
               </button>
             </div>
           </div>
@@ -374,13 +343,13 @@ const Leaderboard: React.FC = () => {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Rank
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Club
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 sm:px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     {getCategoryTitle()}
                   </th>
                 </tr>
@@ -389,16 +358,16 @@ const Leaderboard: React.FC = () => {
                 {getCurrentData().length > 0 ? (
                   getCurrentData().map((item, index) => (
                     <tr key={item.club} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
                         <div className="flex items-center">
-                          <div className="flex items-center justify-center w-8 h-8 bg-gray-100 rounded-full">
+                          <div className="flex items-center justify-center w-6 h-6 sm:w-8 sm:h-8 bg-gray-100 rounded-full">
                             {getRankIcon(index + 1)}
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
                         <div className="flex items-center">
-                          <div className="font-medium text-gray-900">{item.club}</div>
+                          <div className="font-medium text-gray-900 text-sm sm:text-base">{item.club}</div>
                           {item.club === user?.club && (
                             <span className="ml-2 bg-brand-neon-green/10 text-brand-neon-green text-xs font-medium px-2 py-0.5 rounded border border-brand-neon-green/20">
                               My Club
@@ -406,23 +375,23 @@ const Leaderboard: React.FC = () => {
                           )}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="text-lg font-semibold text-gray-900">
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap text-right">
+                        <div className="text-base sm:text-lg font-semibold text-gray-900">
                           {getValueDisplay(item)}
-                          {getValueSuffix() && <span className="text-sm text-gray-500 ml-1">{getValueSuffix()}</span>}
+                          {getValueSuffix() && <span className="text-xs sm:text-sm text-gray-500 ml-1">{getValueSuffix()}</span>}
                         </div>
                         {activeCategory === 'averageScore' && 'rounds_count' in item && (
-                          <div className="text-sm text-gray-500">({item.rounds_count} rounds)</div>
+                          <div className="text-xs sm:text-sm text-gray-500">({item.rounds_count} rounds)</div>
                         )}
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={3} className="px-6 py-12 text-center">
-                      <Activity className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                      <h3 className="text-lg font-medium text-gray-900 mb-2">No Data Available</h3>
-                      <p className="text-gray-500">No clubs have data for this category and time frame.</p>
+                    <td colSpan={3} className="px-6 py-8 sm:py-12 text-center">
+                      <Activity className="w-8 h-8 sm:w-12 sm:h-12 text-gray-400 mx-auto mb-2 sm:mb-4" />
+                      <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-1 sm:mb-2">No Data Available</h3>
+                      <p className="text-gray-500 text-sm sm:text-base">No clubs have data for this category and time frame.</p>
                     </td>
                   </tr>
                 )}
@@ -537,9 +506,43 @@ const Leaderboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
+    <div className="min-h-screen bg-gray-50 py-4 sm:py-8 px-4">
       {/* Tab Content */}
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-6xl mx-auto space-y-6 sm:space-y-8">
+        {/* Page Header */}
+        <div className="text-center">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Neighborhood National Community Leaderboard</h1>
+          <p className="text-gray-600 text-sm sm:text-base">See where your club stacks up!</p>
+        </div>
+
+        {/* Navigation Chips */}
+        <div className="flex flex-wrap gap-2 justify-center">
+          <button
+            onClick={() => setActiveTab('global')}
+            className={`inline-flex items-center px-3 sm:px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              activeTab === 'global'
+                ? 'bg-brand-neon-green text-white shadow-sm'
+                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            <Globe className="w-4 h-4 mr-2" />
+            NN Community
+          </button>
+          {user?.club && (
+            <button
+              onClick={() => setActiveTab('club')}
+              className={`inline-flex items-center px-3 sm:px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                activeTab === 'club'
+                  ? 'bg-brand-neon-green text-white shadow-sm'
+                  : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <Building className="w-4 h-4 mr-2" />
+              My Club
+            </button>
+          )}
+        </div>
+
         {activeTab === 'global' && <GlobalLeaderboard />}
 
         {/* Club Leaderboard */}
@@ -554,8 +557,6 @@ const Leaderboard: React.FC = () => {
             onTimeFrameChange={setTimeFrame}
           />
         )}
-
-
       </div>
     </div>
   );

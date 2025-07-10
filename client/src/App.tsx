@@ -18,13 +18,13 @@ import ResetPassword from './components/ResetPassword';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="p-8 text-center">Loading...</div>;
+  if (loading) return <div className="p-4 text-center">Loading...</div>;
   return user ? <>{children}</> : <Navigate to="/login" />;
 }
 
 function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="p-8 text-center">Loading...</div>;
+  if (loading) return <div className="p-4 text-center">Loading...</div>;
   if (!user) return <Navigate to="/login" />;
   if (user.role?.toLowerCase() !== 'admin') {
     return <Navigate to="/" />;
@@ -53,8 +53,8 @@ function AppContent() {
                 {/* Logo */}
                 <div className="flex items-center">
                   <div className="flex-shrink-0">
-                    <Link to="/">
-                      <img src={process.env.PUBLIC_URL + "/Logo_N_Dark.png"} alt="NN Logo" className="h-10 w-auto" />
+                    <Link to="/" className="flex items-center">
+                      <img src={process.env.PUBLIC_URL + "/Logo_N_Dark.png"} alt="NN Logo" className="h-8 w-auto sm:h-10" />
                     </Link>
                   </div>
                 </div>
@@ -100,8 +100,9 @@ function AppContent() {
                 <div className="md:hidden flex items-center">
                   <button
                     onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                    className="inline-flex items-center justify-center p-2 rounded-md text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
+                    className="inline-flex items-center justify-center p-3 rounded-md text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors focus:outline-none focus:ring-2 focus:ring-brand-neon-green focus:ring-offset-2"
                     aria-expanded="false"
+                    aria-label="Toggle navigation menu"
                   >
                     <span className="sr-only">Open main menu</span>
                     {mobileMenuOpen ? (
@@ -116,12 +117,12 @@ function AppContent() {
 
             {/* Mobile Navigation Menu */}
             <div className={`md:hidden ${mobileMenuOpen ? 'block' : 'hidden'}`}>
-              <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 bg-white/95 backdrop-blur-sm border-t border-gray-200">
+              <div className="px-4 pt-2 pb-4 space-y-2 bg-white/95 backdrop-blur-sm border-t border-gray-200">
                 {navigationItems.map((item) => (
                   <Link
                     key={item.to}
                     to={item.to}
-                    className="flex items-center px-3 py-3 rounded-md text-base font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
+                    className="flex items-center px-4 py-3 rounded-lg text-base font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     <item.icon className="w-6 h-6 mr-3" />
@@ -138,7 +139,7 @@ function AppContent() {
                           logout();
                           setMobileMenuOpen(false);
                         }}
-                        className="flex items-center w-full px-3 py-3 rounded-md text-base font-medium text-red-600 hover:bg-red-50 transition-colors"
+                        className="flex items-center w-full px-4 py-3 rounded-lg text-base font-medium text-red-600 hover:bg-red-50 transition-colors"
                       >
                         Logout
                       </button>
@@ -147,7 +148,7 @@ function AppContent() {
                     <>
                       <Link
                         to="/login"
-                        className="flex items-center px-3 py-3 rounded-md text-base font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
+                        className="flex items-center px-4 py-3 rounded-lg text-base font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
                         onClick={() => setMobileMenuOpen(false)}
                       >
                         Login
@@ -160,7 +161,7 @@ function AppContent() {
           </nav>
 
           {/* Main Content */}
-          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/leaderboard" element={<Leaderboard />} />
