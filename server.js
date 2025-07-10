@@ -5387,3 +5387,161 @@ app.get('/api/admin/user-tracking-details', authenticateToken, async (req, res) 
     res.status(500).json({ error: 'Failed to fetch detailed user tracking data' });
   }
 });
+
+// --- Simulator Bay Booking ---
+// Create table if not exists
+(async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS simulator_bookings (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(member_id) ON DELETE CASCADE,
+        date DATE NOT NULL,
+        start_time TIME NOT NULL,
+        end_time TIME NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('simulator_bookings table ready.');
+  } catch (err) {
+    console.error('Error creating simulator_bookings table:', err);
+  }
+})();
+
+// Middleware to restrict to No5 club users
+async function requireNo5User(req, res, next) {
+  try {
+    const userId = req.user?.member_id || req.user?.user_id;
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+    const { rows } = await pool.query('SELECT club FROM users WHERE member_id = $1', [userId]);
+    if (!rows[0] || !['No5', 'No. 5'].includes(rows[0].club)) {
+      return res.status(403).json({ error: 'Access restricted to No5 club members' });
+    }
+    next();
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to check club access' });
+  }
+}
+
+// Get bookings (all or for a specific date)
+app.get('/api/simulator-bookings', authenticateToken, requireNo5User, async (req, res) => {
+  const { date } = req.query;
+  try {
+    let query = 'SELECT b.*, u.first_name, u.last_name FROM simulator_bookings b JOIN users u ON b.user_id = u.member_id';
+    let params = [];
+    
+    if (date) {
+      query += ' WHERE b.date = $1 ORDER BY b.start_time';
+      params = [date];
+    } else {
+      query += ' ORDER BY b.date, b.start_time';
+    }
+    
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch bookings' });
+  }
+});
+
+// Create a booking
+app.post('/api/simulator-bookings', authenticateToken, requireNo5User, async (req, res) => {
+  const userId = req.user?.member_id || req.user?.user_id;
+  const { date, start_time, end_time, type, bay } = req.body;
+  if (!date || !start_time || !end_time) return res.status(400).json({ error: 'Missing fields' });
+  try {
+    // Prevent double booking for the same bay
+    const conflict = await pool.query(
+      'SELECT 1 FROM simulator_bookings WHERE date = $1 AND bay = $2 AND ((start_time, end_time) OVERLAPS ($3::time, $4::time))',
+      [date, bay || 1, start_time, end_time]
+    );
+    if (conflict.rows.length > 0) {
+      return res.status(409).json({ error: 'Time slot already booked for this bay' });
+    }
+    const { rows } = await pool.query(
+      'INSERT INTO simulator_bookings (user_id, date, start_time, end_time, type, participants, bay) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+      [userId, date, start_time, end_time, type || 'solo', type === 'social' ? [userId] : [], bay || 1]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create booking' });
+  }
+});
+
+// Delete a booking (only by owner)
+app.delete('/api/simulator-bookings/:id', authenticateToken, requireNo5User, async (req, res) => {
+  const userId = req.user?.member_id || req.user?.user_id;
+  const { id } = req.params;
+  try {
+    const { rows } = await pool.query('SELECT * FROM simulator_bookings WHERE id = $1', [id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Booking not found' });
+    if (rows[0].user_id !== userId) return res.status(403).json({ error: 'Can only delete your own bookings' });
+    await pool.query('DELETE FROM simulator_bookings WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete booking' });
+  }
+});
+
+// Reschedule a booking (only by owner)
+app.put('/api/simulator-bookings/:id', authenticateToken, requireNo5User, async (req, res) => {
+  const userId = req.user?.member_id || req.user?.user_id;
+  const { id } = req.params;
+  const { date, start_time, end_time, type, bay } = req.body;
+  if (!date || !start_time || !end_time) return res.status(400).json({ error: 'Missing fields' });
+  try {
+    const { rows } = await pool.query('SELECT * FROM simulator_bookings WHERE id = $1', [id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Booking not found' });
+    if (rows[0].user_id !== userId) return res.status(403).json({ error: 'Can only reschedule your own bookings' });
+    // Prevent double booking for the same bay
+    const conflict = await pool.query(
+      'SELECT 1 FROM simulator_bookings WHERE id != $1 AND date = $2 AND bay = $3 AND ((start_time, end_time) OVERLAPS ($4::time, $5::time))',
+      [id, date, bay || rows[0].bay || 1, start_time, end_time]
+    );
+    if (conflict.rows.length > 0) {
+      return res.status(409).json({ error: 'Time slot already booked for this bay' });
+    }
+    const updated = await pool.query(
+      'UPDATE simulator_bookings SET date = $1, start_time = $2, end_time = $3, type = $4, bay = $5 WHERE id = $6 RETURNING *',
+      [date, start_time, end_time, type || rows[0].type, bay || rows[0].bay || 1, id]
+    );
+    res.json(updated.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to reschedule booking' });
+  }
+});
+
+// Join a social booking
+app.post('/api/simulator-bookings/:id/join', authenticateToken, requireNo5User, async (req, res) => {
+  const userId = req.user?.member_id || req.user?.user_id;
+  const { id } = req.params;
+  try {
+    const { rows } = await pool.query('SELECT * FROM simulator_bookings WHERE id = $1', [id]);
+    const booking = rows[0];
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.type !== 'social') return res.status(400).json({ error: 'Only social bookings can be joined' });
+    if (booking.participants && booking.participants.includes(userId)) {
+      return res.status(409).json({ error: 'Already joined' });
+    }
+    const newParticipants = booking.participants ? [...booking.participants, userId] : [userId];
+    const updated = await pool.query(
+      'UPDATE simulator_bookings SET participants = $1 WHERE id = $2 RETURNING *',
+      [newParticipants, id]
+    );
+    res.json(updated.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to join booking' });
+  }
+});
+
+// Migration: add type, participants, and bay columns if not exist
+(async () => {
+  try {
+    await pool.query(`ALTER TABLE simulator_bookings ADD COLUMN IF NOT EXISTS type VARCHAR(10) DEFAULT 'solo'`);
+    await pool.query(`ALTER TABLE simulator_bookings ADD COLUMN IF NOT EXISTS participants INTEGER[] DEFAULT '{}'`);
+    await pool.query(`ALTER TABLE simulator_bookings ADD COLUMN IF NOT EXISTS bay INTEGER DEFAULT 1`);
+  } catch (err) {
+    // Ignore if already exists
+  }
+})();
+

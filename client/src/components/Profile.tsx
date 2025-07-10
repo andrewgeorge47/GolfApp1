@@ -1298,8 +1298,14 @@ const Profile: React.FC = () => {
         </div>
       )}
 
-
-
+      {(user?.club === 'No. 5' || user?.club === 'No. 5') && (
+        <button
+          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium"
+          onClick={() => navigate('/simulator-booking')}
+        >
+          Book Simulator Bay
+        </button>
+      )}
 
 
       {/* Track Round Modal */}

@@ -15,6 +15,7 @@ import Login from './components/Login';
 import PasswordSetup from './components/PasswordSetup';
 import ClaimAccount from './components/ClaimAccount';
 import ResetPassword from './components/ResetPassword';
+import BookingPage from './components/BookingPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -175,6 +176,7 @@ function AppContent() {
               <Route path="/claim-account" element={<ClaimAccount />} />
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/password-setup" element={<ProtectedRoute><PasswordSetup /></ProtectedRoute>} />
+              <Route path="/simulator-booking" element={<BookingPage />} />
             </Routes>
           </main>
         </div>
