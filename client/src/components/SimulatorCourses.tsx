@@ -37,6 +37,7 @@ const SimulatorCourses: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCourses, setTotalCourses] = useState(0);
+  const [statsLoading, setStatsLoading] = useState(true);
   const [servers, setServers] = useState<string[]>([]);
   const [designers, setDesigners] = useState<string[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
@@ -76,10 +77,30 @@ const SimulatorCourses: React.FC = () => {
 
   const fetchStats = async () => {
     try {
+      setStatsLoading(true);
       const response = await api.get('/simulator-courses/stats');
+      console.log('Stats response:', response.data);
       setStats(response.data);
     } catch (error) {
       console.error('Error fetching stats:', error);
+      // Fallback: try to get total courses from the main courses API
+      try {
+        const coursesResponse = await api.get('/simulator-courses?limit=1');
+        if (coursesResponse.data && coursesResponse.data.total) {
+          setStats({
+            total_courses: coursesResponse.data.total,
+            gspro_courses: 0,
+            trackman_courses: 0,
+            shared_courses: 0,
+            unique_gspro: 0,
+            unique_trackman: 0
+          });
+        }
+      } catch (fallbackError) {
+        console.error('Fallback stats fetch also failed:', fallbackError);
+      }
+    } finally {
+      setStatsLoading(false);
     }
   };
 
@@ -181,12 +202,27 @@ const SimulatorCourses: React.FC = () => {
         <div className="mb-6 sm:mb-8 text-center">
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3">Simulator Courses</h1>
           <p className="text-base sm:text-lg text-gray-600 max-w-2xl mx-auto px-4">
-            Explore {stats?.total_courses || 0} golf courses available on GSPro and Trackman simulators
+            {statsLoading ? (
+              'Loading course statistics...'
+            ) : stats ? (
+              `Explore ${stats.total_courses.toLocaleString()} golf courses available on GSPro and Trackman simulators`
+            ) : (
+              'Course statistics unavailable'
+            )}
           </p>
         </div>
 
         {/* Stats Cards */}
-        {stats && (
+        {statsLoading ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="p-3 sm:p-6 rounded-xl bg-white shadow-md animate-pulse">
+                <div className="h-8 bg-gray-200 rounded mb-2"></div>
+                <div className="h-4 bg-gray-200 rounded"></div>
+              </div>
+            ))}
+          </div>
+        ) : stats ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
             <div 
               className={`relative p-3 sm:p-6 rounded-xl cursor-pointer stats-card ${
@@ -245,7 +281,7 @@ const SimulatorCourses: React.FC = () => {
               )}
             </div>
           </div>
-        )}
+        ) : null}
 
         {/* Search and Filters */}
         <div className="bg-white rounded-xl shadow-lg mb-6 sm:mb-8 overflow-hidden">

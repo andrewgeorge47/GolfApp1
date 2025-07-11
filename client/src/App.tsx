@@ -40,6 +40,7 @@ function AppContent() {
     { to: "/", icon: Home, label: "Home" },
     { to: "/leaderboard", icon: Trophy, label: "Leaderboard" },
     { to: "/simulator-courses", icon: MapPin, label: "Neighborhood Courses" },
+    { to: "https://neighborhood-national.mn.co/", icon: Users, label: "Community", external: true },
     ...(user ? [{ to: "/profile", icon: User, label: "Profile" }] : []),
   ];
 
@@ -62,14 +63,27 @@ function AppContent() {
                 {/* Desktop Navigation */}
                 <div className="hidden md:flex items-center space-x-4">
                   {navigationItems.map((item) => (
-                    <Link
-                      key={item.to}
-                      to={item.to}
-                      className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
-                    >
-                      <item.icon className="w-5 h-5 mr-2" />
-                      {item.label}
-                    </Link>
+                    item.external ? (
+                      <a
+                        key={item.to}
+                        href={item.to}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
+                      >
+                        <item.icon className="w-5 h-5 mr-2" />
+                        {item.label}
+                      </a>
+                    ) : (
+                      <Link
+                        key={item.to}
+                        to={item.to}
+                        className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
+                      >
+                        <item.icon className="w-5 h-5 mr-2" />
+                        {item.label}
+                      </Link>
+                    )
                   ))}
                   
                   {/* Auth Buttons */}
@@ -119,15 +133,29 @@ function AppContent() {
             <div className={`md:hidden ${mobileMenuOpen ? 'block' : 'hidden'}`}>
               <div className="px-4 pt-2 pb-4 space-y-2 bg-white/95 backdrop-blur-sm border-t border-gray-200">
                 {navigationItems.map((item) => (
-                  <Link
-                    key={item.to}
-                    to={item.to}
-                    className="flex items-center px-4 py-3 rounded-lg text-base font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    <item.icon className="w-6 h-6 mr-3" />
-                    {item.label}
-                  </Link>
+                  item.external ? (
+                    <a
+                      key={item.to}
+                      href={item.to}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center px-4 py-3 rounded-lg text-base font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <item.icon className="w-6 h-6 mr-3" />
+                      {item.label}
+                    </a>
+                  ) : (
+                    <Link
+                      key={item.to}
+                      to={item.to}
+                      className="flex items-center px-4 py-3 rounded-lg text-base font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <item.icon className="w-6 h-6 mr-3" />
+                      {item.label}
+                    </Link>
+                  )
                 ))}
                 
                 {/* Mobile Auth Buttons */}

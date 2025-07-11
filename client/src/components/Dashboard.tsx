@@ -60,10 +60,19 @@ const Dashboard: React.FC = () => {
 
           {/* Call to Action Buttons */}
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 md:gap-6 justify-center items-center px-4">
-            <Link to="/claim-account" className="group transform hover:scale-105 transition-all duration-300 w-full sm:w-auto">
+            <Link to={user ? "/profile" : "/claim-account"} className="group transform hover:scale-105 transition-all duration-300 w-full sm:w-auto">
               <div className="bg-gradient-to-r from-brand-neon-green to-emerald-400 hover:from-emerald-400 hover:to-brand-neon-green text-brand-black px-4 py-3 sm:px-6 sm:py-4 md:px-10 md:py-5 rounded-xl sm:rounded-2xl font-bold text-base sm:text-lg md:text-xl shadow-2xl hover:shadow-brand-neon-green/25 transition-all duration-300 flex items-center justify-center min-h-[44px] w-full">
-                <UserPlus className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 mr-2 sm:mr-2 md:mr-3" />
-                Claim Account
+                {user ? (
+                  <>
+                    <UserPlus className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 mr-2 sm:mr-2 md:mr-3" />
+                    Go to Profile
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 mr-2 sm:mr-2 md:mr-3" />
+                    Claim Account
+                  </>
+                )}
                 <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 ml-2 sm:ml-2 md:ml-3 group-hover:translate-x-2 transition-transform" />
               </div>
             </Link>

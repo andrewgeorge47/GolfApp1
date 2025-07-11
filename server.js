@@ -4046,6 +4046,83 @@ app.post('/api/trackman-courses/import', authenticateToken, async (req, res) => 
   }
 });
 
+// Combined Simulator Courses Stats
+app.get('/api/simulator-courses/stats', async (req, res) => {
+  try {
+    // Get all courses from the combined table
+    const { rows } = await pool.query('SELECT platforms FROM simulator_courses_combined');
+    let total_courses = rows.length;
+    let gspro_courses = 0;
+    let trackman_courses = 0;
+    let shared_courses = 0;
+    let unique_gspro = 0;
+    let unique_trackman = 0;
+    
+    // Debug: Log a few sample platforms to see the format
+    console.log('Sample platforms from database:');
+    for (let i = 0; i < Math.min(5, rows.length); i++) {
+      console.log(`Row ${i}:`, rows[i].platforms);
+    }
+    
+    for (const row of rows) {
+      let platforms = row.platforms;
+      
+      // Handle different possible formats of the platforms data
+      if (typeof platforms === 'string') {
+        // If it's a string, try to parse it as JSON
+        try {
+          platforms = JSON.parse(platforms);
+        } catch (e) {
+          console.log('Failed to parse platforms as JSON:', platforms);
+          continue;
+        }
+      }
+      
+      // Ensure platforms is an array
+      if (!Array.isArray(platforms)) {
+        console.log('Platforms is not an array:', platforms);
+        continue;
+      }
+      
+      console.log('Processing platforms:', platforms, 'Type:', typeof platforms, 'Is array:', Array.isArray(platforms));
+      
+      // Check if this course has both platforms
+      const hasGSPro = platforms.includes('GSPro');
+      const hasTrackman = platforms.includes('Trackman');
+      
+      if (hasGSPro && hasTrackman) {
+        shared_courses++;
+        console.log('Found shared course');
+      } else if (hasGSPro) {
+        unique_gspro++;
+        console.log('Found GSPro course');
+      } else if (hasTrackman) {
+        unique_trackman++;
+        console.log('Found Trackman course');
+      }
+      
+      // Count total courses for each platform
+      if (hasGSPro) gspro_courses++;
+      if (hasTrackman) trackman_courses++;
+    }
+    
+    const result = {
+      total_courses,
+      gspro_courses,
+      trackman_courses,
+      shared_courses,
+      unique_gspro,
+      unique_trackman
+    };
+    
+    console.log('Stats result:', result);
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching combined simulator stats:', error);
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
 // Get a single simulator course by ID
 app.get('/api/simulator-courses/:id', async (req, res) => {
   try {
@@ -4190,39 +4267,6 @@ app.get('/api/simulator-courses', async (req, res) => {
   } catch (error) {
     console.error('Error fetching combined simulator courses:', error);
     res.status(500).json({ error: 'Failed to fetch courses' });
-  }
-});
-
-// Combined Simulator Courses Stats
-app.get('/api/simulator-courses/stats', async (req, res) => {
-  try {
-    // Get all courses from the combined table
-    const { rows } = await pool.query('SELECT platforms FROM simulator_courses_combined');
-    let total_courses = rows.length;
-    let gspro_courses = 0;
-    let trackman_courses = 0;
-    let shared_courses = 0;
-    let unique_gspro = 0;
-    let unique_trackman = 0;
-    for (const row of rows) {
-      const p = row.platforms;
-      if (p.includes('GSPro') && p.includes('Trackman')) shared_courses++;
-      else if (p.includes('GSPro')) unique_gspro++;
-      else if (p.includes('Trackman')) unique_trackman++;
-      if (p.includes('GSPro')) gspro_courses++;
-      if (p.includes('Trackman')) trackman_courses++;
-    }
-    res.json({
-      total_courses,
-      gspro_courses,
-      trackman_courses,
-      shared_courses,
-      unique_gspro,
-      unique_trackman
-    });
-  } catch (error) {
-    console.error('Error fetching combined simulator stats:', error);
-    res.status(500).json({ error: 'Failed to fetch stats' });
   }
 });
 
