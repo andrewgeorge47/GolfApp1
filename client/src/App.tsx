@@ -32,6 +32,13 @@ function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function HomeRoute() {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="p-4 text-center">Loading...</div>;
+  if (user) return <Navigate to="/profile" replace />;
+  return <Dashboard />;
+}
+
 function AppContent() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user, logout } = useAuth();
@@ -191,7 +198,7 @@ function AppContent() {
           {/* Main Content */}
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <Routes>
-              <Route path="/" element={<Dashboard />} />
+              <Route path="/" element={<HomeRoute />} />
               <Route path="/leaderboard" element={<Leaderboard />} />
               <Route path="/leaderboard/tournament/:tournamentId" element={<Leaderboard />} />
               <Route path="/tournaments" element={<ProtectedRoute><AvailableTournaments /></ProtectedRoute>} />
