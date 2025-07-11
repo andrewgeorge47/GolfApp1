@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { Home, Users, Trophy, Settings, BarChart3, Plus, User, Menu, X, MapPin, Award } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Leaderboard from './components/Leaderboard';
