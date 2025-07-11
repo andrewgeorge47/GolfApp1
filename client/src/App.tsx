@@ -165,6 +165,7 @@ function AppContent() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/leaderboard" element={<Leaderboard />} />
+              <Route path="/leaderboard/tournament/:tournamentId" element={<Leaderboard />} />
               <Route path="/tournaments" element={<ProtectedRoute><AvailableTournaments /></ProtectedRoute>} />
               <Route path="/scoring" element={<Scoring />} />
               <Route path="/simulator-courses" element={<SimulatorCourses />} />

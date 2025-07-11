@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import { 
   Globe, 
   Building, 
@@ -16,7 +16,8 @@ import {
   BarChart3,
   Clock,
   Eye,
-  ChevronRight
+  ChevronRight,
+  Share2
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 import { getGlobalLeaderboard, getClubLeaderboard, getAllClubs, GlobalLeaderboardData, getTournaments } from '../services/api';
@@ -76,6 +77,8 @@ interface ClubLeaderboardData {
 const Leaderboard: React.FC = () => {
   const { user } = useAuth();
   const location = useLocation();
+  const params = useParams();
+  const navigate = useNavigate();
   const [globalData, setGlobalData] = useState<GlobalLeaderboardData | null>(null);
   const [clubData, setClubData] = useState<ClubLeaderboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -94,6 +97,135 @@ const Leaderboard: React.FC = () => {
 
   // Check if user is admin
   const isAdmin = user?.role === 'Admin';
+
+  // Handle URL parameters for direct tournament navigation
+  useEffect(() => {
+    if (params.tournamentId) {
+      setActiveTab('tournaments');
+      // Find the tournament by ID
+      const tournament = tournaments.find(t => t.id.toString() === params.tournamentId);
+      if (tournament) {
+        setSelectedTournament(tournament);
+      }
+    }
+  }, [params.tournamentId, tournaments]);
+
+  // Fetch tournaments when needed and handle URL navigation
+  useEffect(() => {
+    const fetchTournaments = async () => {
+      setTournamentsLoading(true);
+      try {
+        const response = await getTournaments();
+        const tournamentsData = response.data || [];
+        setTournaments(tournamentsData);
+        
+        // If we have a tournament ID in URL, find and select it
+        if (params.tournamentId) {
+          const tournament = tournamentsData.find((t: any) => t.id.toString() === params.tournamentId);
+          if (tournament) {
+            setSelectedTournament(tournament);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching tournaments:', error);
+      } finally {
+        setTournamentsLoading(false);
+      }
+    };
+
+    if (activeTab === 'tournaments') {
+      fetchTournaments();
+    }
+  }, [activeTab, params.tournamentId]);
+
+  // Handle tab changes and URL updates
+  const handleTabChange = (tab: 'global' | 'club' | 'tournaments') => {
+    setActiveTab(tab);
+    if (tab === 'tournaments') {
+      navigate('/leaderboard');
+    } else {
+      navigate('/leaderboard');
+    }
+  };
+
+  // Handle tournament selection and URL updates
+  const handleTournamentSelect = (tournament: any) => {
+    setSelectedTournament(tournament);
+    navigate(`/leaderboard/tournament/${tournament.id}`);
+  };
+
+  // Handle back to tournaments list
+  const handleBackToTournaments = () => {
+    setSelectedTournament(null);
+    navigate('/leaderboard');
+  };
+
+  // Handle share tournament leaderboard
+  const handleShareTournament = () => {
+    if (selectedTournament) {
+      const shareUrl = `${window.location.origin}/leaderboard/tournament/${selectedTournament.id}`;
+      
+      // Try Web Share API first
+      if (navigator.share) {
+        navigator.share({
+          title: `${selectedTournament.name} Leaderboard`,
+          text: `Check out the leaderboard for ${selectedTournament.name}!`,
+          url: shareUrl
+        }).catch((error) => {
+          // If share is canceled or fails, fall back to clipboard
+          console.log('Share was canceled or failed:', error);
+          copyToClipboard(shareUrl);
+        });
+      } else {
+        // Fallback: copy to clipboard
+        copyToClipboard(shareUrl);
+      }
+    }
+  };
+
+  // Helper function to copy to clipboard
+  const copyToClipboard = (text: string) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => {
+        // Show a temporary notification
+        showNotification('Link copied to clipboard!');
+      }).catch(() => {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        showNotification('Link copied to clipboard!');
+      });
+    } else {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      showNotification('Link copied to clipboard!');
+    }
+  };
+
+  // Simple notification function
+  const showNotification = (message: string) => {
+    // Create a temporary notification element
+    const notification = document.createElement('div');
+    notification.className = 'fixed top-4 right-4 bg-brand-neon-green text-brand-black px-4 py-2 rounded-lg shadow-lg z-50';
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    // Remove after 3 seconds
+    setTimeout(() => {
+      if (notification.parentNode) {
+        notification.parentNode.removeChild(notification);
+      }
+    }, 3000);
+  };
 
   // Fetch leaderboard data
   useEffect(() => {
@@ -140,24 +272,7 @@ const Leaderboard: React.FC = () => {
     }
   }, [user?.club, activeTab, timeFrame]);
 
-  // Fetch tournaments when needed
-  useEffect(() => {
-    const fetchTournaments = async () => {
-      setTournamentsLoading(true);
-      try {
-        const response = await getTournaments();
-        setTournaments(response.data || []);
-      } catch (error) {
-        console.error('Error fetching tournaments:', error);
-      } finally {
-        setTournamentsLoading(false);
-      }
-    };
 
-    if (activeTab === 'tournaments') {
-      fetchTournaments();
-    }
-  }, [activeTab]);
 
   // Fetch specific club data
   const fetchClubData = async () => {
@@ -527,7 +642,7 @@ const Leaderboard: React.FC = () => {
         {/* Navigation Chips */}
         <div className="flex flex-wrap gap-2 justify-center">
           <button
-            onClick={() => setActiveTab('global')}
+            onClick={() => handleTabChange('global')}
             className={`inline-flex items-center px-3 sm:px-4 py-2 rounded-full text-sm font-medium transition-colors ${
               activeTab === 'global'
                 ? 'bg-brand-neon-green text-white shadow-sm'
@@ -539,7 +654,7 @@ const Leaderboard: React.FC = () => {
           </button>
           {user?.club && (
             <button
-              onClick={() => setActiveTab('club')}
+              onClick={() => handleTabChange('club')}
               className={`inline-flex items-center px-3 sm:px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                 activeTab === 'club'
                   ? 'bg-brand-neon-green text-white shadow-sm'
@@ -551,7 +666,7 @@ const Leaderboard: React.FC = () => {
             </button>
           )}
           <button
-            onClick={() => setActiveTab('tournaments')}
+            onClick={() => handleTabChange('tournaments')}
             className={`inline-flex items-center px-3 sm:px-4 py-2 rounded-full text-sm font-medium transition-colors ${
               activeTab === 'tournaments'
                 ? 'bg-brand-neon-green text-white shadow-sm'
@@ -569,7 +684,7 @@ const Leaderboard: React.FC = () => {
         {activeTab === 'club' && user?.club && (
           <ClubLeaderboard 
             activeTab={activeTab} 
-            onTabChange={setActiveTab}
+            onTabChange={handleTabChange}
             clubData={clubData as any}
             loading={clubLoading}
             error={clubError}
@@ -585,11 +700,18 @@ const Leaderboard: React.FC = () => {
               <div>
                 <div className="flex items-center justify-between mb-6">
                   <button
-                    onClick={() => setSelectedTournament(null)}
+                    onClick={handleBackToTournaments}
                     className="flex items-center space-x-2 text-brand-neon-green hover:text-green-600 transition-colors"
                   >
                     <ChevronRight className="w-4 h-4 rotate-180" />
                     <span>Back to Tournaments</span>
+                  </button>
+                  <button
+                    onClick={handleShareTournament}
+                    className="flex items-center space-x-2 text-brand-neon-green hover:text-green-600 transition-colors"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    <span>Share Leaderboard</span>
                   </button>
                 </div>
                 <TournamentLeaderboard
@@ -611,6 +733,30 @@ const Leaderboard: React.FC = () => {
                   }}
                 />
               </div>
+            ) : params.tournamentId && tournamentsLoading ? (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-neon-green"></div>
+                  <span className="ml-3 text-gray-600">Loading tournament...</span>
+                </div>
+              </div>
+            ) : params.tournamentId && !tournamentsLoading ? (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="text-center py-8">
+                  <Trophy className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <h4 className="text-lg font-medium text-gray-900 mb-2">Tournament Not Found</h4>
+                  <p className="text-gray-500 text-sm mb-4">
+                    The tournament you're looking for doesn't exist or is no longer available.
+                  </p>
+                  <button
+                    onClick={handleBackToTournaments}
+                    className="flex items-center space-x-2 text-brand-neon-green hover:text-green-600 transition-colors mx-auto"
+                  >
+                    <ChevronRight className="w-4 h-4 rotate-180" />
+                    <span>Back to Tournaments</span>
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-6">
@@ -630,7 +776,7 @@ const Leaderboard: React.FC = () => {
                       <div
                         key={tournament.id}
                         className="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors cursor-pointer border border-gray-200"
-                        onClick={() => setSelectedTournament(tournament)}
+                        onClick={() => handleTournamentSelect(tournament)}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex-1">

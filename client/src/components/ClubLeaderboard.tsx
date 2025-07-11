@@ -33,7 +33,7 @@ interface ClubLeaderboardData {
 }
 
 interface ClubLeaderboardProps {
-  onTabChange?: (tab: 'global' | 'club') => void;
+  onTabChange?: (tab: 'global' | 'club' | 'tournaments') => void;
   activeTab?: 'global' | 'club';
   clubData?: any;
   loading?: boolean;
