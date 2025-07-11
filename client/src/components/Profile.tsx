@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
 import { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser, getUserTournaments } from '../services/api';
-import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign, MessageSquare } from 'lucide-react';
+import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign, MessageSquare, Eye } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
 import ScoreCard from './ScoreCard';
@@ -290,6 +290,10 @@ const Profile: React.FC = () => {
 
   const triggerPhotoUpload = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleViewLeaderboard = (tournamentId: number) => {
+    navigate(`/leaderboard/tournament/${tournamentId}`);
   };
 
   // Function to determine which rounds are used for handicap calculation
@@ -1292,6 +1296,15 @@ const Profile: React.FC = () => {
                     ${tournament.entry_fee} entry fee
                   </div>
                 )}
+                <div className="mt-3 pt-3 border-t border-gray-200">
+                  <button
+                    onClick={() => handleViewLeaderboard(tournament.id)}
+                    className="flex items-center justify-center w-full px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors text-sm"
+                  >
+                    <Eye className="w-4 h-4 mr-2" />
+                    View Leaderboard
+                  </button>
+                </div>
               </div>
             ))}
           </div>

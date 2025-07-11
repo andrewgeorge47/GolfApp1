@@ -30,6 +30,12 @@ interface TournamentLeaderboardProps {
   onRefresh?: () => void;
   courseId?: number;
   tournamentSettings?: any;
+  tournamentInfo?: {
+    name: string;
+    description?: string;
+    start_date?: string;
+    course_name?: string;
+  };
 }
 
 const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
@@ -37,7 +43,8 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
   tournamentFormat,
   onRefresh,
   courseId,
-  tournamentSettings
+  tournamentSettings,
+  tournamentInfo
 }) => {
   const [teamScores, setTeamScores] = useState<TeamScore[]>([]);
   const [loading, setLoading] = useState(false);
@@ -135,6 +142,10 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
     }
   };
 
+  const formatTournamentFormat = (format: string) => {
+    return format.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+  };
+
   const handleTeamClick = (teamScore: TeamScore) => {
     setSelectedTeamScore(teamScore);
     setShowDetailedScorecard(true);
@@ -171,11 +182,51 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Tournament Info Header */}
+      {tournamentInfo && (
+        <div className="bg-white rounded-xl border border-neutral-200 p-6">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <h2 className="text-2xl font-bold text-brand-black mb-2">{tournamentInfo.name}</h2>
+              {tournamentInfo.description && (
+                <p className="text-neutral-600 mb-3">{tournamentInfo.description}</p>
+              )}
+              <div className="flex flex-wrap gap-4 text-sm text-neutral-500">
+                <div className="flex items-center space-x-1">
+                  <Trophy className="w-4 h-4" />
+                  <span>{formatTournamentFormat(tournamentFormat)}</span>
+                </div>
+                {tournamentInfo.course_name && (
+                  <div className="flex items-center space-x-1">
+                    <span>🏌️</span>
+                    <span>{tournamentInfo.course_name}</span>
+                  </div>
+                )}
+                {tournamentInfo.start_date && (
+                  <div className="flex items-center space-x-1">
+                    <span>📅</span>
+                    <span>{new Date(tournamentInfo.start_date).toLocaleDateString()}</span>
+                  </div>
+                )}
+                {tournamentSettings?.holeConfiguration && (
+                  <div className="flex items-center space-x-1">
+                    <span>⛳</span>
+                    <span>{tournamentSettings.holeConfiguration === '9_front' ? 'Front 9' : 
+                           tournamentSettings.holeConfiguration === '9_back' ? 'Back 9' : 
+                           `${tournamentSettings.holeConfiguration} holes`}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <Trophy className="w-6 h-6 text-brand-neon-green" />
-          <h3 className="text-xl font-bold text-brand-black">Tournament Leaderboard</h3>
+          <h3 className="text-xl font-bold text-brand-black">Leaderboard</h3>
         </div>
         <button
           onClick={fetchTeamScores}

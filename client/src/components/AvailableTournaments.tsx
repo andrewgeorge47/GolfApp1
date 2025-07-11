@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Calendar, MapPin, Users, DollarSign, UserPlus, Clock, Search } from 'lucide-react';
+import { Trophy, Calendar, MapPin, Users, DollarSign, UserPlus, Clock, Search, Eye } from 'lucide-react';
 import { getAvailableTournaments, registerUserForTournament, unregisterUserFromTournament, getUserTournaments } from '../services/api';
 import { useAuth } from '../AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 
 interface Tournament {
@@ -30,6 +31,7 @@ interface Tournament {
 
 const AvailableTournaments: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [availableTournaments, setAvailableTournaments] = useState<Tournament[]>([]);
   const [userTournaments, setUserTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,6 +105,10 @@ const AvailableTournaments: React.FC = () => {
 
   const isUserRegistered = (tournamentId: number) => {
     return userTournamentIds.has(tournamentId);
+  };
+
+  const handleViewLeaderboard = (tournamentId: number) => {
+    navigate(`/leaderboard/tournament/${tournamentId}`);
   };
 
   const filteredTournaments = availableTournaments.filter(tournament => {
@@ -282,6 +288,13 @@ const AvailableTournaments: React.FC = () => {
               )}
               
               <div className="mt-4 space-y-2">
+                <button
+                  onClick={() => handleViewLeaderboard(tournament.id)}
+                  className="w-full flex items-center justify-center px-3 py-2 bg-gray-100 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
+                >
+                  <Eye className="w-4 h-4 mr-2" />
+                  View Leaderboard
+                </button>
                 {isUserRegistered(tournament.id) ? (
                   <>
                     <div className="flex items-center justify-center px-3 py-2 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm font-medium">

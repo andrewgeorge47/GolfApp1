@@ -20,7 +20,7 @@ import {
   Share2
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
-import { getGlobalLeaderboard, getClubLeaderboard, getAllClubs, GlobalLeaderboardData, getTournaments } from '../services/api';
+import { getGlobalLeaderboard, getClubLeaderboard, getAllClubs, GlobalLeaderboardData, getTournaments, getSimulatorCourse } from '../services/api';
 import api from '../services/api';
 import ClubLeaderboard from './ClubLeaderboard';
 import TournamentLeaderboard from './TournamentLeaderboard';
@@ -94,6 +94,7 @@ const Leaderboard: React.FC = () => {
   const [tournaments, setTournaments] = useState<any[]>([]);
   const [tournamentsLoading, setTournamentsLoading] = useState(false);
   const [selectedTournament, setSelectedTournament] = useState<any | null>(null);
+  const [courseData, setCourseData] = useState<any>(null);
 
   // Check if user is admin
   const isAdmin = user?.role === 'Admin';
@@ -103,9 +104,23 @@ const Leaderboard: React.FC = () => {
     if (params.tournamentId) {
       setActiveTab('tournaments');
       // Find the tournament by ID
-      const tournament = tournaments.find(t => t.id.toString() === params.tournamentId);
+      const tournament = tournaments.find((t: any) => t.id.toString() === params.tournamentId);
       if (tournament) {
         setSelectedTournament(tournament);
+        // Fetch course data if course_id is available
+        if (tournament.course_id) {
+          const fetchCourseData = async () => {
+            try {
+              const response = await getSimulatorCourse(tournament.course_id);
+              if (response.data) {
+                setCourseData(response.data);
+              }
+            } catch (error) {
+              console.error('Error fetching course data:', error);
+            }
+          };
+          fetchCourseData();
+        }
       }
     }
   }, [params.tournamentId, tournaments]);
@@ -149,14 +164,27 @@ const Leaderboard: React.FC = () => {
   };
 
   // Handle tournament selection and URL updates
-  const handleTournamentSelect = (tournament: any) => {
+  const handleTournamentSelect = async (tournament: any) => {
     setSelectedTournament(tournament);
     navigate(`/leaderboard/tournament/${tournament.id}`);
+    
+    // Fetch course data if course_id is available
+    if (tournament.course_id) {
+      try {
+        const response = await getSimulatorCourse(tournament.course_id);
+        if (response.data) {
+          setCourseData(response.data);
+        }
+      } catch (error) {
+        console.error('Error fetching course data:', error);
+      }
+    }
   };
 
   // Handle back to tournaments list
   const handleBackToTournaments = () => {
     setSelectedTournament(null);
+    setCourseData(null);
     navigate('/leaderboard');
   };
 
@@ -718,6 +746,12 @@ const Leaderboard: React.FC = () => {
                   tournamentId={selectedTournament.id}
                   tournamentFormat={selectedTournament.tournament_format}
                   courseId={selectedTournament.course_id}
+                  tournamentInfo={{
+                    name: selectedTournament.name,
+                    description: selectedTournament.description,
+                    start_date: selectedTournament.start_date,
+                    course_name: courseData?.name || selectedTournament.course_name || selectedTournament.course_id?.toString()
+                  }}
                   tournamentSettings={{
                     holeConfiguration: selectedTournament.hole_configuration || '18',
                     tee: selectedTournament.tee || 'Red',
