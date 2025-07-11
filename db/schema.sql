@@ -234,4 +234,37 @@ CREATE TABLE IF NOT EXISTS simulator_courses_combined (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_simulator_courses_combined_platforms ON simulator_courses_combined USING gin(platforms);
-CREATE INDEX IF NOT EXISTS idx_simulator_courses_combined_name ON simulator_courses_combined(name); 
+CREATE INDEX IF NOT EXISTS idx_simulator_courses_combined_name ON simulator_courses_combined(name);
+
+-- Multiple Roles Support Tables
+
+-- Table: public.roles
+CREATE TABLE IF NOT EXISTS public.roles (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) NOT NULL UNIQUE,
+    description TEXT,
+    permissions JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Table: public.user_roles (many-to-many relationship)
+CREATE TABLE IF NOT EXISTS public.user_roles (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(member_id) ON DELETE CASCADE,
+    role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    assigned_by INTEGER REFERENCES users(member_id),
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, role_id)
+);
+
+-- Insert default roles
+INSERT INTO roles (name, description, permissions) VALUES
+('Member', 'Standard member with basic access', '{"view_leaderboard": true, "submit_scores": true}'),
+('Admin', 'Full administrative access', '{"view_leaderboard": true, "submit_scores": true, "manage_users": true, "manage_tournaments": true, "view_admin_dashboard": true}'),
+('Club Pro', 'Club professional with enhanced access', '{"view_leaderboard": true, "submit_scores": true, "manage_tournaments": true, "view_admin_dashboard": true}'),
+('Ambassador', 'Community ambassador with promotional access', '{"view_leaderboard": true, "submit_scores": true, "promote_events": true}')
+ON CONFLICT (name) DO NOTHING;
+
+-- Create indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_roles_role_id ON user_roles(role_id); 

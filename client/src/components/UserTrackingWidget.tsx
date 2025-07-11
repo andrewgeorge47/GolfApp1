@@ -3,6 +3,7 @@ import { Users, UserCheck, Calendar, TrendingUp, BarChart3, Filter, Clock, Edit3
 import { getUserTrackingStats, getUserTrackingDetails, updateUser, type UserTrackingStats, type UserTrackingDetails } from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../AuthContext';
+import { isAdmin, hasPermission } from '../utils/roleUtils';
 
 interface UserTrackingWidgetProps {
   className?: string;
@@ -33,12 +34,12 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
     
     // Check if user is loaded and has admin privileges
     if (user) {
-      // Check for both possible role formats
-      const isAdmin = user.role === 'admin' || user.role === 'super_admin' || 
-                     user.role === 'Admin' || user.role === 'Super Admin';
-      console.log('Is admin?', isAdmin);
+      // Use new role checking system that supports multiple roles
+      const userIsAdmin = isAdmin(user);
+      console.log('Is admin?', userIsAdmin);
+      console.log('User roles:', user.roles);
       
-      if (isAdmin) {
+      if (userIsAdmin) {
         fetchStats();
       } else {
         console.log('User does not have admin privileges. Role:', user.role);
@@ -194,8 +195,7 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
     );
   }
 
-  if (user.role !== 'admin' && user.role !== 'super_admin' && 
-      user.role !== 'Admin' && user.role !== 'Super Admin') {
+  if (!isAdmin(user)) {
     return (
       <div className={`bg-white rounded-xl p-6 border border-neutral-200 ${className}`}>
         <div className="text-center">

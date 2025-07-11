@@ -36,6 +36,14 @@ api.interceptors.response.use(
   }
 );
 
+export interface Role {
+  id: number;
+  name: string;
+  description: string;
+  permissions: Record<string, boolean>;
+  assigned_at?: string;
+}
+
 export interface User {
   member_id: number;
   first_name: string;
@@ -46,7 +54,8 @@ export interface User {
   sim_handicap?: number;
   grass_handicap?: number;
   profile_photo_url?: string;
-  role: string;
+  role: string; // Keep for backward compatibility
+  roles?: Role[]; // New multiple roles support
   created_at: string;
 }
 
@@ -703,5 +712,11 @@ export const getUserTrackingDetails = (params?: {
   endDate?: string;
   club?: string;
 }) => api.get<UserTrackingDetails[]>('/admin/user-tracking-details', { params });
+
+// Role management functions
+export const getRoles = () => api.get<Role[]>('/roles');
+export const getUserRoles = (userId: number) => api.get<Role[]>(`/users/${userId}/roles`);
+export const assignRole = (userId: number, roleId: number) => api.post(`/users/${userId}/roles`, { role_id: roleId });
+export const removeRole = (userId: number, roleId: number) => api.delete(`/users/${userId}/roles/${roleId}`);
 
 export default api; 

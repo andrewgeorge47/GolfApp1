@@ -799,8 +799,24 @@ app.post('/api/auth/login', async (req, res) => {
     if (!valid) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    const token = jwt.sign({ member_id: user.member_id, email_address: user.email_address, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user: transformUserData(user) });
+    
+    // Get user roles
+    const userRoles = await getUserRoles(user.member_id);
+    const roleNames = userRoles.map(role => role.name);
+    
+    const token = jwt.sign({ 
+      member_id: user.member_id, 
+      email_address: user.email_address, 
+      roles: roleNames 
+    }, JWT_SECRET, { expiresIn: '7d' });
+    
+    // Transform user data with roles
+    const userWithRoles = {
+      ...transformUserData(user),
+      roles: userRoles
+    };
+    
+    res.json({ token, user: userWithRoles });
   } catch (err) {
     console.error('Error logging in:', err);
     res.status(500).json({ error: 'Failed to login' });
@@ -5489,3 +5505,128 @@ app.get('/api/admin/user-tracking-details', authenticateToken, async (req, res) 
     res.status(500).json({ error: 'Failed to fetch detailed user tracking data' });
   }
 });
+
+// Multiple Roles API Endpoints
+
+// Get all roles
+app.get('/api/roles', authenticateToken, async (req, res) => {
+  try {
+    // Check if user has admin privileges
+    const userRoles = await getUserRoles(req.user.member_id);
+    const hasAdminRole = userRoles.some(role => role.name === 'Admin');
+    
+    if (!hasAdminRole) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const { rows } = await pool.query('SELECT * FROM roles ORDER BY name');
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching roles:', err);
+    res.status(500).json({ error: 'Failed to fetch roles' });
+  }
+});
+
+// Get user roles
+app.get('/api/users/:id/roles', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userRoles = await getUserRoles(id);
+    res.json(userRoles);
+  } catch (err) {
+    console.error('Error fetching user roles:', err);
+    res.status(500).json({ error: 'Failed to fetch user roles' });
+  }
+});
+
+// Assign role to user
+app.post('/api/users/:id/roles', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role_id } = req.body;
+    
+    // Check if current user has admin privileges
+    const currentUserRoles = await getUserRoles(req.user.member_id);
+    const hasAdminRole = currentUserRoles.some(role => role.name === 'Admin');
+    
+    if (!hasAdminRole) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Check if role exists
+    const roleCheck = await pool.query('SELECT * FROM roles WHERE id = $1', [role_id]);
+    if (roleCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Role not found' });
+    }
+    
+    // Check if user exists
+    const userCheck = await pool.query('SELECT * FROM users WHERE member_id = $1', [id]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Assign role
+    await pool.query(
+      'INSERT INTO user_roles (user_id, role_id, assigned_by) VALUES ($1, $2, $3) ON CONFLICT (user_id, role_id) DO NOTHING',
+      [id, role_id, req.user.member_id]
+    );
+    
+    res.json({ message: 'Role assigned successfully' });
+  } catch (err) {
+    console.error('Error assigning role:', err);
+    res.status(500).json({ error: 'Failed to assign role' });
+  }
+});
+
+// Remove role from user
+app.delete('/api/users/:id/roles/:roleId', authenticateToken, async (req, res) => {
+  try {
+    const { id, roleId } = req.params;
+    
+    // Check if current user has admin privileges
+    const currentUserRoles = await getUserRoles(req.user.member_id);
+    const hasAdminRole = currentUserRoles.some(role => role.name === 'Admin');
+    
+    if (!hasAdminRole) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Remove role
+    const result = await pool.query(
+      'DELETE FROM user_roles WHERE user_id = $1 AND role_id = $2',
+      [id, roleId]
+    );
+    
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'User role not found' });
+    }
+    
+    res.json({ message: 'Role removed successfully' });
+  } catch (err) {
+    console.error('Error removing role:', err);
+    res.status(500).json({ error: 'Failed to remove role' });
+  }
+});
+
+// Helper function to get user roles
+async function getUserRoles(userId) {
+  const { rows } = await pool.query(`
+    SELECT r.id, r.name, r.description, r.permissions, ur.assigned_at
+    FROM user_roles ur
+    JOIN roles r ON ur.role_id = r.id
+    WHERE ur.user_id = $1
+    ORDER BY r.name
+  `, [userId]);
+  return rows;
+}
+
+// Helper function to check if user has specific role
+async function userHasRole(userId, roleName) {
+  const { rows } = await pool.query(`
+    SELECT COUNT(*) as count
+    FROM user_roles ur
+    JOIN roles r ON ur.role_id = r.id
+    WHERE ur.user_id = $1 AND r.name = $2
+  `, [userId, roleName]);
+  return parseInt(rows[0].count) > 0;
+}
