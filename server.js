@@ -1513,6 +1513,66 @@ app.post('/api/tournaments/:id/generate-matches', async (req, res) => {
   }
 });
 
+// Create tournament match
+app.post('/api/tournaments/:id/matches', async (req, res) => {
+  const { id } = req.params;
+  const { player1_id, player2_id, status = 'pending', scores, winner_id } = req.body;
+  
+  console.log('Creating tournament match - Tournament ID:', id);
+  console.log('Request body:', req.body);
+  console.log('Parsed data:', { player1_id, player2_id, status, scores, winner_id });
+  
+  try {
+    // Validate that the tournament exists
+    const tournamentCheck = await pool.query(
+      'SELECT id FROM tournaments WHERE id = $1',
+      [id]
+    );
+    
+    if (tournamentCheck.rows.length === 0) {
+      console.log('Tournament not found:', id);
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    console.log('Tournament found, getting next match number...');
+    
+    // Get the next match number for this tournament
+    const matchNumberResult = await pool.query(
+      'SELECT COALESCE(MAX(match_number), 0) + 1 as next_match_number FROM tournament_matches WHERE tournament_id = $1',
+      [id]
+    );
+    const nextMatchNumber = matchNumberResult.rows[0].next_match_number;
+    
+    console.log('Next match number:', nextMatchNumber);
+    console.log('About to insert match with data:', {
+      tournament_id: id,
+      player1_id,
+      player2_id,
+      match_number: nextMatchNumber,
+      status,
+      scores: JSON.stringify(scores),
+      winner_id
+    });
+    
+    // Create the match
+    const { rows } = await pool.query(
+      `INSERT INTO tournament_matches 
+       (tournament_id, player1_id, player2_id, match_number, status, scores, winner_id) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7) 
+       RETURNING *`,
+      [id, player1_id, player2_id, nextMatchNumber, status, scores, winner_id]
+    );
+    
+    console.log('Match created successfully:', rows[0]);
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error creating tournament match:', err);
+    console.error('Error details:', err.message);
+    console.error('Error stack:', err.stack);
+    res.status(500).json({ error: 'Failed to create tournament match', details: err.message });
+  }
+});
+
 // Update match result
 app.put('/api/tournaments/:id/matches/:matchId', async (req, res) => {
   const { id, matchId } = req.params;
@@ -2494,7 +2554,8 @@ async function updateUserProfilesForExistingMatches() {
         ADD COLUMN IF NOT EXISTS csv_timestamp VARCHAR(50),
         ADD COLUMN IF NOT EXISTS round_type VARCHAR(20) DEFAULT 'sim',
         ADD COLUMN IF NOT EXISTS holes_played INTEGER DEFAULT 18,
-        ADD COLUMN IF NOT EXISTS nine_type VARCHAR(10) DEFAULT NULL
+        ADD COLUMN IF NOT EXISTS nine_type VARCHAR(10) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE
       `);
     console.log('Scorecards table migration complete.');
     
@@ -2566,7 +2627,7 @@ async function updateUserProfilesForExistingMatches() {
 
 // Save scorecard
 app.post('/api/scorecards', authenticateToken, async (req, res) => {
-  const { type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, course_name, teebox } = req.body;
+  const { type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, course_name, teebox, tournament_id } = req.body;
   
   console.log('Received scorecard data:', req.body); // Debug log
   console.log('User ID:', req.user.member_id); // Debug log
@@ -2667,10 +2728,11 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
     const parsedHandicap = handicap ? parseFloat(handicap) : 0;
     
     const { rows } = await pool.query(
-      `INSERT INTO scorecards (user_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, differential, course_name, course_id, teebox, holes_played, nine_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
+      `INSERT INTO scorecards (user_id, tournament_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, differential, course_name, course_id, teebox, holes_played, nine_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING *`,
       [
         req.user.member_id,
+        tournament_id || null,
         type,
         player_name,
         date_played,
@@ -2756,6 +2818,141 @@ app.get('/api/scorecards', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Error fetching scorecards:', err);
     res.status(500).json({ error: 'Failed to fetch scorecards' });
+  }
+});
+
+// Get tournament strokeplay scores
+app.get('/api/tournaments/:id/strokeplay-scores', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.*, u.first_name, u.last_name, u.club
+       FROM scorecards s
+       JOIN users u ON s.user_id = u.member_id
+       WHERE s.tournament_id = $1 AND s.type = 'stroke_play'
+       ORDER BY s.total_strokes ASC, s.created_at ASC`,
+      [id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching tournament strokeplay scores:', err);
+    res.status(500).json({ error: 'Failed to fetch tournament scores' });
+  }
+});
+
+// Submit tournament strokeplay score
+app.post('/api/tournaments/:id/strokeplay-score', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { total_score, hole_scores, notes, scorecard_photo_url, player_id } = req.body;
+  
+  console.log('Submitting tournament strokeplay score:', { tournament_id: id, ...req.body });
+  console.log('User ID:', req.user.member_id);
+  console.log('Request body validation:', { total_score, hole_scores: hole_scores?.length, notes, scorecard_photo_url: !!scorecard_photo_url });
+  
+  try {
+    // Validate required fields
+    if (!total_score || isNaN(parseInt(total_score))) {
+      console.log('Missing or invalid total_score:', total_score);
+      return res.status(400).json({ error: 'total_score is required and must be a valid number' });
+    }
+    
+    // Validate tournament exists and is strokeplay format
+    const tournamentResult = await pool.query(
+      'SELECT * FROM tournaments WHERE id = $1',
+      [id]
+    );
+    
+    if (tournamentResult.rows.length === 0) {
+      console.log('Tournament not found:', id);
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    const tournament = tournamentResult.rows[0];
+    console.log('Tournament found:', { id: tournament.id, name: tournament.name, format: tournament.tournament_format });
+    
+    if (!tournament.tournament_format?.includes('stroke_play') && !tournament.tournament_format?.includes('strokeplay')) {
+      console.log('Tournament format validation failed:', tournament.tournament_format);
+      return res.status(400).json({ error: 'This endpoint is only for strokeplay tournaments' });
+    }
+    
+    // Use the specified player_id or fall back to authenticated user
+    const targetPlayerId = player_id || req.user.member_id;
+    
+    // Check if the target player is registered for tournament
+    const participationResult = await pool.query(
+      'SELECT * FROM participation WHERE tournament_id = $1 AND user_member_id = $2',
+      [id, targetPlayerId]
+    );
+    
+    console.log('Player participation check:', { 
+      tournament_id: id, 
+      player_id: targetPlayerId, 
+      is_registered: participationResult.rows.length > 0 
+    });
+    
+    if (participationResult.rows.length === 0) {
+      console.log('Player not registered for tournament');
+      return res.status(403).json({ error: 'The specified player must be registered for this tournament to submit scores' });
+    }
+    
+    // Check if the target player already submitted a score for this tournament
+    const existingScoreResult = await pool.query(
+      'SELECT * FROM scorecards WHERE tournament_id = $1 AND user_id = $2 AND type = $3',
+      [id, targetPlayerId, 'stroke_play']
+    );
+    
+    if (existingScoreResult.rows.length > 0) {
+      return res.status(409).json({ error: 'This player has already submitted a score for this tournament' });
+    }
+    
+    // Get target player's data
+    const userResult = await pool.query(
+      'SELECT first_name, last_name, sim_handicap, grass_handicap FROM users WHERE member_id = $1',
+      [targetPlayerId]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+    
+    const user = userResult.rows[0];
+    const handicap = user?.sim_handicap || user?.grass_handicap || 0;
+    
+    // Prepare scores data
+    const scoresData = {
+      hole_scores: hole_scores || [],
+      total_score: total_score,
+      notes: notes,
+      scorecard_photo_url: scorecard_photo_url
+    };
+    
+    // Insert scorecard
+    const { rows } = await pool.query(
+      `INSERT INTO scorecards (
+        user_id, tournament_id, type, player_name, date_played, handicap, 
+        scores, total_strokes, final_score, round_type, holes_played
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      [
+        targetPlayerId,
+        id,
+        'stroke_play',
+        `${user.first_name || 'Unknown'} ${user.last_name || 'Player'}`,
+        new Date().toISOString().split('T')[0],
+        handicap,
+        JSON.stringify(scoresData),
+        total_score,
+        total_score,
+        'sim',
+        hole_scores?.length || 18
+      ]
+    );
+    
+    console.log('Tournament strokeplay score saved:', rows[0]);
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error submitting tournament strokeplay score:', err);
+    res.status(500).json({ error: 'Failed to submit tournament score', details: err.message });
   }
 });
 
@@ -3650,6 +3847,75 @@ app.post('/api/users/profile-photo', authenticateToken, upload.single('profilePh
   } catch (error) {
     console.error('Error uploading profile photo:', error);
     res.status(500).json({ error: 'Failed to upload profile photo' });
+  }
+});
+
+// Upload scorecard photo endpoint (GCS version with fallback)
+app.post('/api/tournaments/scorecard-photo', authenticateToken, upload.single('scorecardPhoto'), async (req, res) => {
+  try {
+    console.log('Scorecard photo upload request received');
+    console.log('Request user:', req.user);
+    console.log('Request file:', req.file ? 'File present' : 'No file');
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    console.log('File details:', {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size
+    });
+
+    const userId = req.user.member_id;
+    let photoUrl;
+
+    // Check if GCS is configured
+    if (gcs && bucket) {
+      console.log('Using GCS for photo upload');
+      try {
+        // Use GCS for production
+        const ext = path.extname(req.file.originalname);
+        const gcsFileName = `scorecard-photos/user_${userId}_${Date.now()}${ext}`;
+        const blob = bucket.file(gcsFileName);
+
+        console.log('Uploading to GCS:', gcsFileName);
+
+        // Upload to GCS
+        await blob.save(req.file.buffer, {
+          contentType: req.file.mimetype,
+          metadata: { cacheControl: 'public, max-age=31536000' }
+        });
+
+        photoUrl = `https://storage.googleapis.com/${bucket.name}/${gcsFileName}`;
+        console.log('GCS upload successful, URL:', photoUrl);
+      } catch (gcsError) {
+        console.error('GCS upload failed:', gcsError);
+        throw gcsError;
+      }
+    } else {
+      console.log('GCS not configured, using data URL fallback');
+      // Fallback: Convert to data URL for development
+      const base64Data = req.file.buffer.toString('base64');
+      const mimeType = req.file.mimetype;
+      photoUrl = `data:${mimeType};base64,${base64Data}`;
+      
+      console.log('Data URL fallback created, length:', photoUrl.length);
+    }
+
+    console.log('Photo upload successful, returning response');
+    res.json({ 
+      success: true, 
+      photoUrl,
+      message: 'Scorecard photo uploaded successfully' 
+    });
+  } catch (error) {
+    console.error('Error uploading scorecard photo:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to upload scorecard photo',
+      details: error.message 
+    });
   }
 });
 

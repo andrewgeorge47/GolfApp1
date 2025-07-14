@@ -53,9 +53,10 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
       toast.success(`Successfully registered ${userIds.length} user(s)`);
       setSelectedRegistrationUserIds([]);
       onUserRegistered();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error registering users:', error);
-      toast.error('Failed to register users');
+      const errorMessage = error.response?.data?.error || 'Failed to register users';
+      toast.error(errorMessage);
     }
   };
 
@@ -64,9 +65,10 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
       await unregisterUserFromTournament(tournamentId, userId);
       toast.success('User unregistered successfully');
       onUserUnregistered();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error unregistering user:', error);
-      toast.error('Failed to unregister user');
+      const errorMessage = error.response?.data?.error || 'Failed to unregister user';
+      toast.error(errorMessage);
     }
   };
 

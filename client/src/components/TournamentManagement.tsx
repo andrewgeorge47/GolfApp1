@@ -18,6 +18,8 @@ import MatchGenerator from './MatchGenerator';
 import ScoreSubmission from './ScoreSubmission';
 import TeamFormation from './TeamFormation';
 import TournamentLeaderboard from './TournamentLeaderboard';
+import StrokeplayScoring from './StrokeplayScoring';
+import StrokeplayLeaderboard from './StrokeplayLeaderboard';
 import { useAuth } from '../AuthContext';
 
 interface TournamentManagementProps {
@@ -994,9 +996,20 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                             </div>
                           )}
 
+                          {/* Strokeplay Scoring */}
+                          {selectedTournament.tournament_format === 'stroke_play' && (
+                            <StrokeplayScoring
+                              tournamentId={selectedTournament.id}
+                              tournamentFormat={selectedTournament.tournament_format}
+                              tournamentSettings={getFormatSpecificSettings(selectedTournament)}
+                              onScoreSubmitted={handleScoreSubmitted}
+                              courseId={selectedTournament.course_id}
+                            />
+                          )}
+
                           {/* Standard ScoreSubmission for other formats */}
                           {(!selectedTournament.tournament_format || 
-                            selectedTournament.tournament_format !== 'match_play' || 
+                            (selectedTournament.tournament_format !== 'match_play' && selectedTournament.tournament_format !== 'stroke_play') || 
                             selectedTournament.hole_configuration !== '3') && (
                             <ScoreSubmission
                               tournamentId={selectedTournament.id}
@@ -1208,15 +1221,27 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                                       {completedMatches.slice(-6).reverse().map(match => {
                                         // Parse holes data if available
                                         let holes = [];
-                                        if (match.scores && match.scores.holes) {
-                                          if (typeof match.scores.holes === 'string') {
-                                            try {
-                                              holes = JSON.parse(match.scores.holes);
-                                            } catch (e) {
-                                              console.error('Error parsing holes data:', e);
+                                        if (match.scores) {
+                                          // Debug: Log the scores structure
+                                          console.log('Match scores structure:', match.scores);
+                                          
+                                          if (match.scores.holes) {
+                                            if (typeof match.scores.holes === 'string') {
+                                              try {
+                                                holes = JSON.parse(match.scores.holes);
+                                              } catch (e) {
+                                                console.error('Error parsing holes data:', e);
+                                              }
+                                            } else if (Array.isArray(match.scores.holes)) {
+                                              holes = match.scores.holes;
                                             }
-                                          } else if (Array.isArray(match.scores.holes)) {
-                                            holes = match.scores.holes;
+                                          } else if (match.scores.player1_score && match.scores.player2_score) {
+                                            // If no holes array but we have total scores, create a summary
+                                            holes = [{
+                                              hole: 'Total',
+                                              player1: match.scores.player1_score,
+                                              player2: match.scores.player2_score
+                                            }];
                                           }
                                         }
 
@@ -1232,7 +1257,9 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                                                   </span>
                                                 </div>
                                                 <div className="text-sm text-neutral-500">
-                                                  {new Date(match.updated_at).toLocaleDateString()}
+                                                  {match.updated_at ? new Date(match.updated_at).toLocaleDateString() : 
+                                                   match.created_at ? new Date(match.created_at).toLocaleDateString() : 
+                                                   'Date not available'}
                                                 </div>
                                               </div>
                                               <div className="mt-2 space-y-1">
@@ -1268,21 +1295,23 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                                                       </tr>
                                                     </thead>
                                                     <tbody>
-                                                                                                             {holes.map((hole: any, holeIndex: number) => {
-                                                         const player1Score = hole.player1 || hole.player1_score;
-                                                         const player2Score = hole.player2 || hole.player2_score;
+                                                                                                                                                                   {holes.map((hole: any, holeIndex: number) => {
+                                                        const player1Score = hole.player1 || hole.player1_score || 0;
+                                                        const player2Score = hole.player2 || hole.player2_score || 0;
                                                         const holeWinner = player1Score < player2Score ? match.player1_first_name : 
                                                                          player1Score > player2Score ? match.player2_first_name : 'Tie';
                                                         const scoreDiff = Math.abs(player1Score - player2Score);
                                                         
                                                         return (
                                                           <tr key={holeIndex} className="border-b border-neutral-100">
-                                                            <td className="px-2 py-1 text-center font-medium text-neutral-600">{hole.hole || holeIndex + 1}</td>
+                                                            <td className="px-2 py-1 text-center font-medium text-neutral-600">
+                                                              {hole.hole || holeIndex + 1}
+                                                            </td>
                                                             <td className={`px-2 py-1 text-center ${player1Score < player2Score ? 'text-green-600 font-semibold' : ''}`}>
-                                                              {player1Score}
+                                                              {player1Score || '-'}
                                                             </td>
                                                             <td className={`px-2 py-1 text-center ${player2Score < player1Score ? 'text-green-600 font-semibold' : ''}`}>
-                                                              {player2Score}
+                                                              {player2Score || '-'}
                                                             </td>
                                                             <td className={`px-2 py-1 text-center text-xs ${holeWinner === 'Tie' ? 'text-neutral-500' : 'text-green-600 font-medium'}`}>
                                                               {holeWinner}
@@ -1302,7 +1331,13 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                                             {/* Fallback if no hole data */}
                                             {holes.length === 0 && (
                                               <div className="p-4 bg-white text-sm text-neutral-500">
-                                                Hole-by-hole scores not available
+                                                <div className="flex items-center justify-center space-x-2">
+                                                  <span>📊</span>
+                                                  <span>Hole-by-hole scores not available for this match</span>
+                                                </div>
+                                                <div className="text-xs text-neutral-400 mt-1 text-center">
+                                                  Only total scores are recorded for this match
+                                                </div>
                                               </div>
                                             )}
                                           </div>
@@ -1319,13 +1354,29 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                           {(!selectedTournament.tournament_format || 
                             selectedTournament.tournament_format !== 'match_play' || 
                             selectedTournament.hole_configuration !== '3') && (
-                            <TournamentLeaderboard
-                              tournamentId={selectedTournament.id}
-                              tournamentFormat={selectedTournament.tournament_format || 'match_play'}
-                              onRefresh={handleScoreSubmitted}
-                              courseId={selectedTournament.course_id}
-                              tournamentSettings={getFormatSpecificSettings(selectedTournament)}
-                            />
+                            selectedTournament.tournament_format === 'stroke_play' ? (
+                              <StrokeplayLeaderboard
+                                tournamentId={selectedTournament.id}
+                                tournamentFormat={selectedTournament.tournament_format}
+                                courseId={selectedTournament.course_id}
+                                onRefresh={handleScoreSubmitted}
+                                tournamentInfo={{
+                                  name: selectedTournament.name,
+                                  description: selectedTournament.description,
+                                  start_date: selectedTournament.start_date,
+                                  course_name: selectedTournament.course
+                                }}
+                                tournamentSettings={getFormatSpecificSettings(selectedTournament)}
+                              />
+                            ) : (
+                              <TournamentLeaderboard
+                                tournamentId={selectedTournament.id}
+                                tournamentFormat={selectedTournament.tournament_format || 'match_play'}
+                                onRefresh={handleScoreSubmitted}
+                                courseId={selectedTournament.course_id}
+                                tournamentSettings={getFormatSpecificSettings(selectedTournament)}
+                              />
+                            )
                           )}
                         </div>
                       )}

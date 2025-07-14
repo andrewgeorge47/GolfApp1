@@ -271,6 +271,18 @@ export const uploadProfilePhoto = (file: File) => {
   });
 };
 
+// Scorecard photo upload
+export const uploadScorecardPhoto = (file: File) => {
+  const formData = new FormData();
+  formData.append('scorecardPhoto', file);
+  
+  return api.post('/tournaments/scorecard-photo', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+};
+
 // Players
 export const getPlayers = () => api.get<User[]>('/players');
 
@@ -308,7 +320,20 @@ export const saveScorecard = (scorecardData: {
   teebox?: string;
   course_rating?: number;
   course_slope?: number;
+  tournament_id?: number;
 }) => api.post<Scorecard>('/scorecards', scorecardData);
+
+// Tournament strokeplay score functions
+export const submitTournamentStrokeplayScore = (tournamentId: number, data: {
+  total_score: number;
+  hole_scores?: Array<{ hole: number; score: number }>;
+  notes?: string;
+  scorecard_photo_url?: string;
+  player_id?: number;
+}) => api.post(`/tournaments/${tournamentId}/strokeplay-score`, data);
+
+export const getTournamentStrokeplayScores = (tournamentId: number) => 
+  api.get(`/tournaments/${tournamentId}/strokeplay-scores`);
 
 export const getScorecards = () => api.get<Scorecard[]>('/scorecards');
 export const getScorecard = (id: number) => api.get<Scorecard>(`/scorecards/${id}`);
@@ -560,6 +585,8 @@ export const generateTournamentMatches = (tournamentId: number, format: string, 
   api.post(`/tournaments/${tournamentId}/generate-matches`, { format, minMatchesPerPlayer });
 export const updateTournamentMatch = (tournamentId: number, matchId: number, data: any) => 
   api.put(`/tournaments/${tournamentId}/matches/${matchId}`, data);
+export const createTournamentMatch = (tournamentId: number, data: any) => 
+  api.post(`/tournaments/${tournamentId}/matches`, data);
 
 // Team management API functions
 export interface Team {

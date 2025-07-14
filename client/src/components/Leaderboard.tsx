@@ -24,6 +24,8 @@ import { getGlobalLeaderboard, getClubLeaderboard, getAllClubs, GlobalLeaderboar
 import api from '../services/api';
 import ClubLeaderboard from './ClubLeaderboard';
 import TournamentLeaderboard from './TournamentLeaderboard';
+import MatchplayLeaderboard from './MatchplayLeaderboard';
+import StrokeplayLeaderboard from './StrokeplayLeaderboard';
 
 // Define the ClubLeaderboardData interface to match what the server returns
 interface ClubLeaderboardData {
@@ -191,7 +193,7 @@ const Leaderboard: React.FC = () => {
   // Handle share tournament leaderboard
   const handleShareTournament = () => {
     if (selectedTournament) {
-      const shareUrl = `${window.location.origin}/leaderboard/tournament/${selectedTournament.id}`;
+      const shareUrl = `${window.location.origin}/#/leaderboard/tournament/${selectedTournament.id}`;
       
       // Try Web Share API first
       if (navigator.share) {
@@ -742,30 +744,54 @@ const Leaderboard: React.FC = () => {
                     <span>Share Leaderboard</span>
                   </button>
                 </div>
-                <TournamentLeaderboard
-                  tournamentId={selectedTournament.id}
-                  tournamentFormat={selectedTournament.tournament_format}
-                  courseId={selectedTournament.course_id}
-                  tournamentInfo={{
-                    name: selectedTournament.name,
-                    description: selectedTournament.description,
-                    start_date: selectedTournament.start_date,
-                    course_name: courseData?.name || selectedTournament.course_name || selectedTournament.course_id?.toString()
-                  }}
-                  tournamentSettings={{
-                    holeConfiguration: selectedTournament.hole_configuration || '18',
-                    tee: selectedTournament.tee || 'Red',
-                    pins: selectedTournament.pins || 'Friday',
-                    puttingGimme: selectedTournament.putting_gimme || '8',
-                    elevation: selectedTournament.elevation || 'Course',
-                    stimp: selectedTournament.stimp || '11',
-                    mulligan: selectedTournament.mulligan || 'No',
-                    gamePlay: selectedTournament.game_play || 'Force Realistic',
-                    firmness: selectedTournament.firmness || 'Normal',
-                    wind: selectedTournament.wind || 'None',
-                    handicapEnabled: selectedTournament.handicap_enabled || false
-                  }}
-                />
+                {selectedTournament.tournament_format === 'match_play' || selectedTournament.tournament_format === 'par3_match_play' ? (
+                  <MatchplayLeaderboard
+                    tournamentId={selectedTournament.id}
+                    tournamentFormat={selectedTournament.tournament_format}
+                    tournamentInfo={{
+                      name: selectedTournament.name,
+                      description: selectedTournament.description,
+                      start_date: selectedTournament.start_date,
+                      course_name: courseData?.name || selectedTournament.course_name || selectedTournament.course_id?.toString()
+                    }}
+                  />
+                ) : selectedTournament.tournament_format === 'stroke_play' ? (
+                  <StrokeplayLeaderboard
+                    tournamentId={selectedTournament.id}
+                    tournamentFormat={selectedTournament.tournament_format}
+                    courseId={selectedTournament.course_id}
+                    tournamentInfo={{
+                      name: selectedTournament.name,
+                      description: selectedTournament.description,
+                      start_date: selectedTournament.start_date,
+                      course_name: courseData?.name || selectedTournament.course_name || selectedTournament.course_id?.toString()
+                    }}
+                    tournamentSettings={{
+                      holeConfiguration: selectedTournament.hole_configuration || '18',
+                      tee: selectedTournament.tee || 'Red',
+                      pins: selectedTournament.pins || 'Friday',
+                      puttingGimme: selectedTournament.putting_gimme || '8'
+                    }}
+                  />
+                ) : (
+                  <TournamentLeaderboard
+                    tournamentId={selectedTournament.id}
+                    tournamentFormat={selectedTournament.tournament_format}
+                    courseId={selectedTournament.course_id}
+                    tournamentInfo={{
+                      name: selectedTournament.name,
+                      description: selectedTournament.description,
+                      start_date: selectedTournament.start_date,
+                      course_name: courseData?.name || selectedTournament.course_name || selectedTournament.course_id?.toString()
+                    }}
+                    tournamentSettings={{
+                      holeConfiguration: selectedTournament.hole_configuration || '18',
+                      tee: selectedTournament.tee || 'Red',
+                      pins: selectedTournament.pins || 'Friday',
+                      puttingGimme: selectedTournament.putting_gimme || '8'
+                    }}
+                  />
+                )}
               </div>
             ) : params.tournamentId && tournamentsLoading ? (
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
