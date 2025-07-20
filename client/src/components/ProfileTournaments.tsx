@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Edit, Trash2, Users, Calendar, Trophy, Search, MapPin, Settings, DollarSign } from 'lucide-react';
-import { getTournaments, createTournament, updateTournament, deleteTournament, updateTournamentRegistration, getSimulatorCourses } from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Edit, Trash2, Users, Calendar, Trophy, Search, MapPin, Settings, DollarSign, BarChart3 } from 'lucide-react';
+import { getTournaments, getUserTournaments, createTournament, updateTournament, deleteTournament, updateTournamentRegistration, getSimulatorCourses } from '../services/api';
 import { useAuth } from '../AuthContext';
 import { toast } from 'react-toastify';
 
@@ -149,8 +150,11 @@ const tournamentTemplates = [
 
 const ProfileTournaments: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [participatingTournaments, setParticipatingTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'created' | 'participating'>('created');
 
   // Tournament form state
   const [showTournamentForm, setShowTournamentForm] = useState(false);
@@ -257,11 +261,16 @@ const ProfileTournaments: React.FC = () => {
     const fetchTournaments = async () => {
       setLoading(true);
       try {
-        const res = await getTournaments();
-        console.log('All tournaments:', res.data);
+        const [allTournamentsRes, participatingRes] = await Promise.all([
+          getTournaments(),
+          getUserTournaments(user?.member_id || 0)
+        ]);
+        
+        console.log('All tournaments:', allTournamentsRes.data);
+        console.log('Participating tournaments:', participatingRes.data);
         console.log('User member_id:', user?.member_id, 'Type:', typeof user?.member_id);
         
-        const myTournaments = res.data.filter((t: Tournament) => {
+        const myTournaments = allTournamentsRes.data.filter((t: Tournament) => {
           console.log('Tournament:', t.name, 'created_by:', t.created_by, 'Type:', typeof t.created_by);
           // Show all tournaments for admins, or tournaments created by this user
           if (user?.role?.toLowerCase() === 'admin') {
@@ -272,9 +281,11 @@ const ProfileTournaments: React.FC = () => {
         
         console.log('My tournaments:', myTournaments);
         setTournaments(myTournaments);
+        setParticipatingTournaments(participatingRes.data);
       } catch (err) {
         console.error('Error fetching tournaments:', err);
         setTournaments([]);
+        setParticipatingTournaments([]);
       } finally {
         setLoading(false);
       }
@@ -436,6 +447,18 @@ const ProfileTournaments: React.FC = () => {
     }
   };
 
+  // Submit Score Handler
+  const handleSubmitScore = (tournament: Tournament) => {
+    // Navigate to the tournament scoring page for this tournament
+    navigate(`/tournament-scoring?tournament=${tournament.id}`);
+  };
+
+  // View Leaderboard Handler
+  const handleViewLeaderboard = (tournament: Tournament) => {
+    // Navigate to the leaderboard page for this tournament
+    window.location.href = `/leaderboard?tournament=${tournament.id}`;
+  };
+
   // UI
   return (
     <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
@@ -457,28 +480,60 @@ const ProfileTournaments: React.FC = () => {
           Create Tournament
         </button>
       </div>
+      
+      {/* Tab Navigation */}
+      <div className="flex space-x-1 mb-6 bg-neutral-100 p-1 rounded-lg">
+        <button
+          onClick={() => setActiveTab('created')}
+          className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'created'
+              ? 'bg-white text-brand-black shadow-sm'
+              : 'text-neutral-600 hover:text-neutral-800'
+          }`}
+        >
+          Created ({tournaments.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('participating')}
+          className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'participating'
+              ? 'bg-white text-brand-black shadow-sm'
+              : 'text-neutral-600 hover:text-neutral-800'
+          }`}
+        >
+          Participating ({participatingTournaments.length})
+        </button>
+      </div>
       {loading ? (
         <div className="text-center py-12 text-neutral-500">Loading tournaments...</div>
-      ) : tournaments.length === 0 ? (
+      ) : (activeTab === 'created' ? tournaments : participatingTournaments).length === 0 ? (
         <div className="text-center py-12 text-neutral-600">
           <Trophy className="w-12 h-12 mx-auto mb-2 text-neutral-400" />
           <p className="text-lg font-medium mb-2">
-            {user?.role?.toLowerCase() === 'admin' ? 'No Tournaments Found' : 'No Tournaments Created Yet'}
-          </p>
-          <p className="text-sm text-neutral-500 mb-4">
-            {user?.role?.toLowerCase() === 'admin' 
-              ? 'There are no tournaments in the system yet. Create the first tournament to get started!'
-              : 'This section shows tournaments you\'ve created. Create your first tournament to get started!'
+            {activeTab === 'created' 
+              ? (user?.role?.toLowerCase() === 'admin' ? 'No Tournaments Found' : 'No Tournaments Created Yet')
+              : 'No Participating Tournaments'
             }
           </p>
-          <button onClick={() => setShowTournamentForm(true)} className="mt-4 px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center">
-            <Plus className="w-4 h-4 mr-2" />
-            {user?.role?.toLowerCase() === 'admin' ? 'Create Tournament' : 'Create Your First Tournament'}
-          </button>
+          <p className="text-sm text-neutral-500 mb-4">
+            {activeTab === 'created' 
+              ? (user?.role?.toLowerCase() === 'admin' 
+                ? 'There are no tournaments in the system yet. Create the first tournament to get started!'
+                : 'This section shows tournaments you\'ve created. Create your first tournament to get started!'
+              )
+              : 'You haven\'t registered for any tournaments yet. Check the available tournaments to join!'
+            }
+          </p>
+          {activeTab === 'created' && (
+            <button onClick={() => setShowTournamentForm(true)} className="mt-4 px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center">
+              <Plus className="w-4 h-4 mr-2" />
+              {user?.role?.toLowerCase() === 'admin' ? 'Create Tournament' : 'Create Your First Tournament'}
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {tournaments.map(tournament => (
+          {(activeTab === 'created' ? tournaments : participatingTournaments).map(tournament => (
             <div key={tournament.id} className="p-4 bg-white border border-neutral-200 rounded-lg shadow-sm hover:border-brand-neon-green transition-all group">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold text-brand-black group-hover:text-brand-neon-green transition-colors">
@@ -503,18 +558,37 @@ const ProfileTournaments: React.FC = () => {
                   {new Date(tournament.start_date).toLocaleDateString()}
                 </div>
               )}
-              <div className="flex items-center space-x-2 mt-2">
-                <button onClick={() => handleEditTournament(tournament)} className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition-colors flex items-center">
-                  <Edit className="w-4 h-4 mr-1" /> Edit
-                </button>
-                <button onClick={() => handleDeleteTournament(tournament.id)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 transition-colors flex items-center">
-                  <Trash2 className="w-4 h-4 mr-1" /> Delete
-                </button>
-                <button onClick={() => handleToggleRegistration(tournament)} className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                  tournament.registration_open ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}>
-                  {tournament.registration_open ? 'Registration Open' : 'Registration Closed'}
-                </button>
+              <div className="flex items-center space-x-2 mt-2 flex-wrap gap-1">
+                {activeTab === 'created' ? (
+                  <>
+                    <button onClick={() => handleEditTournament(tournament)} className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition-colors flex items-center">
+                      <Edit className="w-4 h-4 mr-1" /> Edit
+                    </button>
+                    <button onClick={() => handleDeleteTournament(tournament.id)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 transition-colors flex items-center">
+                      <Trash2 className="w-4 h-4 mr-1" /> Delete
+                    </button>
+                    <button onClick={() => handleToggleRegistration(tournament)} className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                      tournament.registration_open ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}>
+                      {tournament.registration_open ? 'Registration Open' : 'Registration Closed'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button 
+                      onClick={() => handleSubmitScore(tournament)} 
+                      className="px-3 py-1 bg-brand-neon-green text-brand-black rounded text-xs hover:bg-green-400 transition-colors flex items-center"
+                    >
+                      <Trophy className="w-4 h-4 mr-1" /> Submit Score
+                    </button>
+                    <button 
+                      onClick={() => handleViewLeaderboard(tournament)} 
+                      className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition-colors flex items-center"
+                    >
+                      <BarChart3 className="w-4 h-4 mr-1" /> Leaderboard
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))}

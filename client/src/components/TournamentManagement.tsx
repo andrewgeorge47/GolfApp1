@@ -5,6 +5,7 @@ import {
   getTournamentParticipants,
   getTournamentMatches,
   getTournamentCheckIns,
+  getTournamentScores,
   getTeams,
   deleteTournament,
   checkInUser,
@@ -34,6 +35,8 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
   const [tournamentMatches, setTournamentMatches] = useState<any[]>([]);
   const [tournamentCheckIns, setTournamentCheckIns] = useState<any[]>([]);
   const [tournamentTeams, setTournamentTeams] = useState<any[]>([]);
+  const [tournamentScores, setTournamentScores] = useState<any[]>([]);
+  const [tournamentPayouts, setTournamentPayouts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'registration' | 'checkin' | 'teams' | 'matches' | 'scoring' | 'leaderboard'>('registration');
 
@@ -57,9 +60,9 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
     return tournamentFormat === 'match_play' || tournamentFormat === 'par3_match_play';
   };
 
-  // Helper function to determine if tournament requires check-in
+  // Helper function to determine if tournament requires payment tracking
   const requiresCheckIn = (tournamentFormat: string) => {
-    // For now, require check-in for all formats, but this could be configurable
+    // For now, require payment tracking for all formats, but this could be configurable
     return true;
   };
 
@@ -180,14 +183,16 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
     if (selectedTournament) {
       const loadTournamentData = async () => {
         try {
-          const [participantsResponse, matchesResponse, checkInsResponse] = await Promise.all([
+          const [participantsResponse, matchesResponse, checkInsResponse, scoresResponse] = await Promise.all([
             getTournamentParticipants(selectedTournament.id),
             getTournamentMatches(selectedTournament.id),
-            getTournamentCheckIns(selectedTournament.id)
+            getTournamentCheckIns(selectedTournament.id),
+            getTournamentScores(selectedTournament.id)
           ]);
           setTournamentParticipants(participantsResponse.data);
           setTournamentMatches(matchesResponse.data);
           setTournamentCheckIns(checkInsResponse.data);
+          setTournamentScores(scoresResponse.data || []);
           
           // Load teams if tournament is scramble format
           if (selectedTournament.tournament_format === 'scramble') {
@@ -318,28 +323,28 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
       await Promise.all(
         userIds.map(userId => checkInUser(selectedTournament!.id, userId))
       );
-      toast.success(`Successfully checked in ${userIds.length} user(s)`);
-      // Refresh check-ins data
+      toast.success(`Successfully marked ${userIds.length} user(s) as paid`);
+      // Refresh payment tracking data
       if (selectedTournament) {
         getTournamentCheckIns(selectedTournament.id).then(response => setTournamentCheckIns(response.data));
       }
     } catch (error) {
-      console.error('Error checking in users:', error);
-      toast.error('Failed to check in users');
+              console.error('Error marking users as paid:', error);
+              toast.error('Failed to mark users as paid');
     }
   };
 
   const handleCheckOutUser = async (userId: number) => {
     try {
       await checkOutUser(selectedTournament!.id, userId);
-      toast.success('User checked out successfully');
-      // Refresh check-ins data
+      toast.success('User marked as unpaid successfully');
+      // Refresh payment tracking data
       if (selectedTournament) {
         getTournamentCheckIns(selectedTournament.id).then(response => setTournamentCheckIns(response.data));
       }
     } catch (error) {
-      console.error('Error checking out user:', error);
-      toast.error('Failed to check out user');
+      console.error('Error marking user as unpaid:', error);
+      toast.error('Failed to mark user as unpaid');
     }
   };
 
@@ -658,8 +663,8 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                           className={`py-2 px-4 font-medium ${activeTab === 'checkin' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
                           onClick={() => setActiveTab('checkin')}
                         >
-                          <CheckCircle className="w-4 h-4 mr-2 inline" />
-                          Check-in
+                          <Users className="w-4 h-4 mr-2 inline" />
+                          Players
                         </button>
                       )}
                       {requiresTeamFormation(selectedTournament.tournament_format || 'match_play') && (
@@ -725,10 +730,10 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                         <div className="space-y-6">
                           <div className="bg-white rounded-xl p-6 border border-neutral-200">
                             <div className="flex items-center justify-between mb-4">
-                              <h4 className="text-lg font-semibold text-brand-black">Check-in Management</h4>
+                              <h4 className="text-lg font-semibold text-brand-black">Player Management</h4>
                               <div className="flex items-center space-x-2">
                                 <span className="text-sm text-neutral-600">
-                                  {tournamentCheckIns.filter(c => c.status === 'checked_in').length} checked in
+                                  {tournamentCheckIns.filter(c => c.status === 'checked_in').length} paid
                                 </span>
                                 <span className="text-sm text-neutral-600">
                                   / {tournamentParticipants.length} registered
@@ -753,7 +758,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                                 ).length === 0}
                               >
                                 <CheckCircle className="w-4 h-4 mr-2" />
-                                Check In All Pending
+                                Mark All as Paid
                               </button>
                             </div>
 
@@ -763,24 +768,23 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                                 <thead className="bg-neutral-50">
                                   <tr>
                                     <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Name</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Email</th>
                                     <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Club</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Status</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Actions</th>
+                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Payment Status</th>
+                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Score Submitted</th>
+                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Payout</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {tournamentParticipants.map(participant => {
                                     const checkIn = tournamentCheckIns.find(c => c.user_member_id === participant.user_member_id);
                                     const isCheckedIn = checkIn && checkIn.status === 'checked_in';
+                                    const hasScore = tournamentScores.find(s => s.user_id === participant.user_member_id);
+                                    const payout = tournamentPayouts.find(p => p.user_member_id === participant.user_member_id);
                                     
                                     return (
                                       <tr key={participant.user_member_id} className="hover:bg-neutral-50">
                                         <td className="border border-neutral-300 px-4 py-3 font-medium">
                                           {participant.first_name} {participant.last_name}
-                                        </td>
-                                        <td className="border border-neutral-300 px-4 py-3 text-neutral-600">
-                                          {participant.email}
                                         </td>
                                         <td className="border border-neutral-300 px-4 py-3">
                                           <span className="px-2 py-1 bg-neutral-100 text-neutral-700 text-sm rounded">
@@ -788,10 +792,45 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                                           </span>
                                         </td>
                                         <td className="border border-neutral-300 px-4 py-3">
-                                          {isCheckedIn ? (
+                                          <div className="flex items-center space-x-2">
+                                            {isCheckedIn ? (
+                                              <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                <CheckCircle className="w-3 h-3 inline mr-1" />
+                                                Paid
+                                              </span>
+                                            ) : (
+                                              <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                                <Clock className="w-3 h-3 inline mr-1" />
+                                                Unpaid
+                                              </span>
+                                            )}
+                                            <div className="flex space-x-1">
+                                              {!isCheckedIn && (
+                                                <button
+                                                  onClick={() => handleCheckInUsers([participant.user_member_id])}
+                                                  className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+                                                  title="Mark as Paid"
+                                                >
+                                                  ✓
+                                                </button>
+                                              )}
+                                              {isCheckedIn && (
+                                                <button
+                                                  onClick={() => handleCheckOutUser(participant.user_member_id)}
+                                                  className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                                                  title="Mark as Unpaid"
+                                                >
+                                                  ✗
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </td>
+                                        <td className="border border-neutral-300 px-4 py-3">
+                                          {hasScore ? (
                                             <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                               <CheckCircle className="w-3 h-3 inline mr-1" />
-                                              Checked In
+                                              Submitted
                                             </span>
                                           ) : (
                                             <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
@@ -801,24 +840,17 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                                           )}
                                         </td>
                                         <td className="border border-neutral-300 px-4 py-3">
-                                          <div className="flex space-x-2">
-                                            {!isCheckedIn && (
-                                              <button
-                                                onClick={() => handleCheckInUsers([participant.user_member_id])}
-                                                className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
-                                              >
-                                                Check In
-                                              </button>
-                                            )}
-                                            {isCheckedIn && (
-                                              <button
-                                                onClick={() => handleCheckOutUser(participant.user_member_id)}
-                                                className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
-                                              >
-                                                Check Out
-                                              </button>
-                                            )}
-                                          </div>
+                                          {payout ? (
+                                            <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                              <CheckCircle className="w-3 h-3 inline mr-1" />
+                                              ${payout.amount}
+                                            </span>
+                                          ) : (
+                                            <span className="px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                              <Clock className="w-3 h-3 inline mr-1" />
+                                              TBD
+                                            </span>
+                                          )}
                                         </td>
                                       </tr>
                                     );

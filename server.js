@@ -2841,6 +2841,63 @@ app.get('/api/tournaments/:id/strokeplay-scores', async (req, res) => {
   }
 });
 
+// Get all tournament scores (strokeplay and matchplay)
+app.get('/api/tournaments/:id/scores', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // Get strokeplay scores
+    const strokeplayScores = await pool.query(
+      `SELECT s.*, u.first_name, u.last_name, u.club, 'strokeplay' as score_type
+       FROM scorecards s
+       JOIN users u ON s.user_id = u.member_id
+       WHERE s.tournament_id = $1 AND s.type = 'stroke_play'`,
+      [id]
+    );
+    
+    // Get matchplay scores (from matches table)
+    const matchplayScores = await pool.query(
+      `SELECT 
+         m.id,
+         m.tournament_id,
+         m.player1_id as user_id,
+         u1.first_name,
+         u1.last_name,
+         u1.club,
+         'matchplay' as score_type,
+         m.scores,
+         m.winner_id,
+         m.created_at
+       FROM tournament_matches m
+       JOIN users u1 ON m.player1_id = u1.member_id
+       WHERE m.tournament_id = $1 AND m.status = 'completed'
+       UNION ALL
+       SELECT 
+         m.id,
+         m.tournament_id,
+         m.player2_id as user_id,
+         u2.first_name,
+         u2.last_name,
+         u2.club,
+         'matchplay' as score_type,
+         m.scores,
+         m.winner_id,
+         m.created_at
+       FROM tournament_matches m
+       JOIN users u2 ON m.player2_id = u2.member_id
+       WHERE m.tournament_id = $1 AND m.status = 'completed'`,
+      [id]
+    );
+    
+    // Combine and return all scores
+    const allScores = [...strokeplayScores.rows, ...matchplayScores.rows];
+    res.json(allScores);
+  } catch (err) {
+    console.error('Error fetching tournament scores:', err);
+    res.status(500).json({ error: 'Failed to fetch tournament scores' });
+  }
+});
+
 // Submit tournament strokeplay score
 app.post('/api/tournaments/:id/strokeplay-score', authenticateToken, async (req, res) => {
   const { id } = req.params;

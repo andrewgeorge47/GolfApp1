@@ -296,6 +296,11 @@ const Profile: React.FC = () => {
     navigate(`/leaderboard/tournament/${tournamentId}`);
   };
 
+  const handleSubmitScore = (tournamentId: number) => {
+    // Navigate to the tournament scoring page for this tournament
+    navigate(`/tournament-scoring?tournament=${tournamentId}`);
+  };
+
   // Function to determine which rounds are used for handicap calculation
   const getHandicapRounds = (rounds: Array<{ id: number; date_played: string; course_name: string; total_strokes: number; differential: number | null; round_type: string }>) => {
     // Filter rounds with valid differentials and sort by date (newest first)
@@ -1243,7 +1248,7 @@ const Profile: React.FC = () => {
       )}
 
       {/* My Tournaments */}
-      {userTournaments.length > 0 && (
+      {user && (
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-bold text-brand-black flex items-center">
@@ -1258,8 +1263,9 @@ const Profile: React.FC = () => {
               Browse All Tournaments
             </Link>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {userTournaments.map((tournament) => (
+          {userTournaments.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {userTournaments.map((tournament) => (
               <div key={tournament.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-brand-neon-green transition-all group">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-semibold text-brand-black group-hover:text-brand-neon-green transition-colors">
@@ -1296,10 +1302,17 @@ const Profile: React.FC = () => {
                     ${tournament.entry_fee} entry fee
                   </div>
                 )}
-                <div className="mt-3 pt-3 border-t border-gray-200">
+                <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
+                  <button
+                    onClick={() => handleSubmitScore(tournament.id)}
+                    className="flex items-center justify-center w-full px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors text-sm"
+                  >
+                    <Trophy className="w-4 h-4 mr-2" />
+                    Submit Score
+                  </button>
                   <button
                     onClick={() => handleViewLeaderboard(tournament.id)}
-                    className="flex items-center justify-center w-full px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors text-sm"
+                    className="flex items-center justify-center w-full px-3 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors text-sm"
                   >
                     <Eye className="w-4 h-4 mr-2" />
                     View Leaderboard
@@ -1308,6 +1321,20 @@ const Profile: React.FC = () => {
               </div>
             ))}
           </div>
+          ) : (
+            <div className="text-center py-8">
+              <Trophy className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-xl font-medium text-gray-900 mb-2">No Tournaments Yet</h3>
+              <p className="text-gray-600 mb-6">You haven't registered for any tournaments yet. Browse available tournaments to get started!</p>
+              <Link
+                to="/tournaments"
+                className="inline-flex items-center px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors"
+              >
+                <Award className="w-4 h-4 mr-2" />
+                Browse Tournaments
+              </Link>
+            </div>
+          )}
         </div>
       )}
 

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { HashRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
-import { Home, Users, Trophy, Settings, BarChart3, Plus, User, Menu, X, MapPin, Award } from 'lucide-react';
+import { Home, Users, Trophy, Medal, Settings, BarChart3, Plus, User, Menu, X, MapPin, Award } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Leaderboard from './components/Leaderboard';
 import Scoring from './components/Scoring';
+import TournamentScoring from './components/TournamentScoring';
 import Admin from './components/Admin';
 import TournamentManagement from './components/TournamentManagement';
 import Profile from './components/Profile';
@@ -44,8 +45,9 @@ function AppContent() {
   const { user, logout } = useAuth();
 
   const navigationItems = [
-    { to: "/", icon: Home, label: "Home" },
-    { to: "/leaderboard", icon: Trophy, label: "Leaderboard" },
+    ...(!user ? [{ to: "/", icon: Home, label: "Home" }] : []),
+    { to: "/leaderboard", icon: Medal, label: "Leaderboard" },
+    { to: "/tournaments", icon: Trophy, label: "Tournaments" },
     { to: "/simulator-courses", icon: MapPin, label: "Neighborhood Courses" },
     { to: "https://neighborhood-national.mn.co/", icon: Users, label: "Community", external: true },
     ...(user ? [{ to: "/profile", icon: User, label: "Profile" }] : []),
@@ -203,11 +205,12 @@ function AppContent() {
               <Route path="/leaderboard/tournament/:tournamentId" element={<Leaderboard />} />
               <Route path="/tournaments" element={<ProtectedRoute><AvailableTournaments /></ProtectedRoute>} />
               <Route path="/scoring" element={<Scoring />} />
+              <Route path="/tournament-scoring" element={<ProtectedRoute><TournamentScoring /></ProtectedRoute>} />
               <Route path="/simulator-courses" element={<SimulatorCourses />} />
               <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
               <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
               <Route path="/tournament-management" element={<AdminProtectedRoute><TournamentManagement /></AdminProtectedRoute>} />
-              <Route path="/user-tracking" element={<ProtectedRoute><UserTrackingPage /></ProtectedRoute>} />
+              <Route path="/user-tracking" element={<AdminProtectedRoute><UserTrackingPage /></AdminProtectedRoute>} />
               <Route path="/login" element={<Login />} />
               <Route path="/claim-account" element={<ClaimAccount />} />
               <Route path="/reset-password" element={<ResetPassword />} />

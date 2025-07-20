@@ -335,6 +335,9 @@ export const submitTournamentStrokeplayScore = (tournamentId: number, data: {
 export const getTournamentStrokeplayScores = (tournamentId: number) => 
   api.get(`/tournaments/${tournamentId}/strokeplay-scores`);
 
+export const getTournamentScores = (tournamentId: number) => 
+  api.get(`/tournaments/${tournamentId}/scores`);
+
 export const getScorecards = () => api.get<Scorecard[]>('/scorecards');
 export const getScorecard = (id: number) => api.get<Scorecard>(`/scorecards/${id}`);
 export const deleteScorecard = (id: number) => api.delete(`/scorecards/${id}`);
