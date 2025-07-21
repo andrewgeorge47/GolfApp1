@@ -234,6 +234,35 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
     }
   }, [selectedTournament]);
 
+  // On mount, check for hash and auto-select tournament
+  useEffect(() => {
+    if (tournaments.length > 0 && !selectedTournament) {
+      const hash = window.location.hash;
+      if (hash.startsWith('#/tournament-management')) {
+        const urlParams = new URLSearchParams(hash.split('?')[1] || '');
+        const tournamentId = urlParams.get('tournament');
+        if (tournamentId) {
+          const id = parseInt(tournamentId);
+          const found = tournaments.find(t => t.id === id);
+          if (found) setSelectedTournament(found);
+        }
+      }
+    }
+    // eslint-disable-next-line
+  }, [tournaments]);
+
+  // When a tournament is selected, update the hash
+  const handleSelectTournament = (tournament: any) => {
+    setSelectedTournament(tournament);
+    window.location.hash = `/tournament-management?tournament=${tournament.id}`;
+  };
+
+  // When returning to the list, clear the hash
+  const handleBackToList = () => {
+    setSelectedTournament(null);
+    window.location.hash = '/tournament-management';
+  };
+
   const handleUserRegistered = () => {
     // Refresh participants data
     if (selectedTournament) {
@@ -490,7 +519,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                         <div className="flex items-center justify-between mb-2">
                           <h5 
                             className="font-medium text-brand-black group-hover:text-brand-neon-green transition-colors cursor-pointer"
-                            onClick={() => setSelectedTournament(tournament)}
+                            onClick={() => handleSelectTournament(tournament)}
                           >
                             {tournament.name}
                           </h5>
@@ -528,14 +557,14 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                         </div>
                         <div 
                           className="text-sm text-neutral-600 mb-2 cursor-pointer"
-                          onClick={() => setSelectedTournament(tournament)}
+                          onClick={() => handleSelectTournament(tournament)}
                         >
                           {tournament.tournament_format || 'match_play'} • {tournament.type || 'tournament'}
                         </div>
                         {tournament.start_date && (
                           <div 
                             className="text-xs text-neutral-500 cursor-pointer"
-                            onClick={() => setSelectedTournament(tournament)}
+                            onClick={() => handleSelectTournament(tournament)}
                           >
                             {new Date(tournament.start_date).toLocaleDateString()}
                           </div>
@@ -561,7 +590,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center space-x-4">
                         <button
-                          onClick={() => setSelectedTournament(null)}
+                          onClick={handleBackToList}
                           className="flex items-center px-3 py-1 text-neutral-600 hover:text-neutral-800 transition-colors"
                         >
                           <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">

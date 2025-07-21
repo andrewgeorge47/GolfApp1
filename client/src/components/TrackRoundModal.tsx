@@ -79,7 +79,7 @@ const TrackRoundModal: React.FC<TrackRoundModalProps> = ({
   const fetchCourses = async () => {
     setLoading(true);
     try {
-      const response = await getSimulatorCourses('', 'all', 10000);
+      const response = await getSimulatorCourses(undefined, 'all', 10000);
       setCourses(response.data.courses || []);
     } catch (error) {
       console.error('Error fetching courses:', error);

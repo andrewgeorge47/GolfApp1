@@ -46,13 +46,35 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
   }, []);
 
   const handleRegisterUsers = async (userIds: number[]) => {
+    console.log('Attempting to register users:', userIds);
+    console.log('Tournament ID:', tournamentId);
+    console.log('Current participants:', tournamentParticipants);
+    
     try {
-      await Promise.all(
+      const results = await Promise.allSettled(
         userIds.map(userId => registerUserForTournament(tournamentId, userId))
       );
-      toast.success(`Successfully registered ${userIds.length} user(s)`);
+      
+      console.log('Registration results:', results);
+      
+      const successful = results.filter(result => result.status === 'fulfilled').length;
+      const failed = results.filter(result => result.status === 'rejected').length;
+      
+      if (successful > 0) {
+        toast.success(`Successfully registered ${successful} user(s)`);
+        onUserRegistered();
+      }
+      
+      if (failed > 0) {
+        const errorMessages = results
+          .filter(result => result.status === 'rejected')
+          .map(result => (result as PromiseRejectedResult).reason?.response?.data?.error || 'Unknown error')
+          .filter((msg, index, arr) => arr.indexOf(msg) === index); // Remove duplicates
+        
+        toast.error(`Failed to register ${failed} user(s): ${errorMessages.join(', ')}`);
+      }
+      
       setSelectedRegistrationUserIds([]);
-      onUserRegistered();
     } catch (error: any) {
       console.error('Error registering users:', error);
       const errorMessage = error.response?.data?.error || 'Failed to register users';

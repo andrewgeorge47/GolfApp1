@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Medal, Award, Crown, Eye, ChevronRight, Share2, Camera } from 'lucide-react';
-import { getTournamentStrokeplayScores, getSimulatorCourse } from '../services/api';
+import { Trophy, Medal, Award, Crown, Eye, ChevronRight, Share2, Camera, Users } from 'lucide-react';
+import { getTournamentStrokeplayScores, getSimulatorCourse, getTournamentParticipants } from '../services/api';
 import StrokeplayDetailedScorecard from './StrokeplayDetailedScorecard';
 
 interface TournamentScore {
@@ -33,6 +33,15 @@ interface PlayerScore {
   scorecard_photo_url?: string;
 }
 
+interface TournamentParticipant {
+  user_member_id: number;
+  first_name: string;
+  last_name: string;
+  email_address: string;
+  club: string;
+  role: string;
+}
+
 interface StrokeplayLeaderboardProps {
   tournamentId: number;
   tournamentFormat: string;
@@ -61,6 +70,7 @@ const StrokeplayLeaderboard: React.FC<StrokeplayLeaderboardProps> = ({
   tournamentSettings
 }) => {
   const [tournamentScores, setTournamentScores] = useState<TournamentScore[]>([]);
+  const [participants, setParticipants] = useState<TournamentParticipant[]>([]);
   const [loading, setLoading] = useState(false);
   const [playerScores, setPlayerScores] = useState<PlayerScore[]>([]);
   const [selectedPlayerScore, setSelectedPlayerScore] = useState<PlayerScore | null>(null);
@@ -79,6 +89,15 @@ const StrokeplayLeaderboard: React.FC<StrokeplayLeaderboardProps> = ({
     }
   };
 
+  const fetchParticipants = async () => {
+    try {
+      const response = await getTournamentParticipants(tournamentId);
+      setParticipants(response.data || []);
+    } catch (error) {
+      console.error('Error fetching tournament participants:', error);
+    }
+  };
+
   const fetchCourseData = async () => {
     if (!courseId) return;
     
@@ -92,26 +111,38 @@ const StrokeplayLeaderboard: React.FC<StrokeplayLeaderboardProps> = ({
     }
   };
 
+  // Get participants who haven't submitted scores
+  const getParticipantsWithoutScores = () => {
+    const submittedUserIds = new Set<number>();
+    
+    // Collect all user IDs from submitted scores
+    playerScores.forEach(score => {
+      submittedUserIds.add(score.player_id);
+    });
+    
+    // Return participants who haven't submitted scores
+    return participants.filter(participant => !submittedUserIds.has(participant.user_member_id));
+  };
+
   const calculatePlayerScores = () => {
     const playerScores: PlayerScore[] = [];
 
     // Simply process each score as it comes from the API
     tournamentScores.forEach((score, index) => {
       // Create player score data directly from API response
-      const playerScoreData: PlayerScore = {
+      const playerScore: PlayerScore = {
         player_id: score.user_id,
-        first_name: score.first_name || 'Unknown',
-        last_name: score.last_name || 'Player',
-        club: score.club || 'Unknown',
-        total_score: score.total_strokes || 0,
+        first_name: score.first_name,
+        last_name: score.last_name,
+        club: score.club,
+        total_score: score.total_strokes,
         submitted_at: score.created_at,
-        holes: score.scores?.hole_scores || [],
-        scorecard_photo_url: score.scores?.scorecard_photo_url
+        holes: score.scores
       };
-      
-      // Calculate score to par if we have hole data and tournament settings
-      if (score.scores?.hole_scores?.length > 0 && tournamentSettings?.holeConfiguration && courseData?.par_values) {
-        const holeConfig = tournamentSettings.holeConfiguration;
+
+      // Calculate score to par if course data is available
+      if (courseData?.par_values && score.scores) {
+        const holeConfig = tournamentSettings?.holeConfiguration || '18';
         let startHole = 1;
         let holeCount = 18;
         
@@ -130,40 +161,34 @@ const StrokeplayLeaderboard: React.FC<StrokeplayLeaderboardProps> = ({
         // Calculate total par for the holes being played
         const relevantParValues = courseData.par_values.slice(startHole - 1, startHole - 1 + holeCount);
         const totalPar = relevantParValues.reduce((sum: number, par: number) => sum + par, 0);
-        
-        playerScoreData.score_to_par = playerScoreData.total_score - totalPar;
+        playerScore.score_to_par = score.total_strokes - totalPar;
       }
-      
-      playerScores.push(playerScoreData);
+
+      playerScores.push(playerScore);
     });
 
-    // Sort by total score (lowest first for strokeplay)
-    const sortedScores = playerScores
-      .filter(player => player.total_score > 0) // Only show players with scores
-      .sort((a, b) => a.total_score - b.total_score);
-
-    setPlayerScores(sortedScores);
+    // Sort by total score (lowest first)
+    playerScores.sort((a, b) => a.total_score - b.total_score);
+    setPlayerScores(playerScores);
   };
 
   useEffect(() => {
     fetchData();
+    fetchParticipants();
   }, [tournamentId]);
 
   useEffect(() => {
     fetchCourseData();
   }, [courseId]);
 
-  // Add a refresh function that can be called externally
+  useEffect(() => {
+    calculatePlayerScores();
+  }, [tournamentScores, courseData, tournamentSettings]);
+
   const refreshLeaderboard = () => {
     fetchData();
+    fetchParticipants();
   };
-
-  // Single useEffect to handle score calculation
-  useEffect(() => {
-    if (tournamentScores.length > 0) {
-      calculatePlayerScores();
-    }
-  }, [tournamentScores, tournamentSettings, courseData]);
 
   const getPositionIcon = (position: number) => {
     switch (position) {
@@ -190,8 +215,7 @@ const StrokeplayLeaderboard: React.FC<StrokeplayLeaderboardProps> = ({
 
   const formatScoreToPar = (scoreToPar: number) => {
     if (scoreToPar === 0) return 'E';
-    if (scoreToPar > 0) return `+${scoreToPar}`;
-    return `${scoreToPar}`;
+    return scoreToPar > 0 ? `+${scoreToPar}` : `${scoreToPar}`;
   };
 
   const getScoreColor = (scoreToPar: number) => {
@@ -210,26 +234,12 @@ const StrokeplayLeaderboard: React.FC<StrokeplayLeaderboardProps> = ({
     setSelectedPlayerScore(null);
   };
 
+  const participantsWithoutScores = getParticipantsWithoutScores();
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-neon-green"></div>
-      </div>
-    );
-  }
-
-  if (playerScores.length === 0) {
-    return (
-      <div className="space-y-6">
-        <div className="text-center py-8">
-          <div className="w-16 h-16 mx-auto mb-4 bg-neutral-100 rounded-full flex items-center justify-center">
-            <Trophy className="w-8 h-8 text-neutral-400" />
-          </div>
-          <h3 className="text-lg font-medium text-neutral-900 mb-2">No scores submitted yet</h3>
-          <p className="text-neutral-600">
-            Players need to submit their scores to see the leaderboard.
-          </p>
-        </div>
       </div>
     );
   }
@@ -281,137 +291,235 @@ const StrokeplayLeaderboard: React.FC<StrokeplayLeaderboardProps> = ({
         )}
       </div>
 
-      {/* Leaderboard Table */}
-      <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
-        {/* Desktop Table */}
-        <div className="hidden lg:block overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-neutral-50">
-              <tr>
-                <th className="px-6 py-4 text-left font-medium text-neutral-600">Position</th>
-                <th className="px-6 py-4 text-left font-medium text-neutral-600">Player</th>
-                <th className="px-6 py-4 text-center font-medium text-neutral-600">Total Score</th>
-                <th className="px-6 py-4 text-center font-medium text-neutral-600">To Par</th>
-                <th className="px-6 py-4 text-center font-medium text-neutral-600">Submitted</th>
-                <th className="px-6 py-4 text-center font-medium text-neutral-600">Details</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-200">
-              {playerScores.map((player, index) => (
-                <tr key={player.player_id} className="hover:bg-neutral-50 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center space-x-2">
-                      {getPositionIcon(index + 1)}
-                      <span className="text-sm font-medium text-neutral-600">
-                        {index + 1}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-semibold text-brand-black">
-                        {player.first_name} {player.last_name}
-                      </span>
-                      {index === 0 && <Crown className="w-4 h-4 text-yellow-500" />}
-                    </div>
-                    <div className="text-sm text-neutral-600">{player.club}</div>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className="text-2xl font-bold text-brand-neon-green">
-                      {player.total_score}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    {player.score_to_par !== undefined && (
-                      <span className={`text-lg font-semibold ${getScoreColor(player.score_to_par)}`}>
-                        {formatScoreToPar(player.score_to_par)}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className="text-sm text-neutral-600">
-                      {formatDate(player.submitted_at)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <div className="flex items-center justify-center space-x-2">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handlePlayerClick(player);
-                        }}
-                        className="text-brand-neon-green hover:text-green-400 transition-colors"
-                        title="View detailed scorecard"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      {player.scorecard_photo_url && (
-                        <button 
-                          className="text-blue-500 hover:text-blue-600 transition-colors"
-                          title="View scorecard photo"
-                          onClick={() => window.open(player.scorecard_photo_url, '_blank')}
-                        >
-                          <Camera className="w-4 h-4" />
-                        </button>
-                      )}
-                      <ChevronRight className="w-4 h-4 text-neutral-400" />
-                    </div>
-                  </td>
+      {/* Submitted Scores Section */}
+      {playerScores.length > 0 && (
+        <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-neutral-200">
+            <h4 className="text-lg font-semibold text-neutral-900">Submitted Scores</h4>
+          </div>
+          
+          {/* Desktop Table */}
+          <div className="hidden lg:block overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-neutral-50">
+                <tr>
+                  <th className="px-6 py-4 text-left font-medium text-neutral-600">Position</th>
+                  <th className="px-6 py-4 text-left font-medium text-neutral-600">Player</th>
+                  <th className="px-6 py-4 text-center font-medium text-neutral-600">Total Score</th>
+                  <th className="px-6 py-4 text-center font-medium text-neutral-600">To Par</th>
+                  <th className="px-6 py-4 text-center font-medium text-neutral-600">Submitted</th>
+                  <th className="px-6 py-4 text-center font-medium text-neutral-600">Details</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Mobile Table */}
-        <div className="lg:hidden">
-          <table className="w-full">
-            <thead className="bg-neutral-50 border-b border-neutral-200">
-              <tr>
-                <th className="px-3 py-3 text-left text-xs font-semibold text-neutral-600">Pos</th>
-                <th className="px-3 py-3 text-left text-xs font-semibold text-neutral-600">Player</th>
-                <th className="px-3 py-3 text-center text-xs font-semibold text-neutral-600">Score</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-200">
-              {playerScores.map((player, index) => (
-                <tr key={player.player_id} className="hover:bg-neutral-50 transition-colors cursor-pointer" onClick={() => handlePlayerClick(player)}>
-                  <td className="px-3 py-3">
-                    <div className="flex items-center space-x-2">
-                      {getPositionIcon(index + 1)}
-                      <span className="text-sm font-medium text-neutral-600">
-                        {index + 1}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-3">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-semibold text-brand-black text-sm">
-                        {player.first_name} {player.last_name}
-                      </span>
-                      {index === 0 && <Crown className="w-3 h-3 text-yellow-500" />}
-                    </div>
-                    <div className="text-xs text-neutral-600">{player.club}</div>
-                  </td>
-                  <td className="px-3 py-3 text-center">
-                    <div className="flex items-center justify-center space-x-2">
-                      <span className="text-lg font-bold text-brand-neon-green">
+              </thead>
+              <tbody className="divide-y divide-neutral-200">
+                {playerScores.map((player, index) => (
+                  <tr key={player.player_id} className="hover:bg-neutral-50 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center space-x-2">
+                        {getPositionIcon(index + 1)}
+                        <span className="text-sm font-medium text-neutral-600">
+                          {index + 1}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-semibold text-brand-black">
+                          {player.first_name} {player.last_name}
+                        </span>
+                        {index === 0 && <Crown className="w-4 h-4 text-yellow-500" />}
+                      </div>
+                      <div className="text-sm text-neutral-600">{player.club}</div>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-2xl font-bold text-brand-neon-green">
                         {player.total_score}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
                       {player.score_to_par !== undefined && (
-                        <span className={`text-sm font-semibold ${getScoreColor(player.score_to_par)}`}>
-                          ({formatScoreToPar(player.score_to_par)})
+                        <span className={`text-lg font-semibold ${getScoreColor(player.score_to_par)}`}>
+                          {formatScoreToPar(player.score_to_par)}
                         </span>
                       )}
-                      <ChevronRight className="w-4 h-4 text-neutral-400" />
-                    </div>
-                  </td>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-sm text-neutral-600">
+                        {formatDate(player.submitted_at)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <div className="flex items-center justify-center space-x-2">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePlayerClick(player);
+                          }}
+                          className="text-brand-neon-green hover:text-green-400 transition-colors"
+                          title="View detailed scorecard"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        {player.scorecard_photo_url && (
+                          <button 
+                            className="text-blue-500 hover:text-blue-600 transition-colors"
+                            title="View scorecard photo"
+                            onClick={() => window.open(player.scorecard_photo_url, '_blank')}
+                          >
+                            <Camera className="w-4 h-4" />
+                          </button>
+                        )}
+                        <ChevronRight className="w-4 h-4 text-neutral-400" />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Table */}
+          <div className="lg:hidden">
+            <table className="w-full">
+              <thead className="bg-neutral-50 border-b border-neutral-200">
+                <tr>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-neutral-600">Pos</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-neutral-600">Player</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-neutral-600">Score</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-neutral-200">
+                {playerScores.map((player, index) => (
+                  <tr key={player.player_id} className="hover:bg-neutral-50 transition-colors cursor-pointer" onClick={() => handlePlayerClick(player)}>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center space-x-2">
+                        {getPositionIcon(index + 1)}
+                        <span className="text-sm font-medium text-neutral-600">
+                          {index + 1}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-semibold text-brand-black text-sm">
+                          {player.first_name} {player.last_name}
+                        </span>
+                        {index === 0 && <Crown className="w-3 h-3 text-yellow-500" />}
+                      </div>
+                      <div className="text-xs text-neutral-600">{player.club}</div>
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <div className="flex items-center justify-center space-x-2">
+                        <span className="text-lg font-bold text-brand-neon-green">
+                          {player.total_score}
+                        </span>
+                        {player.score_to_par !== undefined && (
+                          <span className={`text-sm font-semibold ${getScoreColor(player.score_to_par)}`}>
+                            ({formatScoreToPar(player.score_to_par)})
+                          </span>
+                        )}
+                        <ChevronRight className="w-4 h-4 text-neutral-400" />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* No Scores Submitted Message */}
+      {playerScores.length === 0 && (
+        <div className="bg-white rounded-xl border border-neutral-200 p-6">
+          <div className="text-center py-8">
+            <div className="w-16 h-16 mx-auto mb-4 bg-neutral-100 rounded-full flex items-center justify-center">
+              <Trophy className="w-8 h-8 text-neutral-400" />
+            </div>
+            <h3 className="text-lg font-medium text-neutral-900 mb-2">No scores submitted yet</h3>
+            <p className="text-neutral-600">
+              Players need to submit their scores to see the leaderboard.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Registered Participants Section */}
+      {participantsWithoutScores.length > 0 && (
+        <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-neutral-200">
+            <div className="flex items-center space-x-2">
+              <Users className="w-5 h-5 text-neutral-600" />
+              <h4 className="text-lg font-semibold text-neutral-900">Registered Participants</h4>
+              <span className="text-sm text-neutral-500">({participantsWithoutScores.length} waiting to submit scores)</span>
+            </div>
+          </div>
+          
+          {/* Desktop Table */}
+          <div className="hidden lg:block overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-neutral-50">
+                <tr>
+                  <th className="px-6 py-4 text-left font-medium text-neutral-600">Name</th>
+                  <th className="px-6 py-4 text-left font-medium text-neutral-600">Club</th>
+                  <th className="px-6 py-4 text-center font-medium text-neutral-600">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-200">
+                {participantsWithoutScores.map((participant) => (
+                  <tr key={participant.user_member_id} className="hover:bg-neutral-50 transition-colors">
+                    <td className="px-6 py-4">
+                      <span className="font-medium text-neutral-900">
+                        {participant.first_name} {participant.last_name}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-sm text-neutral-600">{participant.club}</span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                        Waiting to Submit
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Table */}
+          <div className="lg:hidden">
+            <table className="w-full">
+              <thead className="bg-neutral-50 border-b border-neutral-200">
+                <tr>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-neutral-600">Name</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-neutral-600">Club</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-neutral-600">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-200">
+                {participantsWithoutScores.map((participant) => (
+                  <tr key={participant.user_member_id} className="hover:bg-neutral-50 transition-colors">
+                    <td className="px-3 py-3">
+                      <span className="font-medium text-neutral-900 text-sm">
+                        {participant.first_name} {participant.last_name}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className="text-xs text-neutral-600">{participant.club}</span>
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                        Waiting
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Detailed Scorecard Modal */}
       {showDetailedScorecard && selectedPlayerScore && (

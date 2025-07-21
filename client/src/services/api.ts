@@ -82,6 +82,12 @@ export interface Tournament {
   firmness?: string;
   wind?: string;
   handicap_enabled?: boolean;
+  has_registration_form?: boolean;
+  registration_form_template?: string;
+  registration_form_data?: any;
+  payment_organizer?: 'jeff' | 'adam' | 'other';
+  payment_organizer_name?: string;
+  payment_venmo_url?: string;
   created_by?: number;
   created_at?: string;
   updated_at?: string;
@@ -522,6 +528,12 @@ export const createTournament = (data: {
   firmness?: string;
   wind?: string;
   handicap_enabled?: boolean;
+  has_registration_form?: boolean;
+  registration_form_template?: string;
+  registration_form_data?: any;
+  payment_organizer?: 'jeff' | 'adam' | 'other';
+  payment_organizer_name?: string;
+  payment_venmo_url?: string;
   created_by?: number;
 }) => api.post('/tournaments', data);
 
@@ -560,6 +572,12 @@ export const updateTournament = (id: number, data: {
   firmness?: string;
   wind?: string;
   handicap_enabled?: boolean;
+  has_registration_form?: boolean;
+  registration_form_template?: string;
+  registration_form_data?: any;
+  payment_organizer?: 'jeff' | 'adam' | 'other';
+  payment_organizer_name?: string;
+  payment_venmo_url?: string;
   created_by?: number;
 }) => api.put(`/tournaments/${id}`, data);
 export const deleteTournament = (id: number) => api.delete(`/tournaments/${id}`);
@@ -572,12 +590,28 @@ export const getTournamentFormationStats = (id: number) => api.get(`/tournaments
 // Tournament participants
 export const getTournamentParticipants = (tournamentId: number) => api.get(`/tournaments/${tournamentId}/participants`);
 export const registerUserForTournament = (tournamentId: number, userId: number) => api.post(`/tournaments/${tournamentId}/register`, { user_id: userId });
+export const registerUserForTournamentWithForm = (tournamentId: number, userId: number, formData: any) => 
+  api.post(`/tournaments/${tournamentId}/register-with-form`, { user_id: userId, form_data: formData });
 export const unregisterUserFromTournament = (tournamentId: number, userId: number) => api.delete(`/tournaments/${tournamentId}/unregister/${userId}`);
+export const getTournamentRegistrationResponses = (tournamentId: number) => api.get(`/tournaments/${tournamentId}/registration-responses`);
 
 // Tournament check-ins
 export const getTournamentCheckIns = (tournamentId: number) => api.get(`/tournaments/${tournamentId}/check-ins`);
 export const checkInUser = (tournamentId: number, userId: number, notes?: string) => api.post(`/tournaments/${tournamentId}/check-in`, { user_id: userId, notes });
 export const checkOutUser = (tournamentId: number, userId: number) => api.put(`/tournaments/${tournamentId}/check-out/${userId}`);
+
+// Payment functions
+export const submitPayment = (tournamentId: number, userId: number, paymentData: {
+  payment_method: 'venmo';
+  payment_amount: number;
+  payment_notes?: string;
+}) => api.post(`/tournaments/${tournamentId}/payment`, { user_id: userId, ...paymentData });
+
+export const getPaymentStatus = (tournamentId: number, userId: number) => 
+  api.get(`/tournaments/${tournamentId}/payment-status/${userId}`);
+
+export const getUserCheckInStatuses = (userId: number) => 
+  api.get(`/users/${userId}/check-in-statuses`);
 
 // Tournament statistics
 export const getTournamentStats = (tournamentId: number) => api.get(`/tournaments/${tournamentId}/stats`);

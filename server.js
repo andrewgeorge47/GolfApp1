@@ -973,6 +973,12 @@ app.post('/api/tournaments', async (req, res) => {
     firmness,
     wind,
     handicap_enabled,
+    has_registration_form,
+    registration_form_template,
+    registration_form_data,
+    payment_organizer,
+    payment_organizer_name,
+    payment_venmo_url,
     created_by
   } = req.body;
   
@@ -985,8 +991,10 @@ app.post('/api/tournaments', async (req, res) => {
         max_participants, min_participants, tournament_format, status,
         registration_open, entry_fee, location, course, course_id, rules, notes, type, 
         club_restriction, team_size, hole_configuration, tee, pins, putting_gimme, elevation,
-        stimp, mulligan, game_play, firmness, wind, handicap_enabled, created_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31) RETURNING *`,
+        stimp, mulligan, game_play, firmness, wind, handicap_enabled, has_registration_form,
+        registration_form_template, registration_form_data, payment_organizer, payment_organizer_name,
+        payment_venmo_url, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37) RETURNING *`,
       [
         name, description, start_date, end_date, registration_deadline,
         max_participants, min_participants || 2, tournament_format || 'match_play', 
@@ -995,7 +1003,9 @@ app.post('/api/tournaments', async (req, res) => {
         club_restriction || 'open', team_size, hole_configuration || '18', tee || 'Red',
         pins || 'Friday', putting_gimme || '8', elevation || 'Course', stimp || '11',
         mulligan || 'No', game_play || 'Force Realistic', firmness || 'Normal',
-        wind || 'None', handicap_enabled || false, created_by
+        wind || 'None', handicap_enabled || false, has_registration_form || false,
+        registration_form_template, registration_form_data, payment_organizer, payment_organizer_name,
+        payment_venmo_url, created_by
       ]
     );
     res.json(rows[0]);
@@ -1050,6 +1060,12 @@ app.put('/api/tournaments/:id', async (req, res) => {
     firmness,
     wind,
     handicap_enabled,
+    has_registration_form,
+    registration_form_template,
+    registration_form_data,
+    payment_organizer,
+    payment_organizer_name,
+    payment_venmo_url,
     created_by
   } = req.body;
   
@@ -1063,14 +1079,18 @@ app.put('/api/tournaments/:id', async (req, res) => {
         notes = $16, type = $17, club_restriction = $18, team_size = $19, hole_configuration = $20,
         tee = $21, pins = $22, putting_gimme = $23, elevation = $24, stimp = $25,
         mulligan = $26, game_play = $27, firmness = $28, wind = $29, handicap_enabled = $30,
-        created_by = $31, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $32 RETURNING *`,
+        has_registration_form = $31, registration_form_template = $32, registration_form_data = $33,
+        payment_organizer = $34, payment_organizer_name = $35, payment_venmo_url = $36,
+        created_by = $37, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $38 RETURNING *`,
       [
         name, description, start_date, end_date, registration_deadline,
         max_participants, min_participants, tournament_format, status,
         registration_open, entry_fee, location, course, course_id, rules, notes, type,
         club_restriction, team_size, hole_configuration, tee, pins, putting_gimme, elevation,
-        stimp, mulligan, game_play, firmness, wind, handicap_enabled, created_by, id
+        stimp, mulligan, game_play, firmness, wind, handicap_enabled, has_registration_form,
+        registration_form_template, registration_form_data, payment_organizer, payment_organizer_name,
+        payment_venmo_url, created_by, id
       ]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Tournament not found' });
@@ -1123,6 +1143,16 @@ app.post('/api/tournaments/:id/register', async (req, res) => {
   }
   
   try {
+    // Check if user exists
+    const userCheck = await pool.query(
+      'SELECT member_id FROM users WHERE member_id = $1',
+      [user_id]
+    );
+    
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
     // Get tournament details to check registration rules
     const tournamentResult = await pool.query(
       'SELECT * FROM tournaments WHERE id = $1',
@@ -1146,8 +1176,17 @@ app.post('/api/tournaments/:id/register', async (req, res) => {
     }
     
     // Check registration deadline
-    if (tournament.registration_deadline && new Date(tournament.registration_deadline) < new Date()) {
-      return res.status(400).json({ error: 'Registration deadline has passed' });
+    if (tournament.registration_deadline) {
+      const deadlineDate = new Date(tournament.registration_deadline);
+      const currentDate = new Date();
+      
+      // Compare dates at day level (ignore time)
+      const deadlineDay = new Date(deadlineDate.getFullYear(), deadlineDate.getMonth(), deadlineDate.getDate());
+      const currentDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
+      
+      if (currentDay > deadlineDay) {
+        return res.status(400).json({ error: 'Registration deadline has passed' });
+      }
     }
     
     // Check if user is already registered
@@ -1189,7 +1228,131 @@ app.post('/api/tournaments/:id/register', async (req, res) => {
     });
   } catch (err) {
     console.error('Error registering user for tournament:', err);
-    res.status(500).json({ error: 'Failed to register user for tournament' });
+    console.error('Error code:', err.code);
+    console.error('Error detail:', err.detail);
+    if (err.code === '23505') {
+      res.status(409).json({ error: 'User is already registered for this tournament' });
+    } else {
+      res.status(500).json({ error: 'Failed to register user for tournament' });
+    }
+  }
+});
+
+// Register user for tournament with form data
+app.post('/api/tournaments/:id/register-with-form', async (req, res) => {
+  const { id } = req.params;
+  const { user_id, form_data } = req.body;
+  
+  if (!user_id) {
+    return res.status(400).json({ error: 'User ID is required' });
+  }
+  
+  try {
+    // Check if user exists
+    const userCheck = await pool.query(
+      'SELECT member_id FROM users WHERE member_id = $1',
+      [user_id]
+    );
+    
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Get tournament details to check registration rules
+    const tournamentResult = await pool.query(
+      'SELECT * FROM tournaments WHERE id = $1',
+      [id]
+    );
+    
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    const tournament = tournamentResult.rows[0];
+    
+    // Check if tournament has registration form enabled
+    if (!tournament.has_registration_form) {
+      return res.status(400).json({ error: 'Tournament does not require registration form' });
+    }
+    
+    // Check if tournament is accepting registrations
+    if (tournament.status === 'completed' || tournament.status === 'cancelled') {
+      return res.status(400).json({ error: 'Tournament is not accepting registrations' });
+    }
+    
+    // Check if registration is open
+    if (tournament.registration_open === false) {
+      return res.status(400).json({ error: 'Registration is closed for this tournament' });
+    }
+    
+    // Check registration deadline
+    if (tournament.registration_deadline) {
+      const deadlineDate = new Date(tournament.registration_deadline);
+      const currentDate = new Date();
+      
+      // Compare dates at day level (ignore time)
+      const deadlineDay = new Date(deadlineDate.getFullYear(), deadlineDate.getMonth(), deadlineDate.getDate());
+      const currentDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
+      
+      if (currentDay > deadlineDay) {
+        return res.status(400).json({ error: 'Registration deadline has passed' });
+      }
+    }
+    
+    // Check if user is already registered
+    const existingCheck = await pool.query(
+      'SELECT * FROM participation WHERE tournament_id = $1 AND user_member_id = $2',
+      [id, user_id]
+    );
+    
+    if (existingCheck.rows.length > 0) {
+      return res.status(409).json({ error: 'User is already registered for this tournament' });
+    }
+    
+    // Check participant limits
+    if (tournament.max_participants) {
+      const participantCount = await pool.query(
+        'SELECT COUNT(*) as count FROM participation WHERE tournament_id = $1',
+        [id]
+      );
+      
+      if (parseInt(participantCount.rows[0].count) >= tournament.max_participants) {
+        return res.status(400).json({ error: 'Tournament has reached maximum participant limit' });
+      }
+    }
+    
+    // Register user for tournament
+    const { rows } = await pool.query(
+      'INSERT INTO participation (tournament_id, user_member_id) VALUES ($1, $2) RETURNING *',
+      [id, user_id]
+    );
+    
+    // Store registration form data
+    await pool.query(
+      'INSERT INTO registration_form_responses (tournament_id, user_member_id, form_data) VALUES ($1, $2, $3)',
+      [id, user_id, JSON.stringify(form_data)]
+    );
+    
+    // Get user details for response
+    const userResult = await pool.query(
+      'SELECT member_id, first_name, last_name, email_address, club, role FROM users WHERE member_id = $1',
+      [user_id]
+    );
+    
+    res.json({
+      ...rows[0],
+      user: userResult.rows[0],
+      form_data: form_data
+    });
+  } catch (err) {
+    console.error('Error registering user for tournament with form:', err);
+    console.error('Error code:', err.code);
+    console.error('Error detail:', err.detail);
+    if (err.code === '23505') {
+      res.status(409).json({ error: 'User is already registered for this tournament' });
+    } else {
+      res.status(500).json({ error: 'Failed to register user for tournament' });
+    }
   }
 });
 
@@ -1198,19 +1361,62 @@ app.delete('/api/tournaments/:id/unregister/:userId', async (req, res) => {
   const { id, userId } = req.params;
   
   try {
-    const { rows } = await pool.query(
-      'DELETE FROM participation WHERE tournament_id = $1 AND user_member_id = $2 RETURNING *',
-      [id, userId]
-    );
+    // Start a transaction to ensure both operations succeed or fail together
+    const client = await pool.connect();
     
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Registration not found' });
+    try {
+      await client.query('BEGIN');
+      
+      // Remove user from tournament participation
+      const participationResult = await client.query(
+        'DELETE FROM participation WHERE tournament_id = $1 AND user_member_id = $2 RETURNING *',
+        [id, userId]
+      );
+      
+      if (participationResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Registration not found' });
+      }
+      
+      // Also remove any registration form responses
+      await client.query(
+        'DELETE FROM registration_form_responses WHERE tournament_id = $1 AND user_member_id = $2',
+        [id, userId]
+      );
+      
+      await client.query('COMMIT');
+      
+      res.json({ success: true, message: 'User unregistered successfully and form data removed' });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
-    
-    res.json({ success: true, message: 'User unregistered successfully' });
   } catch (err) {
     console.error('Error unregistering user from tournament:', err);
     res.status(500).json({ error: 'Failed to unregister user from tournament' });
+  }
+});
+
+// Get registration form responses for a tournament
+app.get('/api/tournaments/:id/registration-responses', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const { rows } = await pool.query(
+      `SELECT rfr.*, u.first_name, u.last_name, u.email_address, u.club
+       FROM registration_form_responses rfr
+       JOIN users u ON rfr.user_member_id = u.member_id
+       WHERE rfr.tournament_id = $1
+       ORDER BY rfr.submitted_at DESC`,
+      [id]
+    );
+    
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching registration form responses:', err);
+    res.status(500).json({ error: 'Failed to fetch registration form responses' });
   }
 });
 
@@ -1280,14 +1486,33 @@ app.post('/api/tournaments/:id/check-in', async (req, res) => {
       [id, user_id]
     );
     
-    if (existingCheck.rows.length > 0) {
-      return res.status(409).json({ error: 'User is already checked in for this tournament' });
-    }
+    let result;
     
-    const { rows } = await pool.query(
-      'INSERT INTO check_ins (tournament_id, user_member_id, notes) VALUES ($1, $2, $3) RETURNING *',
-      [id, user_id, notes || null]
-    );
+    if (existingCheck.rows.length > 0) {
+      const existingRecord = existingCheck.rows[0];
+      
+      // If user is already checked in, return error
+      if (existingRecord.status === 'checked_in') {
+        return res.status(409).json({ error: 'User is already checked in for this tournament' });
+      }
+      
+      // If user was checked out, re-check them in
+      if (existingRecord.status === 'checked_out') {
+        result = await pool.query(
+          `UPDATE check_ins 
+           SET status = 'checked_in', check_out_time = NULL, notes = $1
+           WHERE tournament_id = $2 AND user_member_id = $3 
+           RETURNING *`,
+          [notes || existingRecord.notes, id, user_id]
+        );
+      }
+    } else {
+      // Create new check-in record
+      result = await pool.query(
+        'INSERT INTO check_ins (tournament_id, user_member_id, notes) VALUES ($1, $2, $3) RETURNING *',
+        [id, user_id, notes || null]
+      );
+    }
     
     // Get user details for response
     const userResult = await pool.query(
@@ -1296,7 +1521,7 @@ app.post('/api/tournaments/:id/check-in', async (req, res) => {
     );
     
     res.json({
-      ...rows[0],
+      ...result.rows[0],
       user: userResult.rows[0]
     });
   } catch (err) {
@@ -3259,7 +3484,13 @@ app.get('/api/tournaments/:id/formation-stats', async (req, res) => {
       formation: {
         can_start: participantCount >= (tournament.min_participants || 2),
         is_full: tournament.max_participants ? participantCount >= tournament.max_participants : false,
-        registration_deadline_passed: tournament.registration_deadline ? new Date(tournament.registration_deadline) < new Date() : false
+        registration_deadline_passed: tournament.registration_deadline ? (() => {
+          const deadlineDate = new Date(tournament.registration_deadline);
+          const currentDate = new Date();
+          const deadlineDay = new Date(deadlineDate.getFullYear(), deadlineDate.getMonth(), deadlineDate.getDate());
+          const currentDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
+          return currentDay > deadlineDay;
+        })() : false
       }
     };
     
@@ -3267,6 +3498,114 @@ app.get('/api/tournaments/:id/formation-stats', async (req, res) => {
   } catch (err) {
     console.error('Error fetching tournament formation stats:', err);
     res.status(500).json({ error: 'Failed to fetch tournament formation stats' });
+  }
+});
+
+// Submit payment for tournament
+app.post('/api/tournaments/:id/payment', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { user_id, payment_method, payment_amount, payment_notes } = req.body;
+  
+  if (!user_id || !payment_method || !payment_amount) {
+    return res.status(400).json({ error: 'Missing required payment information' });
+  }
+  
+  try {
+    // Check if user is registered for tournament
+    const participantCheck = await pool.query(
+      'SELECT * FROM participation WHERE tournament_id = $1 AND user_member_id = $2',
+      [id, user_id]
+    );
+    
+    if (participantCheck.rows.length === 0) {
+      return res.status(400).json({ error: 'User is not registered for this tournament' });
+    }
+    
+    // Check if payment already submitted
+    const paymentCheck = await pool.query(
+      'SELECT * FROM participation WHERE tournament_id = $1 AND user_member_id = $2 AND payment_submitted = true',
+      [id, user_id]
+    );
+    
+    if (paymentCheck.rows.length > 0) {
+      return res.status(400).json({ error: 'Payment already submitted for this tournament' });
+    }
+    
+    // Update participation record to mark payment as submitted
+    await pool.query(
+      `UPDATE participation SET 
+        payment_submitted = true,
+        payment_method = $1,
+        payment_amount = $2,
+        payment_notes = $3,
+        payment_submitted_at = CURRENT_TIMESTAMP
+       WHERE tournament_id = $4 AND user_member_id = $5`,
+      [payment_method, payment_amount, payment_notes, id, user_id]
+    );
+    
+    res.json({ 
+      success: true, 
+      message: 'Payment submitted successfully. Tournament admin will verify your payment.' 
+    });
+  } catch (err) {
+    console.error('Error submitting payment:', err);
+    res.status(500).json({ error: 'Failed to submit payment' });
+  }
+});
+
+// Get payment status for user
+app.get('/api/tournaments/:id/payment-status/:userId', authenticateToken, async (req, res) => {
+  const { id, userId } = req.params;
+  
+  try {
+    const { rows } = await pool.query(
+      `SELECT 
+        payment_submitted,
+        payment_method,
+        payment_amount,
+        payment_notes,
+        payment_submitted_at,
+        status
+       FROM participation 
+       WHERE tournament_id = $1 AND user_member_id = $2`,
+      [id, userId]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'User not found in tournament' });
+    }
+    
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching payment status:', err);
+    res.status(500).json({ error: 'Failed to fetch payment status' });
+  }
+});
+
+// Get all check-in statuses for a user across all tournaments
+app.get('/api/users/:userId/check-in-statuses', authenticateToken, async (req, res) => {
+  const { userId } = req.params;
+  
+  try {
+    const { rows } = await pool.query(
+      `SELECT 
+        p.tournament_id,
+        c.status as check_in_status,
+        c.check_in_time,
+        c.notes,
+        t.name as tournament_name,
+        t.entry_fee
+       FROM participation p
+       JOIN tournaments t ON p.tournament_id = t.id
+       LEFT JOIN check_ins c ON p.tournament_id = c.tournament_id AND p.user_member_id = c.user_member_id
+       WHERE p.user_member_id = $1`,
+      [userId]
+    );
+    
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching check-in statuses:', err);
+    res.status(500).json({ error: 'Failed to fetch check-in statuses' });
   }
 });
 
