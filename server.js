@@ -6266,7 +6266,35 @@ function getWeekStartDate(date = new Date()) {
   const d = new Date(date);
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
-  return new Date(d.setDate(diff)).toISOString().split('T')[0];
+  const weekStart = new Date(d.setDate(diff));
+  const result = weekStart.toISOString().split('T')[0];
+  console.log('getWeekStartDate input:', date.toISOString().split('T')[0], 'output:', result);
+  return result;
+}
+
+// Helper function to get all possible week start dates for a given date range
+async function getPossibleWeekStartDates(tournamentId, weekStartDate) {
+  try {
+    // Query the database to find all actual week_start_date values for this tournament
+    const result = await pool.query(
+      `SELECT DISTINCT week_start_date 
+       FROM weekly_scorecards 
+       WHERE tournament_id = $1 
+       ORDER BY week_start_date DESC`,
+      [tournamentId]
+    );
+    
+    const actualDates = result.rows.map(row => row.week_start_date);
+    const calculatedDate = getWeekStartDate();
+    
+    // Return the calculated date plus any actual dates from the database
+    const allDates = [calculatedDate, ...actualDates];
+    return [...new Set(allDates)]; // Remove duplicates
+  } catch (error) {
+    console.error('Error getting possible week start dates:', error);
+    // Fallback to just the calculated date
+    return [getWeekStartDate()];
+  }
 }
 
 // Helper function to calculate hole-level points
@@ -6398,16 +6426,22 @@ function calculateLiveMatchBonus(matchWinner, isLive, maxLiveMatches = 3) {
 // Helper function to calculate all matches for a week
 async function calculateWeeklyMatches(tournamentId, weekStartDate) {
   try {
+    console.log(`Calculating weekly matches for tournament ${tournamentId}, week ${weekStartDate}`);
+    
     // Get all scorecards for this tournament and week
+    const possibleDates = await getPossibleWeekStartDates(tournamentId, weekStartDate);
+    const datePlaceholders = possibleDates.map((_, i) => `$${i + 2}`).join(', ');
+    
     const scorecardsResult = await pool.query(
       `SELECT ws.*, u.first_name, u.last_name
        FROM weekly_scorecards ws
        JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.tournament_id = $1 AND ws.week_start_date = $2`,
-      [tournamentId, weekStartDate]
+       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${datePlaceholders})`,
+      [tournamentId, ...possibleDates]
     );
     
     const scorecards = scorecardsResult.rows;
+    console.log(`Found ${scorecards.length} scorecards for tournament ${tournamentId}, week ${weekStartDate}`);
     
     if (scorecards.length < 2) {
       console.log('Not enough scorecards to calculate matches (need at least 2 players)');
@@ -6510,12 +6544,15 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
 async function updateWeeklyLeaderboard(tournamentId, weekStartDate) {
   try {
     // Get all scorecards for this tournament and week
+    const possibleDates = await getPossibleWeekStartDates(tournamentId, weekStartDate);
+    const datePlaceholders = possibleDates.map((_, i) => `$${i + 2}`).join(', ');
+    
     const scorecardsResult = await pool.query(
       `SELECT ws.*, u.first_name, u.last_name, u.club
        FROM weekly_scorecards ws
        JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.tournament_id = $1 AND ws.week_start_date = $2`,
-      [tournamentId, weekStartDate]
+       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${datePlaceholders})`,
+      [tournamentId, ...possibleDates]
     );
     
     const scorecards = scorecardsResult.rows;
@@ -6664,6 +6701,11 @@ app.post('/api/test/weekly-scorecard', async (req, res) => {
 
 // API Endpoint: Submit 9-hole scorecard
 app.post('/api/tournaments/:id/weekly-scorecard', authenticateToken, async (req, res) => {
+  console.log('=== WEEKLY SCORECARD SUBMISSION ENDPOINT CALLED ===');
+  console.log('Tournament ID:', req.params.id);
+  console.log('User ID:', req.user?.member_id);
+  console.log('Request body:', req.body);
+  
   const { id } = req.params;
   const { hole_scores, is_live = false, group_id = null } = req.body;
   
@@ -6696,6 +6738,9 @@ app.post('/api/tournaments/:id/weekly-scorecard', authenticateToken, async (req,
     
     const totalScore = hole_scores.reduce((sum, score) => sum + score, 0);
     const weekStartDate = getWeekStartDate();
+    console.log('=== SCORECARD SUBMISSION ===');
+    console.log('Calculated week_start_date:', weekStartDate);
+    console.log('Current date:', new Date().toISOString().split('T')[0]);
     
     // Check if player already submitted for this week
     const existingScorecard = await pool.query(
@@ -6738,6 +6783,8 @@ app.post('/api/tournaments/:id/weekly-scorecard', authenticateToken, async (req,
       [req.user.member_id, id, weekStartDate, JSON.stringify(hole_scores), totalScore, is_live, group_id]
     );
     
+    console.log(`Inserted scorecard for user ${req.user.member_id}, tournament ${id}, week ${weekStartDate}`);
+    
     // Trigger match calculations for this week
     await calculateWeeklyMatches(id, weekStartDate);
     
@@ -6751,15 +6798,19 @@ app.post('/api/tournaments/:id/weekly-scorecard', authenticateToken, async (req,
 // API Endpoint: Get current player's weekly scorecard
 app.get('/api/tournaments/:id/weekly-scorecard/current', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { week_start_date } = req.query;
+  const { week_start_date, fallback_date } = req.query;
   
   try {
     const weekDate = week_start_date || getWeekStartDate();
     
-    const { rows } = await pool.query(
+    // Get all possible dates for this tournament
+    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
+    const datePlaceholders = possibleDates.map((_, i) => `$${i + 2}`).join(', ');
+    
+    let { rows } = await pool.query(
       `SELECT * FROM weekly_scorecards 
-       WHERE tournament_id = $1 AND week_start_date = $2 AND user_id = $3`,
-      [id, weekDate, req.user.member_id]
+       WHERE tournament_id = $1 AND week_start_date IN (${datePlaceholders}) AND user_id = $${possibleDates.length + 2}`,
+      [id, ...possibleDates, req.user.member_id]
     );
     
     if (rows.length > 0) {
@@ -6784,16 +6835,19 @@ app.get('/api/tournaments/:id/weekly-leaderboard', async (req, res) => {
     // First, ensure we have up-to-date leaderboard data
     await updateWeeklyLeaderboard(id, weekDate);
     
+    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
+    const datePlaceholders = possibleDates.map((_, i) => `$${i + 2}`).join(', ');
+    
     const { rows } = await pool.query(
       `SELECT wl.*, u.first_name, u.last_name, u.club, ws.hole_scores
        FROM weekly_leaderboards wl
        JOIN users u ON wl.user_id = u.member_id
        LEFT JOIN weekly_scorecards ws ON wl.user_id = ws.user_id 
          AND wl.tournament_id = ws.tournament_id 
-         AND wl.week_start_date = ws.week_start_date
+         AND ws.week_start_date IN (${datePlaceholders})
        WHERE wl.tournament_id = $1 AND wl.week_start_date = $2
        ORDER BY wl.total_score DESC, wl.total_hole_points DESC`,
-      [id, weekDate]
+      [id, ...possibleDates, weekDate]
     );
     
 

@@ -834,7 +834,12 @@ export const submitWeeklyScorecard = (tournamentId: number, data: {
   hole_scores: number[];
   is_live?: boolean;
   group_id?: string;
-}) => api.post<WeeklyScorecard>(`/tournaments/${tournamentId}/weekly-scorecard`, data);
+}) => {
+  console.log('=== API SERVICE CALL ===');
+  console.log('URL:', `/tournaments/${tournamentId}/weekly-scorecard`);
+  console.log('Data:', data);
+  return api.post<WeeklyScorecard>(`/tournaments/${tournamentId}/weekly-scorecard`, data);
+};
 
 export const getWeeklyLeaderboard = (tournamentId: number, weekStartDate?: string) => 
   api.get<WeeklyLeaderboardEntry[]>(`/tournaments/${tournamentId}/weekly-leaderboard?week_start_date=${weekStartDate || ''}`);

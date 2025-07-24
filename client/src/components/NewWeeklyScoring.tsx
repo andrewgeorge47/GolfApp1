@@ -99,15 +99,22 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
 
   // Calculate matchplay states when leaderboard or hole scores change
   useEffect(() => {
+    console.log('=== CALCULATING MATCHPLAY STATES ===');
+    console.log('Leaderboard length:', leaderboard.length);
+    console.log('Hole scores with submitted:', holeScores.filter(h => h.submitted).length);
+    console.log('Current user:', user?.user_id || user?.member_id);
+    
     if (leaderboard.length > 0 && holeScores.some(hole => hole.submitted)) {
       const newMatchplayStates: { [playerId: string]: { [holeNumber: number]: number } } = {};
       
       leaderboard.forEach(player => {
         if (player.user_id === user?.user_id || player.member_id === user?.member_id) {
+          console.log('Skipping current user:', player.user_id || player.member_id);
           return; // Skip current user
         }
         
         const playerId = player.user_id || player.member_id;
+        console.log('Calculating states for player:', playerId, player.first_name);
         newMatchplayStates[playerId] = {};
         
         // Calculate state for each round separately
@@ -123,24 +130,32 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
             const yourScore = holeScores[holeIndex]?.submitted ? holeScores[holeIndex].score : 0;
             const theirScore = player.hole_scores?.[holeIndex] || 0;
             
+            console.log(`Hole ${holeNumber}: Your score: ${yourScore}, Their score: ${theirScore}`);
+            
             if (yourScore > 0 && theirScore > 0) {
               // Calculate hole result
               let holeResult = 0;
               if (yourScore < theirScore) {
                 holeResult = 1; // You win
+                console.log(`Hole ${holeNumber}: You win (+1)`);
               } else if (yourScore > theirScore) {
                 holeResult = -1; // You lose
+                console.log(`Hole ${holeNumber}: You lose (-1)`);
+              } else {
+                console.log(`Hole ${holeNumber}: Tie (0)`);
               }
               // If tied, holeResult stays 0
               
               // Update state for this round
               currentState += holeResult;
               newMatchplayStates[playerId][holeNumber] = currentState;
+              console.log(`Hole ${holeNumber}: State after: ${currentState}`);
             }
           }
         }
       });
       
+      console.log('Final matchplay states:', newMatchplayStates);
       setMatchplayStates(newMatchplayStates);
     }
   }, [leaderboard, holeScores, user?.user_id, user?.member_id]);
@@ -208,7 +223,8 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
 
   const fetchCurrentPlayerScorecard = async () => {
     try {
-      const response = await fetch(`/api/tournaments/${tournamentId}/weekly-scorecard/current?week_start_date=${currentWeek}`, {
+      // Try both the calculated week start date and the actual date in the database
+      const response = await fetch(`/api/tournaments/${tournamentId}/weekly-scorecard/current?week_start_date=${currentWeek}&fallback_date=2025-07-21`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -392,13 +408,21 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
     setSubmitting(true);
 
     try {
-      const tempScores = holeScores.map((h, i) => i === holeIndex ? h.score : 0);
+      console.log('=== SUBMITTING HOLE SCORE ===');
+      console.log('Tournament ID:', tournamentId);
+      console.log('Hole Index:', holeIndex);
+      console.log('Hole Scores:', holeScores);
       
+      const tempScores = holeScores.map((h, i) => i === holeIndex ? h.score : 0);
+      console.log('Temp Scores:', tempScores);
+      
+      console.log('Calling submitWeeklyScorecard...');
       const response = await submitWeeklyScorecard(tournamentId, {
         hole_scores: tempScores,
         is_live: isLive,
         group_id: groupId || undefined
       });
+      console.log('API Response:', response);
 
       const newScores = [...holeScores];
       newScores[holeIndex] = { ...newScores[holeIndex], submitted: true };
