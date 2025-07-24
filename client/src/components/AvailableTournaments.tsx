@@ -150,6 +150,13 @@ const AvailableTournaments: React.FC = () => {
   const handleRegistrationFormSubmit = async () => {
     if (!selectedTournament || !user?.member_id) return;
 
+    // Validate required form fields
+    const validationErrors = validateRegistrationForm();
+    if (validationErrors.length > 0) {
+      toast.error(`Please complete all required fields: ${validationErrors.join(', ')}`);
+      return;
+    }
+
     setIsSubmittingRegistration(true);
     try {
       // Register user with form data
@@ -172,6 +179,54 @@ const AvailableTournaments: React.FC = () => {
     } finally {
       setIsSubmittingRegistration(false);
     }
+  };
+
+  // Validate registration form - check that all required questions are answered
+  const validateRegistrationForm = () => {
+    if (!selectedTournament?.registration_form_data?.questions) return [];
+
+    const errors: string[] = [];
+    
+    selectedTournament.registration_form_data.questions.forEach((question: any) => {
+      if (question.required) {
+        const answer = registrationFormData[question.id];
+        
+        if (question.type === 'radio') {
+          if (!answer || answer.trim() === '') {
+            errors.push(question.question);
+          }
+        } else if (question.type === 'checkbox') {
+          if (!answer || !Array.isArray(answer) || answer.length === 0) {
+            errors.push(question.question);
+          }
+        }
+      }
+    });
+    
+    return errors;
+  };
+
+  // Check if form is valid for enabling/disabling submit button
+  const isFormValid = () => {
+    return validateRegistrationForm().length === 0;
+  };
+
+  // Check if a specific question is answered (for styling)
+  const isQuestionAnswered = (questionId: string) => {
+    const answer = registrationFormData[questionId];
+    if (!answer) return false;
+    
+    // For radio buttons, check if there's a value
+    if (typeof answer === 'string') {
+      return answer.trim() !== '';
+    }
+    
+    // For checkboxes, check if there are selected options
+    if (Array.isArray(answer)) {
+      return answer.length > 0;
+    }
+    
+    return false;
   };
 
   const refreshCheckInStatuses = async () => {
@@ -614,42 +669,61 @@ const AvailableTournaments: React.FC = () => {
 
                 {/* Action Buttons Row */}
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleViewLeaderboard(tournament.id)}
-                    className="flex-1 flex items-center justify-center px-3 py-2 bg-gray-100 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
-                  >
-                    <Eye className="w-4 h-4 mr-1" />
-                    Leaderboard
-                  </button>
-                  
                   {isUserRegistered(tournament.id) ? (
                     <>
                       {tournament.entry_fee && tournament.entry_fee > 0 && !isPaymentSubmitted(tournament.id) ? (
-                        <button
-                          onClick={() => handlePaymentClick(tournament)}
-                          className="flex-1 flex items-center justify-center px-3 py-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
-                        >
-                          <DollarSign className="w-4 h-4 mr-1" />
-                          Pay ${tournament.entry_fee}
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleUnregister(tournament.id)}
+                            className="flex-1 flex items-center justify-center px-3 py-2 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors"
+                          >
+                            <UserPlus className="w-4 h-4 mr-1 rotate-45" />
+                            Unregister
+                          </button>
+                          <button
+                            onClick={() => handlePaymentClick(tournament)}
+                            className="flex-1 flex items-center justify-center px-3 py-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
+                          >
+                            <DollarSign className="w-4 h-4 mr-1" />
+                            Pay ${tournament.entry_fee}
+                          </button>
+                        </>
                       ) : (
-                        <button
-                          onClick={() => handleUnregister(tournament.id)}
-                          className="flex-1 flex items-center justify-center px-3 py-2 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors"
-                        >
-                          <UserPlus className="w-4 h-4 mr-1 rotate-45" />
-                          Unregister
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleViewLeaderboard(tournament.id)}
+                            className="flex-1 flex items-center justify-center px-3 py-2 bg-gray-100 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
+                          >
+                            <Eye className="w-4 h-4 mr-1" />
+                            Leaderboard
+                          </button>
+                          <button
+                            onClick={() => handleUnregister(tournament.id)}
+                            className="flex-1 flex items-center justify-center px-3 py-2 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors"
+                          >
+                            <UserPlus className="w-4 h-4 mr-1 rotate-45" />
+                            Unregister
+                          </button>
+                        </>
                       )}
                     </>
                   ) : (
-                    <button
-                      onClick={() => handleRegister(tournament.id)}
-                      className="flex-1 flex items-center justify-center px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors shadow-sm hover:shadow-md"
-                    >
-                      <UserPlus className="w-4 h-4 mr-1" />
-                      Register
-                    </button>
+                    <>
+                      <button
+                        onClick={() => handleViewLeaderboard(tournament.id)}
+                        className="flex-1 flex items-center justify-center px-3 py-2 bg-gray-100 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
+                      >
+                        <Eye className="w-4 h-4 mr-1" />
+                        Leaderboard
+                      </button>
+                      <button
+                        onClick={() => handleRegister(tournament.id)}
+                        className="flex-1 flex items-center justify-center px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors shadow-sm hover:shadow-md"
+                      >
+                        <UserPlus className="w-4 h-4 mr-1" />
+                        Register
+                      </button>
+                    </>
                   )}
                 </div>
 
@@ -695,12 +769,18 @@ const AvailableTournaments: React.FC = () => {
 
               {/* Registration Form */}
               {selectedTournament.registration_form_data && (
-                <div className="space-y-4">
+                <div className={`space-y-4 ${
+                  !isFormValid() ? 'border-l-4 border-red-400 pl-4' : ''
+                }`}>
                   <h4 className="font-semibold text-brand-black">Registration Form</h4>
                   
                   {selectedTournament.registration_form_data.questions?.map((question: any, index: number) => (
                     <div key={index} className="space-y-2">
-                      <label className="block text-sm font-medium text-neutral-700">
+                      <label className={`block text-sm font-medium ${
+                        question.required && !isQuestionAnswered(question.id) 
+                          ? 'text-red-600' 
+                          : 'text-neutral-700'
+                      }`}>
                         {question.question}
                         {question.required && <span className="text-red-500 ml-1">*</span>}
                       </label>
@@ -768,14 +848,20 @@ const AvailableTournaments: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleRegistrationFormSubmit}
-                  disabled={isSubmittingRegistration}
-                  className="px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center"
+                  disabled={isSubmittingRegistration || !isFormValid()}
+                  className={`px-6 py-3 rounded-lg font-medium transition-colors flex items-center ${
+                    isSubmittingRegistration || !isFormValid()
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-brand-neon-green text-brand-black hover:bg-green-400'
+                  }`}
                 >
                   {isSubmittingRegistration ? (
                     <>
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-black mr-2"></div>
                       Registering...
                     </>
+                  ) : !isFormValid() ? (
+                    'Complete Required Fields'
                   ) : (
                     'Complete Registration'
                   )}

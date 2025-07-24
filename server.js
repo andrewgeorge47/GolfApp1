@@ -49,6 +49,48 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Cleanup endpoint for testing data
+app.post('/api/cleanup-weekly-test-data', async (req, res) => {
+  try {
+    console.log('Starting cleanup of weekly test data for tournament 19...');
+    
+    // Delete old weekly leaderboard entries
+    const leaderboardResult = await pool.query(
+      'DELETE FROM weekly_leaderboards WHERE tournament_id = 19 AND week_start_date = $1',
+      ['2025-07-21']
+    );
+    console.log(`Deleted ${leaderboardResult.rowCount} weekly leaderboard entries`);
+    
+    // Delete old weekly matches
+    const matchesResult = await pool.query(
+      'DELETE FROM weekly_matches WHERE tournament_id = 19 AND week_start_date = $1',
+      ['2025-07-21']
+    );
+    console.log(`Deleted ${matchesResult.rowCount} weekly matches`);
+    
+    // Delete old weekly scorecards
+    const scorecardsResult = await pool.query(
+      'DELETE FROM weekly_scorecards WHERE tournament_id = 19 AND week_start_date = $1',
+      ['2025-07-21']
+    );
+    console.log(`Deleted ${scorecardsResult.rowCount} weekly scorecards`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Cleanup completed successfully!',
+      deleted: {
+        leaderboardEntries: leaderboardResult.rowCount,
+        matches: matchesResult.rowCount,
+        scorecards: scorecardsResult.rowCount
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error during cleanup:', error);
+    res.status(500).json({ error: 'Cleanup failed', details: error.message });
+  }
+});
+
 // Database setup endpoint
 app.post('/api/setup-database', async (req, res) => {
   try {
