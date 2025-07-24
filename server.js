@@ -6845,7 +6845,7 @@ app.get('/api/tournaments/:id/weekly-leaderboard', async (req, res) => {
        LEFT JOIN weekly_scorecards ws ON wl.user_id = ws.user_id 
          AND wl.tournament_id = ws.tournament_id 
          AND ws.week_start_date IN (${datePlaceholders})
-       WHERE wl.tournament_id = $1 AND wl.week_start_date = $2
+       WHERE wl.tournament_id = $1 AND wl.week_start_date = $${possibleDates.length + 2}
        ORDER BY wl.total_score DESC, wl.total_hole_points DESC`,
       [id, ...possibleDates, weekDate]
     );
