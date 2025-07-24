@@ -6267,7 +6267,11 @@ function getWeekStartDate(date = new Date()) {
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
   const weekStart = new Date(d.setDate(diff));
-  const result = weekStart.toISOString().split('T')[0];
+  // Ensure we get the correct date by using local time
+  const year = weekStart.getFullYear();
+  const month = String(weekStart.getMonth() + 1).padStart(2, '0');
+  const dayOfMonth = String(weekStart.getDate()).padStart(2, '0');
+  const result = year + '-' + month + '-' + dayOfMonth;
   console.log('getWeekStartDate input:', date.toISOString().split('T')[0], 'output:', result);
   return result;
 }

@@ -89,8 +89,16 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   const getWeekStartDate = (date = new Date()) => {
     const d = new Date(date);
     const day = d.getDay();
+    // Monday = 1, Sunday = 0
+    // If it's Sunday (0), we want the previous Monday (-6 days)
+    // If it's any other day, we want the current week's Monday
     const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    return new Date(d.setDate(diff)).toISOString().split('T')[0];
+    const weekStart = new Date(d.setDate(diff));
+    // Ensure we get the correct date by using local time
+    const year = weekStart.getFullYear();
+    const month = String(weekStart.getMonth() + 1).padStart(2, '0');
+    const dayOfMonth = String(weekStart.getDate()).padStart(2, '0');
+    return year + '-' + month + '-' + dayOfMonth;
   };
 
 
