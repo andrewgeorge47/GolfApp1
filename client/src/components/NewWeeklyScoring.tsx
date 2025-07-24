@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Save, Clock, Users, Trophy, Eye, EyeOff, ArrowRight, CheckCircle, ChevronLeft, ChevronRight, Target, TrendingUp } from 'lucide-react';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { submitWeeklyScorecard } from '../services/api';
+import { submitWeeklyScorecard, getWeeklyLeaderboard, getWeeklyMatches, getWeeklyScorecard, getWeeklyFieldStats, getCurrentWeeklyScorecard } from '../services/api';
 import { useAuth } from '../AuthContext';
 
 interface WeeklyScoringProps {
@@ -179,31 +179,15 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
     try {
       setLeaderboardLoading(true);
       
-      // Fetch leaderboard
-      const leaderboardResponse = await fetch(`/api/tournaments/${tournamentId}/weekly-leaderboard?week_start_date=${currentWeek}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
+      // Fetch leaderboard using API service
+      const leaderboardResponse = await getWeeklyLeaderboard(tournamentId, currentWeek);
+      console.log('Leaderboard data:', leaderboardResponse.data);
+      setLeaderboard(leaderboardResponse.data);
       
-      if (leaderboardResponse.ok) {
-        const leaderboardData = await leaderboardResponse.json();
-        console.log('Leaderboard data:', leaderboardData);
-        setLeaderboard(leaderboardData);
-      }
-      
-      // Fetch field stats separately
-      const fieldStatsResponse = await fetch(`/api/tournaments/${tournamentId}/weekly-field-stats?week_start_date=${currentWeek}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      if (fieldStatsResponse.ok) {
-        const fieldStatsData = await fieldStatsResponse.json();
-        console.log('Field stats data:', fieldStatsData);
-        setFieldStats(fieldStatsData);
-      }
+      // Fetch field stats using API service
+      const fieldStatsResponse = await getWeeklyFieldStats(tournamentId, currentWeek);
+      console.log('Field stats data:', fieldStatsResponse.data);
+      setFieldStats(fieldStatsResponse.data);
     } catch (error) {
       console.error('Error fetching leaderboard:', error);
     } finally {
@@ -232,22 +216,15 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   const fetchCurrentPlayerScorecard = async () => {
     try {
       // Try both the calculated week start date and the actual date in the database
-      const response = await fetch(`/api/tournaments/${tournamentId}/weekly-scorecard/current?week_start_date=${currentWeek}&fallback_date=2025-07-21`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        if (data) {
-          const existingScores = data.hole_scores;
-          const updatedHoleScores = holeScores.map((hole, index) => ({
-            ...hole,
-            score: existingScores[index] || 0,
-            submitted: existingScores[index] > 0
-          }));
-          setHoleScores(updatedHoleScores);
-        }
+      const response = await getCurrentWeeklyScorecard(tournamentId, currentWeek, '2025-07-21');
+      if (response.data) {
+        const existingScores = response.data.hole_scores;
+        const updatedHoleScores = holeScores.map((hole, index) => ({
+          ...hole,
+          score: existingScores[index] || 0,
+          submitted: existingScores[index] > 0
+        }));
+        setHoleScores(updatedHoleScores);
       }
     } catch (error) {
       console.error('Error fetching current player scorecard:', error);
@@ -264,32 +241,24 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       }
       console.log('Current user ID:', currentUserId);
 
-      // Fetch match data for current points display
-      const matchResponse = await fetch(`/api/tournaments/${tournamentId}/weekly-matches/${currentUserId}?week_start_date=${currentWeek}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      if (matchResponse.ok) {
-        const matchData = await matchResponse.json();
-        console.log('Match data response:', matchData);
+      // Fetch match data for current points display using API service
+      const matchResponse = await getWeeklyMatches(tournamentId, currentUserId, currentWeek);
+      console.log('Match data response:', matchResponse.data);
+      
+      if (matchResponse.data && matchResponse.data.length > 0) {
+        const match = matchResponse.data[0];
+        console.log('Found match:', match);
+        const isPlayer1 = match.player1_id === currentUserId;
         
-        if (matchData && matchData.length > 0) {
-          const match = matchData[0];
-          console.log('Found match:', match);
-          const isPlayer1 = match.player1_id === currentUserId;
-          
-          setCurrentPoints({
-            totalPoints: Number(isPlayer1 ? match.total_points_player1 : match.total_points_player2 || 0),
-            holePoints: Number(isPlayer1 ? match.hole_points_player1 : match.hole_points_player2 || 0),
-            roundPoints: Number(isPlayer1 ? 
-              (Number(match.round1_points_player1 || 0) + Number(match.round2_points_player1 || 0) + Number(match.round3_points_player1 || 0)) :
-              (Number(match.round1_points_player2 || 0) + Number(match.round2_points_player2 || 0) + Number(match.round3_points_player2 || 0))
-            ),
-            liveBonus: Number(isPlayer1 ? match.match_live_bonus_player1 : match.match_live_bonus_player2 || 0)
-          });
-        }
+        setCurrentPoints({
+          totalPoints: Number(isPlayer1 ? match.total_points_player1 : match.total_points_player2 || 0),
+          holePoints: Number(isPlayer1 ? match.hole_points_player1 : match.hole_points_player2 || 0),
+          roundPoints: Number(isPlayer1 ? 
+            (Number(match.round1_points_player1 || 0) + Number(match.round2_points_player1 || 0) + Number(match.round3_points_player1 || 0)) :
+            (Number(match.round1_points_player2 || 0) + Number(match.round2_points_player2 || 0) + Number(match.round3_points_player2 || 0))
+          ),
+          liveBonus: Number(isPlayer1 ? match.match_live_bonus_player1 : match.match_live_bonus_player2 || 0)
+        });
       }
 
       // Fetch hole points from backend API
