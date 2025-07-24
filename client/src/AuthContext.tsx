@@ -14,7 +14,10 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<any>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
+  const [token, setToken] = useState<string | null>(() => {
+    const storedToken = localStorage.getItem('token');
+    return storedToken;
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -23,14 +26,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         try {
           const res = await getCurrentUser(token);
           setUser(res.data.user);
-        } catch {
+        } catch (error) {
+          console.error('AuthContext: Token validation failed:', error);
           setUser(null);
           setToken(null);
           localStorage.removeItem('token');
         }
+      } else {
+        setUser(null);
       }
+      
       setLoading(false);
     };
+
     fetchUser();
   }, [token]);
 
@@ -41,6 +49,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setToken(res.data.token);
       localStorage.setItem('token', res.data.token);
       setUser(res.data.user);
+    } catch (error) {
+      console.error('AuthContext: Login failed:', error);
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -58,7 +69,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const res = await getCurrentUser(token);
         setUser(res.data.user);
       } catch (error) {
-        console.error('Error refreshing user data:', error);
+        console.error('AuthContext: Error refreshing user data:', error);
+        // Don't logout on refresh failure, just log the error
       }
     }
   };

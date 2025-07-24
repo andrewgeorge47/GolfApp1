@@ -19,18 +19,23 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
+    console.error('API Request Error:', error);
     return Promise.reject(error);
   }
 );
 
 // Add response interceptor to handle auth errors
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    return response;
+  },
   (error) => {
+    console.error('API Response Error:', error.response?.status, error.config?.url, error.message);
     if (error.response?.status === 401) {
       // Token expired or invalid, redirect to login
       localStorage.removeItem('token');
-      window.location.href = '/login';
+      // Use window.location for hash router compatibility
+      window.location.href = '#/login';
     }
     return Promise.reject(error);
   }
@@ -835,9 +840,6 @@ export const submitWeeklyScorecard = (tournamentId: number, data: {
   is_live?: boolean;
   group_id?: string;
 }) => {
-  console.log('=== API SERVICE CALL ===');
-  console.log('URL:', `/tournaments/${tournamentId}/weekly-scorecard`);
-  console.log('Data:', data);
   return api.post<WeeklyScorecard>(`/tournaments/${tournamentId}/weekly-scorecard`, data);
 };
 

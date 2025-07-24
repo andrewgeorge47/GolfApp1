@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HashRouter as Router, Routes, Route, Link, Navigate, useParams } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Link, Navigate, useParams, useLocation, useNavigate } from 'react-router-dom';
 import { Home, Users, Trophy, Medal, Settings, BarChart3, Plus, User, Menu, X, MapPin, Award, LogIn, Calendar, Target, TrendingUp } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Leaderboard from './components/Leaderboard';
@@ -18,6 +18,7 @@ import Login from './components/Login';
 import PasswordSetup from './components/PasswordSetup';
 import ClaimAccount from './components/ClaimAccount';
 import ResetPassword from './components/ResetPassword';
+
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
@@ -42,32 +43,117 @@ const NewWeeklyLeaderboardWrapper: React.FC = () => {
   );
 };
 
+// Wrapper for AvailableTournaments to handle query parameters
+const AvailableTournamentsWrapper: React.FC = () => {
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const tournamentId = searchParams.get('tournament');
+  
+  console.log('AvailableTournamentsWrapper: tournamentId from query params:', tournamentId);
+  
+  return <AvailableTournaments />;
+};
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="p-4 text-center">Loading...</div>;
-  return user ? <>{children}</> : <Navigate to="/login" />;
+  const location = useLocation();
+  const navigate = useNavigate();
+  
+  console.log('ProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'pathname=', location.pathname);
+  
+  useEffect(() => {
+    if (!loading && !user) {
+      console.log('ProtectedRoute: Redirecting to login from', location.pathname);
+      navigate('/login', { state: { from: location.pathname + location.search } });
+    }
+  }, [loading, user, navigate, location]);
+  
+  if (loading) {
+    console.log('ProtectedRoute: Showing loading state');
+    return <div className="p-4 text-center">Loading...</div>;
+  }
+  
+  if (!user) {
+    console.log('ProtectedRoute: No user, showing loading while redirecting');
+    return <div className="p-4 text-center">Redirecting to login...</div>;
+  }
+  
+  console.log('ProtectedRoute: Rendering protected content for', location.pathname);
+  return <>{children}</>;
 }
 
 function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="p-4 text-center">Loading...</div>;
-  if (!user) return <Navigate to="/login" />;
-  if (user.role?.toLowerCase() !== 'admin') {
-    return <Navigate to="/" />;
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  console.log('AdminProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'role=', user?.role, 'pathname=', location.pathname);
+  
+  useEffect(() => {
+    if (!loading) {
+      if (!user) {
+        console.log('AdminProtectedRoute: No user, redirecting to login');
+        navigate('/login');
+      } else if (user.role?.toLowerCase() !== 'admin') {
+        console.log('AdminProtectedRoute: User is not admin, redirecting to home');
+        navigate('/');
+      }
+    }
+  }, [loading, user, navigate]);
+  
+  if (loading) {
+    console.log('AdminProtectedRoute: Showing loading state');
+    return <div className="p-4 text-center">Loading...</div>;
   }
+  
+  if (!user) {
+    console.log('AdminProtectedRoute: No user, showing loading while redirecting');
+    return <div className="p-4 text-center">Redirecting to login...</div>;
+  }
+  
+  if (user.role?.toLowerCase() !== 'admin') {
+    console.log('AdminProtectedRoute: User is not admin, showing loading while redirecting');
+    return <div className="p-4 text-center">Redirecting...</div>;
+  }
+  
+  console.log('AdminProtectedRoute: Rendering admin content for', location.pathname);
   return <>{children}</>;
 }
 
 function HomeRoute() {
   const { user, loading } = useAuth();
-  if (loading) return <div className="p-4 text-center">Loading...</div>;
-  if (user) return <Navigate to="/profile" replace />;
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  console.log('HomeRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'pathname=', location.pathname);
+  
+  useEffect(() => {
+    if (!loading && user) {
+      console.log('HomeRoute: User is logged in, redirecting to profile');
+      navigate('/profile', { replace: true });
+    }
+  }, [loading, user, navigate]);
+  
+  if (loading) {
+    console.log('HomeRoute: Showing loading state');
+    return <div className="p-4 text-center">Loading...</div>;
+  }
+  
+  if (user) {
+    console.log('HomeRoute: User is logged in, showing loading while redirecting');
+    return <div className="p-4 text-center">Redirecting to profile...</div>;
+  }
+  
+  console.log('HomeRoute: Rendering dashboard for non-authenticated user');
   return <Dashboard />;
 }
 
-function AppContent() {
+function Navigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user, logout } = useAuth();
+  const location = useLocation();
+
+  console.log('Navigation: user=', user ? 'exists' : 'none', 'current pathname=', location.pathname);
 
   const navigationItems = [
     ...(!user ? [{ to: "/", icon: Home, label: "Home" }] : []),
@@ -79,187 +165,195 @@ function AppContent() {
   ];
 
   return (
-    <Router>
-        <div className="min-h-screen bg-gradient-to-br from-brand-dark-green to-brand-muted-green">
-          {/* Navigation */}
-          <nav className="bg-white/95 backdrop-blur-sm shadow-lg relative z-50">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="flex justify-between h-16">
-                {/* Logo */}
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <Link to="/" className="flex items-center">
-                      <img src={process.env.PUBLIC_URL + "/Logo_N_Dark.png"} alt="NN Logo" className="h-8 w-auto sm:h-10" />
-                    </Link>
-                  </div>
-                </div>
+    <nav className="bg-white/95 backdrop-blur-sm shadow-lg relative z-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between h-16">
+          {/* Logo */}
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <Link to="/" className="flex items-center">
+                <img src={process.env.PUBLIC_URL + "/Logo_N_Dark.png"} alt="NN Logo" className="h-8 w-auto sm:h-10" />
+              </Link>
+            </div>
+          </div>
 
-                {/* Desktop Navigation */}
-                <div className="hidden md:flex items-center space-x-4">
-                  {navigationItems.map((item) => (
-                    item.external ? (
-                      <a
-                        key={item.to}
-                        href={item.to}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
-                      >
-                        <item.icon className="w-5 h-5 mr-2" />
-                        {item.label}
-                      </a>
-                    ) : (
-                      <Link
-                        key={item.to}
-                        to={item.to}
-                        className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
-                      >
-                        <item.icon className="w-5 h-5 mr-2" />
-                        {item.label}
-                      </Link>
-                    )
-                  ))}
-                  
-                  {/* Auth Buttons */}
-                  <div className="ml-4 flex items-center space-x-2">
-                    {user ? (
-                      <>
-                        <button
-                          onClick={logout}
-                          className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
-                        >
-                          Logout
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <Link
-                          to="/login"
-                          className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
-                        >
-                          Login
-                        </Link>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Mobile menu button */}
-                <div className="md:hidden flex items-center">
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex items-center space-x-4">
+            {navigationItems.map((item) => (
+              item.external ? (
+                <a
+                  key={item.to}
+                  href={item.to}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
+                >
+                  <item.icon className="w-5 h-5 mr-2" />
+                  {item.label}
+                </a>
+              ) : (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
+                >
+                  <item.icon className="w-5 h-5 mr-2" />
+                  {item.label}
+                </Link>
+              )
+            ))}
+            
+            {/* Auth Buttons */}
+            <div className="ml-4 flex items-center space-x-2">
+              {user ? (
+                <>
                   <button
-                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                    className="inline-flex items-center justify-center p-3 rounded-md text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors focus:outline-none focus:ring-2 focus:ring-brand-neon-green focus:ring-offset-2"
-                    aria-expanded="false"
-                    aria-label="Toggle navigation menu"
+                    onClick={logout}
+                    className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
                   >
-                    <span className="sr-only">Open main menu</span>
-                    {mobileMenuOpen ? (
-                      <X className="block h-6 w-6" aria-hidden="true" />
-                    ) : (
-                      <Menu className="block h-6 w-6" aria-hidden="true" />
-                    )}
+                    Logout
                   </button>
-                </div>
-              </div>
+                </>
+              ) : (
+                <>
+                  <Link
+                    to="/login"
+                    className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
+                  >
+                    Login
+                  </Link>
+                </>
+              )}
             </div>
+          </div>
 
-            {/* Mobile Navigation Menu */}
-            <div className={`md:hidden ${mobileMenuOpen ? 'block' : 'hidden'}`}>
-              <div className="px-4 pt-2 pb-4 space-y-2 bg-white/95 backdrop-blur-sm border-t border-gray-200">
-                {navigationItems.map((item) => (
-                  item.external ? (
-                    <a
-                      key={item.to}
-                      href={item.to}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center px-4 py-3 rounded-lg text-base font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
-                      onClick={() => setMobileMenuOpen(false)}
-                    >
-                      <item.icon className="w-6 h-6 mr-3" />
-                      {item.label}
-                    </a>
-                  ) : (
-                    <Link
-                      key={item.to}
-                      to={item.to}
-                      className="flex items-center px-4 py-3 rounded-lg text-base font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
-                      onClick={() => setMobileMenuOpen(false)}
-                    >
-                      <item.icon className="w-6 h-6 mr-3" />
-                      {item.label}
-                    </Link>
-                  )
-                ))}
-                
-                {/* Mobile Auth Buttons */}
-                <div className="border-t border-gray-200 pt-3 mt-3">
-                  {user ? (
-                    <>
-                      <button
-                        onClick={() => {
-                          logout();
-                          setMobileMenuOpen(false);
-                        }}
-                        className="flex items-center w-full px-4 py-3 rounded-lg text-base font-medium text-red-600 hover:bg-red-50 transition-colors"
-                      >
-                        Logout
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <Link
-                        to="/login"
-                        className="flex items-center px-4 py-3 rounded-lg text-base font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
-                        onClick={() => setMobileMenuOpen(false)}
-                      >
-                        Login
-                      </Link>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          </nav>
-
-          {/* Main Content */}
-          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-            <Routes>
-              <Route path="/" element={<HomeRoute />} />
-              <Route path="/leaderboard" element={<Leaderboard />} />
-              <Route path="/leaderboard/tournament/:tournamentId" element={<Leaderboard />} />
-              <Route path="/tournaments" element={<ProtectedRoute><AvailableTournaments /></ProtectedRoute>} />
-              <Route path="/scoring" element={<Scoring />} />
-              <Route path="/tournament-scoring" element={<ProtectedRoute><TournamentScoring /></ProtectedRoute>} />
-              <Route path="/simulator-courses" element={<SimulatorCourses />} />
-              <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-              <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
-              <Route path="/tournament-management" element={<AdminProtectedRoute><TournamentManagement /></AdminProtectedRoute>} />
-              <Route path="/user-tracking" element={<AdminProtectedRoute><UserTrackingPage /></AdminProtectedRoute>} />
-              <Route path="/weekly-scoring/:tournamentId" element={
-                <ProtectedRoute>
-                  <NewWeeklyScoringWrapper />
-                </ProtectedRoute>
-              } />
-              <Route path="/weekly-leaderboard/:tournamentId" element={
-                <NewWeeklyLeaderboardWrapper />
-              } />
-              <Route path="/login" element={<Login />} />
-              <Route path="/claim-account" element={<ClaimAccount />} />
-              <Route path="/reset-password" element={<ResetPassword />} />
-              <Route path="/password-setup" element={<ProtectedRoute><PasswordSetup /></ProtectedRoute>} />
-            </Routes>
-          </main>
+          {/* Mobile menu button */}
+          <div className="md:hidden flex items-center">
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="inline-flex items-center justify-center p-3 rounded-md text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors focus:outline-none focus:ring-2 focus:ring-brand-neon-green focus:ring-offset-2"
+              aria-expanded="false"
+              aria-label="Toggle navigation menu"
+            >
+              <span className="sr-only">Open main menu</span>
+              {mobileMenuOpen ? (
+                <X className="block h-6 w-6" aria-hidden="true" />
+              ) : (
+                <Menu className="block h-6 w-6" aria-hidden="true" />
+              )}
+            </button>
+          </div>
         </div>
-      </Router>
-    );
+      </div>
+
+      {/* Mobile Navigation Menu */}
+      <div className={`md:hidden ${mobileMenuOpen ? 'block' : 'hidden'}`}>
+        <div className="px-4 pt-2 pb-4 space-y-2 bg-white/95 backdrop-blur-sm border-t border-gray-200">
+          {navigationItems.map((item) => (
+            item.external ? (
+              <a
+                key={item.to}
+                href={item.to}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center px-4 py-3 rounded-lg text-base font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <item.icon className="w-6 h-6 mr-3" />
+                {item.label}
+              </a>
+            ) : (
+              <Link
+                key={item.to}
+                to={item.to}
+                className="flex items-center px-4 py-3 rounded-lg text-base font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <item.icon className="w-6 h-6 mr-3" />
+                {item.label}
+              </Link>
+            )
+          ))}
+          
+          {/* Mobile Auth Buttons */}
+          <div className="border-t border-gray-200 pt-3 mt-3">
+            {user ? (
+              <>
+                <button
+                  onClick={() => {
+                    logout();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="flex items-center w-full px-4 py-3 rounded-lg text-base font-medium text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className="flex items-center px-4 py-3 rounded-lg text-base font-medium text-brand-black hover:bg-brand-neon-green hover:text-brand-black transition-colors"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Login
+                </Link>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+function AppContent() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-brand-dark-green to-brand-muted-green">
+
+      
+      {/* Navigation */}
+      <Navigation />
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+        <Routes>
+          <Route path="/" element={<HomeRoute />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
+          <Route path="/leaderboard/tournament/:tournamentId" element={<Leaderboard />} />
+          <Route path="/tournaments" element={<ProtectedRoute><AvailableTournamentsWrapper /></ProtectedRoute>} />
+          <Route path="/scoring" element={<Scoring />} />
+          <Route path="/tournament-scoring" element={<ProtectedRoute><TournamentScoring /></ProtectedRoute>} />
+          <Route path="/simulator-courses" element={<SimulatorCourses />} />
+          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+          <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
+          <Route path="/tournament-management" element={<AdminProtectedRoute><TournamentManagement /></AdminProtectedRoute>} />
+          <Route path="/user-tracking" element={<AdminProtectedRoute><UserTrackingPage /></AdminProtectedRoute>} />
+          <Route path="/weekly-scoring/:tournamentId" element={
+            <ProtectedRoute>
+              <NewWeeklyScoringWrapper />
+            </ProtectedRoute>
+          } />
+          <Route path="/weekly-leaderboard/:tournamentId" element={
+            <NewWeeklyLeaderboardWrapper />
+          } />
+          <Route path="/login" element={<Login />} />
+          <Route path="/claim-account" element={<ClaimAccount />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/password-setup" element={<ProtectedRoute><PasswordSetup /></ProtectedRoute>} />
+        </Routes>
+      </main>
+    </div>
+  );
 }
 
 function App() {
   return (
     <AuthProvider>
-      <AppContent />
-      <ToastContainer />
+      <Router>
+        <AppContent />
+        <ToastContainer />
+      </Router>
     </AuthProvider>
   );
 }

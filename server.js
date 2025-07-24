@@ -3711,8 +3711,7 @@ app.get('/api/tournaments/:id/payment-status/:userId', authenticateToken, async 
         payment_method,
         payment_amount,
         payment_notes,
-        payment_submitted_at,
-        status
+        payment_submitted_at
        FROM participation 
        WHERE tournament_id = $1 AND user_member_id = $2`,
       [id, userId]

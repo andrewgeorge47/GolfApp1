@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 
 const Login: React.FC = () => {
@@ -8,13 +8,16 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     try {
       await login(email, password);
-      navigate('/profile');
+      // Redirect to the intended destination or profile
+      const from = location.state?.from || '/profile';
+      navigate(from);
     } catch (err: any) {
       setError('Invalid email or password');
     }
