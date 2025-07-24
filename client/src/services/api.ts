@@ -768,4 +768,81 @@ export const getUserTrackingDetails = (params?: {
   club?: string;
 }) => api.get<UserTrackingDetails[]>('/admin/user-tracking-details', { params });
 
+// ============================================================================
+// NEW WEEKLY SCORING SYSTEM INTERFACES AND API FUNCTIONS
+// ============================================================================
+
+export interface WeeklyScorecard {
+  id: number;
+  user_id: number;
+  tournament_id: number;
+  week_start_date: string;
+  hole_scores: number[];
+  total_score: number;
+  is_live: boolean;
+  group_id?: string;
+  submitted_at: string;
+  created_at: string;
+}
+
+export interface WeeklyLeaderboardEntry {
+  user_id: number;
+  first_name: string;
+  last_name: string;
+  club: string;
+  total_hole_points: number | string;
+  total_round_points: number | string;
+  total_match_bonus: number | string;
+  total_score: number | string;
+  matches_played: number | string;
+  matches_won: number | string;
+  matches_tied: number | string;
+  matches_lost: number | string;
+  live_matches_played: number | string;
+}
+
+export interface WeeklyMatch {
+  id: number;
+  tournament_id: number;
+  week_start_date: string;
+  player1_id: number;
+  player2_id: number;
+  player1_first_name: string;
+  player1_last_name: string;
+  player2_first_name: string;
+  player2_last_name: string;
+  hole_points_player1: number | string;
+  hole_points_player2: number | string;
+  round1_points_player1: number | string;
+  round1_points_player2: number | string;
+  round2_points_player1: number | string;
+  round2_points_player2: number | string;
+  round3_points_player1: number | string;
+  round3_points_player2: number | string;
+  match_winner_id: number | null;
+  match_live_bonus_player1: number | string;
+  match_live_bonus_player2: number | string;
+  total_points_player1: number | string;
+  total_points_player2: number | string;
+  player1_scores: number[];
+  player2_scores: number[];
+  created_at: string;
+}
+
+// Weekly Scoring API Functions
+export const submitWeeklyScorecard = (tournamentId: number, data: {
+  hole_scores: number[];
+  is_live?: boolean;
+  group_id?: string;
+}) => api.post<WeeklyScorecard>(`/tournaments/${tournamentId}/weekly-scorecard`, data);
+
+export const getWeeklyLeaderboard = (tournamentId: number, weekStartDate?: string) => 
+  api.get<WeeklyLeaderboardEntry[]>(`/tournaments/${tournamentId}/weekly-leaderboard?week_start_date=${weekStartDate || ''}`);
+
+export const getWeeklyMatches = (tournamentId: number, userId: number, weekStartDate?: string) =>
+  api.get<WeeklyMatch[]>(`/tournaments/${tournamentId}/weekly-matches/${userId}?week_start_date=${weekStartDate || ''}`);
+
+export const getWeeklyScorecard = (tournamentId: number, userId: number, weekStartDate?: string) =>
+  api.get<WeeklyScorecard>(`/tournaments/${tournamentId}/weekly-scorecard/${userId}?week_start_date=${weekStartDate || ''}`);
+
 export default api; 

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { HashRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
-import { Home, Users, Trophy, Medal, Settings, BarChart3, Plus, User, Menu, X, MapPin, Award } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { HashRouter as Router, Routes, Route, Link, Navigate, useParams } from 'react-router-dom';
+import { Home, Users, Trophy, Medal, Settings, BarChart3, Plus, User, Menu, X, MapPin, Award, LogIn, Calendar, Target, TrendingUp } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Leaderboard from './components/Leaderboard';
 import Scoring from './components/Scoring';
@@ -11,11 +11,36 @@ import Profile from './components/Profile';
 import SimulatorCourses from './components/SimulatorCourses';
 import UserTrackingPage from './components/UserTrackingPage';
 import AvailableTournaments from './components/AvailableTournaments';
+import NewWeeklyScoring from './components/NewWeeklyScoring';
+import NewWeeklyLeaderboard from './components/NewWeeklyLeaderboard';
 import { AuthProvider, useAuth } from './AuthContext';
 import Login from './components/Login';
 import PasswordSetup from './components/PasswordSetup';
 import ClaimAccount from './components/ClaimAccount';
 import ResetPassword from './components/ResetPassword';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+
+// Wrapper components to handle URL parameters
+const NewWeeklyScoringWrapper: React.FC = () => {
+  const { tournamentId } = useParams();
+  return (
+    <NewWeeklyScoring 
+      tournamentId={parseInt(tournamentId || '1')} 
+      tournamentName="Weekly Tournament" 
+    />
+  );
+};
+
+const NewWeeklyLeaderboardWrapper: React.FC = () => {
+  const { tournamentId } = useParams();
+  return (
+    <NewWeeklyLeaderboard 
+      tournamentId={parseInt(tournamentId || '1')} 
+      tournamentName="Weekly Tournament" 
+    />
+  );
+};
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -211,6 +236,14 @@ function AppContent() {
               <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
               <Route path="/tournament-management" element={<AdminProtectedRoute><TournamentManagement /></AdminProtectedRoute>} />
               <Route path="/user-tracking" element={<AdminProtectedRoute><UserTrackingPage /></AdminProtectedRoute>} />
+              <Route path="/weekly-scoring/:tournamentId" element={
+                <ProtectedRoute>
+                  <NewWeeklyScoringWrapper />
+                </ProtectedRoute>
+              } />
+              <Route path="/weekly-leaderboard/:tournamentId" element={
+                <NewWeeklyLeaderboardWrapper />
+              } />
               <Route path="/login" element={<Login />} />
               <Route path="/claim-account" element={<ClaimAccount />} />
               <Route path="/reset-password" element={<ResetPassword />} />
@@ -226,6 +259,7 @@ function App() {
   return (
     <AuthProvider>
       <AppContent />
+      <ToastContainer />
     </AuthProvider>
   );
 }

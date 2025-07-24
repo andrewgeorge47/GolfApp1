@@ -1618,6 +1618,111 @@ app.get('/api/tournaments/:id/stats', async (req, res) => {
   }
 })();
 
+// Create new weekly scoring system tables
+(async () => {
+  try {
+    // Create weekly_scorecards table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS weekly_scorecards (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(member_id) ON DELETE CASCADE,
+        tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
+        week_start_date DATE NOT NULL,
+        hole_scores JSONB NOT NULL,
+        total_score INTEGER NOT NULL,
+        is_live BOOLEAN DEFAULT false,
+        group_id VARCHAR(50),
+        submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, tournament_id, week_start_date)
+      )
+    `);
+    console.log('Weekly scorecards table ready.');
+
+    // Create weekly_matches table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS weekly_matches (
+        id SERIAL PRIMARY KEY,
+        tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
+        week_start_date DATE NOT NULL,
+        player1_id INTEGER REFERENCES users(member_id) ON DELETE CASCADE,
+        player2_id INTEGER REFERENCES users(member_id) ON DELETE CASCADE,
+        player1_scorecard_id INTEGER REFERENCES weekly_scorecards(id) ON DELETE CASCADE,
+        player2_scorecard_id INTEGER REFERENCES weekly_scorecards(id) ON DELETE CASCADE,
+        
+        hole_points_player1 DECIMAL(5,2) DEFAULT 0,
+        hole_points_player2 DECIMAL(5,2) DEFAULT 0,
+        
+        round1_points_player1 DECIMAL(5,2) DEFAULT 0,
+        round1_points_player2 DECIMAL(5,2) DEFAULT 0,
+        round2_points_player1 DECIMAL(5,2) DEFAULT 0,
+        round2_points_player2 DECIMAL(5,2) DEFAULT 0,
+        round3_points_player1 DECIMAL(5,2) DEFAULT 0,
+        round3_points_player2 DECIMAL(5,2) DEFAULT 0,
+        
+        match_winner_id INTEGER REFERENCES users(member_id),
+        match_live_bonus_player1 DECIMAL(5,2) DEFAULT 0,
+        match_live_bonus_player2 DECIMAL(5,2) DEFAULT 0,
+        
+        total_points_player1 DECIMAL(5,2) DEFAULT 0,
+        total_points_player2 DECIMAL(5,2) DEFAULT 0,
+        
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(tournament_id, week_start_date, player1_id, player2_id)
+      )
+    `);
+    console.log('Weekly matches table ready.');
+
+    // Create weekly_leaderboards table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS weekly_leaderboards (
+        id SERIAL PRIMARY KEY,
+        tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
+        week_start_date DATE NOT NULL,
+        user_id INTEGER REFERENCES users(member_id) ON DELETE CASCADE,
+        
+        total_hole_points DECIMAL(5,2) DEFAULT 0,
+        total_round_points DECIMAL(5,2) DEFAULT 0,
+        total_match_bonus DECIMAL(5,2) DEFAULT 0,
+        total_score DECIMAL(5,2) DEFAULT 0,
+        
+        matches_played INTEGER DEFAULT 0,
+        matches_won INTEGER DEFAULT 0,
+        matches_tied INTEGER DEFAULT 0,
+        matches_lost INTEGER DEFAULT 0,
+        
+        live_matches_played INTEGER DEFAULT 0,
+        
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(tournament_id, week_start_date, user_id)
+      )
+    `);
+    console.log('Weekly leaderboards table ready.');
+
+    // Add scoring configuration to tournaments table
+    await pool.query(`
+      ALTER TABLE tournaments 
+      ADD COLUMN IF NOT EXISTS scoring_format VARCHAR(50) DEFAULT 'traditional',
+      ADD COLUMN IF NOT EXISTS live_match_bonus_enabled BOOLEAN DEFAULT true,
+      ADD COLUMN IF NOT EXISTS max_live_matches_per_week INTEGER DEFAULT 3
+    `);
+    console.log('Tournament scoring configuration columns added.');
+
+    // Create indexes for performance
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_weekly_scorecards_tournament_week ON weekly_scorecards(tournament_id, week_start_date);
+      CREATE INDEX IF NOT EXISTS idx_weekly_scorecards_user_week ON weekly_scorecards(user_id, week_start_date);
+      CREATE INDEX IF NOT EXISTS idx_weekly_matches_tournament_week ON weekly_matches(tournament_id, week_start_date);
+      CREATE INDEX IF NOT EXISTS idx_weekly_leaderboards_tournament_week ON weekly_leaderboards(tournament_id, week_start_date);
+    `);
+    console.log('Weekly scoring system indexes created.');
+
+  } catch (migrationErr) {
+    console.log('Weekly scoring system migration note:', migrationErr.message);
+  }
+})();
+
 // Get tournament matches
 app.get('/api/tournaments/:id/matches', async (req, res) => {
   const { id } = req.params;
@@ -6150,4 +6255,945 @@ app.get('/api/admin/user-tracking-details', authenticateToken, async (req, res) 
     console.error('Error fetching detailed user tracking data:', err);
     res.status(500).json({ error: 'Failed to fetch detailed user tracking data' });
   }
+});
+
+// ============================================================================
+// NEW WEEKLY SCORING SYSTEM API ENDPOINTS
+// ============================================================================
+
+// Helper function to get week start date (Monday)
+function getWeekStartDate(date = new Date()) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+  return new Date(d.setDate(diff)).toISOString().split('T')[0];
+}
+
+// Helper function to calculate hole-level points
+function calculateHolePoints(player1Scores, player2Scores) {
+  let player1HolePoints = 0;
+  let player2HolePoints = 0;
+  
+  for (let i = 0; i < 9; i++) {
+    const p1Score = player1Scores[i];
+    const p2Score = player2Scores[i];
+    
+    // Only compare holes where both players have actually played (score > 0)
+    if (p1Score > 0 && p2Score > 0) {
+    if (p1Score < p2Score) {
+      player1HolePoints += 0.5; // Hole win = 0.5 points
+    } else if (p2Score < p1Score) {
+      player2HolePoints += 0.5; // Hole win = 0.5 points
+    }
+    // Tie = 0 points for both
+    }
+  }
+  
+  return { player1HolePoints, player2HolePoints };
+}
+
+// Helper function to calculate round-level points
+function calculateRoundPoints(player1Scores, player2Scores) {
+  const rounds = [
+    { start: 0, end: 3, name: 'round1' }, // Holes 1-3
+    { start: 3, end: 6, name: 'round2' }, // Holes 4-6
+    { start: 6, end: 9, name: 'round3' }  // Holes 7-9
+  ];
+  
+  const roundPoints = {
+    round1: { player1: 0, player2: 0 },
+    round2: { player1: 0, player2: 0 },
+    round3: { player1: 0, player2: 0 }
+  };
+  
+  rounds.forEach(round => {
+    let player1Wins = 0;
+    let player2Wins = 0;
+    let holesPlayed = 0;
+    
+    for (let i = round.start; i < round.end; i++) {
+      // Only compare holes where both players have actually played (score > 0)
+      if (player1Scores[i] > 0 && player2Scores[i] > 0) {
+        holesPlayed++;
+      if (player1Scores[i] < player2Scores[i]) {
+        player1Wins++;
+      } else if (player2Scores[i] < player1Scores[i]) {
+        player2Wins++;
+        }
+      }
+    }
+    
+    // Round scoring: Win = 1, Tie = 0.5, Loss = 0
+    // Only calculate round points if at least 2 holes were played in this round
+    if (holesPlayed >= 2) {
+    if (player1Wins > player2Wins) {
+      roundPoints[round.name].player1 = 1;
+      roundPoints[round.name].player2 = 0;
+    } else if (player2Wins > player1Wins) {
+      roundPoints[round.name].player1 = 0;
+      roundPoints[round.name].player2 = 1;
+    } else {
+      roundPoints[round.name].player1 = 0.5;
+      roundPoints[round.name].player2 = 0.5;
+      }
+    } else {
+      // Not enough holes played in this round to determine winner
+      roundPoints[round.name].player1 = 0;
+      roundPoints[round.name].player2 = 0;
+    }
+  });
+  
+  return roundPoints;
+}
+
+// Helper function to determine match winner
+function determineMatchWinner(roundPoints) {
+  let player1RoundsWon = 0;
+  let player2RoundsWon = 0;
+  let roundsTied = 0;
+  let roundsPlayed = 0;
+  
+  Object.values(roundPoints).forEach(round => {
+    if (round.player1 > 0 || round.player2 > 0) {
+      roundsPlayed++;
+    if (round.player1 > round.player2) {
+      player1RoundsWon++;
+    } else if (round.player2 > round.player1) {
+      player2RoundsWon++;
+    } else {
+      roundsTied++;
+      }
+    }
+  });
+  
+  // Need at least 2 rounds played to determine a match winner
+  if (roundsPlayed < 2) {
+    return 'tie'; // Not enough rounds played yet
+  }
+  
+  // Match win conditions:
+  // - Win 2 or more rounds, OR
+  // - Win 1 round and tie the other 2
+  if (player1RoundsWon >= 2 || (player1RoundsWon === 1 && roundsTied === 2)) {
+    return 'player1';
+  } else if (player2RoundsWon >= 2 || (player2RoundsWon === 1 && roundsTied === 2)) {
+    return 'player2';
+  } else {
+    return 'tie';
+  }
+}
+
+// Helper function to calculate live match bonus
+function calculateLiveMatchBonus(matchWinner, isLive, maxLiveMatches = 3) {
+  if (!isLive) return 0;
+  
+  // Live match bonus: Win = 1, Tie = 0.5, Loss = 0
+  if (matchWinner === 'player1') return 1;
+  if (matchWinner === 'player2') return 0;
+  if (matchWinner === 'tie') return 0.5;
+  
+  return 0;
+}
+
+// Helper function to calculate all matches for a week
+async function calculateWeeklyMatches(tournamentId, weekStartDate) {
+  try {
+    // Get all scorecards for this tournament and week
+    const scorecardsResult = await pool.query(
+      `SELECT ws.*, u.first_name, u.last_name
+       FROM weekly_scorecards ws
+       JOIN users u ON ws.user_id = u.member_id
+       WHERE ws.tournament_id = $1 AND ws.week_start_date = $2`,
+      [tournamentId, weekStartDate]
+    );
+    
+    const scorecards = scorecardsResult.rows;
+    
+    if (scorecards.length < 2) {
+      console.log('Not enough scorecards to calculate matches (need at least 2 players)');
+      return;
+    }
+    
+    // Generate all possible player pairs
+    const matches = [];
+    for (let i = 0; i < scorecards.length; i++) {
+      for (let j = i + 1; j < scorecards.length; j++) {
+        const player1 = scorecards[i];
+        const player2 = scorecards[j];
+        
+        // Calculate match results
+        const player1Scores = player1.hole_scores;
+        const player2Scores = player2.hole_scores;
+        
+        // Calculate hole points
+        const { player1HolePoints, player2HolePoints } = calculateHolePoints(player1Scores, player2Scores);
+        
+        // Calculate round points
+        const roundPoints = calculateRoundPoints(player1Scores, player2Scores);
+        
+        // Determine match winner
+        const matchWinner = determineMatchWinner(roundPoints);
+        
+        // Calculate live match bonus
+        const isLive = player1.is_live && player2.is_live && player1.group_id === player2.group_id;
+        const liveBonus = calculateLiveMatchBonus(matchWinner, isLive);
+        
+        // Determine winner ID
+        let winnerId = null;
+        if (matchWinner === 'player1') winnerId = player1.user_id;
+        else if (matchWinner === 'player2') winnerId = player2.user_id;
+        
+        // Calculate total points
+        const player1TotalPoints = player1HolePoints + 
+          roundPoints.round1.player1 + roundPoints.round2.player1 + roundPoints.round3.player1 +
+          (matchWinner === 'player1' ? liveBonus : 0);
+        
+        const player2TotalPoints = player2HolePoints + 
+          roundPoints.round1.player2 + roundPoints.round2.player2 + roundPoints.round3.player2 +
+          (matchWinner === 'player2' ? liveBonus : 0);
+        
+        // Insert or update match
+        await pool.query(
+          `INSERT INTO weekly_matches 
+           (tournament_id, week_start_date, player1_id, player2_id, 
+            player1_scorecard_id, player2_scorecard_id,
+            hole_points_player1, hole_points_player2,
+            round1_points_player1, round1_points_player2,
+            round2_points_player1, round2_points_player2,
+            round3_points_player1, round3_points_player2,
+            match_winner_id, match_live_bonus_player1, match_live_bonus_player2,
+            total_points_player1, total_points_player2, player1_scores, player2_scores)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+           ON CONFLICT (tournament_id, week_start_date, player1_id, player2_id)
+           DO UPDATE SET
+             player1_scorecard_id = EXCLUDED.player1_scorecard_id,
+             player2_scorecard_id = EXCLUDED.player2_scorecard_id,
+             hole_points_player1 = EXCLUDED.hole_points_player1,
+             hole_points_player2 = EXCLUDED.hole_points_player2,
+             round1_points_player1 = EXCLUDED.round1_points_player1,
+             round1_points_player2 = EXCLUDED.round1_points_player2,
+             round2_points_player1 = EXCLUDED.round2_points_player1,
+             round2_points_player2 = EXCLUDED.round2_points_player2,
+             round3_points_player1 = EXCLUDED.round3_points_player1,
+             round3_points_player2 = EXCLUDED.round3_points_player2,
+             match_winner_id = EXCLUDED.match_winner_id,
+             match_live_bonus_player1 = EXCLUDED.match_live_bonus_player1,
+             match_live_bonus_player2 = EXCLUDED.match_live_bonus_player2,
+             total_points_player1 = EXCLUDED.total_points_player1,
+             total_points_player2 = EXCLUDED.total_points_player2,
+             player1_scores = EXCLUDED.player1_scores,
+             player2_scores = EXCLUDED.player2_scores`,
+          [tournamentId, weekStartDate, player1.user_id, player2.user_id,
+           player1.id, player2.id,
+           player1HolePoints, player2HolePoints,
+           roundPoints.round1.player1, roundPoints.round1.player2,
+           roundPoints.round2.player1, roundPoints.round2.player2,
+           roundPoints.round3.player1, roundPoints.round3.player2,
+           winnerId,
+           matchWinner === 'player1' ? liveBonus : 0,
+           matchWinner === 'player2' ? liveBonus : 0,
+           player1TotalPoints, player2TotalPoints,
+           JSON.stringify(player1Scores), JSON.stringify(player2Scores)]
+        );
+      }
+    }
+    
+    // Update leaderboard
+    await updateWeeklyLeaderboard(tournamentId, weekStartDate);
+    
+  } catch (err) {
+    console.error('Error calculating weekly matches:', err);
+  }
+}
+
+// Helper function to update weekly leaderboard
+async function updateWeeklyLeaderboard(tournamentId, weekStartDate) {
+  try {
+    // Get all scorecards for this tournament and week
+    const scorecardsResult = await pool.query(
+      `SELECT ws.*, u.first_name, u.last_name, u.club
+       FROM weekly_scorecards ws
+       JOIN users u ON ws.user_id = u.member_id
+       WHERE ws.tournament_id = $1 AND ws.week_start_date = $2`,
+      [tournamentId, weekStartDate]
+    );
+    
+    const scorecards = scorecardsResult.rows;
+    
+    // Get all matches for this tournament and week
+    const matchesResult = await pool.query(
+      `SELECT * FROM weekly_matches 
+       WHERE tournament_id = $1 AND week_start_date = $2`,
+      [tournamentId, weekStartDate]
+    );
+    
+    const matches = matchesResult.rows;
+    
+    // Get all players who participated (from both scorecards and matches)
+    const players = new Set();
+    scorecards.forEach(scorecard => {
+      players.add(scorecard.user_id);
+    });
+    matches.forEach(match => {
+      players.add(match.player1_id);
+      players.add(match.player2_id);
+    });
+    
+    // Calculate leaderboard for each player
+    for (const playerId of players) {
+      let totalHolePoints = 0;
+      let totalRoundPoints = 0;
+      let totalMatchBonus = 0;
+      let matchesPlayed = 0;
+      let matchesWon = 0;
+      let matchesTied = 0;
+      let matchesLost = 0;
+      let liveMatchesPlayed = 0;
+      
+      // Calculate points from matches
+      matches.forEach(match => {
+        if (match.player1_id === playerId) {
+          totalHolePoints += parseFloat(match.hole_points_player1);
+          totalRoundPoints += parseFloat(match.round1_points_player1) + 
+                            parseFloat(match.round2_points_player1) + 
+                            parseFloat(match.round3_points_player1);
+          totalMatchBonus += parseFloat(match.match_live_bonus_player1);
+          matchesPlayed++;
+          
+          if (match.match_winner_id === playerId) matchesWon++;
+          else if (match.match_winner_id === null) matchesTied++;
+          else matchesLost++;
+          
+          if (parseFloat(match.match_live_bonus_player1) > 0) liveMatchesPlayed++;
+        } else if (match.player2_id === playerId) {
+          totalHolePoints += parseFloat(match.hole_points_player2);
+          totalRoundPoints += parseFloat(match.round1_points_player2) + 
+                            parseFloat(match.round2_points_player2) + 
+                            parseFloat(match.round3_points_player2);
+          totalMatchBonus += parseFloat(match.match_live_bonus_player2);
+          matchesPlayed++;
+          
+          if (match.match_winner_id === playerId) matchesWon++;
+          else if (match.match_winner_id === null) matchesTied++;
+          else matchesLost++;
+          
+          if (parseFloat(match.match_live_bonus_player2) > 0) liveMatchesPlayed++;
+        }
+      });
+      
+      // If player has no matches but has submitted a scorecard, they still appear on leaderboard
+      // with 0 points until other players join
+      const totalScore = totalHolePoints + totalRoundPoints + totalMatchBonus;
+      
+      // Insert or update leaderboard entry
+      await pool.query(
+        `INSERT INTO weekly_leaderboards 
+         (tournament_id, week_start_date, user_id, total_hole_points, total_round_points, 
+          total_match_bonus, total_score, matches_played, matches_won, matches_tied, 
+          matches_lost, live_matches_played)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (tournament_id, week_start_date, user_id)
+         DO UPDATE SET
+           total_hole_points = EXCLUDED.total_hole_points,
+           total_round_points = EXCLUDED.total_round_points,
+           total_match_bonus = EXCLUDED.total_match_bonus,
+           total_score = EXCLUDED.total_score,
+           matches_played = EXCLUDED.matches_played,
+           matches_won = EXCLUDED.matches_won,
+           matches_tied = EXCLUDED.matches_tied,
+           matches_lost = EXCLUDED.matches_lost,
+           live_matches_played = EXCLUDED.live_matches_played,
+           updated_at = CURRENT_TIMESTAMP`,
+        [tournamentId, weekStartDate, playerId, totalHolePoints, totalRoundPoints,
+         totalMatchBonus, totalScore, matchesPlayed, matchesWon, matchesTied,
+         matchesLost, liveMatchesPlayed]
+      );
+    }
+  } catch (err) {
+    console.error('Error updating weekly leaderboard:', err);
+  }
+}
+
+// Test endpoint for weekly scoring (no authentication required)
+app.post('/api/test/weekly-scorecard', async (req, res) => {
+  const { tournament_id = 1, user_id = 1, hole_scores, is_live = false, group_id = null } = req.body;
+  
+  try {
+    // Validate hole scores (must be 9 holes)
+    if (!Array.isArray(hole_scores) || hole_scores.length !== 9) {
+      return res.status(400).json({ error: 'Must provide exactly 9 hole scores' });
+    }
+    
+    // Validate all scores are valid numbers
+    if (!hole_scores.every(score => typeof score === 'number' && score >= 1)) {
+      return res.status(400).json({ error: 'All hole scores must be valid numbers >= 1' });
+    }
+    
+    const totalScore = hole_scores.reduce((sum, score) => sum + score, 0);
+    const weekStartDate = getWeekStartDate();
+    
+    console.log('Attempting to insert scorecard:', {
+      user_id,
+      tournament_id,
+      weekStartDate,
+      hole_scores,
+      totalScore,
+      is_live,
+      group_id
+    });
+    
+    // Insert scorecard
+    const { rows } = await pool.query(
+      `INSERT INTO weekly_scorecards 
+       (user_id, tournament_id, week_start_date, hole_scores, total_score, is_live, group_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [user_id, tournament_id, weekStartDate, JSON.stringify(hole_scores), totalScore, is_live, group_id]
+    );
+    
+    console.log('Scorecard inserted successfully:', rows[0]);
+    
+    // Trigger match calculations for this week
+    await calculateWeeklyMatches(tournament_id, weekStartDate);
+    
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error submitting weekly scorecard:', err);
+    res.status(500).json({ error: 'Failed to submit scorecard', details: err.message });
+  }
+});
+
+// API Endpoint: Submit 9-hole scorecard
+app.post('/api/tournaments/:id/weekly-scorecard', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { hole_scores, is_live = false, group_id = null } = req.body;
+  
+  try {
+    // Validate tournament exists
+    const tournamentResult = await pool.query(
+      'SELECT * FROM tournaments WHERE id = $1',
+      [id]
+    );
+    
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    // Validate hole scores (must be 9 holes)
+    if (!Array.isArray(hole_scores) || hole_scores.length !== 9) {
+      return res.status(400).json({ error: 'Must provide exactly 9 hole scores' });
+    }
+    
+    // For real-time scoring, allow partial submissions (some holes can be 0)
+    // But validate that submitted scores are valid numbers >= 1
+    const submittedScores = hole_scores.filter(score => score > 0);
+    if (submittedScores.length === 0) {
+      return res.status(400).json({ error: 'Must provide at least one valid hole score' });
+    }
+    
+    if (!submittedScores.every(score => typeof score === 'number' && score >= 1)) {
+      return res.status(400).json({ error: 'All submitted hole scores must be valid numbers >= 1' });
+    }
+    
+    const totalScore = hole_scores.reduce((sum, score) => sum + score, 0);
+    const weekStartDate = getWeekStartDate();
+    
+    // Check if player already submitted for this week
+    const existingScorecard = await pool.query(
+      'SELECT * FROM weekly_scorecards WHERE user_id = $1 AND tournament_id = $2 AND week_start_date = $3',
+      [req.user.member_id, id, weekStartDate]
+    );
+    
+    if (existingScorecard.rows.length > 0) {
+      // For real-time scoring, allow updates to existing scorecard
+      const existing = existingScorecard.rows[0];
+      const existingScores = existing.hole_scores;
+      
+      // Merge new scores with existing scores (new scores take precedence)
+      const mergedScores = existingScores.map((existingScore, index) => 
+        hole_scores[index] > 0 ? hole_scores[index] : existingScore
+      );
+      
+      const newTotalScore = mergedScores.reduce((sum, score) => sum + score, 0);
+      
+      // Update existing scorecard
+      const { rows } = await pool.query(
+        `UPDATE weekly_scorecards 
+         SET hole_scores = $1, total_score = $2, is_live = $3, group_id = $4, updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $5 AND tournament_id = $6 AND week_start_date = $7 RETURNING *`,
+        [JSON.stringify(mergedScores), newTotalScore, is_live, group_id, req.user.member_id, id, weekStartDate]
+      );
+      
+      // Trigger match calculations for this week
+      await calculateWeeklyMatches(id, weekStartDate);
+      
+      res.json(rows[0]);
+      return;
+    }
+    
+    // Insert scorecard
+    const { rows } = await pool.query(
+      `INSERT INTO weekly_scorecards 
+       (user_id, tournament_id, week_start_date, hole_scores, total_score, is_live, group_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [req.user.member_id, id, weekStartDate, JSON.stringify(hole_scores), totalScore, is_live, group_id]
+    );
+    
+    // Trigger match calculations for this week
+    await calculateWeeklyMatches(id, weekStartDate);
+    
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error submitting weekly scorecard:', err);
+    res.status(500).json({ error: 'Failed to submit scorecard' });
+  }
+});
+
+// API Endpoint: Get current player's weekly scorecard
+app.get('/api/tournaments/:id/weekly-scorecard/current', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { week_start_date } = req.query;
+  
+  try {
+    const weekDate = week_start_date || getWeekStartDate();
+    
+    const { rows } = await pool.query(
+      `SELECT * FROM weekly_scorecards 
+       WHERE tournament_id = $1 AND week_start_date = $2 AND user_id = $3`,
+      [id, weekDate, req.user.member_id]
+    );
+    
+    if (rows.length > 0) {
+      res.json(rows[0]);
+    } else {
+      res.json(null);
+    }
+  } catch (err) {
+    console.error('Error fetching current player scorecard:', err);
+    res.status(500).json({ error: 'Failed to fetch scorecard' });
+  }
+});
+
+// API Endpoint: Get weekly leaderboard
+app.get('/api/tournaments/:id/weekly-leaderboard', async (req, res) => {
+  const { id } = req.params;
+  const { week_start_date } = req.query;
+  
+  try {
+    const weekDate = week_start_date || getWeekStartDate();
+    
+    // First, ensure we have up-to-date leaderboard data
+    await updateWeeklyLeaderboard(id, weekDate);
+    
+    const { rows } = await pool.query(
+      `SELECT wl.*, u.first_name, u.last_name, u.club, ws.hole_scores
+       FROM weekly_leaderboards wl
+       JOIN users u ON wl.user_id = u.member_id
+       LEFT JOIN weekly_scorecards ws ON wl.user_id = ws.user_id 
+         AND wl.tournament_id = ws.tournament_id 
+         AND wl.week_start_date = ws.week_start_date
+       WHERE wl.tournament_id = $1 AND wl.week_start_date = $2
+       ORDER BY wl.total_score DESC, wl.total_hole_points DESC`,
+      [id, weekDate]
+    );
+    
+
+    
+    // Handle hole_scores (already arrays from PostgreSQL JSONB)
+    const processedRows = rows.map(row => {
+      let holeScores = null;
+      if (row.hole_scores) {
+        if (Array.isArray(row.hole_scores)) {
+          // Already an array from PostgreSQL JSONB
+          holeScores = row.hole_scores;
+        } else if (typeof row.hole_scores === 'string') {
+          // String that needs parsing
+          try {
+            holeScores = JSON.parse(row.hole_scores);
+          } catch (e) {
+            console.log('Failed to parse hole_scores for user:', row.user_id, 'Error:', e);
+            holeScores = null;
+          }
+        }
+      }
+      return {
+        ...row,
+        hole_scores: holeScores
+      };
+    });
+    
+    res.json(processedRows);
+  } catch (err) {
+    console.error('Error fetching weekly leaderboard:', err);
+    res.status(500).json({ error: 'Failed to fetch leaderboard' });
+  }
+});
+
+// API Endpoint: Get player's weekly matches
+app.get('/api/tournaments/:id/weekly-matches/:userId', async (req, res) => {
+  const { id, userId } = req.params;
+  const { week_start_date } = req.query;
+  
+  try {
+    const weekDate = week_start_date || getWeekStartDate();
+    
+    // First, ensure we have up-to-date match data
+    await calculateWeeklyMatches(id, weekDate);
+    
+    const { rows } = await pool.query(
+      `SELECT wm.*, 
+              u1.first_name as player1_first_name, u1.last_name as player1_last_name,
+              u2.first_name as player2_first_name, u2.last_name as player2_last_name,
+              ws1.hole_scores as player1_scores, ws2.hole_scores as player2_scores
+       FROM weekly_matches wm
+       JOIN users u1 ON wm.player1_id = u1.member_id
+       JOIN users u2 ON wm.player2_id = u2.member_id
+       JOIN weekly_scorecards ws1 ON wm.player1_scorecard_id = ws1.id
+       JOIN weekly_scorecards ws2 ON wm.player2_scorecard_id = ws2.id
+       WHERE wm.tournament_id = $1 AND wm.week_start_date = $2 
+       AND (wm.player1_id = $3 OR wm.player2_id = $3)
+       ORDER BY wm.created_at`,
+      [id, weekDate, userId]
+    );
+    
+
+    
+    // Handle score arrays (already arrays from PostgreSQL JSONB)
+    const processedRows = rows.map(row => {
+      let player1Scores = null;
+      let player2Scores = null;
+      
+      if (row.player1_scores) {
+        if (Array.isArray(row.player1_scores)) {
+          player1Scores = row.player1_scores;
+        } else if (typeof row.player1_scores === 'string') {
+          try {
+            player1Scores = JSON.parse(row.player1_scores);
+          } catch (e) {
+            console.log('Failed to parse player1_scores for match:', row.id, 'Error:', e);
+          }
+        }
+      }
+      
+      if (row.player2_scores) {
+        if (Array.isArray(row.player2_scores)) {
+          player2Scores = row.player2_scores;
+        } else if (typeof row.player2_scores === 'string') {
+          try {
+            player2Scores = JSON.parse(row.player2_scores);
+          } catch (e) {
+            console.log('Failed to parse player2_scores for match:', row.id, 'Error:', e);
+          }
+        }
+      }
+      
+      return {
+        ...row,
+        player1_scores: player1Scores,
+        player2_scores: player2Scores
+      };
+    });
+    
+    res.json(processedRows);
+  } catch (err) {
+    console.error('Error fetching weekly matches:', err);
+    res.status(500).json({ error: 'Failed to fetch matches' });
+  }
+});
+
+// API Endpoint: Get player's total hole points across all matches
+app.get('/api/tournaments/:id/weekly-hole-points/:userId', async (req, res) => {
+  const { id, userId } = req.params;
+  const { week_start_date } = req.query;
+  
+  try {
+    const weekDate = week_start_date || getWeekStartDate();
+    
+    // First, ensure we have up-to-date match data
+    await calculateWeeklyMatches(id, weekDate);
+    
+    const { rows } = await pool.query(
+      `SELECT wm.*, 
+              ws1.hole_scores as player1_scores, ws2.hole_scores as player2_scores
+       FROM weekly_matches wm
+       JOIN weekly_scorecards ws1 ON wm.player1_scorecard_id = ws1.id
+       JOIN weekly_scorecards ws2 ON wm.player2_scorecard_id = ws2.id
+       WHERE wm.tournament_id = $1 AND wm.week_start_date = $2 
+       AND (wm.player1_id = $3 OR wm.player2_id = $3)`,
+      [id, weekDate, userId]
+    );
+    
+    // Calculate total hole points across all matches
+    const holePoints = {};
+    const roundPoints = {};
+    
+    for (let hole = 1; hole <= 9; hole++) {
+      let totalPoints = 0;
+      let wins = 0;
+      let losses = 0;
+      let ties = 0;
+      
+      rows.forEach(row => {
+        const isPlayer1 = row.player1_id === userId;
+        const playerScores = isPlayer1 ? row.player1_scores : row.player2_scores;
+        const opponentScores = isPlayer1 ? row.player2_scores : row.player1_scores;
+        
+        // Handle score arrays
+        let playerScore = 0;
+        let opponentScore = 0;
+        
+        if (playerScores) {
+          if (Array.isArray(playerScores)) {
+            playerScore = playerScores[hole - 1] || 0;
+          } else if (typeof playerScores === 'string') {
+            try {
+              const parsed = JSON.parse(playerScores);
+              playerScore = parsed[hole - 1] || 0;
+            } catch (e) {
+              console.log('Failed to parse player scores for hole calculation');
+            }
+          }
+        }
+        
+        if (opponentScores) {
+          if (Array.isArray(opponentScores)) {
+            opponentScore = opponentScores[hole - 1] || 0;
+          } else if (typeof opponentScores === 'string') {
+            try {
+              const parsed = JSON.parse(opponentScores);
+              opponentScore = parsed[hole - 1] || 0;
+            } catch (e) {
+              console.log('Failed to parse opponent scores for hole calculation');
+            }
+          }
+        }
+        
+        if (playerScore > 0 && opponentScore > 0) {
+          if (playerScore < opponentScore) {
+            totalPoints += 0.5; // Win
+            wins++;
+          } else if (playerScore > opponentScore) {
+            losses++;
+          } else {
+            ties++;
+          }
+        }
+      });
+      
+      // Determine result based on wins vs losses
+      let result = null;
+      if (wins > losses) {
+        result = 'W';
+      } else if (losses > wins) {
+        result = 'L';
+      } else {
+        result = 'T';
+      }
+      
+      holePoints[hole] = {
+        points: totalPoints,
+        result,
+        wins,
+        losses,
+        ties,
+        totalMatches: wins + losses + ties,
+        record: `${wins}-${ties}-${losses}`
+      };
+      
+      console.log(`Hole ${hole} record:`, holePoints[hole]);
+    }
+    
+    // Calculate round-level W-T-L records
+    for (let round = 1; round <= 3; round++) {
+      let roundWins = 0;
+      let roundLosses = 0;
+      let roundTies = 0;
+      
+      rows.forEach(row => {
+        const isPlayer1 = row.player1_id === userId;
+        const playerScores = isPlayer1 ? row.player1_scores : row.player2_scores;
+        const opponentScores = isPlayer1 ? row.player2_scores : row.player1_scores;
+        
+        if (playerScores && opponentScores) {
+          let playerScoresArray = [];
+          let opponentScoresArray = [];
+          
+          if (Array.isArray(playerScores)) {
+            playerScoresArray = playerScores;
+          } else if (typeof playerScores === 'string') {
+            try {
+              playerScoresArray = JSON.parse(playerScores);
+            } catch (e) {
+              console.log('Failed to parse player scores for round calculation');
+            }
+          }
+          
+          if (Array.isArray(opponentScores)) {
+            opponentScoresArray = opponentScores;
+          } else if (typeof opponentScores === 'string') {
+            try {
+              opponentScoresArray = JSON.parse(opponentScores);
+            } catch (e) {
+              console.log('Failed to parse opponent scores for round calculation');
+            }
+          }
+          
+          // Calculate round scores (sum of 3 holes)
+          const roundStartHole = (round - 1) * 3;
+          const playerRoundScore = playerScoresArray.slice(roundStartHole, roundStartHole + 3)
+            .filter(score => score > 0)
+            .reduce((sum, score) => sum + score, 0);
+          const opponentRoundScore = opponentScoresArray.slice(roundStartHole, roundStartHole + 3)
+            .filter(score => score > 0)
+            .reduce((sum, score) => sum + score, 0);
+          
+          if (playerRoundScore > 0 && opponentRoundScore > 0) {
+            if (playerRoundScore < opponentRoundScore) {
+              roundWins++;
+            } else if (playerRoundScore > opponentRoundScore) {
+              roundLosses++;
+            } else {
+              roundTies++;
+            }
+          }
+        }
+      });
+      
+      // Determine round result
+      let roundResult = null;
+      if (roundWins > roundLosses) {
+        roundResult = 'W';
+      } else if (roundLosses > roundWins) {
+        roundResult = 'L';
+      } else {
+        roundResult = 'T';
+      }
+      
+      roundPoints[round] = {
+        wins: roundWins,
+        losses: roundLosses,
+        ties: roundTies,
+        result: roundResult,
+        record: `${roundWins}-${roundTies}-${roundLosses}`
+      };
+      
+      console.log(`Round ${round} record:`, roundPoints[round]);
+    }
+    
+    console.log('Final hole points response:', holePoints);
+    console.log('Round points response:', roundPoints);
+    res.json({ holePoints, roundPoints });
+  } catch (err) {
+    console.error('Error calculating hole points:', err);
+    res.status(500).json({ error: 'Failed to calculate hole points' });
+  }
+});
+
+// API Endpoint: Get field statistics for a week
+app.get('/api/tournaments/:id/weekly-field-stats', async (req, res) => {
+  const { id } = req.params;
+  const { week_start_date } = req.query;
+  
+  try {
+    const weekDate = week_start_date || getWeekStartDate();
+    
+    // Get all scorecards with hole scores
+    const { rows } = await pool.query(
+      `SELECT ws.hole_scores, ws.user_id
+       FROM weekly_scorecards ws
+       WHERE ws.tournament_id = $1 AND ws.week_start_date = $2`,
+      [id, weekDate]
+    );
+    
+          // Calculate field statistics for each hole
+      const fieldStats = [];
+      for (let hole = 1; hole <= 9; hole++) {
+        const holeScores = rows
+          .filter(row => {
+            if (!row.hole_scores) return false;
+            let scores = null;
+            if (Array.isArray(row.hole_scores)) {
+              scores = row.hole_scores;
+            } else if (typeof row.hole_scores === 'string') {
+              try {
+                scores = JSON.parse(row.hole_scores);
+              } catch (e) {
+                console.log('Failed to parse hole_scores for field stats, hole:', hole, 'Error:', e);
+                return false;
+              }
+            }
+            return Array.isArray(scores) && scores[hole - 1] > 0;
+          })
+          .map(row => {
+            let scores = null;
+            if (Array.isArray(row.hole_scores)) {
+              scores = row.hole_scores;
+            } else if (typeof row.hole_scores === 'string') {
+              try {
+                scores = JSON.parse(row.hole_scores);
+              } catch (e) {
+                console.log('Failed to parse hole_scores for field stats mapping, hole:', hole, 'Error:', e);
+                return null;
+              }
+            }
+            return scores ? scores[hole - 1] : null;
+          })
+          .filter(score => score !== null);
+      
+      if (holeScores.length > 0) {
+        const average = holeScores.reduce((a, b) => a + b, 0) / holeScores.length;
+        const best = Math.min(...holeScores);
+        fieldStats.push({
+          hole,
+          averageScore: Math.round(average * 10) / 10,
+          totalPlayers: holeScores.length,
+          bestScore: best
+        });
+      } else {
+        fieldStats.push({
+          hole,
+          averageScore: 0,
+          totalPlayers: 0,
+          bestScore: 0
+        });
+      }
+    }
+    
+    res.json(fieldStats);
+  } catch (err) {
+    console.error('Error fetching field statistics:', err);
+    res.status(500).json({ error: 'Failed to fetch field statistics' });
+  }
+});
+
+// API Endpoint: Get player's scorecard for a week
+app.get('/api/tournaments/:id/weekly-scorecard/:userId', async (req, res) => {
+  const { id, userId } = req.params;
+  const { week_start_date } = req.query;
+  
+  try {
+    const weekDate = week_start_date || getWeekStartDate();
+    
+    const { rows } = await pool.query(
+      `SELECT ws.*, u.first_name, u.last_name, u.club
+       FROM weekly_scorecards ws
+       JOIN users u ON ws.user_id = u.member_id
+       WHERE ws.tournament_id = $1 AND ws.week_start_date = $2 AND ws.user_id = $3`,
+      [id, weekDate, userId]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Scorecard not found' });
+    }
+    
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching weekly scorecard:', err);
+    res.status(500).json({ error: 'Failed to fetch scorecard' });
+  }
+});
+
+// Start the server
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
