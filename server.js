@@ -2744,7 +2744,7 @@ function generatePar3MatchPlayMatches(players) {
         [0, 1], [0, 2], [0, 3],
         [1, 2], [1, 4], [1, 5],
         [2, 4], [2, 5],
-        [3, 4], [3, 5],
+        [3, 4], [3, 5], [3, 0],
         [4, 5], [3, 0],
       ];
       schedule.forEach(([a, b]) => {
@@ -2781,21 +2781,25 @@ async function updateUserProfilesAfterMatch(player1Id, player2Id, winnerId, scor
     let profile1 = profile1Result.rows[0];
     let profile2 = profile2Result.rows[0];
 
-    // Create profiles if they don't exist
+    // Create profiles if they don't exist using ON CONFLICT DO NOTHING
     if (!profile1) {
       await pool.query(
-        'INSERT INTO user_profiles (user_id, total_matches, wins, losses, ties, total_points, win_rate) VALUES ($1, 0, 0, 0, 0, 0, 0)',
+        'INSERT INTO user_profiles (user_id, total_matches, wins, losses, ties, total_points, win_rate) VALUES ($1, 0, 0, 0, 0, 0, 0) ON CONFLICT (user_id) DO NOTHING',
         [player1Id]
       );
-      profile1 = { total_matches: 0, wins: 0, losses: 0, ties: 0, total_points: 0 };
+      // Re-fetch the profile in case it was created by another concurrent operation
+      const updatedProfile1Result = await pool.query('SELECT * FROM user_profiles WHERE user_id = $1', [player1Id]);
+      profile1 = updatedProfile1Result.rows[0] || { total_matches: 0, wins: 0, losses: 0, ties: 0, total_points: 0 };
     }
 
     if (!profile2) {
       await pool.query(
-        'INSERT INTO user_profiles (user_id, total_matches, wins, losses, ties, total_points, win_rate) VALUES ($1, 0, 0, 0, 0, 0, 0)',
+        'INSERT INTO user_profiles (user_id, total_matches, wins, losses, ties, total_points, win_rate) VALUES ($1, 0, 0, 0, 0, 0, 0) ON CONFLICT (user_id) DO NOTHING',
         [player2Id]
       );
-      profile2 = { total_matches: 0, wins: 0, losses: 0, ties: 0, total_points: 0 };
+      // Re-fetch the profile in case it was created by another concurrent operation
+      const updatedProfile2Result = await pool.query('SELECT * FROM user_profiles WHERE user_id = $1', [player2Id]);
+      profile2 = updatedProfile2Result.rows[0] || { total_matches: 0, wins: 0, losses: 0, ties: 0, total_points: 0 };
     }
 
     // Update player 1 stats
@@ -6305,13 +6309,13 @@ app.get('/api/admin/user-tracking-details', authenticateToken, async (req, res) 
 // Helper function to get week start date (Monday)
 function getWeekStartDate(date = new Date()) {
   const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
-  const weekStart = new Date(d.setDate(diff));
-  // Ensure we get the correct date by using local time
-  const year = weekStart.getFullYear();
-  const month = String(weekStart.getMonth() + 1).padStart(2, '0');
-  const dayOfMonth = String(weekStart.getDate()).padStart(2, '0');
+  const day = d.getUTCDay();
+  const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+  const weekStart = new Date(d.setUTCDate(diff));
+  // Use UTC to match client timezone
+  const year = weekStart.getUTCFullYear();
+  const month = String(weekStart.getUTCMonth() + 1).padStart(2, '0');
+  const dayOfMonth = String(weekStart.getUTCDate()).padStart(2, '0');
   const result = year + '-' + month + '-' + dayOfMonth;
   console.log('getWeekStartDate input:', date.toISOString().split('T')[0], 'output:', result);
   return result;
@@ -6468,10 +6472,56 @@ function calculateLiveMatchBonus(matchWinner, isLive, maxLiveMatches = 3) {
   return 0;
 }
 
-// Helper function to calculate all matches for a week
+// Cache for weekly match calculations to avoid unnecessary recalculations
+const weeklyMatchCache = new Map();
+
+// Helper function to get cache key
+function getWeeklyMatchCacheKey(tournamentId, weekStartDate) {
+  return `${tournamentId}-${weekStartDate}`;
+}
+
+// Helper function to get scorecard hash for change detection
+async function getScorecardHash(tournamentId, weekStartDate) {
+  const possibleDates = await getPossibleWeekStartDates(tournamentId, weekStartDate);
+  const datePlaceholders = possibleDates.map((_, i) => `$${i + 2}`).join(', ');
+  
+  const result = await pool.query(
+    `SELECT ws.id, ws.hole_scores, ws.updated_at
+     FROM weekly_scorecards ws
+     WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${datePlaceholders})
+     ORDER BY ws.id`,
+    [tournamentId, ...possibleDates]
+  );
+  
+  // Create a hash based on scorecard IDs, scores, and update timestamps
+  const hashData = result.rows.map(row => ({
+    id: row.id,
+    scores: row.hole_scores,
+    updated: row.updated_at
+  }));
+  
+  return JSON.stringify(hashData);
+}
+
+// Helper function to calculate all matches for a week with smart caching
 async function calculateWeeklyMatches(tournamentId, weekStartDate) {
   try {
     console.log(`Calculating weekly matches for tournament ${tournamentId}, week ${weekStartDate}`);
+    
+    // Check if we need to recalculate
+    const cacheKey = getWeeklyMatchCacheKey(tournamentId, weekStartDate);
+    const currentHash = await getScorecardHash(tournamentId, weekStartDate);
+    
+    // Check cache
+    if (weeklyMatchCache.has(cacheKey)) {
+      const cached = weeklyMatchCache.get(cacheKey);
+      if (cached.hash === currentHash) {
+        console.log(`Using cached weekly matches for tournament ${tournamentId}, week ${weekStartDate}`);
+        return; // No changes, use cached data
+      }
+    }
+    
+    console.log(`Recalculating weekly matches for tournament ${tournamentId}, week ${weekStartDate} (data changed)`);
     
     // Get all scorecards for this tournament and week
     const possibleDates = await getPossibleWeekStartDates(tournamentId, weekStartDate);
@@ -6490,6 +6540,8 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
     
     if (scorecards.length < 2) {
       console.log('Not enough scorecards to calculate matches (need at least 2 players)');
+      // Cache the empty result
+      weeklyMatchCache.set(cacheKey, { hash: currentHash, timestamp: Date.now() });
       return;
     }
     
@@ -6568,22 +6620,36 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
            roundPoints.round1.player1, roundPoints.round1.player2,
            roundPoints.round2.player1, roundPoints.round2.player2,
            roundPoints.round3.player1, roundPoints.round3.player2,
-           winnerId,
-           matchWinner === 'player1' ? liveBonus : 0,
-           matchWinner === 'player2' ? liveBonus : 0,
+           winnerId, liveBonus, liveBonus,
            player1TotalPoints, player2TotalPoints,
-           JSON.stringify(player1Scores), JSON.stringify(player2Scores)]
+           player1Scores, player2Scores]
         );
       }
     }
     
-    // Update leaderboard
-    await updateWeeklyLeaderboard(tournamentId, weekStartDate);
+    // Cache the result
+    weeklyMatchCache.set(cacheKey, { 
+      hash: currentHash, 
+      timestamp: Date.now(),
+      matchCount: matches.length 
+    });
+    
+    console.log(`Completed weekly match calculation for tournament ${tournamentId}, week ${weekStartDate}. Cached ${matches.length} matches.`);
     
   } catch (err) {
     console.error('Error calculating weekly matches:', err);
   }
 }
+
+// Clean up old cache entries (older than 1 hour)
+setInterval(() => {
+  const oneHourAgo = Date.now() - (60 * 60 * 1000);
+  for (const [key, value] of weeklyMatchCache.entries()) {
+    if (value.timestamp < oneHourAgo) {
+      weeklyMatchCache.delete(key);
+    }
+  }
+}, 30 * 60 * 1000); // Clean up every 30 minutes
 
 // Helper function to update weekly leaderboard
 async function updateWeeklyLeaderboard(tournamentId, weekStartDate) {

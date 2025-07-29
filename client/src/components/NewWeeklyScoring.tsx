@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Save, Clock, Users, Trophy, Eye, EyeOff, ArrowRight, CheckCircle, ChevronLeft, ChevronRight, Target, TrendingUp } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Save, Clock, Users, Trophy, Eye, EyeOff, ArrowRight, CheckCircle, ChevronLeft, ChevronRight, Target, TrendingUp, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { submitWeeklyScorecard, getWeeklyLeaderboard, getWeeklyMatches, getWeeklyScorecard, getWeeklyFieldStats, getCurrentWeeklyScorecard } from '../services/api';
 import { useAuth } from '../AuthContext';
+import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
 
 interface WeeklyScoringProps {
   tournamentId: number;
@@ -85,23 +86,29 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
     };
   }>({});
 
-  // Helper function to get week start date (Monday)
+  // Real-time update state with smart polling
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState(10000); // 10 seconds
+  const isInitialLoadRef = useRef(true);
+  const lastDataHashRef = useRef<string>('');
+  const lastLeaderboardRef = useRef<any[]>([]);
+  const lastFieldStatsRef = useRef<FieldStats[]>([]);
+
+  // Helper function to get week start date (Monday) - using UTC to match server
   const getWeekStartDate = (date = new Date()) => {
     const d = new Date(date);
-    const day = d.getDay();
+    const day = d.getUTCDay();
     // Monday = 1, Sunday = 0
     // If it's Sunday (0), we want the previous Monday (-6 days)
     // If it's any other day, we want the current week's Monday
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    const weekStart = new Date(d.setDate(diff));
-    // Ensure we get the correct date by using local time
-    const year = weekStart.getFullYear();
-    const month = String(weekStart.getMonth() + 1).padStart(2, '0');
-    const dayOfMonth = String(weekStart.getDate()).padStart(2, '0');
+    const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
+    const weekStart = new Date(d.setUTCDate(diff));
+    // Use UTC to match server timezone
+    const year = weekStart.getUTCFullYear();
+    const month = String(weekStart.getUTCMonth() + 1).padStart(2, '0');
+    const dayOfMonth = String(weekStart.getUTCDate()).padStart(2, '0');
     return year + '-' + month + '-' + dayOfMonth;
   };
-
-
 
   const currentWeek = getWeekStartDate();
 
@@ -174,31 +181,92 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
     return holeScores.slice(startHole - 1, startHole + 2);
   };
 
-  // Fetch leaderboard and field stats
-  const fetchLeaderboard = async () => {
-    try {
-      setLeaderboardLoading(true);
-      
-      // Fetch leaderboard using API service
-      const leaderboardResponse = await getWeeklyLeaderboard(tournamentId, currentWeek);
-      console.log('Leaderboard data:', leaderboardResponse.data);
-      setLeaderboard(leaderboardResponse.data);
-      
-      // Fetch field stats using API service
-      const fieldStatsResponse = await getWeeklyFieldStats(tournamentId, currentWeek);
-      console.log('Field stats data:', fieldStatsResponse.data);
-      setFieldStats(fieldStatsResponse.data);
-    } catch (error) {
-      console.error('Error fetching leaderboard:', error);
-    } finally {
-      setLeaderboardLoading(false);
-    }
-  };
+  // Helper function to create a hash of current data for change detection
+  const createDataHash = useCallback((leaderboard: any[], fieldStats: FieldStats[]) => {
+    const leaderboardHash = JSON.stringify(leaderboard.map(p => ({
+      user_id: p.user_id,
+      total_score: p.total_score,
+      hole_scores: p.hole_scores
+    })));
+    const fieldStatsHash = JSON.stringify(fieldStats.map(f => ({
+      hole: f.hole,
+      averageScore: f.averageScore,
+      totalPlayers: f.totalPlayers
+    })));
+    return `${leaderboardHash}-${fieldStatsHash}`;
+  }, []);
 
+  // Smart data update function that only fetches if data has changed
+  const performSmartDataUpdate = useCallback(async () => {
+    try {
+      // Fetch leaderboard and field stats
+      const [leaderboardResponse, fieldStatsResponse] = await Promise.all([
+        getWeeklyLeaderboard(tournamentId, currentWeek),
+        getWeeklyFieldStats(tournamentId, currentWeek)
+      ]);
+
+      const newLeaderboard = leaderboardResponse.data;
+      const newFieldStats = fieldStatsResponse.data;
+      
+      // Create hash of new data
+      const newDataHash = createDataHash(newLeaderboard, newFieldStats);
+      
+      // Only update if data has actually changed
+      if (newDataHash !== lastDataHashRef.current) {
+        console.log('Data changed, updating UI...');
+        setLeaderboard(newLeaderboard);
+        setFieldStats(newFieldStats);
+        lastDataHashRef.current = newDataHash;
+        lastLeaderboardRef.current = newLeaderboard;
+        lastFieldStatsRef.current = newFieldStats;
+      } else {
+        console.log('No data changes detected, skipping UI update');
+      }
+
+      // Always fetch current player data (this is lightweight)
+      await Promise.all([
+        fetchCurrentPlayerScorecard(),
+        fetchCurrentPoints()
+      ]);
+      
+    } catch (error) {
+      console.error('Error in smart data update:', error);
+      throw error;
+    }
+  }, [tournamentId, currentWeek, createDataHash]);
+
+  // Combined update function for real-time updates (now uses smart update)
+  const performDataUpdate = useCallback(async () => {
+    await performSmartDataUpdate();
+  }, [performSmartDataUpdate]);
+
+  // Real-time updates hook
+  const {
+    isConnected,
+    lastUpdateTime,
+    error,
+    manualRefresh,
+    connectionStatus
+  } = useRealTimeUpdates({
+    enabled: autoRefreshEnabled,
+    interval: refreshInterval,
+    onUpdate: performDataUpdate,
+    onError: (error) => {
+      console.error('Real-time update error:', error);
+      toast.error(`Connection error: ${error.message}`);
+    },
+    retryAttempts: 3,
+    retryDelay: 5000
+  });
+
+  // Initial data fetch
   useEffect(() => {
-    fetchLeaderboard();
-    fetchCurrentPlayerScorecard();
-    fetchCurrentPoints(); // Run in parallel with other fetches
+    const initializeData = async () => {
+      await performDataUpdate();
+      isInitialLoadRef.current = false;
+    };
+    
+    initializeData();
   }, [currentWeek]);
 
   // Update hole results when leaderboard and field stats are available
@@ -210,13 +278,10 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
     }
   }, [leaderboard, fieldStats]);
 
-  // Only recalculate when week changes or after score submission
-  // Removed leaderboard dependency to avoid unnecessary recalculations
-
   const fetchCurrentPlayerScorecard = async () => {
     try {
-      // Try both the calculated week start date and the actual date in the database
-      const response = await getCurrentWeeklyScorecard(tournamentId, currentWeek, '2025-07-21');
+      // Use only the calculated week start date
+      const response = await getCurrentWeeklyScorecard(tournamentId, currentWeek);
       if (response.data) {
         const existingScores = response.data.hole_scores;
         const updatedHoleScores = holeScores.map((hole, index) => ({
@@ -410,7 +475,8 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       
       toast.success(`Hole ${holeIndex + 1} submitted successfully!`);
       
-      await fetchLeaderboard();
+      // Immediately refresh leaderboard to show updated data
+      await performDataUpdate();
       
       if (onScoreSubmitted) {
         onScoreSubmitted();
@@ -452,7 +518,8 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       setGroupId('');
       setCurrentRound(1);
       
-      await fetchLeaderboard();
+      // Immediately refresh all data
+      await performDataUpdate();
       
       if (onScoreSubmitted) {
         onScoreSubmitted();
@@ -465,15 +532,41 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
     }
   };
 
+  // Manual refresh function
+  const handleManualRefresh = async () => {
+    toast.info('Refreshing live data...');
+    await manualRefresh();
+    toast.success('Data refreshed successfully!');
+  };
+
   const totalScore = holeScores.reduce((sum, hole) => sum + hole.score, 0);
   const completedHoles = holeScores.filter(hole => hole.score > 0).length;
   const submittedHoles = holeScores.filter(hole => hole.submitted).length;
   const currentRoundHoles = getCurrentRoundHoles();
   const currentRoundScore = currentRoundHoles.reduce((sum, hole) => sum + hole.score, 0);
 
+  // Get connection status icon and color
+  const getConnectionStatusDisplay = () => {
+    switch (connectionStatus) {
+      case 'connected':
+        return { icon: Wifi, color: 'text-green-600', bgColor: 'bg-green-100' };
+      case 'disconnected':
+        return { icon: WifiOff, color: 'text-gray-600', bgColor: 'bg-gray-100' };
+      case 'error':
+        return { icon: WifiOff, color: 'text-red-600', bgColor: 'bg-red-100' };
+      case 'retrying':
+        return { icon: RefreshCw, color: 'text-yellow-600', bgColor: 'bg-yellow-100' };
+      default:
+        return { icon: WifiOff, color: 'text-gray-600', bgColor: 'bg-gray-100' };
+    }
+  };
+
+  const connectionDisplay = getConnectionStatusDisplay();
+  const ConnectionIcon = connectionDisplay.icon;
+
   return (
     <div className="max-w-md mx-auto p-4 bg-gray-50 min-h-screen">
-      {/* Header with Round Selection */}
+      {/* Header with Round Selection and Live Status */}
       <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
         <div className="text-center mb-3">
           <h2 className="text-lg font-bold text-gray-900 mb-1">
@@ -482,6 +575,16 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
           <p className="text-sm text-gray-600">
             Round {currentRound} of 3
           </p>
+          {/* Live Status Indicator */}
+          <div className="flex items-center justify-center space-x-2 mt-2">
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+            <span className="text-xs text-gray-600">
+              {autoRefreshEnabled ? 'Live Updates' : 'Manual Mode'}
+            </span>
+            <span className="text-xs text-gray-400">
+              • Last update: {lastUpdateTime.toLocaleTimeString()}
+            </span>
+          </div>
         </div>
         
         <div className="flex items-center justify-between">
@@ -493,21 +596,21 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
             <ChevronLeft className="w-5 h-5" />
           </button>
           
-                        <div className="flex space-x-2">
-                {[1, 2, 3].map((round) => (
-                  <button
-                    key={round}
-                    onClick={() => setCurrentRound(round)}
-                    className={`w-12 h-12 rounded-full text-sm font-bold flex items-center justify-center ${
-                      currentRound === round
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-600'
-                    }`}
-                  >
-                    <span className="text-lg font-bold">{round}</span>
-                  </button>
-                ))}
-              </div>
+          <div className="flex space-x-2">
+            {[1, 2, 3].map((round) => (
+              <button
+                key={round}
+                onClick={() => setCurrentRound(round)}
+                className={`w-12 h-12 rounded-full text-sm font-bold flex items-center justify-center ${
+                  currentRound === round
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-600'
+                }`}
+              >
+                <span className="text-lg font-bold">{round}</span>
+              </button>
+            ))}
+          </div>
           
           <button
             onClick={() => setCurrentRound(Math.min(3, currentRound + 1))}
@@ -517,9 +620,58 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
             <ChevronRight className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Live Controls */}
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-200">
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+              className={`px-3 py-1 rounded-full text-xs font-medium ${
+                autoRefreshEnabled 
+                  ? 'bg-green-100 text-green-700' 
+                  : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              {autoRefreshEnabled ? 'Auto' : 'Manual'}
+            </button>
+            <select
+              value={refreshInterval / 1000}
+              onChange={(e) => setRefreshInterval(Number(e.target.value) * 1000)}
+              disabled={!autoRefreshEnabled}
+              className="text-xs border rounded px-2 py-1 disabled:opacity-50"
+            >
+              <option value={5}>5s</option>
+              <option value={10}>10s</option>
+              <option value={30}>30s</option>
+              <option value={60}>1m</option>
+            </select>
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            {/* Connection Status */}
+            <div className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs ${connectionDisplay.bgColor} ${connectionDisplay.color}`}>
+              <ConnectionIcon className="w-3 h-3" />
+              <span className="capitalize">{connectionStatus}</span>
+            </div>
+            
+            <button
+              onClick={handleManualRefresh}
+              disabled={leaderboardLoading}
+              className="flex items-center space-x-1 px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium hover:bg-blue-200 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3 h-3 ${leaderboardLoading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Error Display */}
+        {error && (
+          <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+            Connection error: {error.message}
+          </div>
+        )}
       </div>
-
-
 
       {/* Hole-by-Hole Grid */}
       <div className="bg-white rounded-lg p-4 mb-4 shadow-sm overflow-x-auto">
@@ -695,28 +847,23 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
         )}
       </div>
 
-
-
-
-
-
-
-
-
-
-
       {/* Live Round-Based Leaderboard */}
       {leaderboard.length > 0 && (
         <div className="mt-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-4 shadow-sm border-2 border-yellow-200">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-bold text-gray-900">🏆 LIVE ROUND RANKINGS</h3>
-            <button
-              onClick={fetchLeaderboard}
-              disabled={leaderboardLoading}
-              className="text-blue-600 text-sm"
-            >
-              <ArrowRight className={`w-4 h-4 ${leaderboardLoading ? 'animate-spin' : ''}`} />
-            </button>
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-gray-500">
+                {leaderboard.length} players
+              </span>
+              <button
+                onClick={performDataUpdate}
+                disabled={leaderboardLoading}
+                className="text-blue-600 text-sm"
+              >
+                <ArrowRight className={`w-4 h-4 ${leaderboardLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
           </div>
           
           <div className="overflow-x-auto">
