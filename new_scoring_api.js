@@ -99,15 +99,9 @@ function determineMatchWinner(roundPoints) {
   }
 }
 
-// Helper function to calculate live match bonus
+// Helper function to calculate live match bonus (DISABLED - no longer used)
 function calculateLiveMatchBonus(matchWinner, isLive, maxLiveMatches = 3) {
-  if (!isLive) return 0;
-  
-  // Live match bonus: Win = 1, Tie = 0.5, Loss = 0
-  if (matchWinner === 'player1') return 1;
-  if (matchWinner === 'player2') return 0;
-  if (matchWinner === 'tie') return 0.5;
-  
+  // Live bonus points are no longer awarded
   return 0;
 }
 
@@ -175,6 +169,9 @@ app.post('/api/tournaments/:id/weekly-scorecard', authenticateToken, async (req,
       // Trigger match calculations for this week
       await calculateWeeklyMatches(id, weekStartDate);
       
+      // Update leaderboard to reflect new total points
+      await updateWeeklyLeaderboard(id, weekStartDate);
+      
       res.json(rows[0]);
       return;
     }
@@ -189,6 +186,9 @@ app.post('/api/tournaments/:id/weekly-scorecard', authenticateToken, async (req,
     
     // Trigger match calculations for this week
     await calculateWeeklyMatches(id, weekStartDate);
+    
+    // Update leaderboard to reflect new total points
+    await updateWeeklyLeaderboard(id, weekStartDate);
     
     res.json(rows[0]);
   } catch (err) {
@@ -261,23 +261,17 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
         // Determine match winner
         const matchWinner = determineMatchWinner(roundPoints);
         
-        // Calculate live match bonus
-        const isLive = player1.is_live && player2.is_live && player1.group_id === player2.group_id;
-        const liveBonus = calculateLiveMatchBonus(matchWinner, isLive);
-        
         // Determine winner ID
         let winnerId = null;
         if (matchWinner === 'player1') winnerId = player1.user_id;
         else if (matchWinner === 'player2') winnerId = player2.user_id;
         
-        // Calculate total points
+        // Calculate total points (no live bonus)
         const player1TotalPoints = player1HolePoints + 
-          roundPoints.round1.player1 + roundPoints.round2.player1 + roundPoints.round3.player1 +
-          (matchWinner === 'player1' ? liveBonus : 0);
+          roundPoints.round1.player1 + roundPoints.round2.player1 + roundPoints.round3.player1;
         
         const player2TotalPoints = player2HolePoints + 
-          roundPoints.round1.player2 + roundPoints.round2.player2 + roundPoints.round3.player2 +
-          (matchWinner === 'player2' ? liveBonus : 0);
+          roundPoints.round1.player2 + roundPoints.round2.player2 + roundPoints.round3.player2;
         
         // Insert or update match
         await pool.query(
@@ -314,9 +308,7 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
            roundPoints.round1.player1, roundPoints.round1.player2,
            roundPoints.round2.player1, roundPoints.round2.player2,
            roundPoints.round3.player1, roundPoints.round3.player2,
-           winnerId,
-           matchWinner === 'player1' ? liveBonus : 0,
-           matchWinner === 'player2' ? liveBonus : 0,
+           winnerId, 0, 0,
            player1TotalPoints, player2TotalPoints]
         );
       }
@@ -390,7 +382,7 @@ async function updateWeeklyLeaderboard(tournamentId, weekStartDate) {
         }
       });
       
-      const totalScore = totalHolePoints + totalRoundPoints + totalMatchBonus;
+      const totalScore = totalHolePoints + totalRoundPoints;
       
       // Insert or update leaderboard entry
       await pool.query(

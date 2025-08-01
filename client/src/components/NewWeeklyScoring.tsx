@@ -42,7 +42,8 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
     { hole: 8, score: 0, submitted: false },
     { hole: 9, score: 0, submitted: false }
   ]);
-  const [currentRound, setCurrentRound] = useState(1); // 1, 2, or 3
+  const [currentRound, setCurrentRound] = useState(1); // 1, 2, 3, or 'LB'
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [isLive, setIsLive] = useState(false);
   const [groupId, setGroupId] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -322,7 +323,7 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
             (Number(match.round1_points_player1 || 0) + Number(match.round2_points_player1 || 0) + Number(match.round3_points_player1 || 0)) :
             (Number(match.round1_points_player2 || 0) + Number(match.round2_points_player2 || 0) + Number(match.round3_points_player2 || 0))
           ),
-          liveBonus: Number(isPlayer1 ? match.match_live_bonus_player1 : match.match_live_bonus_player2 || 0)
+          liveBonus: 0 // Live bonus points are no longer awarded
         });
       }
 
@@ -473,7 +474,38 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       // Update points after submission
       await fetchCurrentPoints();
       
-      toast.success(`Hole ${holeIndex + 1} submitted successfully!`);
+      // Check if points were earned and show notification
+      const holeResult = holeResults[holeIndex + 1];
+      if (holeResult && holeResult.points > 0) {
+        toast.success(`Hole ${holeIndex + 1} submitted! +${holeResult.points.toFixed(1)} points earned! 🎉`);
+      } else {
+        toast.success(`Hole ${holeIndex + 1} submitted successfully!`);
+      }
+      
+      // Check if round was completed and show round win notification
+      const currentRoundHoles = holeScores.slice((currentRound - 1) * 3, currentRound * 3);
+      const roundCompleted = currentRoundHoles.every(hole => hole.submitted);
+      if (roundCompleted) {
+        // Check if current user won the round by comparing with other players
+        const currentUserRoundScores = currentRoundHoles.map(hole => hole.score);
+        const roundStartHole = (currentRound - 1) * 3;
+        
+        // Simple check: if user has the lowest total score in the round, they likely won
+        const userRoundTotal = currentUserRoundScores.reduce((sum: number, score: number) => sum + score, 0);
+        const otherPlayersRoundScores = leaderboard
+          .filter(p => p.user_id !== user?.user_id && p.member_id !== user?.member_id)
+          .map(p => p.hole_scores?.slice(roundStartHole, roundStartHole + 3) || [])
+          .filter(scores => scores.every((score: number) => score > 0));
+        
+        const hasWonRound = otherPlayersRoundScores.every(otherScores => {
+          const otherTotal = otherScores.reduce((sum: number, score: number) => sum + score, 0);
+          return userRoundTotal <= otherTotal;
+        });
+        
+        if (hasWonRound && otherPlayersRoundScores.length > 0) {
+          toast.success(`Round ${currentRound} completed! You won the round! +1.0 points! 🏆`);
+        }
+      }
       
       // Immediately refresh leaderboard to show updated data
       await performDataUpdate();
@@ -565,23 +597,23 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   const ConnectionIcon = connectionDisplay.icon;
 
   return (
-    <div className="max-w-md mx-auto p-4 bg-gray-50 min-h-screen">
+    <div className="max-w-md mx-auto p-2 sm:p-4 bg-gray-50 min-h-screen">
       {/* Header with Round Selection and Live Status */}
-      <div className="bg-white rounded-lg p-4 mb-4 shadow-sm">
+      <div className="bg-white rounded-lg p-3 sm:p-4 mb-3 sm:mb-4 shadow-sm">
         <div className="text-center mb-3">
-          <h2 className="text-lg font-bold text-gray-900 mb-1">
+          <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-1">
             {tournamentName}
           </h2>
-          <p className="text-sm text-gray-600">
-            Round {currentRound} of 3
+          <p className="text-sm sm:text-base text-gray-600">
+            {showLeaderboard ? 'Leaderboard' : `Round ${currentRound} of 3`}
           </p>
           {/* Live Status Indicator */}
-          <div className="flex items-center justify-center space-x-2 mt-2">
+          <div className="flex items-center justify-center space-x-1 sm:space-x-2 mt-2">
             <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-            <span className="text-xs text-gray-600">
+            <span className="text-xs sm:text-sm text-gray-600">
               {autoRefreshEnabled ? 'Live Updates' : 'Manual Mode'}
             </span>
-            <span className="text-xs text-gray-400">
+            <span className="text-xs sm:text-sm text-gray-400 hidden sm:inline">
               • Last update: {lastUpdateTime.toLocaleTimeString()}
             </span>
           </div>
@@ -589,20 +621,30 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
         
         <div className="flex items-center justify-between">
           <button
-            onClick={() => setCurrentRound(Math.max(1, currentRound - 1))}
-            disabled={currentRound === 1}
-            className="p-2 rounded-full bg-gray-100 shadow-sm disabled:opacity-50"
+            onClick={() => {
+              if (showLeaderboard) {
+                setShowLeaderboard(false);
+                setCurrentRound(3);
+              } else {
+                setCurrentRound(Math.max(1, currentRound - 1));
+              }
+            }}
+            disabled={!showLeaderboard && currentRound === 1}
+            className="p-3 sm:p-2 rounded-full bg-gray-100 shadow-sm disabled:opacity-50 touch-manipulation"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
           
-          <div className="flex space-x-2">
+          <div className="flex space-x-1 sm:space-x-2">
             {[1, 2, 3].map((round) => (
               <button
                 key={round}
-                onClick={() => setCurrentRound(round)}
-                className={`w-12 h-12 rounded-full text-sm font-bold flex items-center justify-center ${
-                  currentRound === round
+                onClick={() => {
+                  setCurrentRound(round);
+                  setShowLeaderboard(false);
+                }}
+                className={`w-14 h-14 sm:w-12 sm:h-12 rounded-full text-sm font-bold flex items-center justify-center touch-manipulation ${
+                  !showLeaderboard && currentRound === round
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-100 text-gray-600'
                 }`}
@@ -610,23 +652,42 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
                 <span className="text-lg font-bold">{round}</span>
               </button>
             ))}
+            <button
+              onClick={() => {
+                setShowLeaderboard(true);
+              }}
+              className={`w-14 h-14 sm:w-12 sm:h-12 rounded-full text-sm font-bold flex items-center justify-center touch-manipulation ${
+                showLeaderboard
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              <span className="text-lg font-bold">LB</span>
+            </button>
           </div>
           
           <button
-            onClick={() => setCurrentRound(Math.min(3, currentRound + 1))}
-            disabled={currentRound === 3}
-            className="p-2 rounded-full bg-gray-100 shadow-sm disabled:opacity-50"
+            onClick={() => {
+              if (showLeaderboard) {
+                setShowLeaderboard(false);
+                setCurrentRound(1);
+              } else {
+                setCurrentRound(Math.min(3, currentRound + 1));
+              }
+            }}
+            disabled={!showLeaderboard && currentRound === 3}
+            className="p-3 sm:p-2 rounded-full bg-gray-100 shadow-sm disabled:opacity-50 touch-manipulation"
           >
             <ChevronRight className="w-5 h-5" />
           </button>
         </div>
 
         {/* Live Controls */}
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-200">
+        <div className="flex flex-col sm:flex-row items-center justify-between mt-3 pt-3 border-t border-gray-200 space-y-2 sm:space-y-0">
           <div className="flex items-center space-x-2">
             <button
               onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
-              className={`px-3 py-1 rounded-full text-xs font-medium ${
+              className={`px-3 py-2 sm:py-1 rounded-full text-xs sm:text-xs font-medium touch-manipulation ${
                 autoRefreshEnabled 
                   ? 'bg-green-100 text-green-700' 
                   : 'bg-gray-100 text-gray-600'
@@ -638,7 +699,7 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
               value={refreshInterval / 1000}
               onChange={(e) => setRefreshInterval(Number(e.target.value) * 1000)}
               disabled={!autoRefreshEnabled}
-              className="text-xs border rounded px-2 py-1 disabled:opacity-50"
+              className="text-xs border rounded px-2 py-2 sm:py-1 disabled:opacity-50 touch-manipulation"
             >
               <option value={5}>5s</option>
               <option value={10}>10s</option>
@@ -651,13 +712,13 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
             {/* Connection Status */}
             <div className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs ${connectionDisplay.bgColor} ${connectionDisplay.color}`}>
               <ConnectionIcon className="w-3 h-3" />
-              <span className="capitalize">{connectionStatus}</span>
+              <span className="capitalize hidden sm:inline">{connectionStatus}</span>
             </div>
             
             <button
               onClick={handleManualRefresh}
               disabled={leaderboardLoading}
-              className="flex items-center space-x-1 px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium hover:bg-blue-200 disabled:opacity-50"
+              className="flex items-center space-x-1 px-3 py-2 sm:py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium hover:bg-blue-200 disabled:opacity-50 touch-manipulation"
             >
               <RefreshCw className={`w-3 h-3 ${leaderboardLoading ? 'animate-spin' : ''}`} />
               <span>Refresh</span>
@@ -673,36 +734,84 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
         )}
       </div>
 
-      {/* Hole-by-Hole Grid */}
-      <div className="bg-white rounded-lg p-4 mb-4 shadow-sm overflow-x-auto">
-        <div className="flex items-center justify-between mb-4">
-          <div></div>
-          {Object.keys(roundResults).length > 0 && (
-            <div className="flex items-center space-x-4">
-              <span className="text-sm font-medium text-gray-600">Round Records:</span>
-              {[1, 2, 3].map((round) => {
-                const roundResult = roundResults[round];
-                return (
-                  <div key={round} className="flex items-center space-x-1">
-                    <span className="text-xs text-gray-500">R{round}:</span>
-                    {roundResult ? (
-                      <span className={`text-sm font-bold ${
-                        roundResult.result === 'W' ? 'text-green-600' :
-                        roundResult.result === 'T' ? 'text-yellow-600' :
-                        roundResult.result === 'L' ? 'text-red-600' :
-                        'text-gray-600'
-                      }`}>
-                        {roundResult.record}
-                      </span>
-                    ) : (
-                      <span className="text-sm font-bold text-gray-400">-</span>
-                    )}
-                  </div>
-                );
-              })}
+
+
+      {/* Conditional Content */}
+      {showLeaderboard ? (
+        /* Leaderboard View */
+        <div className="bg-white rounded-lg p-3 sm:p-4 mb-3 sm:mb-4 shadow-sm">
+          <div className="text-center mb-4">
+            <h3 className="text-lg sm:text-xl font-bold text-gray-900 mb-2">🏆 Weekly Leaderboard</h3>
+            <p className="text-sm sm:text-base text-gray-600">Overall standings for the week</p>
+          </div>
+          
+          {leaderboard.length > 0 ? (
+            <div className="overflow-x-auto -mx-3 sm:mx-0">
+              <table className="w-full text-center min-w-full">
+                <thead>
+                  <tr>
+                    <th className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600 text-left">Rank</th>
+                    <th className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600 text-left">Player</th>
+                    <th className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600 hidden sm:table-cell">Hole Pts</th>
+                    <th className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600 hidden sm:table-cell">Round Pts</th>
+                    <th className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600">Points</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {leaderboard.slice(0, 10).map((player, index) => {
+                    const isCurrentUser = (String(player.user_id || player.member_id) === String(user?.user_id || user?.member_id));
+                    
+                    // Get points from leaderboard data
+                    const totalPoints = Number(player.total_score || 0);
+                    const holePoints = Number(player.total_hole_points || 0);
+                    const roundPoints = Number(player.total_round_points || 0);
+                    
+                    return (
+                      <tr key={player.user_id} className={`${isCurrentUser ? 'bg-blue-50' : ''}`}>
+                        <td className="px-1 sm:px-2 py-2 text-left">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                            index === 0 ? 'bg-yellow-100 text-yellow-800' :
+                            index === 1 ? 'bg-gray-100 text-gray-800' :
+                            index === 2 ? 'bg-orange-100 text-orange-800' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>
+                            {index + 1}
+                          </div>
+                        </td>
+                        <td className="px-1 sm:px-2 py-2 text-left">
+                          <div>
+                            <div className={`text-sm font-medium ${isCurrentUser ? 'text-blue-900' : 'text-gray-900'}`}>
+                              {player.first_name} {player.last_name}
+                            </div>
+                            <div className="text-xs text-gray-500 hidden sm:block">{player.club}</div>
+                          </div>
+                        </td>
+                        <td className="px-1 sm:px-2 py-2 hidden sm:table-cell">
+                          <div className="text-sm text-gray-600">{holePoints.toFixed(1)}</div>
+                        </td>
+                        <td className="px-1 sm:px-2 py-2 hidden sm:table-cell">
+                          <div className="text-sm text-gray-600">{roundPoints.toFixed(1)}</div>
+                        </td>
+                        <td className="px-1 sm:px-2 py-2">
+                          <div className="text-lg font-bold text-gray-900">{totalPoints.toFixed(1)}</div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center text-gray-500 py-8">
+              <div className="text-lg mb-2">📊</div>
+              <div>No leaderboard data available</div>
             </div>
           )}
         </div>
+      ) : (
+        /* Hole-by-Hole Grid */
+        <div className="bg-white rounded-lg p-3 sm:p-4 mb-3 sm:mb-4 shadow-sm overflow-x-auto">
+
         
         {currentRoundHoles.length === 0 ? (
           <div className="text-center text-gray-500">Loading holes...</div>
@@ -712,27 +821,27 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
           <table className="w-full text-center border-separate border-spacing-1">
             <thead>
               <tr>
-                <th className="px-2 py-2 text-xs font-bold text-gray-600">Hole</th>
+                <th className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600">Hole</th>
                 {currentRoundHoles.map((hole, index) => {
                   const actualHoleNumber = (currentRound - 1) * 3 + index + 1;
                   return (
-                    <th key={index} className="px-2 py-2 text-xs font-bold text-gray-600 border-b">
+                    <th key={index} className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600 border-b">
                       {actualHoleNumber}
                     </th>
                   );
                 })}
               </tr>
             </thead>
-            <tbody>
-              {/* Score Row */}
-              <tr>
-                <td className="px-2 py-2 text-xs font-bold text-gray-600">Score</td>
+                          <tbody>
+                {/* Score Row */}
+                <tr>
+                  <td className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600">Score</td>
                 {currentRoundHoles.map((hole, index) => {
                   const actualHoleNumber = (currentRound - 1) * 3 + index + 1;
                   const fieldStat = fieldStats.find(stat => stat.hole === actualHoleNumber);
                   
                   return (
-                    <td key={index} className="px-2 py-2">
+                    <td key={index} className="px-1 sm:px-2 py-2">
                       {hole.submitted ? (
                         <div className="flex items-center justify-center space-x-1">
                           <span className="text-lg font-bold text-green-600">{hole.score}</span>
@@ -751,13 +860,13 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
                               handleHoleScoreChange((currentRound - 1) * 3 + index, score);
                             }}
                             disabled={hole.submitted}
-                            className="w-12 h-8 text-center border rounded text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            className="w-14 h-10 sm:w-12 sm:h-8 text-center border rounded text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500 touch-manipulation"
                             placeholder="0"
                           />
                           <button
                             onClick={() => submitHoleScore((currentRound - 1) * 3 + index)}
                             disabled={submitting || hole.submitted || hole.score === 0}
-                            className="absolute -right-6 top-0 w-6 h-8 bg-blue-600 text-white text-xs rounded-r hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-400"
+                            className="absolute -right-8 sm:-right-6 top-0 w-8 h-10 sm:w-6 sm:h-8 bg-blue-600 text-white text-xs rounded-r hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-400 touch-manipulation"
                           >
                             →
                           </button>
@@ -768,124 +877,111 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
                 })}
               </tr>
               
-              {/* Field Average Row */}
-              <tr>
-                <td className="px-2 py-1 text-xs font-bold text-gray-600">Field Avg</td>
-                {currentRoundHoles.map((hole, index) => {
-                  const actualHoleNumber = (currentRound - 1) * 3 + index + 1;
-                  const fieldStat = fieldStats.find(stat => stat.hole === actualHoleNumber);
-                  
-                  return (
-                    <td key={index} className="px-2 py-1">
-                      {fieldStat && fieldStat.totalPlayers > 0 ? (
-                        <div className="text-xs text-gray-600">
-                          {fieldStat.averageScore.toFixed(1)}
-                        </div>
-                      ) : (
-                        <div className="text-xs text-gray-400">-</div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-              
-              {/* Hole Points Row */}
-              <tr>
-                <td className="px-2 py-1 text-xs font-bold text-blue-600">Total Pts</td>
-                {currentRoundHoles.map((hole, index) => {
-                  const actualHoleNumber = (currentRound - 1) * 3 + index + 1;
-                  const holeResult = holeResults[actualHoleNumber];
-                  
-                  return (
-                    <td key={index} className="px-2 py-1">
-                      {hole.submitted && holeResult ? (
-                        <div className="text-xs font-bold text-blue-600">
-                          +{holeResult.points.toFixed(1)}
-                        </div>
-                      ) : (
-                        <div className="text-xs text-gray-400">-</div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-              
-              {/* W-T-L Record Row (only show if score submitted) */}
-              {currentRoundHoles.some(hole => hole.submitted) && (
-                <tr>
-                  <td className="px-2 py-1 text-xs font-bold text-gray-600" title="Wins-Ties-Losses">W-T-L</td>
-                  {currentRoundHoles.map((hole, index) => {
-                    const actualHoleNumber = (currentRound - 1) * 3 + index + 1;
-                    const holeResult = holeResults[actualHoleNumber];
-                    
 
-                    
-                    return (
-                      <td key={index} className="px-2 py-1">
-                        {hole.submitted && holeResult ? (
-                          <div className={`text-xs font-bold ${
-                            holeResult.result === 'W' ? 'text-green-600' :
-                            holeResult.result === 'T' ? 'text-yellow-600' :
-                            holeResult.result === 'L' ? 'text-red-600' :
-                            'text-gray-600'
-                          }`}>
-                            {holeResult.record || 'No record'}
-                          </div>
-                        ) : (
-                          <div className="text-xs text-gray-400">
-                            {hole.submitted ? 'No data' : '-'}
-                          </div>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
         )}
       </div>
-
-      {/* Live Round-Based Leaderboard */}
-      {leaderboard.length > 0 && (
-        <div className="mt-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-4 shadow-sm border-2 border-yellow-200">
+      )}
+      {!showLeaderboard && leaderboard.length > 0 && (
+        <div className="mt-4 sm:mt-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-3 sm:p-4 shadow-sm border-2 border-yellow-200">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-gray-900">🏆 LIVE ROUND RANKINGS</h3>
+            <h3 className="text-sm sm:text-base font-bold text-gray-900">🏆 LIVE ROUND RANKINGS</h3>
             <div className="flex items-center space-x-2">
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-gray-500 hidden sm:inline">
                 {leaderboard.length} players
               </span>
               <button
                 onClick={performDataUpdate}
                 disabled={leaderboardLoading}
-                className="text-blue-600 text-sm"
+                className="text-blue-600 text-sm touch-manipulation"
               >
                 <ArrowRight className={`w-4 h-4 ${leaderboardLoading ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
           
-          <div className="overflow-x-auto">
-            <table className="w-full text-center">
+          <div className="overflow-x-auto -mx-3 sm:mx-0">
+            <table className="w-full text-center min-w-full">
               <thead>
                 <tr>
-                  <th className="px-2 py-2 text-xs font-bold text-gray-600 text-left">Player</th>
-                  <th className="px-2 py-2 text-xs font-bold text-gray-600">Total</th>
+                  <th className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600 text-left">Player</th>
                   {currentRoundHoles.map((hole, index) => {
                     const actualHoleNumber = (currentRound - 1) * 3 + index + 1;
                     return (
-                      <th key={index} className="px-2 py-2 text-xs font-bold text-gray-600">
+                      <th key={index} className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600">
                         H{actualHoleNumber}
                       </th>
                     );
                   })}
+                  <th className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600">R{currentRound}</th>
                 </tr>
               </thead>
               <tbody>
                 {leaderboard.slice(0, 5).map((player, index) => {
-                  const isCurrentUser = (player.user_id === user?.user_id || player.member_id === user?.member_id);
+                  const isCurrentUser = (String(player.user_id || player.member_id) === String(user?.user_id || user?.member_id));
+                  
+                  // Debug current user detection
+                  if (index === 0) {
+                    console.log('LIVE RANKINGS DEBUG:');
+                    console.log('Current user object:', user);
+                    console.log('Current user ID:', user?.user_id || user?.member_id);
+                    console.log('Leaderboard players:', leaderboard.slice(0, 5).map(p => ({ id: p.user_id || p.member_id, name: p.first_name })));
+                  }
+                  
+                  console.log(`Player ${player.first_name} (${player.user_id || player.member_id}): isCurrentUser=${isCurrentUser}`);
                   const roundStartHole = (currentRound - 1) * 3;
+                  
+                  // Calculate round outcome for current round (matchplay)
+                  const roundScores = player.hole_scores?.slice(roundStartHole, roundStartHole + 3) || [];
+                  const roundCompleted = roundScores.every((score: number) => score > 0);
+                  
+                  // Get current user's round score for comparison
+                  let currentUser = leaderboard.find(p => p.user_id === user?.user_id || p.member_id === user?.member_id);
+                  let currentUserRoundScores = currentUser?.hole_scores?.slice(roundStartHole, roundStartHole + 3) || [];
+                  let currentUserRoundCompleted = currentUserRoundScores.every((score: number) => score > 0);
+                  
+                  // If current user not found in leaderboard, use local holeScores state
+                  if (!currentUser || currentUserRoundScores.length === 0) {
+                    // Use the local holeScores state for current user data
+                    const localRoundScores = holeScores.slice((currentRound - 1) * 3, currentRound * 3);
+                    currentUserRoundScores = localRoundScores.map(hole => hole.score);
+                    currentUserRoundCompleted = localRoundScores.every(hole => hole.score > 0);
+                  }
+                  
+
+                  
+                  // Calculate matchplay round outcome (hole-by-hole comparison)
+                  let roundOutcome = null;
+                  if (roundCompleted && currentUserRoundCompleted && !isCurrentUser) {
+                    let currentUserWins = 0;
+                    let otherPlayerWins = 0;
+                    let ties = 0;
+                    
+                    // Compare each hole in the round
+                    for (let i = 0; i < 3; i++) {
+                      const currentUserScore = currentUserRoundScores[i];
+                      const otherPlayerScore = roundScores[i];
+                      
+                      if (currentUserScore < otherPlayerScore) {
+                        currentUserWins++;
+                      } else if (currentUserScore > otherPlayerScore) {
+                        otherPlayerWins++;
+                      } else {
+                        ties++;
+                      }
+                    }
+                    
+                    // Determine round outcome from current user's perspective
+                    if (currentUserWins > otherPlayerWins) {
+                      roundOutcome = { result: 'W', color: 'text-green-600', bgColor: 'bg-green-100' };
+                    } else if (otherPlayerWins > currentUserWins) {
+                      roundOutcome = { result: 'L', color: 'text-red-600', bgColor: 'bg-red-100' };
+                    } else {
+                      roundOutcome = { result: 'T', color: 'text-yellow-600', bgColor: 'bg-yellow-100' };
+                    }
+                  }
                   
                   return (
                     <tr key={player.user_id} className={`${isCurrentUser ? 'bg-blue-50' : ''}`}>
@@ -902,22 +998,20 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
                           <div>
                             <div className={`text-sm font-medium ${isCurrentUser ? 'text-blue-900' : 'text-gray-900'}`}>
                               {player.first_name} {player.last_name}
-                              {isCurrentUser && ' (You)'}
                             </div>
                             <div className="text-xs text-gray-500">{player.club}</div>
                           </div>
                         </div>
                       </td>
-                      <td className="px-2 py-2">
-                        <div className={`text-sm font-bold ${isCurrentUser ? 'text-blue-900' : 'text-gray-900'}`}>
-                          {Number(player.total_score || 0).toFixed(1)}
-                        </div>
-                        <div className="text-xs text-gray-500">pts</div>
-                      </td>
                       {currentRoundHoles.map((hole, holeIndex) => {
                         const actualHoleNumber = roundStartHole + holeIndex + 1;
                         const playerScore = player.hole_scores?.[actualHoleNumber - 1];
                         const isSubmitted = hole.submitted;
+                        
+                        // Debug hole results for current user
+                        if (isCurrentUser) {
+                          console.log(`LIVE RANKINGS - Hole ${actualHoleNumber}: playerScore=${playerScore}, holeResults=${holeResults[actualHoleNumber]?.points || 'no data'}, isCurrentUser=${isCurrentUser}`);
+                        }
                         
                         // Get current user's score for comparison
                         const currentUser = leaderboard.find(p => p.user_id === user?.user_id || p.member_id === user?.member_id);
@@ -992,6 +1086,18 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
                               {isCurrentUser && isSubmitted && (
                                 <div className="text-xs text-green-600 mt-1">✓</div>
                               )}
+                              
+                              {/* Point earned badge for current user's points on this hole */}
+                              {/* Point earned badge for current user's points on this hole */}
+                              {!isCurrentUser && playerScore > 0 && currentUserHoleScore > 0 && currentUserHoleScore < playerScore && (
+                                <div className="flex items-center justify-center mt-1">
+                                  <span className="text-xs text-green-600 font-bold">+0.5</span>
+                                </div>
+                              )}
+                              
+
+                              
+
 
 
                               
@@ -1005,6 +1111,24 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
                           </td>
                         );
                       })}
+                      <td className="px-2 py-2">
+                        <div className="text-center">
+                          {!isCurrentUser && (
+                            <div className="flex flex-col items-center space-y-1">
+                              <div className={`w-8 h-8 rounded flex items-center justify-center text-xs font-bold mx-auto ${
+                                roundOutcome ? roundOutcome.bgColor : 'bg-gray-100'
+                              } ${roundOutcome ? roundOutcome.color : 'text-gray-600'}`}>
+                                {roundOutcome ? roundOutcome.result : '-'}
+                              </div>
+                              {roundOutcome && roundOutcome.result === 'W' && (
+                                <div className="flex items-center space-x-1">
+                                  <span className="text-xs text-green-600 font-bold">+1</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}

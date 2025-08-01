@@ -287,13 +287,10 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
                                   <span className={`px-2 py-1 rounded text-xs font-semibold ${getMatchResultColor(getMatchResult(match, player.user_id))}`}>
                                     {getMatchResult(match, player.user_id)}
                                   </span>
-                                                                     {Number(match.match_live_bonus_player1 || 0) > 0 || Number(match.match_live_bonus_player2 || 0) > 0 ? (
-                                     <Users className="w-4 h-4 text-green-600" />
-                                   ) : null}
                                 </div>
                               </div>
                               
-                              <div className="grid grid-cols-4 gap-4 text-sm mb-4">
+                              <div className="grid grid-cols-3 gap-4 text-sm mb-4">
                                 <div>
                                   <div className="text-gray-500">Hole Points</div>
                                   <div className="font-semibold text-blue-600">
@@ -312,15 +309,7 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
                                     }
                                   </div>
                                 </div>
-                                <div>
-                                  <div className="text-gray-500">Live Bonus</div>
-                                  <div className="font-semibold text-purple-600">
-                                    {match.player1_id === player.user_id 
-                                      ? Number(match.match_live_bonus_player1 || 0).toFixed(1)
-                                      : Number(match.match_live_bonus_player2 || 0).toFixed(1)
-                                    }
-                                  </div>
-                                </div>
+
                                 <div>
                                   <div className="text-gray-500">Total</div>
                                   <div className="font-semibold text-gray-900">
@@ -535,16 +524,7 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
                                 </div>
                                 
                                 {/* Additional Points */}
-                                <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                                  <div className="text-center">
-                                    <div className="text-gray-500">Live Bonus</div>
-                                    <div className="font-bold text-purple-600">
-                                      {match.player1_id === player.user_id 
-                                        ? Number(match.match_live_bonus_player1 || 0).toFixed(1)
-                                        : Number(match.match_live_bonus_player2 || 0).toFixed(1)
-                                      }
-                                    </div>
-                                  </div>
+                                <div className="mt-2 grid grid-cols-1 gap-2 text-xs">
                                   <div className="text-center">
                                     <div className="text-gray-500">Total Points</div>
                                     <div className="font-bold text-gray-900">
@@ -595,7 +575,7 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
             <ul className="space-y-1 text-blue-700">
               <li>• <strong>Hole Points:</strong> 0.5 per hole won</li>
               <li>• <strong>Round Points:</strong> 1.0 per round won (holes 1-3, 4-6, 7-9)</li>
-              <li>• <strong>Live Bonus:</strong> +1.0 for match wins, +0.5 for ties</li>
+
             </ul>
           </div>
           <div>
