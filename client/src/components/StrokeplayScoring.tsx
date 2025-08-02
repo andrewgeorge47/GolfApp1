@@ -289,9 +289,9 @@ const StrokeplayScoring: React.FC<StrokeplayScoringProps> = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-xl border border-neutral-200 p-6">
+      <div className="bg-white rounded-none sm:rounded-xl border border-neutral-200 p-3 sm:p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Trophy className="w-6 h-6 text-brand-neon-green" />
@@ -317,7 +317,7 @@ const StrokeplayScoring: React.FC<StrokeplayScoringProps> = ({
       </div>
 
       {/* Participants Grid */}
-      <div className="bg-white rounded-xl border border-neutral-200 p-6">
+      <div className="bg-white rounded-none sm:rounded-xl border border-neutral-200 p-3 sm:p-6">
         <h4 className="text-lg font-semibold text-brand-black mb-4">Tournament Participants</h4>
         
         {participants.length === 0 ? (
@@ -329,7 +329,7 @@ const StrokeplayScoring: React.FC<StrokeplayScoringProps> = ({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">
             {participants.map((participant) => {
               const submittedScore = submittedScores.find(score => score.user_id === participant.user_member_id);
               const hasSubmitted = !!submittedScore;
@@ -337,7 +337,7 @@ const StrokeplayScoring: React.FC<StrokeplayScoringProps> = ({
               return (
                 <div
                   key={participant.user_member_id}
-                  className={`border rounded-lg p-4 transition-all ${
+                  className={`border rounded-lg p-3 sm:p-4 transition-all ${
                     hasSubmitted 
                       ? 'border-green-300 bg-green-50 cursor-default' 
                       : 'border-neutral-200 hover:border-brand-neon-green hover:shadow-md cursor-pointer'

@@ -315,34 +315,95 @@ function AppContent() {
       {/* Navigation */}
       <Navigation />
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-        <Routes>
-          <Route path="/" element={<HomeRoute />} />
-          <Route path="/leaderboard" element={<Leaderboard />} />
-          <Route path="/leaderboard/tournament/:tournamentId" element={<Leaderboard />} />
-          <Route path="/tournaments" element={<ProtectedRoute><AvailableTournamentsWrapper /></ProtectedRoute>} />
-          <Route path="/scoring" element={<Scoring />} />
-          <Route path="/tournament-scoring" element={<ProtectedRoute><TournamentScoring /></ProtectedRoute>} />
-          <Route path="/simulator-courses" element={<SimulatorCourses />} />
-          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-          <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
-          <Route path="/tournament-management" element={<AdminProtectedRoute><TournamentManagement /></AdminProtectedRoute>} />
-          <Route path="/user-tracking" element={<AdminProtectedRoute><UserTrackingPage /></AdminProtectedRoute>} />
-          <Route path="/weekly-scoring/:tournamentId" element={
-            <ProtectedRoute>
-              <NewWeeklyScoringWrapper />
-            </ProtectedRoute>
-          } />
-          <Route path="/weekly-leaderboard/:tournamentId" element={
-            <NewWeeklyLeaderboardWrapper />
-          } />
-          <Route path="/login" element={<Login />} />
-          <Route path="/claim-account" element={<ClaimAccount />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
-          <Route path="/password-setup" element={<ProtectedRoute><PasswordSetup /></ProtectedRoute>} />
-        </Routes>
-      </main>
+      {/* Routes with different layouts */}
+      <Routes>
+        {/* Full-width routes */}
+        <Route path="/weekly-scoring/:tournamentId" element={
+          <ProtectedRoute>
+            <NewWeeklyScoringWrapper />
+          </ProtectedRoute>
+        } />
+        <Route path="/weekly-leaderboard/:tournamentId" element={
+          <NewWeeklyLeaderboardWrapper />
+        } />
+        
+        {/* Standard container routes */}
+        <Route path="/" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <HomeRoute />
+          </main>
+        } />
+        <Route path="/leaderboard" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <Leaderboard />
+          </main>
+        } />
+        <Route path="/leaderboard/tournament/:tournamentId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <Leaderboard />
+          </main>
+        } />
+        <Route path="/tournaments" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><AvailableTournamentsWrapper /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/scoring" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <Scoring />
+          </main>
+        } />
+        <Route path="/tournament-scoring" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><TournamentScoring /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/simulator-courses" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <SimulatorCourses />
+          </main>
+        } />
+        <Route path="/profile" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><Profile /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><Admin /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/tournament-management" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><TournamentManagement /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/user-tracking" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><UserTrackingPage /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/login" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <Login />
+          </main>
+        } />
+        <Route path="/claim-account" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ClaimAccount />
+          </main>
+        } />
+        <Route path="/reset-password" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ResetPassword />
+          </main>
+        } />
+        <Route path="/password-setup" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><PasswordSetup /></ProtectedRoute>
+          </main>
+        } />
+      </Routes>
     </div>
   );
 }

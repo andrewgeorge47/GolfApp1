@@ -427,9 +427,9 @@ const ScoreSubmission: React.FC<ScoreSubmissionProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Score Submission Overview */}
-      <div className="bg-white rounded-xl p-6 border border-neutral-200">
+      <div className="bg-white rounded-none sm:rounded-xl p-3 sm:p-6 border border-neutral-200">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-2">
             {requiresMatches ? (
@@ -478,11 +478,11 @@ const ScoreSubmission: React.FC<ScoreSubmissionProps> = ({
             {getPendingMatches().length > 0 && (
               <div className="mb-6">
                 <h5 className="text-lg font-semibold text-brand-black mb-4">Pending Score Submissions</h5>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">
                   {getPendingMatches().map(match => (
                     <div
                       key={match.id}
-                      className="p-4 border border-neutral-200 rounded-lg hover:border-brand-neon-green transition-colors cursor-pointer"
+                      className="p-3 sm:p-4 border border-neutral-200 rounded-lg hover:border-brand-neon-green transition-colors cursor-pointer"
                       onClick={() => {
                         setSelectedMatch(match);
                         setShowScoreModal(true);
@@ -494,17 +494,17 @@ const ScoreSubmission: React.FC<ScoreSubmissionProps> = ({
                           Pending
                         </span>
                       </div>
-                      <div className="space-y-2">
-                        <div className="text-sm">
+                      <div className="space-y-1 sm:space-y-2">
+                        <div className="text-xs sm:text-sm">
                           <span className="font-medium">{match.player1_first_name} {match.player1_last_name}</span>
                           <span className="text-neutral-500 ml-2">vs</span>
                         </div>
-                        <div className="text-sm">
+                        <div className="text-xs sm:text-sm">
                           <span className="font-medium">{match.player2_first_name} {match.player2_last_name}</span>
                         </div>
                       </div>
-                      <div className="mt-3">
-                        <button className="w-full px-3 py-2 bg-brand-neon-green text-brand-black text-sm rounded hover:bg-green-400 transition-colors">
+                      <div className="mt-2 sm:mt-3">
+                        <button className="w-full px-3 py-2 bg-brand-neon-green text-brand-black text-xs sm:text-sm rounded hover:bg-green-400 transition-colors">
                           Submit Score
                         </button>
                       </div>

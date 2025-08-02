@@ -5,6 +5,7 @@ import { toast } from 'react-toastify';
 import { ArrowLeft, Trophy, Users, Target } from 'lucide-react';
 import StrokeplayScoring from './StrokeplayScoring';
 import ScoreSubmission from './ScoreSubmission';
+import NewWeeklyScoring from './NewWeeklyScoring';
 
 const TournamentScoring: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -134,23 +135,23 @@ const TournamentScoring: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-brand-dark-green to-brand-muted-green">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-0 sm:px-4 lg:px-8 py-2 sm:py-8">
         {/* Header */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-          <div className="flex items-center justify-between mb-6">
+        <div className="bg-white rounded-none sm:rounded-2xl shadow-lg p-3 sm:p-6 mb-4 sm:mb-8">
+          <div className="flex items-center justify-between mb-4 sm:mb-6">
             <div className="flex items-center">
               <button
                 onClick={() => navigate('/profile')}
-                className="mr-4 p-2 text-neutral-600 hover:text-brand-black transition-colors"
+                className="mr-2 sm:mr-4 p-2 text-neutral-600 hover:text-brand-black transition-colors"
               >
-                <ArrowLeft className="w-5 h-5" />
+                <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
               <div>
-                <h1 className="text-3xl font-bold text-brand-black flex items-center">
-                  <Trophy className="w-8 h-8 mr-3" />
+                <h1 className="text-xl sm:text-3xl font-bold text-brand-black flex items-center">
+                  <Trophy className="w-6 h-6 sm:w-8 sm:h-8 mr-2 sm:mr-3" />
                   {tournament.name}
                 </h1>
-                <p className="text-neutral-600 mt-1">
+                <p className="text-xs sm:text-sm text-neutral-600 mt-1">
                   {tournament.tournament_format?.replace('_', ' ').toUpperCase()} • {tournament.type}
                 </p>
               </div>
@@ -169,7 +170,7 @@ const TournamentScoring: React.FC = () => {
           </div>
 
           {/* Tournament Info */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 sm:gap-4 text-xs sm:text-sm">
             <div className="flex items-center">
               <Users className="w-4 h-4 mr-2 text-neutral-500" />
               <span>{tournamentParticipants.length} participants</span>
@@ -190,7 +191,7 @@ const TournamentScoring: React.FC = () => {
         </div>
 
         {/* Scoring Component */}
-        <div className="bg-white rounded-2xl shadow-lg p-6">
+        <div className="bg-white rounded-none sm:rounded-2xl shadow-lg p-3 sm:p-6">
           {tournament.tournament_format === 'stroke_play' ? (
             <StrokeplayScoring
               tournamentId={tournament.id}
@@ -198,6 +199,12 @@ const TournamentScoring: React.FC = () => {
               tournamentSettings={tournamentSettings}
               onScoreSubmitted={handleScoreSubmitted}
               courseId={tournament.course_id}
+            />
+          ) : tournament.tournament_format === 'par3_match_play' ? (
+            <NewWeeklyScoring
+              tournamentId={tournament.id}
+              tournamentName={tournament.name}
+              onScoreSubmitted={handleScoreSubmitted}
             />
           ) : (
             <ScoreSubmission

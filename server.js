@@ -5261,7 +5261,7 @@ app.put('/api/simulator-courses/:id/teebox-data', authenticateToken, async (req,
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
-}); 
+});
 
 // Get course records and player statistics for leaderboard
 app.get('/api/leaderboard-stats', async (req, res) => {
@@ -6741,6 +6741,18 @@ async function updateWeeklyLeaderboard(tournamentId, weekStartDate) {
     console.log(`=== UPDATING WEEKLY LEADERBOARD ===`);
     console.log(`Tournament ID: ${tournamentId}, Week: ${weekStartDate}`);
     
+    // Get all registered participants for this tournament
+    const participantsResult = await pool.query(
+      `SELECT p.user_member_id, u.first_name, u.last_name, u.club
+       FROM participation p 
+       JOIN users u ON p.user_member_id = u.member_id 
+       WHERE p.tournament_id = $1`,
+      [tournamentId]
+    );
+    
+    const allParticipants = participantsResult.rows;
+    console.log(`Found ${allParticipants.length} registered participants`);
+    
     // Get all scorecards for this tournament and week
     const possibleDates = await getPossibleWeekStartDates(tournamentId, weekStartDate);
     const datePlaceholders = possibleDates.map((_, i) => `$${i + 2}`).join(', ');
@@ -6766,20 +6778,15 @@ async function updateWeeklyLeaderboard(tournamentId, weekStartDate) {
     const matches = matchesResult.rows;
     console.log(`Found ${matches.length} matches`);
     
-    // Get all players who participated (from both scorecards and matches)
-    const players = new Set();
+    // Create a map of scorecards by user_id for quick lookup
+    const scorecardMap = new Map();
     scorecards.forEach(scorecard => {
-      players.add(scorecard.user_id);
-    });
-    matches.forEach(match => {
-      players.add(match.player1_id);
-      players.add(match.player2_id);
+      scorecardMap.set(scorecard.user_id, scorecard);
     });
     
-    console.log(`Processing ${players.size} players:`, Array.from(players));
-    
-    // Calculate leaderboard for each player
-    for (const playerId of players) {
+    // Calculate leaderboard for each registered participant
+    for (const participant of allParticipants) {
+      const playerId = participant.user_member_id;
       let totalHolePoints = 0;
       let totalRoundPoints = 0;
       let totalMatchBonus = 0;
@@ -6847,16 +6854,16 @@ async function updateWeeklyLeaderboard(tournamentId, weekStartDate) {
            matches_lost = EXCLUDED.matches_lost,
            live_matches_played = EXCLUDED.live_matches_played,
            updated_at = CURRENT_TIMESTAMP`,
-        [tournamentId, weekStartDate, playerId, totalHolePoints, totalRoundPoints,
-         totalMatchBonus, totalScore, matchesPlayed, matchesWon, matchesTied,
+        [tournamentId, weekStartDate, playerId, totalHolePoints, totalRoundPoints, 
+         totalMatchBonus, totalScore, matchesPlayed, matchesWon, matchesTied, 
          matchesLost, liveMatchesPlayed]
       );
     }
     
-    console.log(`=== LEADERBOARD UPDATE COMPLETE ===`);
+    console.log(`Updated leaderboard for ${allParticipants.length} participants`);
   } catch (err) {
     console.error('Error updating weekly leaderboard:', err);
-    console.error('Stack trace:', err.stack);
+    throw err;
   }
 }
 
@@ -7228,7 +7235,20 @@ app.get('/api/tournaments/:id/weekly-leaderboard', async (req, res) => {
       console.log(`  - User ${row.user_id}, Week ${row.week_start_date}, Total Score: ${row.total_score}`);
     });
     
-    const { rows } = await pool.query(
+    // Get all registered participants for this tournament
+    const participantsResult = await pool.query(
+      `SELECT p.user_member_id, u.first_name, u.last_name, u.club
+       FROM participation p 
+       JOIN users u ON p.user_member_id = u.member_id 
+       WHERE p.tournament_id = $1`,
+      [id]
+    );
+    
+    const allParticipants = participantsResult.rows;
+    console.log(`Found ${allParticipants.length} registered participants`);
+    
+    // Get leaderboard entries for this week
+    const leaderboardResult = await pool.query(
       `SELECT wl.*, u.first_name, u.last_name, u.club, ws.hole_scores
        FROM weekly_leaderboards wl
        JOIN users u ON wl.user_id = u.member_id
@@ -7240,7 +7260,68 @@ app.get('/api/tournaments/:id/weekly-leaderboard', async (req, res) => {
       [id, ...possibleDates, weekDate]
     );
     
+    const leaderboardEntries = leaderboardResult.rows;
+    console.log(`Found ${leaderboardEntries.length} leaderboard entries for week ${weekDate}`);
+    
+    // Create a map of leaderboard entries by user_id for quick lookup
+    const leaderboardMap = new Map();
+    leaderboardEntries.forEach(entry => {
+      leaderboardMap.set(entry.user_id, entry);
+    });
+    
+    // Combine all participants with their leaderboard data
+    const rows = allParticipants.map(participant => {
+      const leaderboardEntry = leaderboardMap.get(participant.user_member_id);
+      
+      if (leaderboardEntry) {
+        // Participant has leaderboard data
+        return leaderboardEntry;
+      } else {
+        // Participant has no leaderboard data yet - create default entry
+        return {
+          user_id: participant.user_member_id,
+          first_name: participant.first_name,
+          last_name: participant.last_name,
+          club: participant.club,
+          total_hole_points: 0,
+          total_round_points: 0,
+          total_match_bonus: 0,
+          total_score: 0,
+          matches_played: 0,
+          matches_won: 0,
+          matches_tied: 0,
+          matches_lost: 0,
+          live_matches_played: 0,
+          hole_scores: null
+        };
+      }
+    });
+    
     console.log(`Found ${rows.length} leaderboard entries for week ${weekDate}`);
+    
+    // Sort rows by total score (descending), then by total hole points (descending)
+    // Participants with no scores will appear at the bottom
+    rows.sort((a, b) => {
+      const scoreA = parseFloat(a.total_score || 0);
+      const scoreB = parseFloat(b.total_score || 0);
+      
+      if (scoreA !== scoreB) {
+        return scoreB - scoreA; // Descending order
+      }
+      
+      // If scores are equal, sort by hole points
+      const holePointsA = parseFloat(a.total_hole_points || 0);
+      const holePointsB = parseFloat(b.total_hole_points || 0);
+      
+      if (holePointsA !== holePointsB) {
+        return holePointsB - holePointsA; // Descending order
+      }
+      
+      // If hole points are also equal, sort alphabetically by name
+      const nameA = `${a.last_name} ${a.first_name}`.toLowerCase();
+      const nameB = `${b.last_name} ${b.first_name}`.toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
     
     // Handle hole_scores (already arrays from PostgreSQL JSONB)
     const processedRows = rows.map(row => {

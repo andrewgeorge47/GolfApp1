@@ -597,29 +597,21 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   const ConnectionIcon = connectionDisplay.icon;
 
   return (
-    <div className="max-w-md mx-auto p-2 sm:p-4 bg-gray-50 min-h-screen">
+    <div className="w-full bg-white min-h-screen rounded-lg">
       {/* Header with Round Selection and Live Status */}
-      <div className="bg-white rounded-lg p-3 sm:p-4 mb-3 sm:mb-4 shadow-sm">
-        <div className="text-center mb-3">
-          <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-1">
-            {tournamentName}
-          </h2>
-          <p className="text-sm sm:text-base text-gray-600">
-            {showLeaderboard ? 'Leaderboard' : `Round ${currentRound} of 3`}
-          </p>
-          {/* Live Status Indicator */}
-          <div className="flex items-center justify-center space-x-1 sm:space-x-2 mt-2">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-            <span className="text-xs sm:text-sm text-gray-600">
-              {autoRefreshEnabled ? 'Live Updates' : 'Manual Mode'}
-            </span>
-            <span className="text-xs sm:text-sm text-gray-400 hidden sm:inline">
-              • Last update: {lastUpdateTime.toLocaleTimeString()}
-            </span>
-          </div>
+      <div className="bg-white rounded-lg mb-3 shadow-sm">
+        <div className="text-center mb-3 px-4 py-3">
+          <h3 className="text-lg sm:text-xl font-bold text-gray-900">
+            {showLeaderboard ? 'Leaderboard' : 'Score Submission'}
+          </h3>
+          {showLeaderboard && (
+            <p className="text-sm sm:text-base text-gray-600 mt-2">
+              Overall standings for the week
+            </p>
+          )}
         </div>
         
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between px-4">
           <button
             onClick={() => {
               if (showLeaderboard) {
@@ -630,12 +622,12 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
               }
             }}
             disabled={!showLeaderboard && currentRound === 1}
-            className="p-3 sm:p-2 rounded-full bg-gray-100 shadow-sm disabled:opacity-50 touch-manipulation"
+            className="p-2 rounded-full bg-gray-100 shadow-sm disabled:opacity-50 touch-manipulation"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-4 h-4" />
           </button>
           
-          <div className="flex space-x-1 sm:space-x-2">
+          <div className="flex space-x-1">
             {[1, 2, 3].map((round) => (
               <button
                 key={round}
@@ -643,26 +635,26 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
                   setCurrentRound(round);
                   setShowLeaderboard(false);
                 }}
-                className={`w-14 h-14 sm:w-12 sm:h-12 rounded-full text-sm font-bold flex items-center justify-center touch-manipulation ${
+                className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full text-sm font-bold flex items-center justify-center touch-manipulation ${
                   !showLeaderboard && currentRound === round
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-100 text-gray-600'
                 }`}
               >
-                <span className="text-lg font-bold">{round}</span>
+                <span className="text-base sm:text-lg font-bold">{round}</span>
               </button>
             ))}
             <button
               onClick={() => {
                 setShowLeaderboard(true);
               }}
-              className={`w-14 h-14 sm:w-12 sm:h-12 rounded-full text-sm font-bold flex items-center justify-center touch-manipulation ${
+              className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full text-sm font-bold flex items-center justify-center touch-manipulation ${
                 showLeaderboard
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-100 text-gray-600'
               }`}
             >
-              <span className="text-lg font-bold">LB</span>
+              <span className="text-base sm:text-lg font-bold">LB</span>
             </button>
           </div>
           
@@ -676,55 +668,13 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
               }
             }}
             disabled={!showLeaderboard && currentRound === 3}
-            className="p-3 sm:p-2 rounded-full bg-gray-100 shadow-sm disabled:opacity-50 touch-manipulation"
+            className="p-2 rounded-full bg-gray-100 shadow-sm disabled:opacity-50 touch-manipulation"
           >
-            <ChevronRight className="w-5 h-5" />
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Live Controls */}
-        <div className="flex flex-col sm:flex-row items-center justify-between mt-3 pt-3 border-t border-gray-200 space-y-2 sm:space-y-0">
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
-              className={`px-3 py-2 sm:py-1 rounded-full text-xs sm:text-xs font-medium touch-manipulation ${
-                autoRefreshEnabled 
-                  ? 'bg-green-100 text-green-700' 
-                  : 'bg-gray-100 text-gray-600'
-              }`}
-            >
-              {autoRefreshEnabled ? 'Auto' : 'Manual'}
-            </button>
-            <select
-              value={refreshInterval / 1000}
-              onChange={(e) => setRefreshInterval(Number(e.target.value) * 1000)}
-              disabled={!autoRefreshEnabled}
-              className="text-xs border rounded px-2 py-2 sm:py-1 disabled:opacity-50 touch-manipulation"
-            >
-              <option value={5}>5s</option>
-              <option value={10}>10s</option>
-              <option value={30}>30s</option>
-              <option value={60}>1m</option>
-            </select>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            {/* Connection Status */}
-            <div className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs ${connectionDisplay.bgColor} ${connectionDisplay.color}`}>
-              <ConnectionIcon className="w-3 h-3" />
-              <span className="capitalize hidden sm:inline">{connectionStatus}</span>
-            </div>
-            
-            <button
-              onClick={handleManualRefresh}
-              disabled={leaderboardLoading}
-              className="flex items-center space-x-1 px-3 py-2 sm:py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium hover:bg-blue-200 disabled:opacity-50 touch-manipulation"
-            >
-              <RefreshCw className={`w-3 h-3 ${leaderboardLoading ? 'animate-spin' : ''}`} />
-              <span>Refresh</span>
-            </button>
-          </div>
-        </div>
+
 
         {/* Error Display */}
         {error && (
@@ -739,15 +689,15 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       {/* Conditional Content */}
       {showLeaderboard ? (
         /* Leaderboard View */
-        <div className="bg-white rounded-lg p-3 sm:p-4 mb-3 sm:mb-4 shadow-sm">
-          <div className="text-center mb-4">
+        <div className="bg-white rounded-lg mb-3 shadow-sm">
+          <div className="text-center mb-4 px-4 pt-3">
             <h3 className="text-lg sm:text-xl font-bold text-gray-900 mb-2">🏆 Weekly Leaderboard</h3>
             <p className="text-sm sm:text-base text-gray-600">Overall standings for the week</p>
           </div>
           
           {leaderboard.length > 0 ? (
-            <div className="overflow-x-auto -mx-3 sm:mx-0">
-              <table className="w-full text-center min-w-full">
+            <div className="w-full px-4 pb-3 overflow-x-auto">
+              <table className="w-full text-center text-xs sm:text-sm min-w-full">
                 <thead>
                   <tr>
                     <th className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600 text-left">Rank</th>
@@ -758,7 +708,7 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {leaderboard.slice(0, 10).map((player, index) => {
+                  {leaderboard.map((player, index) => {
                     const isCurrentUser = (String(player.user_id || player.member_id) === String(user?.user_id || user?.member_id));
                     
                     // Get points from leaderboard data
@@ -766,8 +716,11 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
                     const holePoints = Number(player.total_hole_points || 0);
                     const roundPoints = Number(player.total_round_points || 0);
                     
+                    // Check if player has submitted any scores
+                    const hasSubmittedScores = player.hole_scores && player.hole_scores.some((score: number) => score > 0);
+                    
                     return (
-                      <tr key={player.user_id} className={`${isCurrentUser ? 'bg-blue-50' : ''}`}>
+                      <tr key={player.user_id} className={`${isCurrentUser ? 'bg-blue-50' : ''} ${!hasSubmittedScores ? 'opacity-60' : ''}`}>
                         <td className="px-1 sm:px-2 py-2 text-left">
                           <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                             index === 0 ? 'bg-yellow-100 text-yellow-800' :
@@ -810,45 +763,42 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
         </div>
       ) : (
         /* Hole-by-Hole Grid */
-        <div className="bg-white rounded-lg p-3 sm:p-4 mb-3 sm:mb-4 shadow-sm overflow-x-auto">
+        <div className="bg-white rounded-lg mb-3 shadow-sm">
 
         
         {currentRoundHoles.length === 0 ? (
-          <div className="text-center text-gray-500">Loading holes...</div>
+          <div className="text-center text-gray-500 px-4 py-3">Loading holes...</div>
         ) : (
         
-        <div className="min-w-max">
-          <table className="w-full text-center border-separate border-spacing-1">
+        <div className="w-full px-4 py-3 overflow-x-auto">
+          <table className="w-full text-center border-separate border-spacing-1 text-xs sm:text-sm">
             <thead>
               <tr>
-                <th className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600">Hole</th>
-                {currentRoundHoles.map((hole, index) => {
-                  const actualHoleNumber = (currentRound - 1) * 3 + index + 1;
-                  return (
-                    <th key={index} className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600 border-b">
-                      {actualHoleNumber}
-                    </th>
-                  );
-                })}
+                    {currentRoundHoles.map((hole, index) => {
+                      const actualHoleNumber = (currentRound - 1) * 3 + index + 1;
+                      return (
+                        <th key={index} className="px-1 py-2 text-sm font-bold text-gray-600 border-b">
+                          Hole {actualHoleNumber}
+                        </th>
+                      );
+                    })}
               </tr>
             </thead>
-                          <tbody>
-                {/* Score Row */}
-                <tr>
-                  <td className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600">Score</td>
+            <tbody>
+              <tr>
                 {currentRoundHoles.map((hole, index) => {
                   const actualHoleNumber = (currentRound - 1) * 3 + index + 1;
                   const fieldStat = fieldStats.find(stat => stat.hole === actualHoleNumber);
                   
                   return (
-                    <td key={index} className="px-1 sm:px-2 py-2">
+                    <td key={index} className="px-1 py-2">
                       {hole.submitted ? (
                         <div className="flex items-center justify-center space-x-1">
                           <span className="text-lg font-bold text-green-600">{hole.score}</span>
                           <span className="text-green-500">✓</span>
                         </div>
-                      ) : (
-                        <div className="relative">
+                                              ) : (
+                        <div className="flex flex-col items-center space-y-1">
                           <input
                             type="number"
                             min="1"
@@ -860,15 +810,15 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
                               handleHoleScoreChange((currentRound - 1) * 3 + index, score);
                             }}
                             disabled={hole.submitted}
-                            className="w-14 h-10 sm:w-12 sm:h-8 text-center border rounded text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500 touch-manipulation"
+                            className="w-16 h-10 text-center border rounded text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500 touch-manipulation"
                             placeholder="0"
                           />
                           <button
                             onClick={() => submitHoleScore((currentRound - 1) * 3 + index)}
                             disabled={submitting || hole.submitted || hole.score === 0}
-                            className="absolute -right-8 sm:-right-6 top-0 w-8 h-10 sm:w-6 sm:h-8 bg-blue-600 text-white text-xs rounded-r hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-400 touch-manipulation"
+                            className="w-16 h-6 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-400 touch-manipulation flex items-center justify-center"
                           >
-                            →
+                            ✓
                           </button>
                         </div>
                       )}
@@ -885,49 +835,61 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       </div>
       )}
       {!showLeaderboard && leaderboard.length > 0 && (
-        <div className="mt-4 sm:mt-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-3 sm:p-4 shadow-sm border-2 border-yellow-200">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm sm:text-base font-bold text-gray-900">🏆 LIVE ROUND RANKINGS</h3>
+        <div className="mt-4 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg shadow-sm border-2 border-yellow-200">
+          <div className="flex items-center justify-between mb-3 px-4 pt-3">
+            <div className="flex items-center space-x-3">
+              <h3 className="text-sm sm:text-base font-bold text-gray-900">🏆 LIVE ROUND RANKINGS</h3>
+              {/* Live Status Indicator */}
+              <div className="flex items-center space-x-1">
+                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                <span className="text-xs text-gray-600">
+                  {autoRefreshEnabled ? 'Live Updates' : 'Manual Mode'}
+                </span>
+              </div>
+            </div>
             <div className="flex items-center space-x-2">
               <span className="text-xs text-gray-500 hidden sm:inline">
                 {leaderboard.length} players
               </span>
-              <button
-                onClick={performDataUpdate}
-                disabled={leaderboardLoading}
-                className="text-blue-600 text-sm touch-manipulation"
-              >
-                <ArrowRight className={`w-4 h-4 ${leaderboardLoading ? 'animate-spin' : ''}`} />
-              </button>
+                              <button
+                  onClick={handleManualRefresh}
+                  disabled={leaderboardLoading}
+                  className="p-2 rounded-full bg-blue-100 text-blue-600 hover:bg-blue-200 disabled:opacity-50 touch-manipulation"
+                >
+                  <RefreshCw className={`w-4 h-4 ${leaderboardLoading ? 'animate-spin' : ''}`} />
+                </button>
             </div>
           </div>
           
-          <div className="overflow-x-auto -mx-3 sm:mx-0">
-            <table className="w-full text-center min-w-full">
+          <div className="w-full px-4 pb-3 overflow-x-auto">
+            <table className="w-full text-center text-xs sm:text-sm min-w-full">
               <thead>
                 <tr>
-                  <th className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600 text-left">Player</th>
+                  <th className="px-1 py-2 text-xs font-bold text-gray-600 text-left">Player</th>
                   {currentRoundHoles.map((hole, index) => {
                     const actualHoleNumber = (currentRound - 1) * 3 + index + 1;
                     return (
-                      <th key={index} className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600">
+                      <th key={index} className="px-1 py-2 text-xs font-bold text-gray-600">
                         H{actualHoleNumber}
                       </th>
                     );
                   })}
-                  <th className="px-1 sm:px-2 py-2 text-xs font-bold text-gray-600">R{currentRound}</th>
+                  <th className="px-1 py-2 text-xs font-bold text-gray-600">R{currentRound}</th>
                 </tr>
               </thead>
               <tbody>
-                {leaderboard.slice(0, 5).map((player, index) => {
+                {leaderboard.map((player, index) => {
                   const isCurrentUser = (String(player.user_id || player.member_id) === String(user?.user_id || user?.member_id));
+                  
+                  // Check if player has submitted any scores
+                  const hasSubmittedScores = player.hole_scores && player.hole_scores.some((score: number) => score > 0);
                   
                   // Debug current user detection
                   if (index === 0) {
                     console.log('LIVE RANKINGS DEBUG:');
                     console.log('Current user object:', user);
                     console.log('Current user ID:', user?.user_id || user?.member_id);
-                    console.log('Leaderboard players:', leaderboard.slice(0, 5).map(p => ({ id: p.user_id || p.member_id, name: p.first_name })));
+                    console.log('Leaderboard players:', leaderboard.map(p => ({ id: p.user_id || p.member_id, name: p.first_name })));
                   }
                   
                   console.log(`Player ${player.first_name} (${player.user_id || player.member_id}): isCurrentUser=${isCurrentUser}`);
@@ -984,8 +946,8 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
                   }
                   
                   return (
-                    <tr key={player.user_id} className={`${isCurrentUser ? 'bg-blue-50' : ''}`}>
-                      <td className="px-2 py-2 text-left">
+                    <tr key={player.user_id} className={`${isCurrentUser ? 'bg-blue-50' : ''} ${!hasSubmittedScores ? 'opacity-60' : ''}`}>
+                      <td className="px-1 py-2 text-left">
                         <div className="flex items-center space-x-2">
                           <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                             index === 0 ? 'bg-yellow-100 text-yellow-800' :
@@ -1057,7 +1019,7 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
                         }
                         
                         return (
-                          <td key={holeIndex} className="px-2 py-2">
+                          <td key={holeIndex} className="px-1 py-2">
                             <div className="text-center relative group cursor-pointer hover:bg-gray-50 rounded p-1" title={!isCurrentUser && playerScore > 0 ? `${player.first_name}: ${playerScore}` : ''}>
                               <div className={`w-8 h-8 rounded flex items-center justify-center text-xs font-bold mx-auto group-hover:bg-yellow-100 transition-colors relative ${
                                 playerScore > 0 ? 
@@ -1111,7 +1073,7 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
                           </td>
                         );
                       })}
-                      <td className="px-2 py-2">
+                      <td className="px-1 py-2">
                         <div className="text-center">
                           {!isCurrentUser && (
                             <div className="flex flex-col items-center space-y-1">

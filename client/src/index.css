@@ -26,7 +26,7 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: linear-gradient(135deg, var(--base-color-brand--dark-green), var(--base-color-brand--muted-green));
+  background: white;
   min-height: 100vh;
   color: var(--base-color-brand--black);
 }

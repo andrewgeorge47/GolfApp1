@@ -10,7 +10,8 @@ import {
   deleteTournament,
   checkInUser,
   checkOutUser,
-  updateTournamentMatch
+  updateTournamentMatch,
+  unregisterUserFromTournament
 } from '../services/api';
 import TournamentForm from './TournamentForm';
 import { toast } from 'react-toastify';
@@ -21,6 +22,7 @@ import TeamFormation from './TeamFormation';
 import TournamentLeaderboard from './TournamentLeaderboard';
 import StrokeplayScoring from './StrokeplayScoring';
 import StrokeplayLeaderboard from './StrokeplayLeaderboard';
+import NewWeeklyScoring from './NewWeeklyScoring';
 import { useAuth } from '../AuthContext';
 
 interface TournamentManagementProps {
@@ -374,6 +376,22 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
     } catch (error) {
       console.error('Error marking user as unpaid:', error);
       toast.error('Failed to mark user as unpaid');
+    }
+  };
+
+  const handleUnregisterUser = async (userId: number) => {
+    if (!window.confirm('Are you sure you want to unregister this user from the tournament?')) return;
+    
+    try {
+      await unregisterUserFromTournament(selectedTournament!.id, userId);
+      toast.success('User unregistered successfully');
+      // Refresh participants data
+      if (selectedTournament) {
+        getTournamentParticipants(selectedTournament.id).then(response => setTournamentParticipants(response.data));
+      }
+    } catch (error) {
+      console.error('Error unregistering user:', error);
+      toast.error('Failed to unregister user');
     }
   };
 
@@ -801,6 +819,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                                     <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Payment Status</th>
                                     <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Score Submitted</th>
                                     <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Payout</th>
+                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Actions</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -880,6 +899,15 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                                               TBD
                                             </span>
                                           )}
+                                        </td>
+                                        <td className="border border-neutral-300 px-4 py-3">
+                                          <button
+                                            onClick={() => handleUnregisterUser(participant.user_member_id)}
+                                            className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                                            title="Unregister from tournament"
+                                          >
+                                            Unregister
+                                          </button>
                                         </td>
                                       </tr>
                                     );
@@ -1068,9 +1096,18 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                             />
                           )}
 
+                          {/* Par3 Match Play Scoring */}
+                          {selectedTournament.tournament_format === 'par3_match_play' && (
+                            <NewWeeklyScoring
+                              tournamentId={selectedTournament.id}
+                              tournamentName={selectedTournament.name}
+                              onScoreSubmitted={handleScoreSubmitted}
+                            />
+                          )}
+
                           {/* Standard ScoreSubmission for other formats */}
                           {(!selectedTournament.tournament_format || 
-                            (selectedTournament.tournament_format !== 'match_play' && selectedTournament.tournament_format !== 'stroke_play') || 
+                            (selectedTournament.tournament_format !== 'match_play' && selectedTournament.tournament_format !== 'stroke_play' && selectedTournament.tournament_format !== 'par3_match_play') || 
                             selectedTournament.hole_configuration !== '3') && (
                             <ScoreSubmission
                               tournamentId={selectedTournament.id}
