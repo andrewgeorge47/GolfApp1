@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
 import api from '../services/api';
+import CourseEditModal from './CourseEditModal';
 
 interface CombinedCourse {
   id: number;
@@ -44,6 +45,8 @@ const SimulatorCourses: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const coursesPerPage = 24;
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedCourse, setSelectedCourse] = useState<CombinedCourse | null>(null);
 
   const courseTypes = [
     { key: 'par3', label: 'Par 3', icon: '🏌️' },
@@ -157,6 +160,24 @@ const SimulatorCourses: React.FC = () => {
     setSelectedLocation('');
     setSelectedCourseType('');
     setCurrentPage(1);
+  };
+
+  const handleEditCourse = (course: CombinedCourse) => {
+    setSelectedCourse(course);
+    setShowEditModal(true);
+  };
+
+  const handleCloseEditModal = () => {
+    setShowEditModal(false);
+    setSelectedCourse(null);
+  };
+
+  // Helper function to check if user has edit permissions
+  const canEditCourses = () => {
+    if (!user) return false;
+    
+    const userRole = user.role?.toLowerCase();
+    return userRole === 'admin' || userRole === 'club pro' || userRole === 'ambassador';
   };
 
   const shouldShowGsproFilters = () => {
@@ -524,6 +545,21 @@ const SimulatorCourses: React.FC = () => {
                       </div>
                     </div>
                   )}
+
+                  {/* Edit Button - Only show for Club Pro, Admin, and Ambassadors */}
+                  {canEditCourses() && (
+                    <div className="mt-4 pt-4 border-t border-gray-100">
+                      <button
+                        onClick={() => handleEditCourse(course)}
+                        className="w-full flex items-center justify-center px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
+                      >
+                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        Edit Course
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -590,6 +626,13 @@ const SimulatorCourses: React.FC = () => {
             </button>
           </div>
         )}
+
+        {/* Course Edit Modal */}
+        <CourseEditModal
+          isOpen={showEditModal}
+          onClose={handleCloseEditModal}
+          course={selectedCourse}
+        />
       </div>
     </div>
   );
