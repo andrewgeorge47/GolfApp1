@@ -45,7 +45,7 @@ export interface User {
   member_id: number;
   first_name: string;
   last_name: string;
-  email: string;
+  email_address: string;
   club: string;
   handicap?: number;
   sim_handicap?: number;

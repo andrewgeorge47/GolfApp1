@@ -74,8 +74,7 @@ const TournamentScoring: React.FC = () => {
 
   const handleScoreSubmitted = () => {
     toast.success('Score submitted successfully!');
-    // Optionally navigate back to profile or tournament page
-    navigate('/profile');
+    // Stay on current page - no navigation needed
   };
 
   const getFormatSpecificSettings = (tournament: any) => {

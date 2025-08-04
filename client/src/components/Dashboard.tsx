@@ -85,6 +85,19 @@ const Dashboard: React.FC = () => {
             </Link>
           </div>
 
+          {/* Admin Actions */}
+          {user && (user.role?.toLowerCase() === 'admin' || user.role?.toLowerCase() === 'super_admin') && (
+            <div className="mt-4 sm:mt-6 flex justify-center">
+              <Link to="/user-tracking" className="group transform hover:scale-105 transition-all duration-300">
+                <div className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-3 sm:px-6 sm:py-4 rounded-xl sm:rounded-2xl font-bold text-base sm:text-lg transition-all duration-300 flex items-center justify-center min-h-[44px] shadow-lg hover:shadow-purple-500/25">
+                  <Users className="w-5 h-5 sm:w-6 sm:h-6 mr-2 sm:mr-3" />
+                  User Management
+                  <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 ml-2 sm:ml-3 group-hover:translate-x-2 transition-transform" />
+                </div>
+              </Link>
+            </div>
+          )}
+
           {/* Social Proof */}
           <div className="mt-6 sm:mt-8 md:mt-12 text-center px-4">
             <p className="text-white/60 text-xs sm:text-sm mb-2 sm:mb-3 md:mb-4">Trusted by members across all Neighborhood National locations</p>

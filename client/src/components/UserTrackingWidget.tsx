@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Users, UserCheck, Calendar, TrendingUp, BarChart3, Filter, Clock, Edit3, Save, X } from 'lucide-react';
-import { getUserTrackingStats, getUserTrackingDetails, updateUser, type UserTrackingStats, type UserTrackingDetails } from '../services/api';
+import { Users, UserCheck, Calendar, TrendingUp, BarChart3, Filter, Clock, Edit3, Save, X, UserPlus, Trash2 } from 'lucide-react';
+import { getUserTrackingStats, getUserTrackingDetails, updateUser, deleteUser, type UserTrackingStats, type UserTrackingDetails } from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../AuthContext';
+import AddUserModal from './AddUserModal';
 
 interface UserTrackingWidgetProps {
   className?: string;
@@ -22,9 +23,10 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [editingRole, setEditingRole] = useState<string>('');
   const [updatingRole, setUpdatingRole] = useState<number | null>(null);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
 
   // Available roles for editing
-  const availableRoles = ['Member', 'Admin', 'Club Pro', 'Ambassador'];
+  const availableRoles = ['Member', 'Admin', 'Club Pro', 'Ambassador', 'Deactivated'];
 
   useEffect(() => {
     console.log('Current user:', user);
@@ -114,7 +116,7 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
       await updateUser(userId, {
         first_name: user.first_name,
         last_name: user.last_name,
-        email: user.email_address,
+        email_address: user.email_address,
         club: user.club,
         role: editingRole
       });
@@ -144,6 +146,47 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
     setEditingRole('');
   };
 
+  // Handle user creation
+  const handleUserAdded = async () => {
+    try {
+      // Refresh stats and details
+      await fetchStats();
+      if (showDetails) {
+        await fetchDetails();
+      }
+      toast.success('User added successfully!');
+    } catch (error: any) {
+      toast.error('Error refreshing data after user creation');
+    }
+  };
+
+  // Handle user deactivation
+  const handleDeactivateUser = async (userId: number, userName: string) => {
+    if (!window.confirm(`Are you sure you want to deactivate ${userName}? They will no longer be able to log in, but their data will be preserved.`)) {
+      return;
+    }
+
+    try {
+      await updateUser(userId, {
+        first_name: userName.split(' ')[0],
+        last_name: userName.split(' ')[1] || '',
+        email_address: '', // Keep existing email
+        club: '', // Keep existing club
+        role: 'Deactivated'
+      });
+      toast.success('User deactivated successfully!');
+      // Refresh stats and details
+      await fetchStats();
+      if (showDetails) {
+        await fetchDetails();
+      }
+    } catch (error: any) {
+      console.error('Error deactivating user:', error);
+      const errorMessage = error.response?.data?.error || 'Failed to deactivate user';
+      toast.error(errorMessage);
+    }
+  };
+
   const getRoleBadgeColor = (role: string) => {
     switch (role.toLowerCase()) {
       case 'admin':
@@ -152,6 +195,8 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
         return 'bg-purple-100 text-purple-800';
       case 'club pro':
         return 'bg-blue-100 text-blue-800';
+      case 'deactivated':
+        return 'bg-gray-100 text-gray-500';
       default:
         return 'bg-neutral-100 text-neutral-700';
     }
@@ -213,8 +258,19 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
 
   return (
     <div className={`bg-white rounded-xl p-6 border border-neutral-200 ${className}`}>
-      <div className="flex items-center justify-end mb-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">User Management</h2>
+          <p className="text-sm text-gray-600">Track and manage user accounts across all clubs</p>
+        </div>
         <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setShowAddUserModal(true)}
+            className="px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center"
+          >
+            <UserPlus className="w-4 h-4 mr-2" />
+            Add New User
+          </button>
           <button
             onClick={handleViewDetails}
             className="px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center"
@@ -506,13 +562,22 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
                             </span>
                           </td>
                           <td className="border border-neutral-300 px-3 py-3 text-neutral-600">
-                            <button
-                              onClick={() => handleEditRole(user.member_id, user.role)}
-                              className="px-3 py-1 bg-blue-600 text-white hover:bg-blue-700 transition-colors rounded text-xs font-medium shadow-sm"
-                              title="Edit Role"
-                            >
-                              Edit
-                            </button>
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => handleEditRole(user.member_id, user.role)}
+                                className="px-3 py-1 bg-blue-600 text-white hover:bg-blue-700 transition-colors rounded text-xs font-medium shadow-sm"
+                                title="Edit Role"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleDeactivateUser(user.member_id, `${user.first_name} ${user.last_name}`)}
+                                className="px-3 py-1 bg-red-600 text-white hover:bg-red-700 transition-colors rounded text-xs font-medium shadow-sm"
+                                title="Deactivate User"
+                              >
+                                Deactivate
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -524,6 +589,13 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
           </div>
         </div>
       )}
+
+      {/* Add User Modal */}
+      <AddUserModal
+        isOpen={showAddUserModal}
+        onClose={() => setShowAddUserModal(false)}
+        onUserAdded={handleUserAdded}
+      />
     </div>
   );
 };

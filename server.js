@@ -309,6 +309,95 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
+// Create new user (admin only)
+app.post('/api/users', authenticateToken, async (req, res) => {
+  // Check if user is admin
+  if (req.user?.role?.toLowerCase() !== 'admin') {
+    return res.status(403).json({ error: 'Only admins can create users' });
+  }
+  
+  const { member_id, first_name, last_name, email_address, club, role, handicap } = req.body;
+  
+  // Validate required fields
+  if (!member_id || !first_name || !last_name || !email_address || !club) {
+    return res.status(400).json({ error: 'Missing required fields: member_id, first_name, last_name, email_address, club' });
+  }
+  
+  try {
+    // Check if user already exists
+    const existingUser = await pool.query('SELECT member_id FROM users WHERE member_id = $1 OR email_address = $2', [member_id, email_address]);
+    if (existingUser.rows.length > 0) {
+      return res.status(409).json({ error: 'User with this member_id or email already exists' });
+    }
+    
+    // Insert new user
+    const { rows } = await pool.query(
+      `INSERT INTO users (member_id, first_name, last_name, email_address, club, role, handicap) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [member_id, first_name, last_name, email_address, club, role || 'member', handicap || 0]
+    );
+    
+    res.status(201).json(transformUserData(rows[0]));
+  } catch (err) {
+    console.error('Error creating user:', err);
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
+// Delete user (admin only)
+app.delete('/api/users/:id', authenticateToken, async (req, res) => {
+  // Check if user is admin
+  if (req.user?.role?.toLowerCase() !== 'admin') {
+    return res.status(403).json({ error: 'Only admins can delete users' });
+  }
+  
+  const { id } = req.params;
+  
+  try {
+    // Check if user exists
+    const existingUser = await pool.query('SELECT member_id, first_name, last_name FROM users WHERE member_id = $1', [id]);
+    if (existingUser.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Check for dependencies before deleting
+    const dependencies = await pool.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM scorecards WHERE user_id = $1) as scorecards_count,
+        (SELECT COUNT(*) FROM participation WHERE user_member_id = $1) as participation_count,
+        (SELECT COUNT(*) FROM league_participants WHERE user_id = $1) as league_participants_count,
+        (SELECT COUNT(*) FROM registration_form_responses WHERE user_member_id = $1) as registration_responses_count,
+        (SELECT COUNT(*) FROM course_records WHERE user_id = $1) as course_records_count
+    `, [id]);
+    
+    const deps = dependencies.rows[0];
+    const totalDeps = parseInt(deps.scorecards_count) + parseInt(deps.participation_count) + 
+                     parseInt(deps.league_participants_count) + parseInt(deps.registration_responses_count) + 
+                     parseInt(deps.course_records_count);
+    
+    if (totalDeps > 0) {
+      return res.status(400).json({ 
+        error: 'Cannot delete user. User has associated data that must be removed first.',
+        details: {
+          scorecards: parseInt(deps.scorecards_count),
+          tournament_participation: parseInt(deps.participation_count),
+          league_participation: parseInt(deps.league_participants_count),
+          registration_responses: parseInt(deps.registration_responses_count),
+          course_records: parseInt(deps.course_records_count)
+        }
+      });
+    }
+    
+    // Delete the user
+    await pool.query('DELETE FROM users WHERE member_id = $1', [id]);
+    
+    res.json({ message: 'User deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting user:', err);
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
 // Update user profile
 app.put('/api/users/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
@@ -837,6 +926,12 @@ app.post('/api/auth/login', async (req, res) => {
     if (!user || !user.password_hash) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+    
+    // Check if user is deactivated
+    if (user.role === 'Deactivated') {
+      return res.status(403).json({ error: 'Account has been deactivated. Please contact an administrator.' });
+    }
+    
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({ error: 'Invalid credentials' });

@@ -89,7 +89,7 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
 
   // Real-time update state with smart polling
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
-  const [refreshInterval, setRefreshInterval] = useState(10000); // 10 seconds
+  const [refreshInterval, setRefreshInterval] = useState(5000); // 5 seconds for more responsive updates
   const isInitialLoadRef = useRef(true);
   const lastDataHashRef = useRef<string>('');
   const lastLeaderboardRef = useRef<any[]>([]);
@@ -212,7 +212,22 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       // Create hash of new data
       const newDataHash = createDataHash(newLeaderboard, newFieldStats);
       
-      // Only update if data has actually changed
+      // Always fetch current player data and points
+      // Add a longer delay to allow server to process recent submissions
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await Promise.all([
+        fetchCurrentPlayerScorecard(),
+        fetchCurrentPoints()
+      ]);
+
+      // Debug: Check if current user's scores are in the leaderboard
+      const currentUser = newLeaderboard.find(p => p.user_id === user?.user_id || p.user_id === user?.member_id);
+      if (currentUser) {
+        console.log('Current user in leaderboard:', currentUser);
+        console.log('Current user local scores:', holeScores.map(h => h.score));
+      }
+
+      // Only update leaderboard and field stats if data has actually changed
       if (newDataHash !== lastDataHashRef.current) {
         console.log('Data changed, updating UI...');
         setLeaderboard(newLeaderboard);
@@ -221,14 +236,8 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
         lastLeaderboardRef.current = newLeaderboard;
         lastFieldStatsRef.current = newFieldStats;
       } else {
-        console.log('No data changes detected, skipping UI update');
+        console.log('No data changes detected for leaderboard/field stats, skipping their UI update');
       }
-
-      // Always fetch current player data (this is lightweight)
-      await Promise.all([
-        fetchCurrentPlayerScorecard(),
-        fetchCurrentPoints()
-      ]);
       
     } catch (error) {
       console.error('Error in smart data update:', error);
@@ -285,6 +294,10 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       const response = await getCurrentWeeklyScorecard(tournamentId, currentWeek);
       if (response.data) {
         const existingScores = response.data.hole_scores;
+        
+        // Always update with server data to ensure consistency
+        // This is especially important after score submissions
+        console.log('Updating hole scores from server data');
         const updatedHoleScores = holeScores.map((hole, index) => ({
           ...hole,
           score: existingScores[index] || 0,
@@ -456,7 +469,8 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       console.log('Hole Index:', holeIndex);
       console.log('Hole Scores:', holeScores);
       
-      const tempScores = holeScores.map((h, i) => i === holeIndex ? h.score : 0);
+      // Send all current hole scores, not just the one being submitted
+      const tempScores = holeScores.map(h => h.score);
       console.log('Temp Scores:', tempScores);
       
       console.log('Calling submitWeeklyScorecard...');
@@ -507,12 +521,7 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
         }
       }
       
-      // Immediately refresh leaderboard to show updated data
-      await performDataUpdate();
-      
-      if (onScoreSubmitted) {
-        onScoreSubmitted();
-      }
+      // Note: onScoreSubmitted callback is not called here to avoid double success messages
     } catch (error: any) {
       console.error('Error submitting hole score:', error);
       toast.error(error.response?.data?.error || error.message || 'Failed to submit hole score');
@@ -553,9 +562,7 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       // Immediately refresh all data
       await performDataUpdate();
       
-      if (onScoreSubmitted) {
-        onScoreSubmitted();
-      }
+      // Note: onScoreSubmitted callback is not called here to avoid double success messages
     } catch (error: any) {
       console.error('Error submitting final scorecard:', error);
       toast.error(error.response?.data?.error || error.message || 'Failed to submit scorecard');
@@ -816,9 +823,10 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
                           <button
                             onClick={() => submitHoleScore((currentRound - 1) * 3 + index)}
                             disabled={submitting || hole.submitted || hole.score === 0}
-                            className="w-16 h-6 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-400 touch-manipulation flex items-center justify-center"
+                            className="w-16 h-6 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:bg-gray-300 disabled:text-gray-400 touch-manipulation flex items-center justify-center"
+                            title="Save hole score"
                           >
-                            ✓
+                            <Save className="w-3 h-3" />
                           </button>
                         </div>
                       )}

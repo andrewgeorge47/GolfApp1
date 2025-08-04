@@ -319,9 +319,11 @@ function AppContent() {
       <Routes>
         {/* Full-width routes */}
         <Route path="/weekly-scoring/:tournamentId" element={
-          <ProtectedRoute>
-            <NewWeeklyScoringWrapper />
-          </ProtectedRoute>
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute>
+              <NewWeeklyScoringWrapper />
+            </ProtectedRoute>
+          </main>
         } />
         <Route path="/weekly-leaderboard/:tournamentId" element={
           <NewWeeklyLeaderboardWrapper />

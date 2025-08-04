@@ -125,7 +125,7 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
       const searchLower = registrationSearch.toLowerCase();
       availableUsers = availableUsers.filter(user =>
         `${user.first_name} ${user.last_name}`.toLowerCase().includes(searchLower) ||
-        user.email.toLowerCase().includes(searchLower) ||
+        user.email_address.toLowerCase().includes(searchLower) ||
         user.club?.toLowerCase().includes(searchLower)
       );
     }
@@ -356,7 +356,7 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
                     {user.first_name} {user.last_name}
                   </td>
                   <td className="border border-neutral-300 px-4 py-3 text-neutral-600">
-                    {user.email}
+                    {user.email_address}
                   </td>
                   <td className="border border-neutral-300 px-4 py-3">
                     <span className="px-2 py-1 bg-neutral-100 text-neutral-700 text-sm rounded">
