@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { CheckCircle, Clock, Users, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { CheckCircle, Clock, Users, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
 import { getWeeklyScorecards } from '../services/api';
 
 interface Participant {

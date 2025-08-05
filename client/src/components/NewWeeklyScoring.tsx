@@ -1,10 +1,66 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Save, Clock, Users, Trophy, Eye, EyeOff, ArrowRight, CheckCircle, ChevronLeft, ChevronRight, Target, TrendingUp, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { submitWeeklyScorecard, getWeeklyLeaderboard, getWeeklyMatches, getWeeklyScorecard, getWeeklyFieldStats, getCurrentWeeklyScorecard } from '../services/api';
 import { useAuth } from '../AuthContext';
 import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
+
+// Cache utility functions
+const CACHE_PREFIX = 'weekly_scoring_cache';
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+const getCacheKey = (tournamentId: number, weekStartDate: string, dataType: string) => {
+  return `${CACHE_PREFIX}_${tournamentId}_${weekStartDate}_${dataType}`;
+};
+
+const getCachedData = (key: string) => {
+  try {
+    const cached = localStorage.getItem(key);
+    if (!cached) return null;
+    
+    const { data, timestamp } = JSON.parse(cached);
+    const now = Date.now();
+    
+    if (now - timestamp > CACHE_DURATION) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    
+    return data;
+  } catch (error) {
+    console.error('Error reading cache:', error);
+    return null;
+  }
+};
+
+const setCachedData = (key: string, data: any) => {
+  try {
+    const cacheData = {
+      data,
+      timestamp: Date.now()
+    };
+    localStorage.setItem(key, JSON.stringify(cacheData));
+  } catch (error) {
+    console.error('Error writing cache:', error);
+  }
+};
+
+const clearCache = (tournamentId: number, weekStartDate: string) => {
+  const keys = [
+    getCacheKey(tournamentId, weekStartDate, 'leaderboard'),
+    getCacheKey(tournamentId, weekStartDate, 'fieldStats'),
+    getCacheKey(tournamentId, weekStartDate, 'playerScorecard')
+  ];
+  
+  keys.forEach(key => {
+    try {
+      localStorage.removeItem(key);
+    } catch (error) {
+      console.error('Error clearing cache:', error);
+    }
+  });
+};
 
 interface WeeklyScoringProps {
   tournamentId: number;
@@ -51,6 +107,7 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   const [fieldStats, setFieldStats] = useState<FieldStats[]>([]);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [usingCachedData, setUsingCachedData] = useState(false);
   const [currentPoints, setCurrentPoints] = useState<{
     totalPoints: number;
     holePoints: number;
@@ -112,6 +169,11 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   };
 
   const currentWeek = getWeekStartDate();
+
+  // Cache keys
+  const leaderboardCacheKey = useMemo(() => getCacheKey(tournamentId, currentWeek, 'leaderboard'), [tournamentId, currentWeek]);
+  const fieldStatsCacheKey = useMemo(() => getCacheKey(tournamentId, currentWeek, 'fieldStats'), [tournamentId, currentWeek]);
+  const playerScorecardCacheKey = useMemo(() => getCacheKey(tournamentId, currentWeek, 'playerScorecard'), [tournamentId, currentWeek]);
 
   // Calculate matchplay states when leaderboard or hole scores change
   useEffect(() => {
@@ -200,28 +262,47 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   // Smart data update function that only fetches if data has changed
   const performSmartDataUpdate = useCallback(async () => {
     try {
-      // Fetch leaderboard and field stats
-      const [leaderboardResponse, fieldStatsResponse] = await Promise.all([
-        getWeeklyLeaderboard(tournamentId, currentWeek),
-        getWeeklyFieldStats(tournamentId, currentWeek)
-      ]);
+      // Check cache first for leaderboard and field stats
+      const cachedLeaderboard = getCachedData(leaderboardCacheKey);
+      const cachedFieldStats = getCachedData(fieldStatsCacheKey);
+      
+      let newLeaderboard, newFieldStats;
+      
+      if (cachedLeaderboard && cachedFieldStats) {
+        console.log('Using cached data for leaderboard and field stats');
+        newLeaderboard = cachedLeaderboard;
+        newFieldStats = cachedFieldStats;
+        setUsingCachedData(true);
+      } else {
+        console.log('Fetching fresh data from server');
+        setUsingCachedData(false);
+        // Fetch leaderboard and field stats
+        const [leaderboardResponse, fieldStatsResponse] = await Promise.all([
+          getWeeklyLeaderboard(tournamentId, currentWeek),
+          getWeeklyFieldStats(tournamentId, currentWeek)
+        ]);
 
-      const newLeaderboard = leaderboardResponse.data;
-      const newFieldStats = fieldStatsResponse.data;
+        newLeaderboard = leaderboardResponse.data;
+        newFieldStats = fieldStatsResponse.data;
+        
+        // Cache the fresh data
+        setCachedData(leaderboardCacheKey, newLeaderboard);
+        setCachedData(fieldStatsCacheKey, newFieldStats);
+      }
       
       // Create hash of new data
       const newDataHash = createDataHash(newLeaderboard, newFieldStats);
       
-      // Always fetch current player data and points
-      // Add a longer delay to allow server to process recent submissions
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Always fetch current player data and points (don't cache these as they change frequently)
+      // Reduced delay since we're using cache for static data
+      await new Promise(resolve => setTimeout(resolve, 500));
       await Promise.all([
         fetchCurrentPlayerScorecard(),
         fetchCurrentPoints()
       ]);
 
       // Debug: Check if current user's scores are in the leaderboard
-      const currentUser = newLeaderboard.find(p => p.user_id === user?.user_id || p.user_id === user?.member_id);
+      const currentUser = newLeaderboard.find((p: any) => p.user_id === user?.user_id || p.user_id === user?.member_id);
       if (currentUser) {
         console.log('Current user in leaderboard:', currentUser);
         console.log('Current user local scores:', holeScores.map(h => h.score));
@@ -243,7 +324,7 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       console.error('Error in smart data update:', error);
       throw error;
     }
-  }, [tournamentId, currentWeek, createDataHash]);
+  }, [tournamentId, currentWeek, createDataHash, leaderboardCacheKey, fieldStatsCacheKey]);
 
   // Combined update function for real-time updates (now uses smart update)
   const performDataUpdate = useCallback(async () => {
@@ -290,13 +371,27 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
 
   const fetchCurrentPlayerScorecard = async () => {
     try {
-      // Use only the calculated week start date
+      // Check cache first for player scorecard
+      const cachedScorecard = getCachedData(playerScorecardCacheKey);
+      
+      if (cachedScorecard) {
+        console.log('Using cached player scorecard data');
+        const existingScores = cachedScorecard.hole_scores;
+        
+        const updatedHoleScores = holeScores.map((hole, index) => ({
+          ...hole,
+          score: existingScores[index] || 0,
+          submitted: existingScores[index] > 0
+        }));
+        setHoleScores(updatedHoleScores);
+      }
+      
+      // Always fetch fresh data from server to ensure consistency
       const response = await getCurrentWeeklyScorecard(tournamentId, currentWeek);
       if (response.data) {
         const existingScores = response.data.hole_scores;
         
-        // Always update with server data to ensure consistency
-        // This is especially important after score submissions
+        // Update with server data to ensure consistency
         console.log('Updating hole scores from server data');
         const updatedHoleScores = holeScores.map((hole, index) => ({
           ...hole,
@@ -304,6 +399,9 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
           submitted: existingScores[index] > 0
         }));
         setHoleScores(updatedHoleScores);
+        
+        // Cache the fresh data
+        setCachedData(playerScorecardCacheKey, response.data);
       }
     } catch (error) {
       console.error('Error fetching current player scorecard:', error);
@@ -559,6 +657,9 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       setGroupId('');
       setCurrentRound(1);
       
+      // Clear cache to ensure fresh data is fetched
+      clearCache(tournamentId, currentWeek);
+      
       // Immediately refresh all data
       await performDataUpdate();
       
@@ -574,6 +675,8 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   // Manual refresh function
   const handleManualRefresh = async () => {
     toast.info('Refreshing live data...');
+    // Clear cache to force fresh data fetch
+    clearCache(tournamentId, currentWeek);
     await manualRefresh();
     toast.success('Data refreshed successfully!');
   };
