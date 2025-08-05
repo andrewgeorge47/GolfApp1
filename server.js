@@ -1256,9 +1256,11 @@ app.get('/api/tournaments/:id/participants', async (req, res) => {
   const { id } = req.params;
   try {
     const { rows } = await pool.query(
-      `SELECT p.*, u.first_name, u.last_name, u.email_address, u.club, u.role 
+      `SELECT p.*, u.first_name, u.last_name, u.email_address, u.club, u.role,
+              rfr.form_data as registration_form_data
        FROM participation p 
        JOIN users u ON p.user_member_id = u.member_id 
+       LEFT JOIN registration_form_responses rfr ON p.tournament_id = rfr.tournament_id AND p.user_member_id = rfr.user_member_id
        WHERE p.tournament_id = $1 
        ORDER BY u.last_name, u.first_name`,
       [id]
@@ -1267,6 +1269,29 @@ app.get('/api/tournaments/:id/participants', async (req, res) => {
   } catch (err) {
     console.error('Error fetching tournament participants:', err);
     res.status(500).json({ error: 'Failed to fetch tournament participants' });
+  }
+});
+
+// Get tournament weekly scorecards
+app.get('/api/tournaments/:id/weekly-scorecards', async (req, res) => {
+  const { id } = req.params;
+  const { week_start_date } = req.query;
+  
+  try {
+    const weekStartDate = week_start_date || getWeekStartDate();
+    
+    const { rows } = await pool.query(
+      `SELECT wsc.*, u.first_name, u.last_name, u.email_address, u.club
+       FROM weekly_scorecards wsc
+       JOIN users u ON wsc.user_id = u.member_id
+       WHERE wsc.tournament_id = $1 AND wsc.week_start_date = $2
+       ORDER BY u.last_name, u.first_name`,
+      [id, weekStartDate]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching tournament weekly scorecards:', err);
+    res.status(500).json({ error: 'Failed to fetch tournament weekly scorecards' });
   }
 });
 
@@ -7021,7 +7046,7 @@ app.post('/api/tournaments/:id/weekly-scorecard', authenticateToken, async (req,
   const { hole_scores, is_live = false, group_id = null } = req.body;
   
   try {
-    // Validate tournament exists
+    // Validate tournament exists and get tournament settings
     const tournamentResult = await pool.query(
       'SELECT * FROM tournaments WHERE id = $1',
       [id]
@@ -7030,6 +7055,15 @@ app.post('/api/tournaments/:id/weekly-scorecard', authenticateToken, async (req,
     if (tournamentResult.rows.length === 0) {
       return res.status(404).json({ error: 'Tournament not found' });
     }
+    
+    const tournament = tournamentResult.rows[0];
+    console.log('Tournament settings:', tournament);
+    
+    // Check if this is a par 3 tournament (either by format or teebox selection)
+    const isPar3Tournament = tournament.tee === 'Par 3' || tournament.tournament_format === 'par3_match_play';
+    console.log('Tournament tee:', tournament.tee);
+    console.log('Tournament format:', tournament.tournament_format);
+    console.log('Is par 3 tournament:', isPar3Tournament);
     
     // Validate hole scores (must be 9 holes)
     if (!Array.isArray(hole_scores) || hole_scores.length !== 9) {
@@ -7071,6 +7105,10 @@ app.post('/api/tournaments/:id/weekly-scorecard', authenticateToken, async (req,
       
       const newTotalScore = mergedScores.reduce((sum, score) => sum + score, 0);
       
+      // Log par 3 tournament detection for debugging (update)
+      console.log('Par 3 tournament detected (update):', isPar3Tournament);
+      console.log('Note: Par values should be set to 3 for all holes in par 3 tournaments');
+      
       // Update existing scorecard
       const { rows } = await pool.query(
         `UPDATE weekly_scorecards 
@@ -7088,6 +7126,10 @@ app.post('/api/tournaments/:id/weekly-scorecard', authenticateToken, async (req,
       res.json(rows[0]);
       return;
     }
+    
+    // Log par 3 tournament detection for debugging
+    console.log('Par 3 tournament detected:', isPar3Tournament);
+    console.log('Note: Par values should be set to 3 for all holes in par 3 tournaments');
     
     // Insert scorecard
     const { rows } = await pool.query(

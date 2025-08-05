@@ -23,6 +23,7 @@ import TournamentLeaderboard from './TournamentLeaderboard';
 import StrokeplayScoring from './StrokeplayScoring';
 import StrokeplayLeaderboard from './StrokeplayLeaderboard';
 import NewWeeklyScoring from './NewWeeklyScoring';
+import ParticipantsTable from './ParticipantsTable';
 import { useAuth } from '../AuthContext';
 
 interface TournamentManagementProps {
@@ -774,149 +775,16 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                       )}
                       
                       {activeTab === 'checkin' && requiresCheckIn(selectedTournament.tournament_format || 'match_play') && (
-                        <div className="space-y-6">
-                          <div className="bg-white rounded-xl p-6 border border-neutral-200">
-                            <div className="flex items-center justify-between mb-4">
-                              <h4 className="text-lg font-semibold text-brand-black">Player Management</h4>
-                              <div className="flex items-center space-x-2">
-                                <span className="text-sm text-neutral-600">
-                                  {tournamentCheckIns.filter(c => c.status === 'checked_in').length} paid
-                                </span>
-                                <span className="text-sm text-neutral-600">
-                                  / {tournamentParticipants.length} registered
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Quick Actions */}
-                            <div className="flex flex-wrap gap-3 mb-6">
-                              <button
-                                onClick={() => {
-                                  const notCheckedIn = tournamentParticipants.filter(p => 
-                                    !tournamentCheckIns.find(c => c.user_member_id === p.user_member_id && c.status === 'checked_in')
-                                  );
-                                  if (notCheckedIn.length > 0) {
-                                    handleCheckInUsers(notCheckedIn.map(p => p.user_member_id));
-                                  }
-                                }}
-                                className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center"
-                                disabled={tournamentParticipants.filter(p => 
-                                  !tournamentCheckIns.find(c => c.user_member_id === p.user_member_id && c.status === 'checked_in')
-                                ).length === 0}
-                              >
-                                <CheckCircle className="w-4 h-4 mr-2" />
-                                Mark All as Paid
-                              </button>
-                            </div>
-
-                            {/* Participants Table */}
-                            <div className="overflow-x-auto">
-                              <table className="w-full border-collapse border border-neutral-300 rounded-lg">
-                                <thead className="bg-neutral-50">
-                                  <tr>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Name</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Club</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Payment Status</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Score Submitted</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Payout</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Actions</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {tournamentParticipants.map(participant => {
-                                    const checkIn = tournamentCheckIns.find(c => c.user_member_id === participant.user_member_id);
-                                    const isCheckedIn = checkIn && checkIn.status === 'checked_in';
-                                    const hasScore = tournamentScores.find(s => s.user_id === participant.user_member_id);
-                                    const payout = tournamentPayouts.find(p => p.user_member_id === participant.user_member_id);
-                                    
-                                    return (
-                                      <tr key={participant.user_member_id} className="hover:bg-neutral-50">
-                                        <td className="border border-neutral-300 px-4 py-3 font-medium">
-                                          {participant.first_name} {participant.last_name}
-                                        </td>
-                                        <td className="border border-neutral-300 px-4 py-3">
-                                          <span className="px-2 py-1 bg-neutral-100 text-neutral-700 text-sm rounded">
-                                            {participant.club}
-                                          </span>
-                                        </td>
-                                        <td className="border border-neutral-300 px-4 py-3">
-                                          <div className="flex items-center space-x-2">
-                                            {isCheckedIn ? (
-                                              <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                                <CheckCircle className="w-3 h-3 inline mr-1" />
-                                                Paid
-                                              </span>
-                                            ) : (
-                                              <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                                <Clock className="w-3 h-3 inline mr-1" />
-                                                Unpaid
-                                              </span>
-                                            )}
-                                            <div className="flex space-x-1">
-                                              {!isCheckedIn && (
-                                                <button
-                                                  onClick={() => handleCheckInUsers([participant.user_member_id])}
-                                                  className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
-                                                  title="Mark as Paid"
-                                                >
-                                                  ✓
-                                                </button>
-                                              )}
-                                              {isCheckedIn && (
-                                                <button
-                                                  onClick={() => handleCheckOutUser(participant.user_member_id)}
-                                                  className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
-                                                  title="Mark as Unpaid"
-                                                >
-                                                  ✗
-                                                </button>
-                                              )}
-                                            </div>
-                                          </div>
-                                        </td>
-                                        <td className="border border-neutral-300 px-4 py-3">
-                                          {hasScore ? (
-                                            <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                              <CheckCircle className="w-3 h-3 inline mr-1" />
-                                              Submitted
-                                            </span>
-                                          ) : (
-                                            <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                              <Clock className="w-3 h-3 inline mr-1" />
-                                              Pending
-                                            </span>
-                                          )}
-                                        </td>
-                                        <td className="border border-neutral-300 px-4 py-3">
-                                          {payout ? (
-                                            <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                              <CheckCircle className="w-3 h-3 inline mr-1" />
-                                              ${payout.amount}
-                                            </span>
-                                          ) : (
-                                            <span className="px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                                              <Clock className="w-3 h-3 inline mr-1" />
-                                              TBD
-                                            </span>
-                                          )}
-                                        </td>
-                                        <td className="border border-neutral-300 px-4 py-3">
-                                          <button
-                                            onClick={() => handleUnregisterUser(participant.user_member_id)}
-                                            className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
-                                            title="Unregister from tournament"
-                                          >
-                                            Unregister
-                                          </button>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        </div>
+                        <ParticipantsTable
+                          participants={tournamentParticipants}
+                          checkIns={tournamentCheckIns}
+                          scores={tournamentScores}
+                          payouts={tournamentPayouts}
+                          tournamentId={selectedTournament.id}
+                          onCheckIn={handleCheckInUsers}
+                          onCheckOut={handleCheckOutUser}
+                          onUnregister={handleUnregisterUser}
+                        />
                       )}
                       
                       {activeTab === 'matches' && requiresMatches(selectedTournament.tournament_format || 'match_play') && (

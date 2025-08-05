@@ -858,4 +858,7 @@ export const getWeeklyFieldStats = (tournamentId: number, weekStartDate?: string
 export const getCurrentWeeklyScorecard = (tournamentId: number, weekStartDate?: string, fallbackDate?: string) =>
   api.get<WeeklyScorecard>(`/tournaments/${tournamentId}/weekly-scorecard/current?week_start_date=${weekStartDate || ''}&fallback_date=${fallbackDate || ''}`);
 
+export const getWeeklyScorecards = (tournamentId: number, weekStartDate?: string) =>
+  api.get<WeeklyScorecard[]>(`/tournaments/${tournamentId}/weekly-scorecards?week_start_date=${weekStartDate || ''}`);
+
 export default api; 
