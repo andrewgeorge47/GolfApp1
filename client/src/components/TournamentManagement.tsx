@@ -25,6 +25,7 @@ import StrokeplayLeaderboard from './StrokeplayLeaderboard';
 import NewWeeklyScoring from './NewWeeklyScoring';
 import ParticipantsTable from './ParticipantsTable';
 import { useAuth } from '../AuthContext';
+import NewWeeklyLeaderboard from './NewWeeklyLeaderboard';
 
 interface TournamentManagementProps {
   // Add any props if needed
@@ -1316,36 +1317,45 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                             </div>
                           )}
 
+                          {/* Par3 Weekly Leaderboard */}
+                          {selectedTournament.tournament_format === 'par3_match_play' && (
+                            <NewWeeklyLeaderboard
+                              tournamentId={selectedTournament.id}
+                              tournamentName={selectedTournament.name}
+                            />
+                          )}
+
                           {/* Standard TournamentLeaderboard for other formats */}
                           {(!selectedTournament.tournament_format || 
                             selectedTournament.tournament_format !== 'match_play' || 
-                            selectedTournament.hole_configuration !== '3') && (
-                            selectedTournament.tournament_format === 'stroke_play' ? (
-                              <StrokeplayLeaderboard
-                                tournamentId={selectedTournament.id}
-                                tournamentFormat={selectedTournament.tournament_format}
-                                courseId={selectedTournament.course_id}
-                                onRefresh={handleScoreSubmitted}
-                                tournamentInfo={{
-                                  name: selectedTournament.name,
-                                  description: selectedTournament.description,
-                                  start_date: selectedTournament.start_date,
-                                  course_name: selectedTournament.course
-                                }}
-                                tournamentSettings={getFormatSpecificSettings(selectedTournament)}
-                              />
-                            ) : (
-                              <TournamentLeaderboard
-                                tournamentId={selectedTournament.id}
-                                tournamentFormat={selectedTournament.tournament_format || 'match_play'}
-                                onRefresh={handleScoreSubmitted}
-                                courseId={selectedTournament.course_id}
-                                tournamentSettings={getFormatSpecificSettings(selectedTournament)}
-                              />
-                            )
-                          )}
-                        </div>
-                      )}
+                            selectedTournament.hole_configuration !== '3') &&
+                             selectedTournament.tournament_format !== 'par3_match_play' && (
+                             selectedTournament.tournament_format === 'stroke_play' ? (
+                               <StrokeplayLeaderboard
+                                 tournamentId={selectedTournament.id}
+                                 tournamentFormat={selectedTournament.tournament_format}
+                                 courseId={selectedTournament.course_id}
+                                 onRefresh={handleScoreSubmitted}
+                                 tournamentInfo={{
+                                   name: selectedTournament.name,
+                                   description: selectedTournament.description,
+                                   start_date: selectedTournament.start_date,
+                                   course_name: selectedTournament.course
+                                 }}
+                                 tournamentSettings={getFormatSpecificSettings(selectedTournament)}
+                               />
+                             ) : (
+                               <TournamentLeaderboard
+                                 tournamentId={selectedTournament.id}
+                                 tournamentFormat={selectedTournament.tournament_format || 'match_play'}
+                                 onRefresh={handleScoreSubmitted}
+                                 courseId={selectedTournament.course_id}
+                                 tournamentSettings={getFormatSpecificSettings(selectedTournament)}
+                               />
+                             )
+                           )}
+                         </div>
+                       )}
                     </div>
                   </div>
                 </div>
