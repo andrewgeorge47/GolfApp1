@@ -63,7 +63,7 @@ describe('NewWeeklyScoring', () => {
           total_score: 15.5,
           total_hole_points: 10,
           total_round_points: 3,
-          total_match_bonus: 2.5,
+
           matches_played: 3,
           matches_won: 2,
           matches_tied: 0,

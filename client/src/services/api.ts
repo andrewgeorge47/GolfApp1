@@ -797,7 +797,6 @@ export interface WeeklyLeaderboardEntry {
   club: string;
   total_hole_points: number | string;
   total_round_points: number | string;
-  total_match_bonus: number | string;
   total_score: number | string;
   matches_played: number | string;
   matches_won: number | string;
@@ -825,8 +824,7 @@ export interface WeeklyMatch {
   round3_points_player1: number | string;
   round3_points_player2: number | string;
   match_winner_id: number | null;
-  match_live_bonus_player1: number | string;
-  match_live_bonus_player2: number | string;
+
   total_points_player1: number | string;
   total_points_player2: number | string;
   player1_scores: number[];

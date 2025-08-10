@@ -20,12 +20,16 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
   const [playerMatches, setPlayerMatches] = useState<WeeklyMatch[]>([]);
   const [matchesLoading, setMatchesLoading] = useState(false);
 
-  // Helper function to get week start date (Monday)
+  // Helper function to get week start date (Monday) - using UTC to match backend
   const getWeekStartDate = (date = new Date()) => {
     const d = new Date(date);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    return new Date(d.setDate(diff)).toISOString().split('T')[0];
+    const day = d.getUTCDay();
+    const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
+    const weekStart = new Date(d.setUTCDate(diff));
+    const year = weekStart.getUTCFullYear();
+    const month = String(weekStart.getUTCMonth() + 1).padStart(2, '0');
+    const dayOfMonth = String(weekStart.getUTCDate()).padStart(2, '0');
+    return year + '-' + month + '-' + dayOfMonth;
   };
 
   const currentWeek = weekStartDate || getWeekStartDate();
@@ -151,12 +155,11 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
         <div className="bg-white rounded-lg shadow overflow-hidden">
           {/* Header */}
           <div className="bg-gray-50 px-6 py-4 border-b">
-            <div className="grid grid-cols-12 gap-4 text-sm font-medium text-gray-700">
+            <div className="grid grid-cols-11 gap-4 text-sm font-medium text-gray-700">
               <div className="col-span-1">Rank</div>
               <div className="col-span-3">Player</div>
               <div className="col-span-1 text-center">Hole Pts</div>
               <div className="col-span-1 text-center">Round Pts</div>
-              <div className="col-span-1 text-center">Bonus</div>
               <div className="col-span-1 text-center">Total</div>
               <div className="col-span-2 text-center">Record</div>
               <div className="col-span-1 text-center">Live</div>
@@ -169,7 +172,7 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
             {leaderboard.map((player, index) => (
               <div key={player.user_id}>
                 <div className="px-6 py-4 hover:bg-gray-50">
-                  <div className="grid grid-cols-12 gap-4 items-center">
+                  <div className="grid grid-cols-11 gap-4 items-center">
                     <div className="col-span-1">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
                         index === 0 ? 'bg-yellow-100 text-yellow-800' :
@@ -197,12 +200,6 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
                     <div className="col-span-1 text-center">
                       <div className="text-lg font-semibold text-green-600">
                         {Number(player.total_round_points || 0).toFixed(1)}
-                      </div>
-                    </div>
-                    
-                    <div className="col-span-1 text-center">
-                      <div className="text-lg font-semibold text-purple-600">
-                        {Number(player.total_match_bonus || 0).toFixed(1)}
                       </div>
                     </div>
                     
@@ -253,7 +250,7 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
                   </div>
                 </div>
 
-                {/* Expanded Match Details */}
+                {/* Expanded Match Details - Genomics Heatmap Style */}
                 {expandedPlayer === player.user_id && (
                   <div className="bg-gray-50 px-6 py-4 border-t">
                     {matchesLoading ? (
@@ -262,295 +259,269 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
                       </div>
                     ) : playerMatches.length > 0 ? (
                       <div>
-                        <h4 className="font-semibold text-gray-900 mb-3">Match Details</h4>
-                        <div className="space-y-3">
-                          {playerMatches.map((match) => (
-                            <div key={match.id} className="bg-white rounded-lg p-4 border">
-                              <div className="flex justify-between items-center mb-3">
-                                <div className="flex items-center space-x-4">
-                                  <div>
-                                    <div className="font-semibold">
-                                      {match.player1_id === player.user_id 
-                                        ? `${match.player2_first_name} ${match.player2_last_name}`
-                                        : `${match.player1_first_name} ${match.player1_last_name}`
-                                      }
-                                    </div>
-                                    <div className="text-sm text-gray-500">
-                                      {match.player1_id === player.user_id 
-                                        ? match.player2_last_name
-                                        : match.player1_last_name
-                                      } Club
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                  <span className={`px-2 py-1 rounded text-xs font-semibold ${getMatchResultColor(getMatchResult(match, player.user_id))}`}>
-                                    {getMatchResult(match, player.user_id)}
-                                  </span>
-                                </div>
-                              </div>
+                        <h4 className="font-semibold text-gray-900 mb-4">Match Comparison Matrix</h4>
+                        
+                        {/* Compact Heatmap Table */}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-center border-collapse">
+                            <thead>
+                              {/* Round Headers */}
+                              <tr className="border-b border-gray-300">
+                                <th className="px-2 py-1 text-xs font-bold text-gray-700 bg-gray-100 sticky left-0 z-10 min-w-[120px]">
+                                  Player
+                                </th>
+                                <th colSpan={3} className="px-1 py-1 text-xs font-bold text-gray-700 bg-blue-50 border-l-2 border-blue-200">
+                                  R1 (Holes 1-3)
+                                </th>
+                                <th colSpan={3} className="px-1 py-1 text-xs font-bold text-gray-700 bg-green-50 border-l-2 border-green-200">
+                                  R2 (Holes 4-6)
+                                </th>
+                                <th colSpan={3} className="px-1 py-1 text-xs font-bold text-gray-700 bg-purple-50 border-l-2 border-purple-200">
+                                  R3 (Holes 7-9)
+                                </th>
+                                <th className="px-1 py-1 text-xs font-bold text-gray-700 bg-gray-100 border-l-2 border-gray-200">
+                                  H
+                                </th>
+                                <th className="px-1 py-1 text-xs font-bold text-gray-700 bg-gray-100">
+                                  R
+                                </th>
+                                <th className="px-1 py-1 text-xs font-bold text-gray-700 bg-gray-100">
+                                  Result
+                                </th>
+                              </tr>
+                              {/* Hole Headers */}
+                              <tr className="border-b-2 border-gray-300">
+                                <th className="px-2 py-2 text-xs font-bold text-gray-700 bg-gray-100 sticky left-0 z-10 min-w-[120px]">
+                                  
+                                </th>
+                                {Array.from({ length: 9 }, (_, i) => (
+                                  <th key={i} className={`px-1 py-2 text-xs font-bold text-gray-700 bg-gray-100 min-w-[40px] ${
+                                    i === 0 ? 'border-l-2 border-blue-200' : 
+                                    i === 3 ? 'border-l-2 border-green-200' : 
+                                    i === 6 ? 'border-l-2 border-purple-200' : ''
+                                  }`}>
+                                    {i + 1}
+                                  </th>
+                                ))}
+                                <th className="px-1 py-2 text-xs font-bold text-gray-700 bg-gray-100 border-l-2 border-gray-200">
+                                  
+                                </th>
+                                <th className="px-1 py-2 text-xs font-bold text-gray-700 bg-gray-100">
+                                  
+                                </th>
+                                <th className="px-1 py-2 text-xs font-bold text-gray-700 bg-gray-100">
+                                  
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {/* Current Player Row */}
+                              <tr className="border-b border-gray-200 bg-blue-50">
+                                <td className="px-2 py-2 text-sm font-bold text-blue-900 sticky left-0 z-10 bg-blue-50">
+                                  {player.first_name} {player.last_name}
+                                </td>
+                                {Array.from({ length: 9 }, (_, i) => {
+                                  // Get player's scores from their matches
+                                  const playerMatch = playerMatches.find(match => 
+                                    match.player1_id === player.user_id || match.player2_id === player.user_id
+                                  );
+                                  
+                                  if (!playerMatch) return '';
+                                  
+                                  const isPlayer1 = playerMatch.player1_id === player.user_id;
+                                  const playerScores = isPlayer1 ? playerMatch.player1_scores : playerMatch.player2_scores;
+                                  const score = Number(playerScores?.[i] || 0);
+                                  
+                                  return (
+                                    <td key={i} className="px-1 py-2 text-sm font-bold text-blue-900">
+                                      {score > 0 ? score : ''}
+                                    </td>
+                                  );
+                                })}
+                                <td className="px-1 py-2 text-sm font-bold text-blue-600">
+                                  {Number(player.total_hole_points || 0).toFixed(1)}
+                                </td>
+                                <td className="px-1 py-2 text-sm font-bold text-green-600">
+                                  {Number(player.total_round_points || 0).toFixed(1)}
+                                </td>
+                                <td className="px-1 py-2 text-sm font-bold text-gray-900">
+                                  -
+                                </td>
+                              </tr>
                               
-                              <div className="grid grid-cols-3 gap-4 text-sm mb-4">
-                                <div>
-                                  <div className="text-gray-500">Hole Points</div>
-                                  <div className="font-semibold text-blue-600">
-                                    {match.player1_id === player.user_id 
-                                      ? Number(match.hole_points_player1 || 0).toFixed(1)
-                                      : Number(match.hole_points_player2 || 0).toFixed(1)
-                                    }
-                                  </div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-500">Round Points</div>
-                                  <div className="font-semibold text-green-600">
-                                    {match.player1_id === player.user_id 
-                                      ? (Number(match.round1_points_player1 || 0) + Number(match.round2_points_player1 || 0) + Number(match.round3_points_player1 || 0)).toFixed(1)
-                                      : (Number(match.round1_points_player2 || 0) + Number(match.round2_points_player2 || 0) + Number(match.round3_points_player2 || 0)).toFixed(1)
-                                    }
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <div className="text-gray-500">Total</div>
-                                  <div className="font-semibold text-gray-900">
-                                    {match.player1_id === player.user_id 
-                                      ? Number(match.total_points_player1 || 0).toFixed(1)
-                                      : Number(match.total_points_player2 || 0).toFixed(1)
-                                    }
-                                  </div>
-                                </div>
-                              </div>
-                              
-                              {/* Match Details Table */}
-                              <div className="mt-3">
-                                <div className="text-xs font-semibold text-gray-700 mb-2">
-                                  {match.player1_first_name} {match.player1_last_name} vs {match.player2_first_name} {match.player2_last_name}
-                                </div>
+                              {/* Opponent Rows */}
+                              {playerMatches.map((match) => {
+                                const isPlayer1 = match.player1_id === player.user_id;
+                                const opponentName = isPlayer1 
+                                  ? `${match.player2_first_name} ${match.player2_last_name}`
+                                  : `${match.player1_first_name} ${match.player1_last_name}`;
+                                // Get opponent's club from leaderboard data
+                                const opponentId = isPlayer1 ? match.player2_id : match.player1_id;
+                                const opponentLeaderboardEntry = leaderboard.find(player => player.user_id === opponentId);
+                                const opponentClub = opponentLeaderboardEntry?.club || 'Unknown Club';
+                                const opponentScores = isPlayer1 
+                                  ? match.player2_scores 
+                                  : match.player1_scores;
+                                const opponentHolePoints = isPlayer1 
+                                  ? Number(match.hole_points_player2 || 0)
+                                  : Number(match.hole_points_player1 || 0);
+                                const opponentRoundPoints = isPlayer1 
+                                  ? (Number(match.round1_points_player2 || 0) + Number(match.round2_points_player2 || 0) + Number(match.round3_points_player2 || 0))
+                                  : (Number(match.round1_points_player1 || 0) + Number(match.round2_points_player1 || 0) + Number(match.round3_points_player1 || 0));
+                                const matchResult = getMatchResult(match, player.user_id);
                                 
-                                <div className="overflow-x-auto">
-                                  <table className="w-full text-center border-separate border-spacing-0">
-                                    <thead>
-                                      <tr>
-                                        <th className="border-b px-1 py-1 text-xs font-bold text-neutral-600">HOLE</th>
-                                        {Array.from({ length: 9 }, (_, i) => (
-                                          <th key={i} className="border-b px-1 py-1 text-xs font-bold text-neutral-600">{i + 1}</th>
-                                        ))}
-                                        <th className="border-b px-1 py-1 text-xs font-bold text-neutral-600">TOT</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {/* Player 1 Scores Row */}
-                                      <tr>
-                                        <td className="font-bold text-xs text-blue-600">{match.player1_first_name} {match.player1_last_name}</td>
-                                        {Array.from({ length: 9 }, (_, i) => {
-                                          const playerScore = Number(match.player1_scores?.[i] || 0);
-                                          const opponentScore = Number(match.player2_scores?.[i] || 0);
-                                          
-                                          const bothPlayed = playerScore > 0 && opponentScore > 0;
-                                          const playerWon = bothPlayed && playerScore < opponentScore;
-                                          const opponentWon = bothPlayed && opponentScore < playerScore;
-                                          const tied = bothPlayed && playerScore === opponentScore;
-                                          
-                                          let bgClass = '';
-                                          if (bothPlayed) {
-                                            if (playerWon) bgClass = 'bg-green-200 text-green-900'; // Birdie (win)
-                                            else if (opponentWon) bgClass = 'bg-red-200 text-red-900'; // Bogey (loss)
-                                            else bgClass = 'bg-yellow-200 text-yellow-900'; // Par (tie)
-                                          }
-                                          
-                                          return (
-                                            <td key={i} className={`font-bold text-xs px-1 py-1 rounded ${bgClass}`}>
-                                              {playerScore > 0 ? playerScore : ''}
-                                            </td>
-                                          );
-                                        })}
-                                        <td className="font-bold text-xs text-blue-600">
-                                          {(() => {
-                                            let total = 0;
-                                            for (let i = 0; i < 9; i++) {
-                                              const score = Number(match.player1_scores?.[i] || 0);
-                                              if (score > 0) total += score;
-                                            }
-                                            return total;
-                                          })()}
-                                        </td>
-                                      </tr>
+                                return [
+                                  <tr key={`${match.id}-opponent`} className="border-b border-gray-200 hover:bg-gray-50">
+                                    <td className="px-2 py-2 text-sm font-semibold text-gray-900 sticky left-0 z-10 bg-white">
+                                      <div>{opponentName}</div>
+                                      <div className="text-xs text-gray-500">{opponentClub} Club</div>
+                                    </td>
+                                    {Array.from({ length: 9 }, (_, i) => {
+                                      // Get player's scores from the current match context
+                                      const isPlayer1 = match.player1_id === player.user_id;
+                                      const playerScores = isPlayer1 ? match.player1_scores : match.player2_scores;
+                                      const playerScore = Number(playerScores?.[i] || 0);
+                                      const opponentScore = Number(opponentScores?.[i] || 0);
                                       
-                                      {/* Player 2 Scores Row */}
-                                      <tr>
-                                        <td className="font-bold text-xs text-red-600">{match.player2_first_name} {match.player2_last_name}</td>
-                                        {Array.from({ length: 9 }, (_, i) => {
-                                          const playerScore = Number(match.player1_scores?.[i] || 0);
-                                          const opponentScore = Number(match.player2_scores?.[i] || 0);
-                                          
-                                          const bothPlayed = playerScore > 0 && opponentScore > 0;
-                                          const playerWon = bothPlayed && playerScore < opponentScore;
-                                          const opponentWon = bothPlayed && opponentScore < playerScore;
-                                          const tied = bothPlayed && playerScore === opponentScore;
-                                          
-                                          let bgClass = '';
-                                          if (bothPlayed) {
-                                            if (opponentWon) bgClass = 'bg-green-200 text-green-900'; // Birdie (win)
-                                            else if (playerWon) bgClass = 'bg-red-200 text-red-900'; // Bogey (loss)
-                                            else bgClass = 'bg-yellow-200 text-yellow-900'; // Par (tie)
-                                          }
-                                          
-                                          return (
-                                            <td key={i} className={`font-bold text-xs px-1 py-1 rounded ${bgClass}`}>
-                                              {opponentScore > 0 ? opponentScore : ''}
-                                            </td>
-                                          );
-                                        })}
-                                        <td className="font-bold text-xs text-red-600">
-                                          {(() => {
-                                            let total = 0;
-                                            for (let i = 0; i < 9; i++) {
-                                              const score = Number(match.player2_scores?.[i] || 0);
-                                              if (score > 0) total += score;
-                                            }
-                                            return total;
-                                          })()}
-                                        </td>
-                                      </tr>
+                                      const bothPlayed = playerScore > 0 && opponentScore > 0;
+                                      let bgClass = '';
+                                      let textClass = '';
                                       
-                                      {/* Hole Points Row */}
-                                      <tr>
-                                        <td className="font-bold text-xs text-blue-600">Hole Pts</td>
-                                        {Array.from({ length: 9 }, (_, i) => {
-                                          const playerScore = Number(match.player1_scores?.[i] || 0);
-                                          const opponentScore = Number(match.player2_scores?.[i] || 0);
-                                          
-                                          const bothPlayed = playerScore > 0 && opponentScore > 0;
-                                          const playerWon = bothPlayed && playerScore < opponentScore;
-                                          const opponentWon = bothPlayed && opponentScore < playerScore;
-                                          const tied = bothPlayed && playerScore === opponentScore;
-                                          
-                                          let points = 0;
-                                          if (bothPlayed) {
-                                            if (playerWon) points = 0.5;
-                                            else if (tied) points = 0;
-                                            else points = 0;
-                                          }
-                                          
-                                          return (
-                                            <td key={i} className="font-bold text-xs px-1 py-1 text-blue-600">
-                                              {points > 0 ? Number(points).toFixed(1) : ''}
-                                            </td>
-                                          );
-                                        })}
-                                        <td className="font-bold text-xs text-blue-600">
-                                          {match.player1_id === player.user_id 
-                                            ? Number(match.hole_points_player1 || 0).toFixed(1)
-                                            : Number(match.hole_points_player2 || 0).toFixed(1)
-                                          }
-                                        </td>
-                                      </tr>
-                                      
-                                      {/* Round Points Row */}
-                                      <tr>
-                                        <td className="font-bold text-xs text-green-600">Round Pts</td>
-                                        {Array.from({ length: 9 }, (_, i) => {
-                                          // Calculate round points for each 3-hole segment
-                                          const round1Holes = [0, 1, 2];
-                                          const round2Holes = [3, 4, 5];
-                                          const round3Holes = [6, 7, 8];
-                                          
-                                          let roundPoints = 0;
-                                          if (i === 0) {
-                                            // Round 1 (holes 1-3)
-                                            const player1Scores = round1Holes.map(hole => 
-                                              Number(match.player1_scores?.[hole] || 0)
-                                            );
-                                            const player2Scores = round1Holes.map(hole => 
-                                              Number(match.player2_scores?.[hole] || 0)
-                                            );
-                                            
-                                            const player1Total = player1Scores.reduce((a, b) => a + b, 0);
-                                            const player2Total = player2Scores.reduce((a, b) => a + b, 0);
-                                            
-                                            if (player1Total > 0 && player2Total > 0) {
-                                              if (player1Total < player2Total) roundPoints = 1; // Player 1 wins round
-                                              else if (player1Total === player2Total) roundPoints = 0.5; // Tie
-                                            }
-                                          } else if (i === 3) {
-                                            // Round 2 (holes 4-6)
-                                            const player1Scores = round2Holes.map(hole => 
-                                              Number(match.player1_scores?.[hole] || 0)
-                                            );
-                                            const player2Scores = round2Holes.map(hole => 
-                                              Number(match.player2_scores?.[hole] || 0)
-                                            );
-                                            
-                                            const player1Total = player1Scores.reduce((a, b) => a + b, 0);
-                                            const player2Total = player2Scores.reduce((a, b) => a + b, 0);
-                                            
-                                            if (player1Total > 0 && player2Total > 0) {
-                                              if (player1Total < player2Total) roundPoints = 1; // Player 1 wins round
-                                              else if (player1Total === player2Total) roundPoints = 0.5; // Tie
-                                            }
-                                          } else if (i === 6) {
-                                            // Round 3 (holes 7-9)
-                                            const player1Scores = round3Holes.map(hole => 
-                                              Number(match.player1_scores?.[hole] || 0)
-                                            );
-                                            const player2Scores = round3Holes.map(hole => 
-                                              Number(match.player2_scores?.[hole] || 0)
-                                            );
-                                            
-                                            const player1Total = player1Scores.reduce((a, b) => a + b, 0);
-                                            const player2Total = player2Scores.reduce((a, b) => a + b, 0);
-                                            
-                                            if (player1Total > 0 && player2Total > 0) {
-                                              if (player1Total < player2Total) roundPoints = 1; // Player 1 wins round
-                                              else if (player1Total === player2Total) roundPoints = 0.5; // Tie
-                                            }
-                                          }
-                                          
-                                          return (
-                                            <td key={i} className="font-bold text-xs px-1 py-1 text-green-600">
-                                              {roundPoints > 0 ? Number(roundPoints).toFixed(1) : ''}
-                                            </td>
-                                          );
-                                        })}
-                                        <td className="font-bold text-xs text-green-600">
-                                          {match.player1_id === player.user_id 
-                                            ? (Number(match.round1_points_player1 || 0) + Number(match.round2_points_player1 || 0) + Number(match.round3_points_player1 || 0)).toFixed(1)
-                                            : (Number(match.round1_points_player2 || 0) + Number(match.round2_points_player2 || 0) + Number(match.round3_points_player2 || 0)).toFixed(1)
-                                          }
-                                        </td>
-                                      </tr>
-                                    </tbody>
-                                  </table>
-                                </div>
-                                
-                                {/* Additional Points */}
-                                <div className="mt-2 grid grid-cols-1 gap-2 text-xs">
-                                  <div className="text-center">
-                                    <div className="text-gray-500">Total Points</div>
-                                    <div className="font-bold text-gray-900">
-                                      {match.player1_id === player.user_id 
-                                        ? Number(match.total_points_player1 || 0).toFixed(1)
-                                        : Number(match.total_points_player2 || 0).toFixed(1)
+                                      if (bothPlayed) {
+                                        if (playerScore < opponentScore) {
+                                          bgClass = 'bg-green-200'; // You win
+                                          textClass = 'text-green-900';
+                                        } else if (playerScore > opponentScore) {
+                                          bgClass = 'bg-red-200'; // You lose
+                                          textClass = 'text-red-900';
+                                        } else {
+                                          bgClass = 'bg-yellow-200'; // Tie
+                                          textClass = 'text-yellow-900';
+                                        }
                                       }
-                                    </div>
-                                  </div>
-                                </div>
-                                
-                                {/* Legend */}
-                                <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
-                                  <div className="flex items-center gap-1">
-                                    <span className="inline-block w-3 h-3 bg-green-200 border border-green-400"></span> Birdie (Win)
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    <span className="inline-block w-3 h-3 bg-yellow-200 border border-yellow-400"></span> Par (Tie)
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    <span className="inline-block w-3 h-3 bg-red-200 border border-red-400"></span> Bogey (Loss)
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
+                                      
+                                      return (
+                                        <td key={i} className={`px-1 py-2 text-sm font-bold ${bgClass} ${textClass}`}>
+                                          {opponentScore > 0 ? opponentScore : ''}
+                                        </td>
+                                      );
+                                    })}
+                                    <td className="px-1 py-2 text-sm font-semibold text-blue-600">
+                                      {isPlayer1 ? Number(match.hole_points_player1 || 0).toFixed(1) : Number(match.hole_points_player2 || 0).toFixed(1)}
+                                    </td>
+                                    <td className="px-1 py-2 text-sm font-semibold text-green-600">
+                                      {isPlayer1 ? 
+                                        (Number(match.round1_points_player1 || 0) + Number(match.round2_points_player1 || 0) + Number(match.round3_points_player1 || 0)).toFixed(1) :
+                                        (Number(match.round1_points_player2 || 0) + Number(match.round2_points_player2 || 0) + Number(match.round3_points_player2 || 0)).toFixed(1)
+                                      }
+                                    </td>
+                                    <td className="px-1 py-2">
+                                      <span className={`px-2 py-1 rounded text-xs font-bold ${getMatchResultColor(matchResult)}`}>
+                                        {matchResult}
+                                      </span>
+                                    </td>
+                                  </tr>,
+                                  
+                                  <tr key={`${match.id}-rounds`} className="border-b border-gray-200 bg-gray-100">
+                                    <td className="px-2 py-2 text-xs font-semibold text-gray-700 sticky left-0 z-10 bg-gray-100">
+                                      Round Results
+                                    </td>
+                                    {/* Round 1 Results (holes 1-3) */}
+                                    <td colSpan={3} className="px-1 py-2 text-xs font-bold text-center bg-blue-50">
+                                      {(() => {
+                                        const round1PlayerScore = isPlayer1 ? 
+                                          Number(match.round1_points_player1 || 0) : 
+                                          Number(match.round1_points_player2 || 0);
+                                        const round1OpponentScore = isPlayer1 ? 
+                                          Number(match.round1_points_player2 || 0) : 
+                                          Number(match.round1_points_player1 || 0);
+                                        
+                                        if (round1PlayerScore > round1OpponentScore) {
+                                          return <span className="text-green-700 font-bold text-lg">W</span>;
+                                        } else if (round1PlayerScore < round1OpponentScore) {
+                                          return <span className="text-red-700 font-bold text-lg">L</span>;
+                                        } else {
+                                          return <span className="text-yellow-700 font-bold text-lg">T</span>;
+                                        }
+                                      })()}
+                                    </td>
+                                    {/* Round 2 Results (holes 4-6) */}
+                                    <td colSpan={3} className="px-1 py-2 text-xs font-bold text-center bg-green-50">
+                                      {(() => {
+                                        const round2PlayerScore = isPlayer1 ? 
+                                          Number(match.round2_points_player1 || 0) : 
+                                          Number(match.round2_points_player2 || 0);
+                                        const round2OpponentScore = isPlayer1 ? 
+                                          Number(match.round2_points_player2 || 0) : 
+                                          Number(match.round2_points_player1 || 0);
+                                        
+                                        if (round2PlayerScore > round2OpponentScore) {
+                                          return <span className="text-green-700 font-bold text-lg">W</span>;
+                                        } else if (round2PlayerScore < round2OpponentScore) {
+                                          return <span className="text-red-700 font-bold text-lg">L</span>;
+                                        } else {
+                                          return <span className="text-yellow-700 font-bold text-lg">T</span>;
+                                        }
+                                      })()}
+                                    </td>
+                                    {/* Round 3 Results (holes 7-9) */}
+                                    <td colSpan={3} className="px-1 py-2 text-xs font-bold text-center bg-purple-50">
+                                      {(() => {
+                                        const round3PlayerScore = isPlayer1 ? 
+                                          Number(match.round3_points_player1 || 0) : 
+                                          Number(match.round3_points_player2 || 0);
+                                        const round3OpponentScore = isPlayer1 ? 
+                                          Number(match.round3_points_player2 || 0) : 
+                                          Number(match.round3_points_player1 || 0);
+                                        
+                                        if (round3PlayerScore > round3OpponentScore) {
+                                          return <span className="text-green-700 font-bold text-lg">W</span>;
+                                        } else if (round3PlayerScore < round3OpponentScore) {
+                                          return <span className="text-red-700 font-bold text-lg">L</span>;
+                                        } else {
+                                          return <span className="text-yellow-700 font-bold text-lg">T</span>;
+                                        }
+                                      })()}
+                                    </td>
+                                    <td className="px-1 py-2 text-xs text-gray-500 bg-gray-100">
+                                      -
+                                    </td>
+                                    <td className="px-1 py-2 text-xs text-gray-500 bg-gray-100">
+                                      -
+                                    </td>
+                                    <td className="px-1 py-2 text-xs text-gray-500 bg-gray-100">
+                                      -
+                                    </td>
+                                  </tr>
+                                ];
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                        
+                        {/* Compact Legend */}
+                        <div className="flex flex-wrap items-center gap-3 mt-3 text-xs">
+                          <div className="flex items-center gap-1">
+                            <span className="inline-block w-3 h-3 bg-green-200 border border-green-400"></span> Win
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="inline-block w-3 h-3 bg-yellow-200 border border-yellow-400"></span> Tie
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="inline-block w-3 h-3 bg-red-200 border border-red-400"></span> Loss
+                          </div>
+                          <div className="text-gray-500">
+                            H = Hole Points, R = Round Points
+                          </div>
+                          <div className="text-gray-500">
+                            Numbers 1-9 = Individual hole scores
+                          </div>
+                          <div className="text-gray-500">
+                            R1 = Holes 1-3, R2 = Holes 4-6, R3 = Holes 7-9
+                          </div>
+                          <div className="text-gray-500">
+                            Round Results row shows W/T/L for each round
+                          </div>
                         </div>
                       </div>
                     ) : (
@@ -575,7 +546,6 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
             <ul className="space-y-1 text-blue-700">
               <li>• <strong>Hole Points:</strong> 0.5 per hole won</li>
               <li>• <strong>Round Points:</strong> 1.0 per round won (holes 1-3, 4-6, 7-9)</li>
-
             </ul>
           </div>
           <div>

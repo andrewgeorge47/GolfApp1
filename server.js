@@ -91,6 +91,79 @@ app.post('/api/cleanup-weekly-test-data', async (req, res) => {
   }
 });
 
+// Cleanup endpoint for current week corrupted data
+app.post('/api/cleanup-current-week-data', async (req, res) => {
+  try {
+    console.log('Starting cleanup of corrupted weekly data for tournament 19, week 2025-08-04...');
+    
+    // Delete corrupted weekly matches for the current week
+    const matchesResult = await pool.query(
+      'DELETE FROM weekly_matches WHERE tournament_id = 19 AND week_start_date = $1',
+      ['2025-08-04']
+    );
+    console.log(`Deleted ${matchesResult.rowCount} corrupted weekly matches`);
+    
+    // Delete weekly leaderboard entries for the current week (will be recalculated)
+    const leaderboardResult = await pool.query(
+      'DELETE FROM weekly_leaderboards WHERE tournament_id = 19 AND week_start_date = $1',
+      ['2025-08-04']
+    );
+    console.log(`Deleted ${leaderboardResult.rowCount} weekly leaderboard entries`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Cleanup completed successfully! The weekly matches and leaderboard will be recalculated automatically.',
+      deleted: {
+        matches: matchesResult.rowCount,
+        leaderboardEntries: leaderboardResult.rowCount
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error during cleanup:', error);
+    res.status(500).json({ error: 'Cleanup failed', details: error.message });
+  }
+});
+
+// Test endpoint to manually trigger calculateWeeklyMatches
+app.post('/api/test-calculate-matches', async (req, res) => {
+  try {
+    console.log('Manually testing calculateWeeklyMatches for tournament 19, week 2025-08-04...');
+    
+    // Clear the cache first
+    const cacheKey = getWeeklyMatchCacheKey(19, '2025-08-04');
+    weeklyMatchCache.delete(cacheKey);
+    console.log('Cleared cache for tournament 19, week 2025-08-04');
+    
+    // Manually call the function
+    await calculateWeeklyMatches(19, '2025-08-04');
+    
+    // Check what was created
+    const matchesResult = await pool.query(
+      'SELECT COUNT(*) as match_count FROM weekly_matches WHERE tournament_id = 19 AND week_start_date = $1',
+      ['2025-08-04']
+    );
+    
+    const sampleMatch = await pool.query(
+      'SELECT * FROM weekly_matches WHERE tournament_id = 19 AND week_start_date = $1 LIMIT 1',
+      ['2025-08-04']
+    );
+    
+    res.json({ 
+      success: true, 
+      message: 'calculateWeeklyMatches executed manually',
+      results: {
+        totalMatches: matchesResult.rows[0]?.match_count || 0,
+        sampleMatch: sampleMatch.rows[0] || null
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error testing calculateWeeklyMatches:', error);
+    res.status(500).json({ error: 'Test failed', details: error.message });
+  }
+});
+
 // Database setup endpoint
 app.post('/api/setup-database', async (req, res) => {
   try {
@@ -6775,8 +6848,8 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
               round2_points_player1, round2_points_player2,
               round3_points_player1, round3_points_player2,
               match_winner_id, match_live_bonus_player1, match_live_bonus_player2,
-              total_points_player1, total_points_player2, player1_scores, player2_scores)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+              total_points_player1, total_points_player2)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
              ON CONFLICT (tournament_id, week_start_date, player1_id, player2_id)
              DO UPDATE SET
                player1_scorecard_id = EXCLUDED.player1_scorecard_id,
@@ -6793,9 +6866,7 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
                match_live_bonus_player1 = EXCLUDED.match_live_bonus_player1,
                match_live_bonus_player2 = EXCLUDED.match_live_bonus_player2,
                total_points_player1 = EXCLUDED.total_points_player1,
-               total_points_player2 = EXCLUDED.total_points_player2,
-               player1_scores = EXCLUDED.player1_scores,
-               player2_scores = EXCLUDED.player2_scores
+               total_points_player2 = EXCLUDED.total_points_player2
              RETURNING id`,
             [tournamentId, weekStartDate, player1.user_id, player2.user_id,
              player1.id, player2.id,
@@ -6805,7 +6876,7 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
              roundPoints.round3.player1, roundPoints.round3.player2,
              winnerId, 0, 0,
              player1TotalPoints, player2TotalPoints,
-             JSON.stringify(player1Scores), JSON.stringify(player2Scores)]
+             ]
           );
           
           console.log(`Match inserted/updated successfully. Match ID: ${result.rows[0]?.id || 'N/A'}`);
