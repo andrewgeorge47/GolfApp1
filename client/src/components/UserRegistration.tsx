@@ -100,11 +100,11 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
   };
 
   const getTotalUsersInClub = (club: string) => {
-    return users.filter(user => user.club === club).length;
+    return users.filter(user => user.club && user.club === club).length;
   };
 
   const getRegisteredUsersInClub = (club: string) => {
-    return tournamentParticipants.filter(p => p.club === club).length;
+    return tournamentParticipants.filter(p => p.club && p.club === club).length;
   };
 
   const getAvailableUsers = () => {
@@ -114,29 +114,47 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
 
   const getAvailableUsersFiltered = () => {
     let availableUsers = getAvailableUsers();
+    
+    // Debug: Log any users with null/undefined club values
+    const usersWithNullClub = availableUsers.filter(user => !user.club);
+    if (usersWithNullClub.length > 0) {
+      console.warn('Users with null/undefined club values:', usersWithNullClub.map(u => ({ id: u.member_id, name: `${u.first_name} ${u.last_name}` })));
+    }
 
     // Apply club filter
     if (registrationClubFilter) {
-      availableUsers = availableUsers.filter(user => user.club === registrationClubFilter);
+      availableUsers = availableUsers.filter(user => user.club && user.club === registrationClubFilter);
     }
 
     // Apply search filter
     if (registrationSearch) {
       const searchLower = registrationSearch.toLowerCase();
-      availableUsers = availableUsers.filter(user =>
-        `${user.first_name} ${user.last_name}`.toLowerCase().includes(searchLower) ||
-        user.email_address.toLowerCase().includes(searchLower) ||
-        user.club?.toLowerCase().includes(searchLower)
-      );
+      console.log('🔍 Applying search filter:', searchLower);
+      console.log('🔍 Available users before search:', availableUsers.length);
+      
+      availableUsers = availableUsers.filter(user => {
+        try {
+          const nameMatch = `${user.first_name || ''} ${user.last_name || ''}`.toLowerCase().includes(searchLower);
+          const emailMatch = user.email_address && user.email_address.toLowerCase().includes(searchLower);
+          const clubMatch = user.club && user.club.toLowerCase().includes(searchLower);
+          
+          return nameMatch || emailMatch || clubMatch;
+        } catch (error) {
+          console.error('❌ Error filtering user:', user, error);
+          return false;
+        }
+      });
+      
+      console.log('🔍 Available users after search:', availableUsers.length);
     }
 
     // Apply club restrictions
     if (clubRestriction !== 'open') {
       if (clubRestriction === 'club_specific') {
         // This would need to be handled by the parent component
-        availableUsers = availableUsers.filter(user => user.club === currentUserClub);
+        availableUsers = availableUsers.filter(user => user.club && user.club === currentUserClub);
       } else {
-        availableUsers = availableUsers.filter(user => user.club === clubRestriction);
+        availableUsers = availableUsers.filter(user => user.club && user.club === clubRestriction);
       }
     }
 
@@ -360,7 +378,7 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
                   </td>
                   <td className="border border-neutral-300 px-4 py-3">
                     <span className="px-2 py-1 bg-neutral-100 text-neutral-700 text-sm rounded">
-                      {user.club}
+                      {user.club || 'N/A'}
                     </span>
                   </td>
                   <td className="border border-neutral-300 px-4 py-3 text-neutral-600">

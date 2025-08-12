@@ -146,7 +146,7 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
 
   // Real-time update state with smart polling
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
-  const [refreshInterval, setRefreshInterval] = useState(5000); // 5 seconds for more responsive updates
+  const [refreshInterval, setRefreshInterval] = useState(30000); // 30 seconds to prevent interference with data persistence
   const isInitialLoadRef = useRef(true);
   const lastDataHashRef = useRef<string>('');
   const lastLeaderboardRef = useRef<any[]>([]);
@@ -183,8 +183,10 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   useEffect(() => {
     if (!currentWeek) return;
     const initializeData = async () => {
+      console.log('Initializing data for week:', currentWeek);
       await performDataUpdate();
       isInitialLoadRef.current = false;
+      console.log('Initial data load complete');
     };
     initializeData();
   }, [currentWeek]);
@@ -337,7 +339,20 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
         lastFieldStatsRef.current = newFieldStats;
       } else {
         console.log('No data changes detected for leaderboard/field stats, skipping their UI update');
+        // IMPORTANT: Even when skipping updates, ensure we don't lose existing data
+        if (leaderboard.length === 0 && newLeaderboard.length > 0) {
+          console.log('Restoring leaderboard data that was lost');
+          setLeaderboard(newLeaderboard);
+        }
+        if (fieldStats.length === 0 && newFieldStats.length > 0) {
+          console.log('Restoring field stats that were lost');
+          setFieldStats(newFieldStats);
+        }
       }
+      
+      // IMPORTANT: Don't clear existing hole scores during real-time updates
+      // This prevents data from being cleared unexpectedly
+      console.log('Real-time update completed - preserving existing hole scores');
       
     } catch (error) {
       console.error('Error in smart data update:', error);
@@ -358,7 +373,7 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
     manualRefresh,
     connectionStatus
   } = useRealTimeUpdates({
-    enabled: autoRefreshEnabled,
+    enabled: autoRefreshEnabled && !isInitialLoadRef.current, // Don't start real-time updates until initial load is complete
     interval: refreshInterval,
     onUpdate: performDataUpdate,
     onError: (error) => {
@@ -376,6 +391,16 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
     if (leaderboard.length > 0 && fieldStats.length > 0 && Object.keys(holeResults).length > 0) {
       console.log('Updating hole results with field data...');
       updateHoleResultsWithFieldData();
+    }
+    
+    // IMPORTANT: Prevent data from being cleared during re-renders
+    if (leaderboard.length === 0 && lastLeaderboardRef.current.length > 0) {
+      console.log('Restoring leaderboard data that was cleared during re-render');
+      setLeaderboard(lastLeaderboardRef.current);
+    }
+    if (fieldStats.length === 0 && lastFieldStatsRef.current.length > 0) {
+      console.log('Restoring field stats that were cleared during re-render');
+      setFieldStats(lastFieldStatsRef.current);
     }
   }, [leaderboard, fieldStats]);
 
@@ -403,11 +428,24 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
         
         // Update with server data to ensure consistency
         console.log('Updating hole scores from server data');
-        const updatedHoleScores = holeScores.map((hole, index) => ({
-          ...hole,
-          score: existingScores[index] || 0,
-          submitted: existingScores[index] > 0
-        }));
+        // IMPORTANT: Only update scores if they're actually different to prevent unnecessary re-renders
+        const updatedHoleScores = holeScores.map((hole, index) => {
+          const serverScore = existingScores[index] || 0;
+          const currentScore = hole.score;
+          
+          // Only update if the score actually changed
+          if (serverScore !== currentScore) {
+            console.log(`Hole ${index + 1}: Updating score from ${currentScore} to ${serverScore}`);
+            return {
+              ...hole,
+              score: serverScore,
+              submitted: serverScore > 0
+            };
+          }
+          
+          // Keep existing score if no change
+          return hole;
+        });
         setHoleScores(updatedHoleScores);
         
         // Cache the fresh data

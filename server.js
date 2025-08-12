@@ -49,25 +49,36 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Get single tournament details
-app.get('/api/tournaments/:id', async (req, res) => {
+// List tournaments (for tournaments page and management)
+app.get('/api/tournaments', async (req, res) => {
   try {
-    const { id } = req.params;
     const { rows } = await pool.query(
-      `SELECT id, name, description, start_date, end_date, week_start_date, status, type, club_restriction,
-              team_size, hole_configuration, handicap_enabled, created_by, created_at, updated_at
-       FROM tournaments WHERE id = $1`,
-      [id]
+      `SELECT * FROM tournaments ORDER BY COALESCE(week_start_date, start_date) DESC NULLS LAST, id DESC`
     );
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    res.json(rows[0]);
+    res.json(rows);
   } catch (err) {
-    console.error('Error fetching tournament details:', err);
-    res.status(500).json({ error: 'Failed to fetch tournament details' });
+    console.error('Error listing tournaments:', err);
+    res.status(500).json({ error: 'Failed to list tournaments' });
   }
 });
+
+// Available tournaments route (consolidated)
+app.get('/api/tournaments/available', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM tournaments
+       WHERE (COALESCE(registration_open, false) = true OR status IN ('open','active'))
+       AND (registration_deadline IS NULL OR registration_deadline >= CURRENT_DATE)
+       ORDER BY COALESCE(week_start_date, start_date) DESC NULLS LAST, id DESC`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching available tournaments:', err);
+    res.status(500).json({ error: 'Failed to fetch available tournaments' });
+  }
+});
+
+// Note: General tournament route moved to end of file to avoid conflicts with specific routes
 
 // Cleanup endpoint for testing data
 app.post('/api/cleanup-weekly-test-data', async (req, res) => {
@@ -1249,16 +1260,7 @@ app.post('/api/tournaments', async (req, res) => {
   }
 });
 
-// Get all tournaments
-app.get('/api/tournaments', async (req, res) => {
-  try {
-    const { rows } = await pool.query('SELECT * FROM tournaments ORDER BY start_date DESC, id DESC');
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching tournaments:', err);
-    res.status(500).json({ error: 'Failed to fetch tournaments' });
-  }
-});
+// Note: Duplicate endpoint removed - consolidated with the main tournaments endpoint above
 
 // Update a tournament
 app.put('/api/tournaments/:id', async (req, res) => {
@@ -1378,20 +1380,8 @@ app.get('/api/tournaments/:id/weekly-scorecards', async (req, res) => {
   const { override_week } = req.query;
   
   try {
-    // Get tournament dates to determine the correct reference period
-    const tournamentResult = await pool.query(
-      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    
-    // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
+    const period = await resolveTournamentPeriod(id);
+    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
     
     const { rows } = await pool.query(
       `SELECT wsc.*, u.first_name, u.last_name, u.email_address, u.club
@@ -3736,22 +3726,7 @@ app.get('/api/tournaments/status/:status', async (req, res) => {
   }
 });
 
-// Get available tournaments (open for registration)
-app.get('/api/tournaments/available', async (req, res) => {
-  try {
-    const { rows } = await pool.query(`
-      SELECT * FROM tournaments 
-      WHERE status IN ('open') 
-      AND registration_open = true 
-      AND (registration_deadline IS NULL OR registration_deadline >= CURRENT_DATE)
-      ORDER BY start_date ASC, id DESC
-    `);
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching available tournaments:', err);
-    res.status(500).json({ error: 'Failed to fetch available tournaments' });
-  }
-});
+// Note: Duplicate endpoint removed - consolidated with the main available tournaments endpoint above
 
 // Get tournaments that a user is registered for
 app.get('/api/tournaments/user/:userId', async (req, res) => {
@@ -3759,9 +3734,16 @@ app.get('/api/tournaments/user/:userId', async (req, res) => {
   
   try {
     const { rows } = await pool.query(`
-      SELECT t.*
+      SELECT 
+        t.*,
+        CASE 
+          WHEN ws.id IS NOT NULL THEN true 
+          ELSE false 
+        END as has_submitted_score,
+        ws.week_start_date as last_score_date
       FROM tournaments t
       INNER JOIN participation p ON t.id = p.tournament_id
+      LEFT JOIN weekly_scorecards ws ON t.id = ws.tournament_id AND ws.user_id = $1
       WHERE p.user_member_id = $1
       ORDER BY t.start_date ASC, t.id DESC
     `, [userId]);
@@ -6784,6 +6766,10 @@ async function getScorecardHash(tournamentId, weekStartDate) {
   return JSON.stringify(hashData);
 }
 // Helper function to calculate all matches for a week with smart caching
+// IMPORTANT: This function should ONLY be called by:
+// 1. Scorecard submission endpoints (when new/updated scorecards are submitted)
+// 2. Manual trigger endpoints (for debugging/testing)
+// 3. NOT by data fetching endpoints (to prevent duplicate match creation)
 async function calculateWeeklyMatches(tournamentId, weekStartDate) {
   try {
     console.log(`=== CALCULATING WEEKLY MATCHES ===`);
@@ -7030,27 +7016,31 @@ async function updateWeeklyLeaderboard(tournamentId, weekStartDate) {
     const allParticipants = participantsResult.rows;
     console.log(`Found ${allParticipants.length} registered participants`);
     
-    // Get all scorecards for this tournament and week
+    // Get all possible week start dates for this tournament
+    const possibleDates = await getPossibleWeekStartDates(tournamentId, weekStartDate);
+    console.log(`Possible week dates for tournament ${tournamentId}: ${possibleDates.join(', ')}`);
+    
+    // Get all scorecards for this tournament across all possible weeks
     const scorecardsResult = await pool.query(
       `SELECT ws.*, u.first_name, u.last_name, u.club
        FROM weekly_scorecards ws
        JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.tournament_id = $1 AND ws.week_start_date = $2`,
-      [tournamentId, weekStartDate]
+       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
+      [tournamentId, ...possibleDates]
     );
     
     const scorecards = scorecardsResult.rows;
-    console.log(`Found ${scorecards.length} scorecards`);
+    console.log(`Found ${scorecards.length} scorecards across all possible weeks`);
     
-    // Get all matches for this tournament and week
+    // Get all matches for this tournament across all possible weeks
     const matchesResult = await pool.query(
       `SELECT * FROM weekly_matches 
-       WHERE tournament_id = $1 AND week_start_date = $2`,
-      [tournamentId, weekStartDate]
+       WHERE tournament_id = $1 AND week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
+      [tournamentId, ...possibleDates]
     );
     
     const matches = matchesResult.rows;
-    console.log(`Found ${matches.length} matches`);
+    console.log(`Found ${matches.length} matches across all possible weeks`);
     
     // Create a map of scorecards by user_id for quick lookup
     const scorecardMap = new Map();
@@ -7218,24 +7208,30 @@ app.post('/api/test/update-completed-tournament-leaderboard', async (req, res) =
     console.log(`Tournament start: ${tournament.start_date}, Tournament end: ${tournament.end_date}`);
     console.log(`Using week date: ${weekDate}`);
     
-    // Check what scorecards exist
+    // Get all possible week start dates for this tournament
+    const possibleDates = await getPossibleWeekStartDates(tournament_id, weekDate);
+    console.log(`Possible week dates for tournament ${tournament_id}: ${possibleDates.join(', ')}`);
+    
+    // Check what scorecards exist across all possible weeks
     const scorecardResult = await pool.query(
-      'SELECT COUNT(*) FROM weekly_scorecards WHERE tournament_id = $1 AND week_start_date = $2',
-      [tournament_id, weekDate]
+      `SELECT COUNT(*) FROM weekly_scorecards WHERE tournament_id = $1 AND week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
+      [tournament_id, ...possibleDates]
     );
     
-    console.log(`Found ${scorecardResult.rows[0].count} scorecards for tournament ${tournament_id}, week ${weekDate}`);
+    console.log(`Found ${scorecardResult.rows[0].count} scorecards for tournament ${tournament_id}, possible weeks: ${possibleDates.join(', ')}`);
     
-    // Update the leaderboard
-    await updateWeeklyLeaderboard(tournament_id, weekDate);
+    // Update the leaderboard for each possible week
+    for (const date of possibleDates) {
+      await updateWeeklyLeaderboard(tournament_id, date);
+    }
     
-    // Check what leaderboard entries were created
+    // Check what leaderboard entries were created across all possible weeks
     const leaderboardResult = await pool.query(
-      'SELECT COUNT(*) FROM weekly_leaderboards WHERE tournament_id = $1 AND week_start_date = $2',
-      [tournament_id, weekDate]
+      `SELECT COUNT(*) FROM weekly_leaderboards WHERE tournament_id = $1 AND week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
+      [tournament_id, ...possibleDates]
     );
     
-    console.log(`Created ${leaderboardResult.rows[0].count} leaderboard entries for tournament ${tournament_id}, week ${weekDate}`);
+    console.log(`Created ${leaderboardResult.rows[0].count} leaderboard entries for tournament ${tournament_id}, possible weeks: ${possibleDates.join(', ')}`);
     
     res.json({ 
       success: true, 
@@ -7504,14 +7500,18 @@ app.post('/api/tournaments/:id/test-match-insert', async (req, res) => {
     const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
     console.log(`Testing match insertion for tournament ${id}, week ${weekDate}`);
     
-    // Get two scorecards to test with
+    // Get all possible week start dates for this tournament
+    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
+    console.log(`Possible week dates for tournament ${id}: ${possibleDates.join(', ')}`);
+    
+    // Get two scorecards to test with from any of the possible weeks
     const scorecardsResult = await pool.query(
       `SELECT ws.*, u.first_name, u.last_name
        FROM weekly_scorecards ws
        JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.tournament_id = $1 AND ws.week_start_date = $2
+       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})
        LIMIT 2`,
-      [id, weekDate]
+      [id, ...possibleDates]
     );
     
     if (scorecardsResult.rows.length < 2) {
@@ -7570,13 +7570,17 @@ app.get('/api/tournaments/:id/debug-state', async (req, res) => {
     const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
     console.log(`Debugging state for tournament ${id}, week ${weekDate}`);
     
+    // Get all possible week start dates for this tournament
+    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
+    console.log(`Possible week dates for tournament ${id}: ${possibleDates.join(', ')}`);
+    
     // Check scorecards
     const scorecardsResult = await pool.query(
       `SELECT ws.*, u.first_name, u.last_name
        FROM weekly_scorecards ws
        JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.tournament_id = $1 AND ws.week_start_date = $2`,
-      [id, weekDate]
+       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
+      [id, ...possibleDates]
     );
     
     // Check matches
@@ -7585,8 +7589,8 @@ app.get('/api/tournaments/:id/debug-state', async (req, res) => {
        FROM weekly_matches wm
        JOIN users u1 ON wm.player1_id = u1.member_id
        JOIN users u2 ON wm.player2_id = u2.member_id
-       WHERE wm.tournament_id = $1 AND wm.week_start_date = $2`,
-      [id, weekDate]
+       WHERE wm.tournament_id = $1 AND wm.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
+      [id, ...possibleDates]
     );
     
     // Check leaderboard
@@ -7594,8 +7598,8 @@ app.get('/api/tournaments/:id/debug-state', async (req, res) => {
       `SELECT wl.*, u.first_name, u.last_name
        FROM weekly_leaderboards wl
        JOIN users u ON wl.user_id = u.member_id
-       WHERE wl.tournament_id = $1 AND wl.week_start_date = $2`,
-      [id, weekDate]
+       WHERE wl.tournament_id = $1 AND wl.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
+      [id, ...possibleDates]
     );
     
     res.json({
@@ -7674,21 +7678,32 @@ app.get('/api/tournaments/:id/weekly-leaderboard', async (req, res) => {
     const allParticipants = participantsResult.rows;
     console.log(`Found ${allParticipants.length} registered participants`);
     
-    // Get leaderboard entries for this week
-    const leaderboardResult = await pool.query(
-      `SELECT wl.*, u.first_name, u.last_name, u.club, ws.hole_scores
-       FROM weekly_leaderboards wl
-       JOIN users u ON wl.user_id = u.member_id
-       LEFT JOIN weekly_scorecards ws ON wl.user_id = ws.user_id 
-         AND wl.tournament_id = ws.tournament_id 
-         AND ws.week_start_date::date = $2::date
-       WHERE wl.tournament_id = $1 AND wl.week_start_date::date = $2::date
-       ORDER BY wl.total_score DESC, wl.total_hole_points DESC`,
-      [id, weekDate]
-    );
+    // Get all possible week start dates for this tournament
+    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
+    console.log(`Possible week dates for tournament ${id}: ${possibleDates.join(', ')}`);
     
-    console.log(`Leaderboard query executed with tournament_id: ${id}, week_start_date: ${weekDate}`);
-    console.log(`SQL: SELECT ... WHERE tournament_id = ${id} AND week_start_date = '${weekDate}'`);
+    // Get leaderboard entries for any of the possible weeks
+    let leaderboardResult;
+    if (possibleDates.length > 0) {
+      const datePlaceholders = possibleDates.map((_, i) => `$${i + 2}`).join(', ');
+      leaderboardResult = await pool.query(
+        `SELECT wl.*, u.first_name, u.last_name, u.club, ws.hole_scores
+         FROM weekly_leaderboards wl
+         JOIN users u ON wl.user_id = u.member_id
+         LEFT JOIN weekly_scorecards ws ON wl.user_id = ws.user_id 
+           AND wl.tournament_id = ws.tournament_id 
+           AND ws.week_start_date::date = wl.week_start_date::date
+         WHERE wl.tournament_id = $1 AND wl.week_start_date::date IN (${datePlaceholders})
+         ORDER BY wl.total_score DESC, wl.total_hole_points DESC`,
+        [id, ...possibleDates]
+      );
+    } else {
+      // No dates found, return empty result
+      leaderboardResult = { rows: [] };
+    }
+    
+    console.log(`Leaderboard query executed with tournament_id: ${id}, possible dates: ${possibleDates.join(', ')}`);
+    console.log(`SQL: SELECT ... WHERE tournament_id = ${id} AND week_start_date IN (${possibleDates.map(d => `'${d}'`).join(', ')})`);
     
     const leaderboardEntries = leaderboardResult.rows;
     console.log(`Found ${leaderboardEntries.length} leaderboard entries for week ${weekDate}`);
@@ -7788,28 +7803,20 @@ app.get('/api/tournaments/:id/weekly-leaderboard', async (req, res) => {
 // API Endpoint: Get player's weekly matches
 app.get('/api/tournaments/:id/weekly-matches/:userId', async (req, res) => {
   const { id, userId } = req.params;
-  const { week_start_date } = req.query;
+  const { override_week } = req.query;
   
   try {
-    // Get tournament dates to determine the correct reference period
-    const tournamentResult = await pool.query(
-      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-      [id]
-    );
+    const period = await resolveTournamentPeriod(id);
+    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
     
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
+    // Get all possible week start dates for this tournament
+    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
+    console.log(`Possible week dates for tournament ${id}: ${possibleDates.join(', ')}`);
     
-    const tournament = tournamentResult.rows[0];
+    // Note: calculateWeeklyMatches is called by scorecard submission endpoints, not here
+    // This prevents duplicate match creation and ensures data consistency
     
-    // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
-    
-    // First, ensure we have up-to-date match data
-    await calculateWeeklyMatches(id, weekDate);
-    
-    const { rows } = await pool.query(
+    let { rows } = await pool.query(
       `SELECT wm.*, 
               u1.first_name as player1_first_name, u1.last_name as player1_last_name,
               u2.first_name as player2_first_name, u2.last_name as player2_last_name,
@@ -7819,10 +7826,10 @@ app.get('/api/tournaments/:id/weekly-matches/:userId', async (req, res) => {
        JOIN users u2 ON wm.player2_id = u2.member_id
        JOIN weekly_scorecards ws1 ON wm.player1_scorecard_id = ws1.id
        JOIN weekly_scorecards ws2 ON wm.player2_scorecard_id = ws2.id
-       WHERE wm.tournament_id = $1 AND wm.week_start_date = $2 
-       AND (wm.player1_id = $3 OR wm.player2_id = $3)
+       WHERE wm.tournament_id = $1 AND wm.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})
+       AND (wm.player1_id = $${possibleDates.length + 2} OR wm.player2_id = $${possibleDates.length + 2})
        ORDER BY wm.created_at`,
-      [id, weekDate, userId]
+      [id, ...possibleDates, userId]
     );
     
 
@@ -7873,36 +7880,28 @@ app.get('/api/tournaments/:id/weekly-matches/:userId', async (req, res) => {
 // API Endpoint: Get player's total hole points across all matches
 app.get('/api/tournaments/:id/weekly-hole-points/:userId', async (req, res) => {
   const { id, userId } = req.params;
-  const { week_start_date } = req.query;
+  const { override_week } = req.query;
   
   try {
-    // Get tournament dates to determine the correct reference period
-    const tournamentResult = await pool.query(
-      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-      [id]
-    );
+    const period = await resolveTournamentPeriod(id);
+    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
     
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
+    // Get all possible week start dates for this tournament
+    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
+    console.log(`Possible week dates for tournament ${id}: ${possibleDates.join(', ')}`);
     
-    const tournament = tournamentResult.rows[0];
+    // Note: calculateWeeklyMatches is called by scorecard submission endpoints, not here
+    // This prevents duplicate match creation and ensures data consistency
     
-    // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
-    
-    // First, ensure we have up-to-date match data
-    await calculateWeeklyMatches(id, weekDate);
-    
-    const { rows } = await pool.query(
+    let { rows } = await pool.query(
       `SELECT wm.*, 
               ws1.hole_scores as player1_scores, ws2.hole_scores as player2_scores
        FROM weekly_matches wm
        JOIN weekly_scorecards ws1 ON wm.player1_scorecard_id = ws1.id
        JOIN weekly_scorecards ws2 ON wm.player2_scorecard_id = ws2.id
-       WHERE wm.tournament_id = $1 AND wm.week_start_date = $2 
-       AND (wm.player1_id = $3 OR wm.player2_id = $3)`,
-      [id, weekDate, userId]
+       WHERE wm.tournament_id = $1 AND wm.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})
+       AND (wm.player1_id = $${possibleDates.length + 2} OR wm.player2_id = $${possibleDates.length + 2})`,
+      [id, ...possibleDates, userId]
     );
     
     // Calculate total hole points across all matches
@@ -8074,30 +8073,22 @@ app.get('/api/tournaments/:id/weekly-hole-points/:userId', async (req, res) => {
 // API Endpoint: Get field statistics for a week
 app.get('/api/tournaments/:id/weekly-field-stats', async (req, res) => {
   const { id } = req.params;
-  const { week_start_date } = req.query;
+  const { override_week } = req.query;
   
   try {
-    // Get tournament dates to determine the correct reference period
-    const tournamentResult = await pool.query(
-      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-      [id]
-    );
+    const period = await resolveTournamentPeriod(id);
+    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
     
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
+    // Get all possible week start dates for this tournament
+    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
+    console.log(`Possible week dates for tournament ${id}: ${possibleDates.join(', ')}`);
     
-    const tournament = tournamentResult.rows[0];
-    
-    // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
-    
-    // Get all scorecards with hole scores
-    const { rows } = await pool.query(
+    // Get all scorecards with hole scores from any of the possible weeks
+    let { rows } = await pool.query(
       `SELECT ws.hole_scores, ws.user_id
        FROM weekly_scorecards ws
-       WHERE ws.tournament_id = $1 AND ws.week_start_date = $2`,
-      [id, weekDate]
+       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
+      [id, ...possibleDates]
     );
     
           // Calculate field statistics for each hole
@@ -8182,12 +8173,17 @@ app.get('/api/tournaments/:id/weekly-scorecard/:userId', async (req, res) => {
     // Use the provided date, tournament week_start_date, or current date as fallback
     const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
     
-    const { rows } = await pool.query(
+    // Get all possible week start dates for this tournament
+    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
+    console.log(`Possible week dates for tournament ${id}: ${possibleDates.join(', ')}`);
+    
+    // Get scorecard from any of the possible weeks
+    let { rows } = await pool.query(
       `SELECT ws.*, u.first_name, u.last_name, u.club
        FROM weekly_scorecards ws
        JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.tournament_id = $1 AND ws.week_start_date = $2 AND ws.user_id = $3`,
-      [id, weekDate, userId]
+       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')}) AND ws.user_id = $${possibleDates.length + 2}`,
+      [id, ...possibleDates, userId]
     );
     
     if (rows.length === 0) {
@@ -8198,6 +8194,70 @@ app.get('/api/tournaments/:id/weekly-scorecard/:userId', async (req, res) => {
   } catch (err) {
     console.error('Error fetching weekly scorecard:', err);
     res.status(500).json({ error: 'Failed to fetch scorecard' });
+  }
+});
+
+// Get available weeks for a tournament
+app.get('/api/tournaments/:id/available-weeks', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Validate that id is a number
+    if (isNaN(Number(id))) {
+      return res.status(400).json({ error: 'Tournament ID must be a number' });
+    }
+    
+    // Get all possible week start dates for this tournament
+    const possibleDates = await getPossibleWeekStartDates(id, new Date().toISOString().split('T')[0]);
+    
+    // Also include the tournament's week_start_date if it exists
+    const tournamentResult = await pool.query(
+      'SELECT week_start_date FROM tournaments WHERE id = $1',
+      [id]
+    );
+    
+    let allDates = [...new Set(possibleDates)];
+    
+    if (tournamentResult.rows.length > 0 && tournamentResult.rows[0].week_start_date) {
+      const tournamentWeekDate = normalizeDateYMD(tournamentResult.rows[0].week_start_date);
+      if (tournamentWeekDate && !allDates.includes(tournamentWeekDate)) {
+        allDates.push(tournamentWeekDate);
+      }
+    }
+    
+    // Sort dates in ascending order
+    allDates.sort();
+    
+    res.json(allDates);
+  } catch (err) {
+    console.error('Error fetching available weeks:', err);
+    res.status(500).json({ error: 'Failed to fetch available weeks' });
+  }
+});
+
+// General tournament route - must be placed AFTER all specific routes to avoid conflicts
+app.get('/api/tournaments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Validate that id is a number
+    if (isNaN(Number(id))) {
+      return res.status(400).json({ error: 'Tournament ID must be a number' });
+    }
+    
+    const { rows } = await pool.query(
+      `SELECT id, name, description, start_date, end_date, week_start_date, status, type, club_restriction,
+              team_size, hole_configuration, handicap_enabled, created_by, created_at, updated_at
+       FROM tournaments WHERE id = $1`,
+      [Number(id)]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching tournament details:', err);
+    res.status(500).json({ error: 'Failed to fetch tournament details' });
   }
 });
 

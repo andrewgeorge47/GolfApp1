@@ -845,6 +845,11 @@ export interface WeeklyMatch {
   created_at: string;
 }
 
+// Get available weeks for a tournament
+export const getAvailableWeeks = (tournamentId: number) => {
+  return api.get<string[]>(`/tournaments/${tournamentId}/available-weeks`);
+};
+
 // Weekly Scoring API Functions
 export const submitWeeklyScorecard = (tournamentId: number, data: {
   hole_scores: number[];

@@ -170,15 +170,16 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
   const formatDate = (dateString: string) => {
     if (!dateString) return 'Unknown';
     try {
-      const cleanDate = dateString.replace(/\.\d+$/, '');
-      return new Date(cleanDate).toLocaleDateString();
+      const clean = typeof dateString === 'string' ? dateString.split('T')[0] : dateString;
+      return new Date(clean).toLocaleDateString();
     } catch (error) {
       return 'Invalid Date';
     }
   };
 
-  const formatTournamentFormat = (format: string) => {
-    return format.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+  const formatTournamentFormat = (format?: string) => {
+    if (!format) return 'Unknown';
+    return format.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
 
   const handleTeamClick = (teamScore: TeamScore) => {

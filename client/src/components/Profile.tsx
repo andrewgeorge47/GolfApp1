@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
 import api, { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser, getUserTournaments } from '../services/api';
-import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign, MessageSquare, Eye } from 'lucide-react';
+import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign, MessageSquare, Eye, CheckCircle, Info } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
 import ScoreCard from './ScoreCard';
@@ -77,6 +77,9 @@ const Profile: React.FC = () => {
         setCombinedStats(combinedStatsResponse.data);
         setCourseRecords(courseRecordsResponse.data);
         setUserTournaments(userTournamentsResponse.data);
+        
+        // Debug: Log tournament data to verify has_submitted_score is included
+        console.log('User tournaments with score submission status:', userTournamentsResponse.data);
         
         // After updating stats, we need to refresh the user data to get updated handicaps
         // This will be handled by the parent component or context
@@ -308,6 +311,11 @@ const Profile: React.FC = () => {
   const handleSubmitScore = (tournamentId: number) => {
     // Navigate to the tournament scoring page for this tournament
     navigate(`/tournament-scoring?tournament=${tournamentId}`);
+  };
+
+  // Helper function to determine if a tournament is eligible for score submission
+  const isTournamentEligibleForScore = (tournament: any) => {
+    return (tournament.status === 'open' || tournament.status === 'active') && !tournament.has_submitted_score;
   };
 
   // Function to determine which rounds are used for handicap calculation
@@ -1272,6 +1280,19 @@ const Profile: React.FC = () => {
               Browse All Tournaments
             </Link>
           </div>
+          
+          {/* Tournament Summary */}
+          {userTournaments.length > 0 && (
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center text-sm text-blue-800">
+                <Info className="w-4 h-4 mr-2" />
+                <span>
+                  {userTournaments.filter(t => isTournamentEligibleForScore(t)).length} tournament(s) open for score submission
+                </span>
+              </div>
+            </div>
+          )}
+          
           {userTournaments.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {userTournaments.map((tournament) => (
@@ -1287,7 +1308,11 @@ const Profile: React.FC = () => {
                     tournament.status === 'cancelled' ? 'bg-red-100 text-red-800' :
                     'bg-yellow-100 text-yellow-800'
                   }`}>
-                    {tournament.status || 'draft'}
+                    {tournament.status === 'active' ? 'Active' :
+                     tournament.status === 'open' ? 'Open' :
+                     tournament.status === 'completed' ? 'Completed' :
+                     tournament.status === 'cancelled' ? 'Cancelled' :
+                     tournament.status || 'Draft'}
                   </span>
                 </div>
                 <div className="text-sm text-neutral-600 mb-2">
@@ -1312,13 +1337,33 @@ const Profile: React.FC = () => {
                   </div>
                 )}
                 <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
-                  <button
-                    onClick={() => handleSubmitScore(tournament.id)}
-                    className="flex items-center justify-center w-full px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors text-sm"
-                  >
-                    <Trophy className="w-4 h-4 mr-2" />
-                    Submit Score
-                  </button>
+                  {/* Only show Submit Score button if tournament is open/active and user hasn't submitted */}
+                  {isTournamentEligibleForScore(tournament) ? (
+                    <button
+                      onClick={() => handleSubmitScore(tournament.id)}
+                      className="flex items-center justify-center w-full px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors text-sm"
+                    >
+                      <Trophy className="w-4 h-4 mr-2" />
+                      Submit Score
+                    </button>
+                  ) : tournament.has_submitted_score ? (
+                    <div className="flex flex-col items-center justify-center w-full px-3 py-2 bg-green-50 text-green-700 rounded-lg text-sm border border-green-200">
+                      <div className="flex items-center font-medium">
+                        <Circle className="w-4 h-4 mr-2" />
+                        Score Submitted
+                      </div>
+                      {tournament.last_score_date && (
+                        <div className="text-xs text-green-600 mt-1">
+                          {new Date(tournament.last_score_date).toLocaleDateString()}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center w-full px-3 py-2 bg-gray-100 text-gray-600 rounded-lg font-medium text-sm">
+                      <Clock className="w-4 h-4 mr-2" />
+                      Tournament Closed
+                    </div>
+                  )}
                   <button
                     onClick={() => handleViewLeaderboard(tournament.id)}
                     className="flex items-center justify-center w-full px-3 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors text-sm"

@@ -866,7 +866,7 @@ const Leaderboard: React.FC = () => {
                               </span>
                               <span className="flex items-center space-x-1">
                                 <Users className="w-3 h-3" />
-                                <span>{tournament.tournament_format.replace('_', ' ')}</span>
+                                <span>{tournament.tournament_format?.replace('_', ' ') || 'Unknown'}</span>
                               </span>
                             </div>
                           </div>
