@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
-import { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser, getUserTournaments } from '../services/api';
+import api, { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser, getUserTournaments } from '../services/api';
 import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign, MessageSquare, Eye } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
@@ -98,14 +98,23 @@ const Profile: React.FC = () => {
 
     try {
       setLoading(true);
-      await updateUser(user.member_id, formData);
-      setIsEditing(false);
-      setError(null);
+      
+      // Test API connection first
+      try {
+        const testResponse = await api.get('/health');
+        console.log('API health check:', testResponse.status);
+      } catch (err) {
+        console.error('API health check failed:', err);
+      }
+
+      // Update user
+      const updatedUser = await updateUser(user.member_id, formData);
       // Refresh user data
-      window.location.reload();
+      await refreshUser();
+      setIsEditing(false);
     } catch (err) {
-      setError('Failed to update profile');
-      console.error('Error updating profile:', err);
+      setError('Failed to save profile changes');
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -164,11 +173,11 @@ const Profile: React.FC = () => {
     try {
       console.log('ScoreCard data received:', scoreCardData); // Debug log
       
-      // Test API connection first
-      try {
-        const testResponse = await fetch('http://localhost:3001/api/health');
-        console.log('API health check:', testResponse.status);
-      } catch (err) {
+              // Test API connection first
+        try {
+          const testResponse = await api.get('/health');
+          console.log('API health check:', testResponse.status);
+        } catch (err) {
         console.error('API health check failed:', err);
       }
       

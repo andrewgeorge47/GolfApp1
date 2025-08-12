@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Save, Clock, Users, Trophy, Eye, EyeOff, ArrowRight, CheckCircle, ChevronLeft, ChevronRight, Target, TrendingUp, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { submitWeeklyScorecard, getWeeklyLeaderboard, getWeeklyMatches, getWeeklyScorecard, getWeeklyFieldStats, getCurrentWeeklyScorecard } from '../services/api';
+import { submitWeeklyScorecard, getWeeklyLeaderboard, getWeeklyMatches, getWeeklyScorecard, getWeeklyFieldStats, getCurrentWeeklyScorecard, getWeeklyHolePoints, getTournament } from '../services/api';
 import { useAuth } from '../AuthContext';
 import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
 
@@ -152,40 +152,42 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   const lastLeaderboardRef = useRef<any[]>([]);
   const lastFieldStatsRef = useRef<FieldStats[]>([]);
 
-  // Helper function to get the tournament period (simple, no week calculations)
-  const getTournamentPeriod = useMemo(() => {
-    // For the simplified approach, we use the tournament start date as the reference period
-    // This ensures consistency with the server-side logic
-    const currentDate = new Date().toISOString().split('T')[0];
-    console.log('Using current date as tournament period:', currentDate);
-    return currentDate;
-  }, []); // Empty dependency array - only calculate once
+  // Determine the scoring week from the tournament's configured week_start_date
+  const [currentWeek, setCurrentWeek] = useState<string>('');
 
-  const currentWeek = getTournamentPeriod;
-
-  // Check if tournament is closed to prevent unnecessary data fetching
-  const isTournamentClosed = useMemo(() => {
-    const currentDate = new Date();
-    // For now, assume tournament is closed if it's past August 10th (your Summer League end date)
-    // In the future, this should come from tournament.end_date
-    const tournamentEndDate = new Date('2024-08-10');
-    return currentDate > tournamentEndDate;
-  }, []);
-
-  // Prevent data fetching if tournament is closed
   useEffect(() => {
-    if (isTournamentClosed) {
-      console.log('Tournament is closed, preventing data fetching');
-      return;
-    }
-    
+    const loadTournamentWeek = async () => {
+      if (!tournamentId) return;
+      try {
+        const resp = await getTournament(tournamentId);
+        const ws = resp.data?.week_start_date || resp.data?.start_date;
+        if (ws) {
+          // Normalize to YYYY-MM-DD (prefer tournament week_start_date)
+          const d = new Date(ws);
+          const y = d.getUTCFullYear();
+          const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+          const day = String(d.getUTCDate()).padStart(2, '0');
+          setCurrentWeek(`${y}-${m}-${day}`);
+        } else {
+          // Fallback
+          setCurrentWeek(new Date().toISOString().split('T')[0]);
+        }
+      } catch (e) {
+        setCurrentWeek(new Date().toISOString().split('T')[0]);
+      }
+    };
+    loadTournamentWeek();
+  }, [tournamentId]);
+
+  // Always fetch data for the selected/current week once it's known
+  useEffect(() => {
+    if (!currentWeek) return;
     const initializeData = async () => {
       await performDataUpdate();
       isInitialLoadRef.current = false;
     };
-    
     initializeData();
-  }, [currentWeek, isTournamentClosed]);
+  }, [currentWeek]);
 
   // Cache keys
   const leaderboardCacheKey = useMemo(() => getCacheKey(tournamentId, currentWeek, 'leaderboard'), [tournamentId, currentWeek]);
@@ -447,14 +449,10 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       }
 
       // Fetch hole points from backend API
-      const holePointsResponse = await fetch(`/api/tournaments/${tournamentId}/weekly-hole-points/${currentUserId}?week_start_date=${currentWeek}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
+      const holePointsResponse = await getWeeklyHolePoints(tournamentId, currentUserId, currentWeek);
 
-      if (holePointsResponse.ok) {
-        const responseData = await holePointsResponse.json();
+      if (holePointsResponse.status === 200) {
+        const responseData = holePointsResponse.data;
         console.log('Hole and round points data received:', responseData);
         
         const holePointsData = responseData.holePoints || responseData; // Handle both new and old format
@@ -551,11 +549,7 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   };
 
   const submitHoleScore = async (holeIndex: number) => {
-    // Prevent submission if tournament is closed
-    if (isTournamentClosed) {
-      toast.error('Tournament is closed. No more scores can be submitted.');
-      return;
-    }
+    // Allow submission regardless of tournament status; server enforces rules
 
     const holeScore = holeScores[holeIndex];
     if (holeScore.score === 0 || holeScore.score < 1) {
@@ -644,11 +638,7 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   };
 
   const submitFinalScorecard = async () => {
-    // Prevent submission if tournament is closed
-    if (isTournamentClosed) {
-      toast.error('Tournament is closed. No more scores can be submitted.');
-      return;
-    }
+    // Allow submission regardless of tournament status; server enforces rules
 
     if (holeScores.some(hole => hole.score === 0)) {
       toast.error('Please enter scores for all 9 holes');

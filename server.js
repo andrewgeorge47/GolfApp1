@@ -49,6 +49,26 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Get single tournament details
+app.get('/api/tournaments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query(
+      `SELECT id, name, description, start_date, end_date, week_start_date, status, type, club_restriction,
+              team_size, hole_configuration, handicap_enabled, created_by, created_at, updated_at
+       FROM tournaments WHERE id = $1`,
+      [id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching tournament details:', err);
+    res.status(500).json({ error: 'Failed to fetch tournament details' });
+  }
+});
+
 // Cleanup endpoint for testing data
 app.post('/api/cleanup-weekly-test-data', async (req, res) => {
   try {
@@ -793,7 +813,6 @@ app.get('/api/leaderboard', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch leaderboard' });
   }
 });
-
 // Get tournament settings
 app.get('/api/settings', async (req, res) => {
   try {
@@ -1356,7 +1375,7 @@ app.get('/api/tournaments/:id/participants', async (req, res) => {
 // Get tournament weekly scorecards
 app.get('/api/tournaments/:id/weekly-scorecards', async (req, res) => {
   const { id } = req.params;
-  const { week_start_date } = req.query;
+  const { override_week } = req.query;
   
   try {
     // Get tournament dates to determine the correct reference period
@@ -1372,7 +1391,7 @@ app.get('/api/tournaments/:id/weekly-scorecards', async (req, res) => {
     const tournament = tournamentResult.rows[0];
     
     // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekStartDate = week_start_date || tournament.week_start_date || new Date().toISOString().split('T')[0];
+    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
     
     const { rows } = await pool.query(
       `SELECT wsc.*, u.first_name, u.last_name, u.email_address, u.club
@@ -1380,7 +1399,7 @@ app.get('/api/tournaments/:id/weekly-scorecards', async (req, res) => {
        JOIN users u ON wsc.user_id = u.member_id
        WHERE wsc.tournament_id = $1 AND wsc.week_start_date = $2
        ORDER BY u.last_name, u.first_name`,
-      [id, weekStartDate]
+      [id, weekDate]
     );
     res.json(rows);
   } catch (err) {
@@ -1493,7 +1512,6 @@ app.post('/api/tournaments/:id/register', async (req, res) => {
     }
   }
 });
-
 // Register user for tournament with form data
 app.post('/api/tournaments/:id/register-with-form', async (req, res) => {
   const { id } = req.params;
@@ -2213,9 +2231,7 @@ app.put('/api/tournaments/:id/matches/:matchId', async (req, res) => {
     res.status(500).json({ error: 'Failed to update match' });
   }
 });
-
 // ===== TEAM MANAGEMENT ENDPOINTS =====
-
 // Create a new team for a tournament
 app.post('/api/tournaments/:id/teams', async (req, res) => {
   const { id } = req.params;
@@ -2993,7 +3009,6 @@ function generatePar3MatchPlayMatches(players) {
   });
   return matches;
 }
-
 // Helper function to update user profiles after match completion
 async function updateUserProfilesAfterMatch(player1Id, player2Id, winnerId, scoringRules) {
   try {
@@ -3788,7 +3803,6 @@ app.put('/api/tournaments/:id/status', async (req, res) => {
     res.status(500).json({ error: 'Failed to update tournament status' });
   }
 });
-
 // Toggle registration open/closed
 app.put('/api/tournaments/:id/registration', async (req, res) => {
   const { id } = req.params;
@@ -4578,7 +4592,6 @@ const upload = multer({
     }
   }
 });
-
 // Upload profile photo endpoint (GCS version)
 app.post('/api/users/profile-photo', authenticateToken, upload.single('profilePhoto'), async (req, res) => {
   try {
@@ -5359,7 +5372,6 @@ app.put('/api/simulator-courses/:id/par-values', authenticateToken, async (req, 
     res.status(500).json({ error: 'Failed to update par values', details: error.message });
   }
 });
-
 // Get existing teebox data for a course
 app.get('/api/simulator-courses/:id/teebox-data', async (req, res) => {
   try {
@@ -6042,7 +6054,6 @@ app.get('/api/clubs', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch clubs' });
   }
 });
-
 // Get individual club leaderboard (legacy)
 app.get('/api/club-leaderboard/:club', async (req, res) => {
   try {
@@ -6531,6 +6542,40 @@ app.get('/api/admin/user-tracking-details', authenticateToken, async (req, res) 
 // NEW WEEKLY SCORING SYSTEM API ENDPOINTS
 // ============================================================================
 
+// Resolve canonical tournament period from DB (single source of truth)
+async function resolveTournamentPeriod(tournamentId) {
+  const result = await pool.query(
+    'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
+    [tournamentId]
+  );
+  if (result.rows.length === 0) {
+    throw new Error('Tournament not found');
+  }
+  const t = result.rows[0];
+  const weekDate = normalizeDateYMD(t.week_start_date) || normalizeDateYMD(t.start_date);
+  return {
+    start_date: t.start_date,
+    end_date: t.end_date,
+    week_start_date: weekDate
+  };
+}
+
+// Normalize any date-like input to YYYY-MM-DD (UTC)
+function normalizeDateYMD(dateInput) {
+  if (!dateInput) return null;
+  try {
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return null;
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  } catch (e) {
+    const str = String(dateInput);
+    return str.includes('T') ? str.split('T')[0] : str;
+  }
+}
+
 // Helper function to get the Monday of the week containing a given date
 function getWeekStartFromDate(dateString) {
   const date = new Date(dateString);
@@ -6738,7 +6783,6 @@ async function getScorecardHash(tournamentId, weekStartDate) {
   
   return JSON.stringify(hashData);
 }
-
 // Helper function to calculate all matches for a week with smart caching
 async function calculateWeeklyMatches(tournamentId, weekStartDate) {
   try {
@@ -6941,6 +6985,10 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
         matchCount: matchCount 
       });
       console.log(`Cached ${matchCount} matches for tournament ${tournamentId}, week ${weekStartDate}`);
+
+      console.log(`Updating leaderboard after match calculation...`);
+      await updateWeeklyLeaderboard(tournamentId, weekStartDate);
+      
     } else {
       console.log(`No matches created, not caching result`);
     }
@@ -7165,7 +7213,7 @@ app.post('/api/test/update-completed-tournament-leaderboard', async (req, res) =
     }
     
     const tournament = tournamentResult.rows[0];
-    const weekDate = week_start_date || tournament.week_start_date;
+    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date);
     
     console.log(`Tournament start: ${tournament.start_date}, Tournament end: ${tournament.end_date}`);
     console.log(`Using week date: ${weekDate}`);
@@ -7378,7 +7426,7 @@ app.get('/api/tournaments/:id/weekly-scorecard/current', authenticateToken, asyn
     const tournament = tournamentResult.rows[0];
     
     // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = week_start_date || tournament.week_start_date || new Date().toISOString().split('T')[0];
+    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
     
     // Get all possible dates for this tournament
     const possibleDates = await getPossibleWeekStartDates(id, weekDate);
@@ -7404,25 +7452,13 @@ app.get('/api/tournaments/:id/weekly-scorecard/current', authenticateToken, asyn
 // API Endpoint: Manually trigger leaderboard update (for debugging)
 app.post('/api/tournaments/:id/update-leaderboard', async (req, res) => {
   const { id } = req.params;
-  const { week_start_date } = req.query;
+  const { override_week } = req.query;
   
   try {
-    // Get tournament dates to determine the correct reference period
-    const tournamentResult = await pool.query(
-      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    
-    // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = week_start_date || tournament.week_start_date || new Date().toISOString().split('T')[0];
+    const period = await resolveTournamentPeriod(id);
+    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
     console.log(`Manually updating leaderboard for tournament ${id}, week ${weekDate}`);
-    console.log(`Tournament start: ${tournament.start_date}, Tournament end: ${tournament.end_date}`);
+    console.log(`Tournament start: ${period.start_date}, Tournament end: ${period.end_date}`);
     
     await updateWeeklyLeaderboard(id, weekDate);
     
@@ -7436,23 +7472,11 @@ app.post('/api/tournaments/:id/update-leaderboard', async (req, res) => {
 // API Endpoint: Manually trigger match calculation (for debugging)
 app.post('/api/tournaments/:id/calculate-matches', async (req, res) => {
   const { id } = req.params;
-  const { week_start_date, force = false } = req.query;
+  const { override_week, force = false } = req.query;
   
   try {
-    // Get tournament dates to determine the correct reference period
-    const tournamentResult = await pool.query(
-      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    
-    // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = week_start_date || tournament.week_start_date || new Date().toISOString().split('T')[0];
+    const period = await resolveTournamentPeriod(id);
+    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
     console.log(`Manually calculating matches for tournament ${id}, week ${weekDate}, force: ${force}`);
     
     if (force === 'true') {
@@ -7470,27 +7494,14 @@ app.post('/api/tournaments/:id/calculate-matches', async (req, res) => {
     res.status(500).json({ error: 'Failed to calculate matches' });
   }
 });
-
 // API Endpoint: Test match insertion (for debugging)
 app.post('/api/tournaments/:id/test-match-insert', async (req, res) => {
   const { id } = req.params;
-  const { week_start_date } = req.query;
+  const { override_week } = req.query;
   
   try {
-    // Get tournament dates to determine the correct reference period
-    const tournamentResult = await pool.query(
-      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    
-    // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = week_start_date || tournament.week_start_date || new Date().toISOString().split('T')[0];
+    const period = await resolveTournamentPeriod(id);
+    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
     console.log(`Testing match insertion for tournament ${id}, week ${weekDate}`);
     
     // Get two scorecards to test with
@@ -7552,23 +7563,11 @@ app.post('/api/tournaments/:id/test-match-insert', async (req, res) => {
 // API Endpoint: Debug database state (for debugging)
 app.get('/api/tournaments/:id/debug-state', async (req, res) => {
   const { id } = req.params;
-  const { week_start_date } = req.query;
+  const { override_week } = req.query;
   
   try {
-    // Get tournament dates to determine the correct reference period
-    const tournamentResult = await pool.query(
-      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    
-    // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = week_start_date || tournament.week_start_date || new Date().toISOString().split('T')[0];
+    const period = await resolveTournamentPeriod(id);
+    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
     console.log(`Debugging state for tournament ${id}, week ${weekDate}`);
     
     // Check scorecards
@@ -7616,28 +7615,17 @@ app.get('/api/tournaments/:id/debug-state', async (req, res) => {
 // API Endpoint: Get weekly leaderboard
 app.get('/api/tournaments/:id/weekly-leaderboard', async (req, res) => {
   const { id } = req.params;
-  const { week_start_date } = req.query;
+  const { override_week } = req.query;
   
   try {
     console.log(`=== FETCHING WEEKLY LEADERBOARD ===`);
-    console.log(`Tournament ID: ${id}, Week: ${week_start_date}`);
+    console.log(`Tournament ID: ${id}, Week: ${override_week || 'canonical'}`);
     
-    // Get tournament dates and week_start_date to determine the reference period
-    const tournamentResult = await pool.query(
-      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    
-    // Use the client-provided date, tournament's week_start_date, or current date as fallback
-    const weekDate = week_start_date || tournament.week_start_date || new Date().toISOString().split('T')[0];
+    // Resolve canonical week
+    const period = await resolveTournamentPeriod(id);
+    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
     console.log(`Using week date: ${weekDate}`);
-    console.log(`Tournament start: ${tournament.start_date}, Tournament end: ${tournament.end_date}`);
+    console.log(`Tournament start: ${period.start_date}, Tournament end: ${period.end_date}`);
     
     // Note: updateWeeklyLeaderboard is only called when data changes (score submissions, match updates)
     // Not on every leaderboard view to prevent duplicate data creation
@@ -7693,8 +7681,8 @@ app.get('/api/tournaments/:id/weekly-leaderboard', async (req, res) => {
        JOIN users u ON wl.user_id = u.member_id
        LEFT JOIN weekly_scorecards ws ON wl.user_id = ws.user_id 
          AND wl.tournament_id = ws.tournament_id 
-         AND ws.week_start_date = $2
-       WHERE wl.tournament_id = $1 AND wl.week_start_date = $2
+         AND ws.week_start_date::date = $2::date
+       WHERE wl.tournament_id = $1 AND wl.week_start_date::date = $2::date
        ORDER BY wl.total_score DESC, wl.total_hole_points DESC`,
       [id, weekDate]
     );
@@ -7816,7 +7804,7 @@ app.get('/api/tournaments/:id/weekly-matches/:userId', async (req, res) => {
     const tournament = tournamentResult.rows[0];
     
     // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = week_start_date || tournament.week_start_date || new Date().toISOString().split('T')[0];
+    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
     
     // First, ensure we have up-to-date match data
     await calculateWeeklyMatches(id, weekDate);
@@ -7901,7 +7889,7 @@ app.get('/api/tournaments/:id/weekly-hole-points/:userId', async (req, res) => {
     const tournament = tournamentResult.rows[0];
     
     // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = week_start_date || tournament.week_start_date || new Date().toISOString().split('T')[0];
+    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
     
     // First, ensure we have up-to-date match data
     await calculateWeeklyMatches(id, weekDate);
@@ -8102,7 +8090,7 @@ app.get('/api/tournaments/:id/weekly-field-stats', async (req, res) => {
     const tournament = tournamentResult.rows[0];
     
     // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = week_start_date || tournament.week_start_date || new Date().toISOString().split('T')[0];
+    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
     
     // Get all scorecards with hole scores
     const { rows } = await pool.query(
@@ -8192,7 +8180,7 @@ app.get('/api/tournaments/:id/weekly-scorecard/:userId', async (req, res) => {
     const tournament = tournamentResult.rows[0];
     
     // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = week_start_date || tournament.week_start_date || new Date().toISOString().split('T')[0];
+    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
     
     const { rows } = await pool.query(
       `SELECT ws.*, u.first_name, u.last_name, u.club

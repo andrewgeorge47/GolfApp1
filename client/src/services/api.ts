@@ -1,9 +1,21 @@
 import axios from 'axios';
+import { environment } from '../config/environment';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+// Normalize a date-like input to 'YYYY-MM-DD' string
+const normalizeYMD = (d?: string) => {
+  if (!d) return '';
+  // If already looks like YYYY-MM-DD, return as-is
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  try {
+    const iso = new Date(d).toISOString();
+    return iso.split('T')[0];
+  } catch {
+    return d.split('T')[0] || '';
+  }
+};
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: environment.apiBaseUrl,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -543,6 +555,7 @@ export const createTournament = (data: {
 }) => api.post('/tournaments', data);
 
 export const getTournaments = () => api.get('/tournaments');
+export const getTournament = (id: number) => api.get(`/tournaments/${id}`);
 export const getUserTournaments = (userId: number) => api.get(`/tournaments/user/${userId}`);
 export const getTournamentsByStatus = (status: string) => api.get(`/tournaments/status/${status}`);
 export const getAvailableTournaments = () => api.get('/tournaments/available');
@@ -843,21 +856,24 @@ export const submitWeeklyScorecard = (tournamentId: number, data: {
 };
 
 export const getWeeklyLeaderboard = (tournamentId: number, weekStartDate?: string) => 
-  api.get<WeeklyLeaderboardEntry[]>(`/tournaments/${tournamentId}/weekly-leaderboard?week_start_date=${weekStartDate || ''}`);
+  api.get<WeeklyLeaderboardEntry[]>(`/tournaments/${tournamentId}/weekly-leaderboard?week_start_date=${normalizeYMD(weekStartDate)}`);
 
 export const getWeeklyMatches = (tournamentId: number, userId: number, weekStartDate?: string) =>
-  api.get<WeeklyMatch[]>(`/tournaments/${tournamentId}/weekly-matches/${userId}?week_start_date=${weekStartDate || ''}`);
+  api.get<WeeklyMatch[]>(`/tournaments/${tournamentId}/weekly-matches/${userId}?week_start_date=${normalizeYMD(weekStartDate)}`);
 
 export const getWeeklyScorecard = (tournamentId: number, userId: number, weekStartDate?: string) =>
-  api.get<WeeklyScorecard>(`/tournaments/${tournamentId}/weekly-scorecard/${userId}?week_start_date=${weekStartDate || ''}`);
+  api.get<WeeklyScorecard>(`/tournaments/${tournamentId}/weekly-scorecard/${userId}?week_start_date=${normalizeYMD(weekStartDate)}`);
 
 export const getWeeklyFieldStats = (tournamentId: number, weekStartDate?: string) =>
-  api.get(`/tournaments/${tournamentId}/weekly-field-stats?week_start_date=${weekStartDate || ''}`);
+  api.get(`/tournaments/${tournamentId}/weekly-field-stats?week_start_date=${normalizeYMD(weekStartDate)}`);
 
 export const getCurrentWeeklyScorecard = (tournamentId: number, weekStartDate?: string, fallbackDate?: string) =>
-  api.get<WeeklyScorecard>(`/tournaments/${tournamentId}/weekly-scorecard/current?week_start_date=${weekStartDate || ''}&fallback_date=${fallbackDate || ''}`);
+  api.get<WeeklyScorecard>(`/tournaments/${tournamentId}/weekly-scorecard/current?week_start_date=${normalizeYMD(weekStartDate)}&fallback_date=${normalizeYMD(fallbackDate)}`);
 
 export const getWeeklyScorecards = (tournamentId: number, weekStartDate?: string) =>
-  api.get<WeeklyScorecard[]>(`/tournaments/${tournamentId}/weekly-scorecards?week_start_date=${weekStartDate || ''}`);
+  api.get<WeeklyScorecard[]>(`/tournaments/${tournamentId}/weekly-scorecards?week_start_date=${normalizeYMD(weekStartDate)}`);
+
+export const getWeeklyHolePoints = (tournamentId: number, userId: number, weekStartDate?: string) =>
+  api.get(`/tournaments/${tournamentId}/weekly-hole-points/${userId}?week_start_date=${normalizeYMD(weekStartDate)}`);
 
 export default api; 
