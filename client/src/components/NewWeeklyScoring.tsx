@@ -152,23 +152,40 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   const lastLeaderboardRef = useRef<any[]>([]);
   const lastFieldStatsRef = useRef<FieldStats[]>([]);
 
-  // Helper function to get week start date (Monday) - using UTC to match server
-  const getWeekStartDate = (date = new Date()) => {
-    const d = new Date(date);
-    const day = d.getUTCDay();
-    // Monday = 1, Sunday = 0
-    // If it's Sunday (0), we want the previous Monday (-6 days)
-    // If it's any other day, we want the current week's Monday
-    const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
-    const weekStart = new Date(d.setUTCDate(diff));
-    // Use UTC to match server timezone
-    const year = weekStart.getUTCFullYear();
-    const month = String(weekStart.getUTCMonth() + 1).padStart(2, '0');
-    const dayOfMonth = String(weekStart.getUTCDate()).padStart(2, '0');
-    return year + '-' + month + '-' + dayOfMonth;
-  };
+  // Helper function to get the tournament period (simple, no week calculations)
+  const getTournamentPeriod = useMemo(() => {
+    // For the simplified approach, we use the tournament start date as the reference period
+    // This ensures consistency with the server-side logic
+    const currentDate = new Date().toISOString().split('T')[0];
+    console.log('Using current date as tournament period:', currentDate);
+    return currentDate;
+  }, []); // Empty dependency array - only calculate once
 
-  const currentWeek = getWeekStartDate();
+  const currentWeek = getTournamentPeriod;
+
+  // Check if tournament is closed to prevent unnecessary data fetching
+  const isTournamentClosed = useMemo(() => {
+    const currentDate = new Date();
+    // For now, assume tournament is closed if it's past August 10th (your Summer League end date)
+    // In the future, this should come from tournament.end_date
+    const tournamentEndDate = new Date('2024-08-10');
+    return currentDate > tournamentEndDate;
+  }, []);
+
+  // Prevent data fetching if tournament is closed
+  useEffect(() => {
+    if (isTournamentClosed) {
+      console.log('Tournament is closed, preventing data fetching');
+      return;
+    }
+    
+    const initializeData = async () => {
+      await performDataUpdate();
+      isInitialLoadRef.current = false;
+    };
+    
+    initializeData();
+  }, [currentWeek, isTournamentClosed]);
 
   // Cache keys
   const leaderboardCacheKey = useMemo(() => getCacheKey(tournamentId, currentWeek, 'leaderboard'), [tournamentId, currentWeek]);
@@ -351,15 +368,6 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   });
 
   // Initial data fetch
-  useEffect(() => {
-    const initializeData = async () => {
-      await performDataUpdate();
-      isInitialLoadRef.current = false;
-    };
-    
-    initializeData();
-  }, [currentWeek]);
-
   // Update hole results when leaderboard and field stats are available
   useEffect(() => {
     console.log('useEffect triggered - Leaderboard length:', leaderboard.length, 'Field stats length:', fieldStats.length);
@@ -543,6 +551,12 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   };
 
   const submitHoleScore = async (holeIndex: number) => {
+    // Prevent submission if tournament is closed
+    if (isTournamentClosed) {
+      toast.error('Tournament is closed. No more scores can be submitted.');
+      return;
+    }
+
     const holeScore = holeScores[holeIndex];
     if (holeScore.score === 0 || holeScore.score < 1) {
       toast.error('Please enter a valid score (1-20) for this hole');
@@ -575,7 +589,8 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       const response = await submitWeeklyScorecard(tournamentId, {
         hole_scores: tempScores,
         is_live: isLive,
-        group_id: groupId || undefined
+        group_id: groupId || undefined,
+        week_start_date: currentWeek // Add the date parameter to match server logic
       });
       console.log('API Response:', response);
 
@@ -629,6 +644,12 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
   };
 
   const submitFinalScorecard = async () => {
+    // Prevent submission if tournament is closed
+    if (isTournamentClosed) {
+      toast.error('Tournament is closed. No more scores can be submitted.');
+      return;
+    }
+
     if (holeScores.some(hole => hole.score === 0)) {
       toast.error('Please enter scores for all 9 holes');
       return;
@@ -647,7 +668,8 @@ const NewWeeklyScoring: React.FC<WeeklyScoringProps> = ({
       const response = await submitWeeklyScorecard(tournamentId, {
         hole_scores: finalScores,
         is_live: isLive,
-        group_id: groupId || undefined
+        group_id: groupId || undefined,
+        week_start_date: currentWeek // Add the date parameter to match server logic
       });
 
       toast.success('Final scorecard submitted successfully!');

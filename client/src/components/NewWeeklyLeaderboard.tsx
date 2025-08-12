@@ -6,12 +6,16 @@ interface WeeklyLeaderboardProps {
   tournamentId: number;
   tournamentName: string;
   weekStartDate?: string;
+  tournamentStartDate?: string;
+  tournamentEndDate?: string;
 }
 
 const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
   tournamentId,
   tournamentName,
-  weekStartDate
+  weekStartDate,
+  tournamentStartDate,
+  tournamentEndDate
 }) => {
   const [leaderboard, setLeaderboard] = useState<WeeklyLeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,20 +24,33 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
   const [playerMatches, setPlayerMatches] = useState<WeeklyMatch[]>([]);
   const [matchesLoading, setMatchesLoading] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [availableWeeks, setAvailableWeeks] = useState<string[]>([]);
+  const [selectedWeek, setSelectedWeek] = useState<string>('');
+  const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
 
-  // Helper function to get week start date (Monday) - using UTC to match backend
-  const getWeekStartDate = (date = new Date()) => {
-    const d = new Date(date);
-    const day = d.getUTCDay();
-    const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
-    const weekStart = new Date(d.setUTCDate(diff));
-    const year = weekStart.getUTCFullYear();
-    const month = String(weekStart.getUTCMonth() + 1).padStart(2, '0');
-    const dayOfMonth = String(weekStart.getUTCDate()).padStart(2, '0');
-    return year + '-' + month + '-' + dayOfMonth;
+  // Helper function to get the tournament period (simple, no week calculations)
+  const getTournamentPeriod = () => {
+    // If a specific weekStartDate is provided, use that
+    if (weekStartDate) {
+      return weekStartDate;
+    }
+    
+    // If tournament dates are provided, use the tournament start date
+    if (tournamentStartDate) {
+      // Format the date to yyyy-MM-dd for the date input
+      const formattedDate = new Date(tournamentStartDate).toISOString().split('T')[0];
+      return formattedDate;
+    }
+    
+    // Fallback to current date if no tournament info available
+    const currentDate = new Date().toISOString().split('T')[0];
+    console.log('No tournament dates available, using current date:', currentDate);
+    return currentDate;
   };
 
-  const currentWeek = weekStartDate || getWeekStartDate();
+  const currentWeek = selectedWeek || getTournamentPeriod();
+
+
 
   // Check if device is mobile
   useEffect(() => {
@@ -47,22 +64,109 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // Fetch available weeks for this tournament
+  const fetchAvailableWeeks = async () => {
+    try {
+      // For the simplified approach, we only need one period per tournament
+      // Use the tournament start date as the reference period
+      if (tournamentStartDate) {
+        // Format the date to yyyy-MM-dd
+        const formattedDate = new Date(tournamentStartDate).toISOString().split('T')[0];
+        setAvailableWeeks([formattedDate]);
+        return;
+      }
+      
+      // If no tournament dates available, use current date
+      const currentDate = new Date().toISOString().split('T')[0];
+      setAvailableWeeks([currentDate]);
+    } catch (error) {
+      // Fallback to current date
+      const currentDate = new Date().toISOString().split('T')[0];
+      setAvailableWeeks([currentDate]);
+    }
+  };
+
   useEffect(() => {
+    if (tournamentId) {
+      fetchAvailableWeeks();
+    }
+  }, [tournamentId, tournamentStartDate]);
+
+  useEffect(() => {
+    // Validate tournamentId
+    if (!tournamentId || tournamentId <= 0) {
+      setError('Invalid tournament ID');
+      return;
+    }
+    
     fetchLeaderboard();
   }, [tournamentId, currentWeek]);
+
+  // Update currentWeekIndex when selectedWeek changes
+  useEffect(() => {
+    if (selectedWeek && availableWeeks.length > 0) {
+      const index = availableWeeks.indexOf(selectedWeek);
+      if (index !== -1) {
+        setCurrentWeekIndex(index);
+      }
+    } else if (availableWeeks.length > 0) {
+      // Default to first available week
+      setCurrentWeekIndex(0);
+      setSelectedWeek(availableWeeks[0]);
+    }
+  }, [selectedWeek, availableWeeks]);
+
+  // Navigation functions
+  const goToPreviousWeek = () => {
+    if (currentWeekIndex > 0) {
+      const newIndex = currentWeekIndex - 1;
+      setCurrentWeekIndex(newIndex);
+      setSelectedWeek(availableWeeks[newIndex]);
+    }
+  };
+
+  const goToNextWeek = () => {
+    if (currentWeekIndex < availableWeeks.length - 1) {
+      const newIndex = currentWeekIndex + 1;
+      setCurrentWeekIndex(newIndex);
+      setSelectedWeek(availableWeeks[newIndex]);
+    }
+  };
+
+  const goToSpecificWeek = (week: string) => {
+    const index = availableWeeks.indexOf(week);
+    if (index !== -1) {
+      setCurrentWeekIndex(index);
+      setSelectedWeek(week);
+    }
+  };
 
   const fetchLeaderboard = async () => {
     try {
       setLoading(true);
       setError(null);
+      
+      // Use the simplified approach - just fetch with the current week
+      // No more complex fallback logic since we're using tournament periods
       const response = await getWeeklyLeaderboard(tournamentId, currentWeek);
-      setLeaderboard(response.data);
+      
+      if (response.data && Array.isArray(response.data)) {
+        setLeaderboard(response.data);
+      } else {
+        setError('Invalid response format from server');
+      }
     } catch (err: any) {
-      console.error('Error fetching leaderboard:', err);
       setError(err.response?.data?.error || 'Failed to fetch leaderboard');
     } finally {
       setLoading(false);
     }
+  };
+
+
+
+  // Manual refresh function
+  const handleRefresh = () => {
+    fetchLeaderboard();
   };
 
   const fetchPlayerMatches = async (userId: number) => {
@@ -71,7 +175,7 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
       const response = await getWeeklyMatches(tournamentId, userId, currentWeek);
       setPlayerMatches(response.data);
     } catch (err: any) {
-      console.error('Error fetching player matches:', err);
+      // Silently handle errors
     } finally {
       setMatchesLoading(false);
     }
@@ -156,6 +260,64 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
         <p className="text-sm md:text-base text-gray-600">
           Week of {formatWeekDate(currentWeek)}
         </p>
+        
+        {/* Historical Data Notice */}
+        {tournamentEndDate && new Date(tournamentEndDate) < new Date() && (
+          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <p className="text-sm text-yellow-800">
+              📅 This tournament has ended. You're viewing historical data from the tournament period.
+            </p>
+          </div>
+        )}
+        
+        {/* Week Navigation - Only show if there are actually multiple weeks */}
+        {availableWeeks.length > 1 && (
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              onClick={goToPreviousWeek}
+              disabled={currentWeekIndex === 0}
+              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+                currentWeekIndex === 0
+                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  : 'bg-blue-500 text-white hover:bg-blue-600'
+              }`}
+            >
+              ← Previous Week
+            </button>
+            
+            <select
+              value={currentWeek}
+              onChange={(e) => goToSpecificWeek(e.target.value)}
+              className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {availableWeeks.map((week, index) => (
+                <option key={week} value={week}>
+                  Week {index + 1}: {formatWeekDate(week)}
+                </option>
+              ))}
+            </select>
+            
+            <button
+              onClick={goToNextWeek}
+              disabled={currentWeekIndex === availableWeeks.length - 1}
+              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+                currentWeekIndex === availableWeeks.length - 1
+                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  : 'bg-blue-500 text-white hover:bg-blue-600'
+              }`}
+            >
+              Next Week →
+            </button>
+            
+            <span className="text-sm text-gray-500">
+              {currentWeekIndex + 1} of {availableWeeks.length} weeks
+            </span>
+          </div>
+        )}
+        
+
+        
+
       </div>
 
       {leaderboard.length === 0 ? (

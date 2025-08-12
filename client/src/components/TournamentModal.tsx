@@ -21,6 +21,10 @@ interface RegistrationFormQuestion {
   required: boolean;
   options?: string[];
   placeholder?: string;
+  conditional?: {
+    dependsOn: string;
+    showWhen: string;
+  };
 }
 
 interface RegistrationFormTemplate {
@@ -106,7 +110,11 @@ const TournamentModal: React.FC<TournamentModalProps> = ({ tournamentId, onClose
             'Friday (7-10)',
             'Saturday (7-10)'
           ],
-          required: true
+          required: true,
+          conditional: {
+            dependsOn: 'participation_type',
+            showWhen: 'Live'
+          }
         }
       ]
     },
@@ -219,6 +227,18 @@ const TournamentModal: React.FC<TournamentModalProps> = ({ tournamentId, onClose
     fetchTournamentData();
   }, [tournamentId, user?.member_id, onClose]);
 
+  // Clear conditional question answers when dependencies change
+  useEffect(() => {
+    if (registrationFormData.participation_type === 'Solo') {
+      // Clear night availability if user selects Solo
+      setRegistrationFormData((prev: any) => {
+        const newData = { ...prev };
+        delete newData.night_availability;
+        return newData;
+      });
+    }
+  }, [registrationFormData.participation_type]);
+
   const handleRegister = async (tournamentId: number) => {
     if (!user) {
       toast.error('Please log in to register for tournaments');
@@ -295,6 +315,15 @@ const TournamentModal: React.FC<TournamentModalProps> = ({ tournamentId, onClose
     const questions = template.questions || [];
     
     for (const question of questions) {
+      // Check if question should be shown based on conditional logic
+      if (question.conditional) {
+        const dependsOnAnswer = registrationFormData[question.conditional.dependsOn];
+        if (dependsOnAnswer !== question.conditional.showWhen) {
+          // Skip validation for this question as it's not shown
+          continue;
+        }
+      }
+      
       if (question.required) {
         const answer = registrationFormData[question.id];
         
@@ -335,6 +364,18 @@ const TournamentModal: React.FC<TournamentModalProps> = ({ tournamentId, onClose
     }
     
     return false;
+  };
+
+  const shouldQuestionBeRequired = (question: RegistrationFormQuestion) => {
+    // If question has conditional logic, check if it should be shown
+    if (question.conditional) {
+      const dependsOnAnswer = registrationFormData[question.conditional.dependsOn];
+      if (dependsOnAnswer !== question.conditional.showWhen) {
+        return false; // Question is not shown, so it's not required
+      }
+    }
+    
+    return question.required;
   };
 
   const handlePaymentClick = (tournament: Tournament) => {
@@ -678,9 +719,17 @@ const TournamentModal: React.FC<TournamentModalProps> = ({ tournamentId, onClose
               
               {registrationFormTemplate && registrationFormTemplate.questions && registrationFormTemplate.questions.length > 0 ? (
                 <div className="space-y-4">
-                  {registrationFormTemplate.questions.map((question: RegistrationFormQuestion) => (
+                  {registrationFormTemplate.questions
+                    .filter((question: RegistrationFormQuestion) => {
+                      // Show question if it has no conditional logic, or if the condition is met
+                      if (!question.conditional) return true;
+                      
+                      const dependsOnAnswer = registrationFormData[question.conditional.dependsOn];
+                      return dependsOnAnswer === question.conditional.showWhen;
+                    })
+                    .map((question: RegistrationFormQuestion) => (
                     <div key={question.id} className={`p-3 rounded-lg border ${
-                      question.required && !isQuestionAnswered(question.id) 
+                      shouldQuestionBeRequired(question) && !isQuestionAnswered(question.id) 
                         ? 'border-red-200 bg-red-50' 
                         : isQuestionAnswered(question.id)
                         ? 'border-green-200 bg-green-50'
@@ -688,7 +737,7 @@ const TournamentModal: React.FC<TournamentModalProps> = ({ tournamentId, onClose
                     }`}>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         {question.question}
-                        {question.required && <span className="text-red-500 ml-1">*</span>}
+                        {shouldQuestionBeRequired(question) && <span className="text-red-500 ml-1">*</span>}
                         {isQuestionAnswered(question.id) && (
                           <span className="text-green-600 ml-2 text-xs">✓ Answered</span>
                         )}

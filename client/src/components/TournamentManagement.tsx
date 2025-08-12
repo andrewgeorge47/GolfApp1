@@ -1322,6 +1322,9 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                             <NewWeeklyLeaderboard
                               tournamentId={selectedTournament.id}
                               tournamentName={selectedTournament.name}
+                              weekStartDate={selectedTournament.week_start_date}
+                              tournamentStartDate={selectedTournament.start_date}
+                              tournamentEndDate={selectedTournament.end_date}
                             />
                           )}
 

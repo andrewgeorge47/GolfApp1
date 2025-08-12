@@ -761,6 +761,8 @@ const Leaderboard: React.FC = () => {
                     tournamentId={selectedTournament.id}
                     tournamentName={selectedTournament.name}
                     weekStartDate={selectedTournament.week_start_date}
+                    tournamentStartDate={selectedTournament.start_date}
+                    tournamentEndDate={selectedTournament.end_date}
                   />
                 ) : selectedTournament.tournament_format === 'stroke_play' ? (
                   <StrokeplayLeaderboard
@@ -785,6 +787,8 @@ const Leaderboard: React.FC = () => {
                     tournamentId={selectedTournament.id}
                     tournamentName={selectedTournament.name}
                     weekStartDate={selectedTournament.week_start_date}
+                    tournamentStartDate={selectedTournament.start_date}
+                    tournamentEndDate={selectedTournament.end_date}
                   />
                 ) : (
                   <TournamentLeaderboard

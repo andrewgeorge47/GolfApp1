@@ -837,6 +837,7 @@ export const submitWeeklyScorecard = (tournamentId: number, data: {
   hole_scores: number[];
   is_live?: boolean;
   group_id?: string;
+  week_start_date?: string;
 }) => {
   return api.post<WeeklyScorecard>(`/tournaments/${tournamentId}/weekly-scorecard`, data);
 };

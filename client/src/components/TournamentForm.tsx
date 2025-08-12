@@ -3,6 +3,23 @@ import { Trophy, Users, Settings, Plus, Search, MapPin } from 'lucide-react';
 import { createTournament, updateTournament, getSimulatorCourses } from '../services/api';
 import { toast } from 'react-toastify';
 
+interface RegistrationFormQuestion {
+  id: string;
+  question: string;
+  type: 'radio' | 'checkbox' | 'text';
+  required: boolean;
+  options?: string[];
+  placeholder?: string;
+  conditional?: {
+    dependsOn: string;
+    showWhen: string;
+  };
+}
+
+interface RegistrationFormTemplate {
+  questions: RegistrationFormQuestion[];
+}
+
 interface TournamentFormProps {
   mode: 'create' | 'edit';
   tournament?: any;
@@ -98,7 +115,11 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
             'Friday (7-10)',
             'Saturday (7-10)'
           ],
-          required: true
+          required: true,
+          conditional: {
+            dependsOn: 'participation_type',
+            showWhen: 'Live'
+          }
         }
       ]
     },
