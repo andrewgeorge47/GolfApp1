@@ -881,4 +881,18 @@ export const getWeeklyScorecards = (tournamentId: number, weekStartDate?: string
 export const getWeeklyHolePoints = (tournamentId: number, userId: number, weekStartDate?: string) =>
   api.get(`/tournaments/${tournamentId}/weekly-hole-points/${userId}?week_start_date=${normalizeYMD(weekStartDate)}`);
 
+// Admin functions for tournament management
+export const forceCalculateMatches = (tournamentId: number, weekStartDate?: string) => {
+  const params = weekStartDate ? `?override_week=${weekStartDate}` : '';
+  return api.post(`/tournaments/${tournamentId}/calculate-matches${params}`);
+};
+
+export const forceUpdateLeaderboard = (tournamentId: number, weekStartDate?: string) => {
+  const params = weekStartDate ? `?override_week=${weekStartDate}` : '';
+  return api.post(`/tournaments/${tournamentId}/update-leaderboard${params}`);
+};
+
+export const cleanupDuplicateMatches = (tournamentId: number) => api.post(`/tournaments/${tournamentId}/cleanup-duplicates`);
+export const fixTournamentWeekDate = (tournamentId: number) => api.post(`/tournaments/${tournamentId}/fix-week-date`);
+
 export default api; 

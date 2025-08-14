@@ -2221,7 +2221,79 @@ app.put('/api/tournaments/:id/matches/:matchId', async (req, res) => {
     res.status(500).json({ error: 'Failed to update match' });
   }
 });
-// ===== TEAM MANAGEMENT ENDPOINTS =====
+
+// Clean up old cache entries (older than 1 hour)
+setInterval(() => {
+  const oneHourAgo = Date.now() - (60 * 60 * 1000);
+  for (const [key, value] of weeklyMatchCache.entries()) {
+    if (value.timestamp < oneHourAgo) {
+      weeklyMatchCache.delete(key);
+    }
+  }
+}, 30 * 60 * 1000); // Clean up every 30 minutes
+
+// Function to clean up duplicate matches
+async function cleanupDuplicateMatches(tournamentId) {
+  try {
+    console.log(`=== CLEANING UP DUPLICATE MATCHES ===`);
+    console.log(`Tournament ID: ${tournamentId}`);
+    
+    // Find duplicate matches (same tournament, week, and player pair)
+    const duplicateResult = await pool.query(
+      `SELECT tournament_id, week_start_date, player1_id, player2_id, COUNT(*) as match_count
+       FROM weekly_matches 
+       WHERE tournament_id = $1
+       GROUP BY tournament_id, week_start_date, player1_id, player2_id
+       HAVING COUNT(*) > 1
+       ORDER BY week_start_date, player1_id, player2_id`,
+      [tournamentId]
+    );
+    
+    if (duplicateResult.rows.length === 0) {
+      console.log('No duplicate matches found');
+      return;
+    }
+    
+    console.log(`Found ${duplicateResult.rows.length} duplicate match groups`);
+    
+    for (const duplicate of duplicateResult.rows) {
+      console.log(`Processing duplicates for tournament ${duplicate.tournament_id}, week ${duplicate.week_start_date}, players ${duplicate.player1_id} vs ${duplicate.player2_id}`);
+      
+      // Get all matches for this group, ordered by creation time
+      const matchesResult = await pool.query(
+        `SELECT id, created_at 
+         FROM weekly_matches 
+         WHERE tournament_id = $1 AND week_start_date = $2 
+         AND player1_id = $3 AND player2_id = $4
+         ORDER BY created_at ASC`,
+        [duplicate.tournament_id, duplicate.week_start_date, duplicate.player1_id, duplicate.player2_id]
+      );
+      
+      const matches = matchesResult.rows;
+      console.log(`Found ${matches.length} matches for this group`);
+      
+      // Keep the first (oldest) match, delete the rest
+      if (matches.length > 1) {
+        const matchesToDelete = matches.slice(1); // All except the first
+        const deleteIds = matchesToDelete.map(m => m.id);
+        
+        console.log(`Keeping match ID ${matches[0].id}, deleting IDs: ${deleteIds.join(', ')}`);
+        
+        const deleteResult = await pool.query(
+          `DELETE FROM weekly_matches WHERE id = ANY($1)`,
+          [deleteIds]
+        );
+        
+        console.log(`Deleted ${deleteResult.rowCount} duplicate matches`);
+      }
+    }
+    
+    console.log(`=== COMPLETED DUPLICATE MATCH CLEANUP ===`);
+    
+  } catch (err) {
+    console.error('Error cleaning up duplicate matches:', err);
+  }
+}
 // Create a new team for a tournament
 app.post('/api/tournaments/:id/teams', async (req, res) => {
   const { id } = req.params;
@@ -2974,8 +3046,8 @@ function generatePar3MatchPlayMatches(players) {
       const schedule = [
         [0, 1], [0, 2], [0, 3],
         [1, 2], [1, 4], [1, 5],
-        [2, 4], [2, 5],
-        [3, 4], [3, 5], [3, 0],
+        [2, 4], [2, 6],
+        [3, 4], [3, 5], [3, 6],
         [4, 5], [3, 0],
       ];
       schedule.forEach(([a, b]) => {
@@ -6559,10 +6631,30 @@ function normalizeDateYMD(dateInput) {
 }
 
 // Helper function to get the Monday of the week containing a given date
+// For tournaments, we want the Monday of the week that contains the tournament period
 function getWeekStartFromDate(dateString) {
   const date = new Date(dateString);
+  
+  // For tournament purposes, we want to ensure we get the Monday of the week
+  // that contains the tournament dates, not necessarily the Monday of the week
+  // containing the start date if it falls on a weekend
+  
+  // If the start date is Saturday or Sunday, we want the Monday of the NEXT week
+  // If it's Monday-Friday, we want the Monday of the current week
   const day = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
-  const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+  
+  let diff;
+  if (day === 0) { // Sunday
+    // For Sunday, go forward to next Monday (not backward to previous Monday)
+    diff = 1;
+  } else if (day === 6) { // Saturday
+    // For Saturday, go forward to next Monday
+    diff = 2;
+  } else {
+    // For Monday-Friday, go back to Monday of current week
+    diff = date.getDate() - day + 1;
+  }
+  
   const monday = new Date(date);
   monday.setDate(diff);
   
@@ -6572,7 +6664,7 @@ function getWeekStartFromDate(dateString) {
   const dayOfMonth = String(monday.getDate()).padStart(2, '0');
   const result = `${year}-${month}-${dayOfMonth}`;
   
-  console.log(`getWeekStartFromDate: ${dateString} -> Monday of week: ${result}`);
+  console.log(`getWeekStartFromDate: ${dateString} (day ${day}) -> Monday of week: ${result}`);
   return result;
 }
 
@@ -6799,17 +6891,14 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
     console.log(`Recalculating weekly matches for tournament ${tournamentId}, week ${weekStartDate} (data changed)`);
     
     // Get all scorecards for this tournament and week
-    const possibleDates = await getPossibleWeekStartDates(tournamentId, weekStartDate);
-    const datePlaceholders = possibleDates.map((_, i) => `$${i + 2}`).join(', ');
-    
-    console.log(`Possible dates: ${possibleDates.join(', ')}`);
-    
+    // IMPORTANT: Only process scorecards for the specific week, not all possible dates
+    // This prevents duplicate match creation across different weeks
     const scorecardsResult = await pool.query(
       `SELECT ws.*, u.first_name, u.last_name
        FROM weekly_scorecards ws
        JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${datePlaceholders})`,
-      [tournamentId, ...possibleDates]
+       WHERE ws.tournament_id = $1 AND ws.week_start_date = $2`,
+      [tournamentId, weekStartDate]
     );
     
     const scorecards = scorecardsResult.rows;
@@ -6855,14 +6944,14 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
         );
         console.log(`Found ${scorecardCheck.rows.length} scorecards with IDs ${player1.id}, ${player2.id}`);
         
-        // Check for existing match
+        // Check for existing match - use the specific week_start_date, not all possible dates
         const existingMatch = await pool.query(
           `SELECT id FROM weekly_matches 
            WHERE tournament_id = $1 AND week_start_date = $2 
            AND player1_id = $3 AND player2_id = $4`,
           [tournamentId, weekStartDate, player1.user_id, player2.user_id]
         );
-        console.log(`Found ${existingMatch.rows.length} existing matches for this pair`);
+        console.log(`Found ${existingMatch.rows.length} existing matches for this pair in week ${weekStartDate}`);
         
         // Calculate hole points
         const { player1HolePoints, player2HolePoints } = calculateHolePoints(player1Scores, player2Scores);
@@ -7324,8 +7413,8 @@ app.post('/api/tournaments/:id/weekly-scorecard', authenticateToken, async (req,
     
     // Use the tournament's stored week_start_date as the reference period
     // This ensures all scores for the same tournament use the same reference date
-    // If client provides week_start_date, use that; otherwise use tournament's week_start_date
-    const tournamentPeriod = req.body.week_start_date || tournamentDates.week_start_date || currentDate;
+    // IMPORTANT: Always use the tournament's week_start_date to prevent duplicate matches
+    const tournamentPeriod = tournamentDates.week_start_date || currentDate;
     
     console.log('=== SCORECARD SUBMISSION ===');
     console.log('Client provided week_start_date:', req.body.week_start_date);
@@ -7488,6 +7577,151 @@ app.post('/api/tournaments/:id/calculate-matches', async (req, res) => {
   } catch (err) {
     console.error('Error manually calculating matches:', err);
     res.status(500).json({ error: 'Failed to calculate matches' });
+  }
+});
+
+// API Endpoint: Clean up duplicate matches (for fixing existing duplicates)
+app.post('/api/tournaments/:id/cleanup-duplicates', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    console.log(`Manually cleaning up duplicate matches for tournament ${id}`);
+    
+    // Find duplicate matches (same tournament, week, and player pair)
+    const duplicateResult = await pool.query(
+      `SELECT tournament_id, week_start_date, player1_id, player2_id, COUNT(*) as match_count
+       FROM weekly_matches 
+       WHERE tournament_id = $1
+       GROUP BY tournament_id, week_start_date, player1_id, player2_id
+       HAVING COUNT(*) > 1
+       ORDER BY week_start_date, player1_id, player2_id`,
+      [id]
+    );
+    
+    if (duplicateResult.rows.length === 0) {
+      return res.json({ success: true, message: 'No duplicate matches found' });
+    }
+    
+    console.log(`Found ${duplicateResult.rows.length} duplicate match groups`);
+    let totalDeleted = 0;
+    
+    for (const duplicate of duplicateResult.rows) {
+      console.log(`Processing duplicates for tournament ${duplicate.tournament_id}, week ${duplicate.week_start_date}, players ${duplicate.player1_id} vs ${duplicate.player2_id}`);
+      
+      // Get all matches for this group, ordered by creation time
+      const matchesResult = await pool.query(
+        `SELECT id, created_at 
+         FROM weekly_matches 
+         WHERE tournament_id = $1 AND week_start_date = $2 
+         AND player1_id = $3 AND player2_id = $4
+         ORDER BY created_at ASC`,
+        [duplicate.tournament_id, duplicate.week_start_date, duplicate.player1_id, duplicate.player2_id]
+      );
+      
+      const matches = matchesResult.rows;
+      console.log(`Found ${matches.length} matches for this group`);
+      
+      // Keep the first (oldest) match, delete the rest
+      if (matches.length > 1) {
+        const matchesToDelete = matches.slice(1); // All except the first
+        const deleteIds = matchesToDelete.map(m => m.id);
+        
+        console.log(`Keeping match ID ${matches[0].id}, deleting IDs: ${deleteIds.join(', ')}`);
+        
+        const deleteResult = await pool.query(
+          `DELETE FROM weekly_matches WHERE id = ANY($1)`,
+          [deleteIds]
+        );
+        
+        totalDeleted += deleteResult.rowCount;
+        console.log(`Deleted ${deleteResult.rowCount} duplicate matches`);
+      }
+    }
+    
+    // Clear cache after cleanup
+    const cacheKey = getWeeklyMatchCacheKey(id, 'all');
+    weeklyMatchCache.delete(cacheKey);
+    
+    res.json({ 
+      success: true, 
+      message: `Cleanup completed. Deleted ${totalDeleted} duplicate matches.`,
+      duplicatesFound: duplicateResult.rows.length,
+      duplicatesDeleted: totalDeleted
+    });
+    
+  } catch (err) {
+    console.error('Error cleaning up duplicate matches:', err);
+    res.status(500).json({ error: 'Failed to cleanup duplicate matches', details: err.message });
+  }
+});
+
+// API Endpoint: Fix tournament week start date (for fixing incorrect week_start_date)
+app.post('/api/tournaments/:id/fix-week-date', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    console.log(`Manually fixing week start date for tournament ${id}`);
+    
+    // Get the tournament details
+    const tournamentResult = await pool.query(
+      `SELECT id, name, start_date, end_date, week_start_date 
+       FROM tournaments 
+       WHERE id = $1`,
+      [id]
+    );
+    
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    const tournament = tournamentResult.rows[0];
+    console.log(`Tournament: ${tournament.name}`);
+    console.log(`  Start date: ${tournament.start_date}`);
+    console.log(`  Current week_start_date: ${tournament.week_start_date}`);
+    
+    // Calculate the correct week start date
+    const correctWeekStart = getWeekStartFromDate(tournament.start_date);
+    console.log(`  Correct week_start_date: ${correctWeekStart}`);
+    
+    // Check if the current week_start_date is incorrect
+    if (tournament.week_start_date === correctWeekStart) {
+      return res.json({ 
+        success: true, 
+        message: 'Tournament week start date is already correct',
+        current: tournament.week_start_date,
+        correct: correctWeekStart
+      });
+    }
+    
+    // Update the tournament
+    const updateResult = await pool.query(
+      `UPDATE tournaments 
+       SET week_start_date = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [correctWeekStart, id]
+    );
+    
+    if (updateResult.rowCount > 0) {
+      console.log(`Updated tournament ${id} week_start_date from ${tournament.week_start_date} to ${correctWeekStart}`);
+      
+      // Clear any related caches
+      const cacheKey = getWeeklyMatchCacheKey(id, 'all');
+      weeklyMatchCache.delete(cacheKey);
+      
+      res.json({ 
+        success: true, 
+        message: `Tournament week start date fixed successfully`,
+        previous: tournament.week_start_date,
+        current: correctWeekStart,
+        note: 'You may need to clean up duplicate matches and recalculate after this change'
+      });
+    } else {
+      res.status(500).json({ error: 'Failed to update tournament week start date' });
+    }
+    
+  } catch (err) {
+    console.error('Error fixing tournament week start date:', err);
+    res.status(500).json({ error: 'Failed to fix tournament week start date', details: err.message });
   }
 });
 // API Endpoint: Test match insertion (for debugging)
