@@ -30,6 +30,9 @@ import NewWeeklyScoring from './NewWeeklyScoring';
 import ParticipantsTable from './ParticipantsTable';
 import { useAuth } from '../AuthContext';
 import NewWeeklyLeaderboard from './NewWeeklyLeaderboard';
+import AdminScorecardEditor from './AdminScorecardEditor';
+import AdminStrokeplayScorecardEditor from './AdminStrokeplayScorecardEditor';
+import AdminMatchplayEditor from './AdminMatchplayEditor';
 
 interface TournamentManagementProps {
   // Add any props if needed
@@ -70,6 +73,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
     message: string;
   } | null>(null);
   const [adminWeekOverride, setAdminWeekOverride] = useState<string>('');
+  const [adminScorecardWeek, setAdminScorecardWeek] = useState<string>('');
 
   // Helper function to determine if tournament requires matches
   const requiresMatches = (tournamentFormat: string) => {
@@ -810,6 +814,39 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                             )}
                           </div>
                         )}
+
+                        {/* Admin Scorecard Week Selector */}
+                        <div className="mb-3">
+                          <label className="block text-sm font-medium text-yellow-800 mb-1">
+                            Scorecard Editor Week (YYYY-MM-DD, optional):
+                          </label>
+                          <div className="flex space-x-2">
+                            <input
+                              type="date"
+                              value={adminScorecardWeek || ''}
+                              onChange={(e) => setAdminScorecardWeek(e.target.value)}
+                              className="flex-1 px-3 py-2 border border-yellow-300 rounded-md text-sm focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                              placeholder="Leave empty for current week"
+                            />
+                            {adminScorecardWeek && (
+                              <button
+                                onClick={() => setAdminScorecardWeek('')}
+                                className="px-3 py-2 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors"
+                                title="Clear scorecard week"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-xs text-yellow-700 mt-1">
+                            Use this to view and edit scorecards from a specific week
+                          </p>
+                          {adminScorecardWeek && (
+                            <div className="mt-2 p-2 bg-yellow-100 border border-yellow-300 rounded text-xs text-yellow-800">
+                              <strong>Active Week:</strong> Will show scorecards from week starting {adminScorecardWeek}
+                            </div>
+                          )}
+                        </div>
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                           {/* Force Calculate Matches - Only for weekly scoring tournaments */}
@@ -1213,6 +1250,19 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                             />
                           )}
 
+                          {/* Admin Strokeplay Scorecard Editor - Only show for admin users */}
+                          {selectedTournament.tournament_format === 'stroke_play' && (currentUser?.role === 'admin' || isSuperAdmin) && (
+                            <div className="mt-8">
+                              <div className="border-t border-neutral-200 pt-6">
+                                <AdminStrokeplayScorecardEditor
+                                  tournamentId={selectedTournament.id}
+                                  tournamentName={selectedTournament.name}
+                                  onScorecardUpdated={handleScoreSubmitted}
+                                />
+                              </div>
+                            </div>
+                          )}
+
                           {/* Par3 Match Play Scoring */}
                           {selectedTournament.tournament_format === 'par3_match_play' && (
                             <NewWeeklyScoring
@@ -1236,6 +1286,35 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                               tournamentSettings={getFormatSpecificSettings(selectedTournament)}
                               courseId={selectedTournament.course_id}
                             />
+                          )}
+
+                          {/* Admin Scorecard Editor - Only show for admin users */}
+                          {(currentUser?.role === 'admin' || isSuperAdmin) && (
+                            <div className="mt-8">
+                              <div className="border-t border-neutral-200 pt-6">
+                                <AdminScorecardEditor
+                                  tournamentId={selectedTournament.id}
+                                  tournamentName={selectedTournament.name}
+                                  weekStartDate={adminScorecardWeek || selectedTournament.week_start_date}
+                                  onScorecardUpdated={handleScoreSubmitted}
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Admin Matchplay Editor - Only show for admin users in matchplay tournaments */}
+                          {(currentUser?.role === 'admin' || isSuperAdmin) && 
+                           selectedTournament.tournament_format === 'match_play' && 
+                           selectedTournament.hole_configuration !== '3' && (
+                            <div className="mt-8">
+                              <div className="border-t border-neutral-200 pt-6">
+                                <AdminMatchplayEditor
+                                  tournamentId={selectedTournament.id}
+                                  tournamentName={selectedTournament.name}
+                                  onMatchUpdated={handleScoreSubmitted}
+                                />
+                              </div>
+                            </div>
                           )}
                         </div>
                       )}

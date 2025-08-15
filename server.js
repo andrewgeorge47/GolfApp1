@@ -6857,6 +6857,12 @@ async function getScorecardHash(tournamentId, weekStartDate) {
   
   return JSON.stringify(hashData);
 }
+// Helper function to canonicalize player pairs
+// Always store the pair so that player1_id < player2_id
+function canonicalizePair(a, b) {
+  return a.user_id < b.user_id ? [a, b] : [b, a];
+}
+
 // Helper function to calculate all matches for a week with smart caching
 // IMPORTANT: This function should ONLY be called by:
 // 1. Scorecard submission endpoints (when new/updated scorecards are submitted)
@@ -6922,14 +6928,24 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
     
     for (let i = 0; i < scorecards.length; i++) {
       for (let j = i + 1; j < scorecards.length; j++) {
-        const player1 = scorecards[i];
-        const player2 = scorecards[j];
+        let a = scorecards[i];
+        let b = scorecards[j];
+        
+        // Skip self-matches (guardrail in code)
+        if (a.user_id === b.user_id) {
+          console.log(`Skipping self-match for user ${a.user_id}`);
+          continue;
+        }
+        
+        // Canonicalize the pair - ensure player1_id < player2_id
+        const [player1, player2] = canonicalizePair(a, b);
         
         console.log(`\n--- Creating Match ${++matchCount} ---`);
         console.log(`Player 1: ${player1.first_name} ${player1.last_name} (${player1.user_id})`);
         console.log(`Player 2: ${player2.first_name} ${player2.last_name} (${player2.user_id})`);
+        console.log(`Canonical order: ${player1.user_id} < ${player2.user_id}`);
         
-        // Calculate match results
+        // Calculate match results using the canonical pair
         const player1Scores = player1.hole_scores;
         const player2Scores = player2.hole_scores;
         
@@ -6979,22 +6995,9 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
         console.log(`Total points: P1=${player1TotalPoints}, P2=${player2TotalPoints}`);
         console.log(`Match winner: ${matchWinner} (ID: ${winnerId})`);
         
-        // Insert or update match
+        // Insert or update match with canonical player order
         try {
-          console.log(`Attempting to insert match with parameters:`);
-          console.log(`  tournament_id: ${tournamentId}`);
-          console.log(`  week_start_date: ${weekStartDate}`);
-          console.log(`  player1_id: ${player1.user_id}`);
-          console.log(`  player2_id: ${player2.user_id}`);
-          console.log(`  player1_scorecard_id: ${player1.id}`);
-          console.log(`  player2_scorecard_id: ${player2.id}`);
-          console.log(`  hole_points: P1=${player1HolePoints}, P2=${player2HolePoints}`);
-          console.log(`  total_points: P1=${player1TotalPoints}, P2=${player2TotalPoints}`);
-          console.log(`  winner_id: ${winnerId}`);
-          console.log(`  player1_scores: ${JSON.stringify(player1Scores)}`);
-          console.log(`  player2_scores: ${JSON.stringify(player2Scores)}`);
-          console.log(`  player1_scores (for DB): ${JSON.stringify(player1Scores)}`);
-          console.log(`  player2_scores (for DB): ${JSON.stringify(player2Scores)}`);
+          console.log(`Inserting match with canonical order: player1_id=${player1.user_id}, player2_id=${player2.user_id}`);
           
           const result = await pool.query(
             `INSERT INTO weekly_matches 
@@ -7032,8 +7035,7 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
              roundPoints.round2.player1, roundPoints.round2.player2,
              roundPoints.round3.player1, roundPoints.round3.player2,
              winnerId, 0, 0,
-             player1TotalPoints, player2TotalPoints,
-             ]
+             player1TotalPoints, player2TotalPoints]
           );
           
           console.log(`Match inserted/updated successfully. Match ID: ${result.rows[0]?.id || 'N/A'}`);
@@ -8428,6 +8430,469 @@ app.get('/api/tournaments/:id/weekly-scorecard/:userId', async (req, res) => {
   } catch (err) {
     console.error('Error fetching weekly scorecard:', err);
     res.status(500).json({ error: 'Failed to fetch scorecard' });
+  }
+});
+
+// Admin endpoint: Get all scorecards for a tournament (admin only)
+app.get('/api/tournaments/:id/admin/scorecards', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { week_start_date } = req.query;
+  
+  try {
+    // Check if user is admin or super admin (Andrew George)
+    const userResult = await pool.query(
+      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    
+    const user = userResult.rows[0];
+    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
+    const isAdmin = user.role === 'admin';
+    
+    if (!isAdmin && !isSuperAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Get tournament dates to determine the correct reference period
+    const tournamentResult = await pool.query(
+      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
+      [id]
+    );
+    
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    const tournament = tournamentResult.rows[0];
+    
+    // Use the provided date, tournament week_start_date, or current date as fallback
+    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
+    
+    // Get all possible week start dates for this tournament
+    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
+    
+    // Get all scorecards for the tournament and week
+    let { rows } = await pool.query(
+      `SELECT ws.*, u.first_name, u.last_name, u.club, u.email_address
+       FROM weekly_scorecards ws
+       JOIN users u ON ws.user_id = u.member_id
+       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})
+       ORDER BY u.last_name, u.first_name`,
+      [id, ...possibleDates]
+    );
+    
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching admin scorecards:', err);
+    res.status(500).json({ error: 'Failed to fetch scorecards' });
+  }
+});
+
+// Admin endpoint: Update a scorecard (admin only)
+app.put('/api/tournaments/:id/admin/scorecards/:scorecardId', authenticateToken, async (req, res) => {
+  const { id, scorecardId } = req.params;
+  const { hole_scores, total_score, week_start_date } = req.body;
+  
+  try {
+    // Check if user is admin or super admin (Andrew George)
+    const userResult = await pool.query(
+      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    
+    const user = userResult.rows[0];
+    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
+    const isAdmin = user.role === 'admin';
+    
+    if (!isAdmin && !isSuperAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Validate scorecard exists and belongs to the tournament
+    const scorecardResult = await pool.query(
+      'SELECT * FROM weekly_scorecards WHERE id = $1 AND tournament_id = $2',
+      [scorecardId, id]
+    );
+    
+    if (scorecardResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Scorecard not found' });
+    }
+    
+    // Get the week date from the scorecard or request body
+    const weekDate = week_start_date || scorecardResult.rows[0].week_start_date;
+    
+    // Update the scorecard
+    const updateResult = await pool.query(
+      `UPDATE weekly_scorecards 
+       SET hole_scores = $1, total_score = $2
+       WHERE id = $3`,
+      [JSON.stringify(hole_scores), total_score, scorecardId]
+    );
+    
+    if (updateResult.rowCount === 0) {
+      return res.status(500).json({ error: 'Failed to update scorecard' });
+    }
+    
+    // Get the updated scorecard
+    const updatedScorecard = await pool.query(
+      `SELECT ws.*, u.first_name, u.last_name, u.club
+       FROM weekly_scorecards ws
+       JOIN users u ON ws.user_id = u.member_id
+       WHERE ws.id = $1`,
+      [scorecardId]
+    );
+    
+    // Recalculate matches for this tournament
+    try {
+      console.log(`Recalculating matches for tournament ${id}, week ${weekDate}`);
+      await calculateWeeklyMatches(id, weekDate);
+      console.log(`Recalculation completed successfully`);
+      // TODO: Implement calculateWeeklyLeaderboard function
+      // await calculateWeeklyLeaderboard(id, weekDate);
+    } catch (calcError) {
+      console.error('Error recalculating after scorecard update:', calcError);
+      console.error('Error stack:', calcError.stack);
+      // Don't fail the request if recalculation fails, but log the error
+    }
+    
+    res.json({
+      message: 'Scorecard updated successfully',
+      scorecard: updatedScorecard.rows[0]
+    });
+  } catch (err) {
+    console.error('Error updating admin scorecard:', err);
+    console.error('Error stack:', err.stack);
+    console.error('Error details:', {
+      tournamentId: id,
+      scorecardId: scorecardId,
+      requestBody: req.body,
+      userId: req.user?.member_id
+    });
+    res.status(500).json({ error: 'Failed to update scorecard' });
+  }
+});
+
+// Admin endpoint: Delete a scorecard (admin only)
+app.delete('/api/tournaments/:id/admin/scorecards/:scorecardId', authenticateToken, async (req, res) => {
+  const { id, scorecardId } = req.params;
+  
+  try {
+    // Check if user is admin or super admin (Andrew George)
+    const userResult = await pool.query(
+      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    
+    const user = userResult.rows[0];
+    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
+    const isAdmin = user.role === 'admin';
+    
+    if (!isAdmin && !isSuperAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Validate scorecard exists and belongs to the tournament
+    const scorecardResult = await pool.query(
+      'SELECT * FROM weekly_scorecards WHERE id = $1 AND tournament_id = $2',
+      [scorecardId, id]
+    );
+    
+    if (scorecardResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Scorecard not found' });
+    }
+    
+    // Delete the scorecard
+    const deleteResult = await pool.query(
+      'DELETE FROM weekly_scorecards WHERE id = $1',
+      [scorecardId]
+    );
+    
+    if (deleteResult.rowCount === 0) {
+      return res.status(500).json({ error: 'Failed to delete scorecard' });
+    }
+    
+    res.json({ message: 'Scorecard deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting admin scorecard:', err);
+    res.status(500).json({ error: 'Failed to delete scorecard' });
+  }
+});
+
+// Admin endpoint: Get all strokeplay scorecards for a tournament (admin only)
+app.get('/api/tournaments/:id/admin/strokeplay-scorecards', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // Check if user is admin or super admin (Andrew George)
+    const userResult = await pool.query(
+      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    
+    const user = userResult.rows[0];
+    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
+    const isAdmin = user.role === 'admin';
+    
+    if (!isAdmin && !isSuperAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Get all strokeplay scorecards for the tournament
+    let { rows } = await pool.query(
+      `SELECT s.*, u.first_name, u.last_name, u.club, u.email_address
+       FROM scorecards s
+       JOIN users u ON s.user_id = u.member_id
+       WHERE s.tournament_id = $1 AND s.type = 'strokeplay'
+       ORDER BY u.last_name, u.first_name`,
+      [id]
+    );
+    
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching admin strokeplay scorecards:', err);
+    res.status(500).json({ error: 'Failed to fetch scorecards' });
+  }
+});
+
+// Admin endpoint: Update a strokeplay scorecard (admin only)
+app.put('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', authenticateToken, async (req, res) => {
+  const { id, scorecardId } = req.params;
+  const { hole_scores, total_score, notes } = req.body;
+  
+  try {
+    // Check if user is admin or super admin (Andrew George)
+    const userResult = await pool.query(
+      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    
+    const user = userResult.rows[0];
+    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
+    const isAdmin = user.role === 'admin';
+    
+    if (!isAdmin && !isSuperAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Validate scorecard exists and belongs to the tournament
+    const scorecardResult = await pool.query(
+      'SELECT * FROM scorecards WHERE id = $1 AND tournament_id = $2 AND type = $3',
+      [scorecardId, id, 'strokeplay']
+    );
+    
+    if (scorecardResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Scorecard not found' });
+    }
+    
+    // Update the scorecard
+    const updateResult = await pool.query(
+      `UPDATE scorecards 
+       SET scores = $1, total_strokes = $2, notes = $3, updated_at = NOW()
+       WHERE id = $4`,
+      [JSON.stringify(hole_scores), total_score, notes, scorecardId]
+    );
+    
+    if (updateResult.rowCount === 0) {
+      return res.status(500).json({ error: 'Failed to update scorecard' });
+    }
+    
+    // Get the updated scorecard
+    const updatedScorecard = await pool.query(
+      `SELECT s.*, u.first_name, u.last_name, u.club
+       FROM scorecards s
+       JOIN users u ON s.user_id = u.member_id
+       WHERE s.id = $1`,
+      [scorecardId]
+    );
+    
+    res.json({
+      message: 'Scorecard updated successfully',
+      scorecard: updatedScorecard.rows[0]
+    });
+  } catch (err) {
+    console.error('Error updating admin strokeplay scorecard:', err);
+    res.status(500).json({ error: 'Failed to update scorecard' });
+  }
+});
+
+// Admin endpoint: Delete a strokeplay scorecard (admin only)
+app.delete('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', authenticateToken, async (req, res) => {
+  const { id, scorecardId } = req.params;
+  
+  try {
+    // Check if user is admin or super admin (Andrew George)
+    const userResult = await pool.query(
+      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    
+    const user = userResult.rows[0];
+    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
+    const isAdmin = user.role === 'admin';
+    
+    if (!isAdmin && !isSuperAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Validate scorecard exists and belongs to the tournament
+    const scorecardResult = await pool.query(
+      'SELECT * FROM scorecards WHERE id = $1 AND tournament_id = $2 AND type = $3',
+      [scorecardId, id, 'strokeplay']
+    );
+    
+    if (scorecardResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Scorecard not found' });
+    }
+    
+    // Delete the scorecard
+    const deleteResult = await pool.query(
+      'DELETE FROM scorecards WHERE id = $1',
+      [scorecardId]
+    );
+    
+    if (deleteResult.rowCount === 0) {
+      return res.status(500).json({ error: 'Failed to delete scorecard' });
+    }
+    
+    res.json({ message: 'Scorecard deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting admin strokeplay scorecard:', err);
+    res.status(500).json({ error: 'Failed to delete scorecard' });
+  }
+});
+
+// Admin endpoint: Get all matchplay matches for a tournament (admin only)
+app.get('/api/tournaments/:id/admin/matchplay-matches', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // Check if user is admin or super admin (Andrew George)
+    const userResult = await pool.query(
+      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    
+    const user = userResult.rows[0];
+    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
+    const isAdmin = user.role === 'admin';
+    
+    if (!isAdmin && !isSuperAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Get all matchplay matches for the tournament
+    let { rows } = await pool.query(
+      `SELECT m.*, 
+              p1.first_name as player1_first_name, p1.last_name as player1_last_name, p1.club as player1_club,
+              p2.first_name as player2_first_name, p2.last_name as player2_last_name, p2.club as player2_club
+       FROM tournament_matches m
+       JOIN users p1 ON m.player1_id = p1.member_id
+       JOIN users p2 ON m.player2_id = p2.member_id
+       WHERE m.tournament_id = $1
+       ORDER BY m.match_number`,
+      [id]
+    );
+    
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching admin matchplay matches:', err);
+    res.status(500).json({ error: 'Failed to fetch matches' });
+  }
+});
+
+// Admin endpoint: Update a matchplay match (admin only)
+app.put('/api/tournaments/:id/admin/matchplay-matches/:matchId', authenticateToken, async (req, res) => {
+  const { id, matchId } = req.params;
+  const { player1_score, player2_score, winner_id, scores } = req.body;
+  
+  try {
+    // Check if user is admin or super admin (Andrew George)
+    const userResult = await pool.query(
+      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    
+    const user = userResult.rows[0];
+    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
+    const isAdmin = user.role === 'admin';
+    
+    if (!isAdmin && !isSuperAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Validate match exists and belongs to the tournament
+    const matchResult = await pool.query(
+      'SELECT * FROM tournament_matches WHERE id = $1 AND tournament_id = $2',
+      [matchId, id]
+    );
+    
+    if (matchResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    
+    // Update the match
+    const updateResult = await pool.query(
+      `UPDATE tournament_matches 
+       SET player1_score = $1, player2_score = $2, winner_id = $3, scores = $4, updated_at = NOW()
+       WHERE id = $5`,
+      [player1_score, player2_score, winner_id, JSON.stringify(scores), matchId]
+    );
+    
+    if (updateResult.rowCount === 0) {
+      return res.status(500).json({ error: 'Failed to update match' });
+    }
+    
+    // Get the updated match
+    const updatedMatch = await pool.query(
+      `SELECT m.*, 
+              p1.first_name as player1_first_name, p1.last_name as player1_last_name, p1.club as player1_club,
+              p2.first_name as player2_first_name, p2.last_name as player2_last_name, p2.club as player2_club
+       FROM tournament_matches m
+       JOIN users p1 ON m.player1_id = p1.member_id
+       JOIN users p2 ON m.player2_id = p2.member_id
+       WHERE m.id = $1`,
+      [matchId]
+    );
+    
+    res.json({
+      message: 'Match updated successfully',
+      match: updatedMatch.rows[0]
+    });
+  } catch (err) {
+    console.error('Error updating admin matchplay match:', err);
+    res.status(500).json({ error: 'Failed to update match' });
   }
 });
 

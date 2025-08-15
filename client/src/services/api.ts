@@ -895,4 +895,51 @@ export const forceUpdateLeaderboard = (tournamentId: number, weekStartDate?: str
 export const cleanupDuplicateMatches = (tournamentId: number) => api.post(`/tournaments/${tournamentId}/cleanup-duplicates`);
 export const fixTournamentWeekDate = (tournamentId: number) => api.post(`/tournaments/${tournamentId}/fix-week-date`);
 
+// Admin scorecard editing functions
+export const getAdminScorecards = (tournamentId: number, weekStartDate?: string) => {
+  const params = weekStartDate ? `?week_start_date=${normalizeYMD(weekStartDate)}` : '';
+  return api.get(`/tournaments/${tournamentId}/admin/scorecards${params}`);
+};
+
+export const updateAdminScorecard = (tournamentId: number, scorecardId: number, data: {
+  hole_scores: number[];
+  total_score: number;
+}) => {
+  return api.put(`/tournaments/${tournamentId}/admin/scorecards/${scorecardId}`, data);
+};
+
+export const deleteAdminScorecard = (tournamentId: number, scorecardId: number) => {
+  return api.delete(`/tournaments/${tournamentId}/admin/scorecards/${scorecardId}`);
+};
+
+// Admin strokeplay scorecard editing functions
+export const getAdminStrokeplayScorecards = (tournamentId: number) => {
+  return api.get(`/tournaments/${tournamentId}/admin/strokeplay-scorecards`);
+};
+
+export const updateAdminStrokeplayScorecard = (tournamentId: number, scorecardId: number, data: {
+  hole_scores: number[];
+  total_score: number;
+}) => {
+  return api.put(`/tournaments/${tournamentId}/admin/strokeplay-scorecards/${scorecardId}`, data);
+};
+
+export const deleteAdminStrokeplayScorecard = (tournamentId: number, scorecardId: number) => {
+  return api.delete(`/tournaments/${tournamentId}/admin/strokeplay-scorecards/${scorecardId}`);
+};
+
+// Admin matchplay match editing functions
+export const getAdminMatchplayMatches = (tournamentId: number) => {
+  return api.get(`/tournaments/${tournamentId}/admin/matchplay-matches`);
+};
+
+export const updateAdminMatchplayMatch = (tournamentId: number, matchId: number, data: {
+  player1_score: number;
+  player2_score: number;
+  winner_id: number | null;
+  scores?: any;
+}) => {
+  return api.put(`/tournaments/${tournamentId}/admin/matchplay-matches/${matchId}`, data);
+};
+
 export default api; 

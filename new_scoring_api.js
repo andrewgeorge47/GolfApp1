@@ -197,59 +197,108 @@ app.post('/api/tournaments/:id/weekly-scorecard', authenticateToken, async (req,
   }
 });
 
+// Helper function to canonicalize player pairs
+// Always store the pair so that player1_id < player2_id
+function canonicalizePair(a, b) {
+  return a.user_id < b.user_id ? [a, b] : [b, a];
+}
+
+// Helper function to swap match stats when the pair is flipped
+function swapMatchStats(stats) {
+  return {
+    player1HolePoints: stats.player2HolePoints,
+    player2HolePoints: stats.player1HolePoints,
+    roundPoints: {
+      round1: { player1: stats.roundPoints.round1.player2, player2: stats.roundPoints.round1.player1 },
+      round2: { player1: stats.roundPoints.round2.player2, player2: stats.roundPoints.round2.player1 },
+      round3: { player1: stats.roundPoints.round3.player2, player2: stats.roundPoints.round3.player1 }
+    },
+    player1TotalPoints: stats.player2TotalPoints,
+    player2TotalPoints: stats.player1TotalPoints,
+    winnerId: stats.winnerId === null ? null
+              : (stats.winnerId === stats.p1Id ? stats.p2Id : stats.p1Id),
+  };
+}
+
 // Helper function to calculate all matches for a week
 async function calculateWeeklyMatches(tournamentId, weekStartDate) {
   try {
+    console.log(`=== CALCULATING WEEKLY MATCHES ===`);
+    console.log(`Tournament ID: ${tournamentId}, Week: ${weekStartDate}`);
+    
     // Get all scorecards for this tournament and week
+    // Use DISTINCT ON to ensure one scorecard per user per week (latest)
     const scorecardsResult = await pool.query(
       `SELECT ws.*, u.first_name, u.last_name
-       FROM weekly_scorecards ws
+       FROM (
+         SELECT DISTINCT ON (tournament_id, week_start_date, user_id)
+                *
+         FROM weekly_scorecards
+         WHERE tournament_id = $1 AND week_start_date = $2
+         ORDER BY tournament_id, week_start_date, user_id, submitted_at DESC
+       ) ws
        JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.tournament_id = $1 AND ws.week_start_date = $2`,
+       ORDER BY ws.user_id`,
       [tournamentId, weekStartDate]
     );
     
     const scorecards = scorecardsResult.rows;
+    console.log(`Found ${scorecards.length} scorecards for tournament ${tournamentId}, week ${weekStartDate}`);
     
     if (scorecards.length < 2) {
-      console.log('Not enough scorecards to calculate matches');
+      console.log('Not enough scorecards to calculate matches (need at least 2 players)');
       return;
     }
     
     // Generate all possible player pairs
-    const matches = [];
+    let matchCount = 0;
     for (let i = 0; i < scorecards.length; i++) {
       for (let j = i + 1; j < scorecards.length; j++) {
-        const player1 = scorecards[i];
-        const player2 = scorecards[j];
+        let a = scorecards[i];
+        let b = scorecards[j];
         
-        // Calculate match results
+        // Skip self-matches (guardrail in code)
+        if (a.user_id === b.user_id) {
+          console.log(`Skipping self-match for user ${a.user_id}`);
+          continue;
+        }
+        
+        // Canonicalize the pair - ensure player1_id < player2_id
+        const [player1, player2] = canonicalizePair(a, b);
+        
+        console.log(`\n--- Creating Match ${++matchCount} ---`);
+        console.log(`Player 1: ${player1.first_name} ${player1.last_name} (${player1.user_id})`);
+        console.log(`Player 2: ${player2.first_name} ${player2.last_name} (${player2.user_id})`);
+        console.log(`Canonical order: ${player1.user_id} < ${player2.user_id}`);
+        
+        // Calculate match results using the canonical pair
         const player1Scores = player1.hole_scores;
         const player2Scores = player2.hole_scores;
         
         // For real-time scoring, only compare holes that both players have completed
         const commonHoles = [];
-        for (let i = 0; i < 9; i++) {
-          if (player1Scores[i] > 0 && player2Scores[i] > 0) {
+        for (let k = 0; k < 9; k++) {
+          if (player1Scores[k] > 0 && player2Scores[k] > 0) {
             commonHoles.push({
-              player1Score: player1Scores[i],
-              player2Score: player2Scores[i],
-              holeIndex: i
+              player1Score: player1Scores[k],
+              player2Score: player2Scores[k],
+              holeIndex: k
             });
           }
         }
         
         // Only calculate match if both players have at least 3 holes in common
         if (commonHoles.length < 3) {
-          continue; // Skip this match for now
+          console.log(`Skipping match - only ${commonHoles.length} common holes (need at least 3)`);
+          continue;
         }
         
         // Create arrays with only the common holes for comparison
-        const player1CommonScores = player1Scores.map((score, i) => 
-          commonHoles.some(ch => ch.holeIndex === i) ? score : 0
+        const player1CommonScores = player1Scores.map((score, k) => 
+          commonHoles.some(ch => ch.holeIndex === k) ? score : 0
         );
-        const player2CommonScores = player2Scores.map((score, i) => 
-          commonHoles.some(ch => ch.holeIndex === i) ? score : 0
+        const player2CommonScores = player2Scores.map((score, k) => 
+          commonHoles.some(ch => ch.holeIndex === k) ? score : 0
         );
         
         // Calculate hole points
@@ -273,46 +322,71 @@ async function calculateWeeklyMatches(tournamentId, weekStartDate) {
         const player2TotalPoints = player2HolePoints + 
           roundPoints.round1.player2 + roundPoints.round2.player2 + roundPoints.round3.player2;
         
-        // Insert or update match
-        await pool.query(
-          `INSERT INTO weekly_matches 
-           (tournament_id, week_start_date, player1_id, player2_id, 
-            player1_scorecard_id, player2_scorecard_id,
-            hole_points_player1, hole_points_player2,
-            round1_points_player1, round1_points_player2,
-            round2_points_player1, round2_points_player2,
-            round3_points_player1, round3_points_player2,
-            match_winner_id, match_live_bonus_player1, match_live_bonus_player2,
-            total_points_player1, total_points_player2)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-           ON CONFLICT (tournament_id, week_start_date, player1_id, player2_id)
-           DO UPDATE SET
-             player1_scorecard_id = EXCLUDED.player1_scorecard_id,
-             player2_scorecard_id = EXCLUDED.player2_scorecard_id,
-             hole_points_player1 = EXCLUDED.hole_points_player1,
-             hole_points_player2 = EXCLUDED.hole_points_player2,
-             round1_points_player1 = EXCLUDED.round1_points_player1,
-             round1_points_player2 = EXCLUDED.round1_points_player2,
-             round2_points_player1 = EXCLUDED.round2_points_player1,
-             round2_points_player2 = EXCLUDED.round2_points_player2,
-             round3_points_player1 = EXCLUDED.round3_points_player1,
-             round3_points_player2 = EXCLUDED.round3_points_player2,
-             match_winner_id = EXCLUDED.match_winner_id,
-             match_live_bonus_player1 = EXCLUDED.match_live_bonus_player1,
-             match_live_bonus_player2 = EXCLUDED.match_live_bonus_player2,
-             total_points_player1 = EXCLUDED.total_points_player1,
-             total_points_player2 = EXCLUDED.total_points_player2`,
-          [tournamentId, weekStartDate, player1.user_id, player2.user_id,
-           player1.id, player2.id,
-           player1HolePoints, player2HolePoints,
-           roundPoints.round1.player1, roundPoints.round1.player2,
-           roundPoints.round2.player1, roundPoints.round2.player2,
-           roundPoints.round3.player1, roundPoints.round3.player2,
-           winnerId, 0, 0,
-           player1TotalPoints, player2TotalPoints]
-        );
+        console.log(`Hole points: P1=${player1HolePoints}, P2=${player2HolePoints}`);
+        console.log(`Round points: P1=${JSON.stringify(roundPoints)}, P2=${JSON.stringify(roundPoints)}`);
+        console.log(`Total points: P1=${player1TotalPoints}, P2=${player2TotalPoints}`);
+        console.log(`Match winner: ${matchWinner} (ID: ${winnerId})`);
+        
+        // Insert or update match with canonical player order
+        try {
+          console.log(`Inserting match with canonical order: player1_id=${player1.user_id}, player2_id=${player2.user_id}`);
+          
+          const result = await pool.query(
+            `INSERT INTO weekly_matches 
+             (tournament_id, week_start_date, player1_id, player2_id, 
+              player1_scorecard_id, player2_scorecard_id,
+              hole_points_player1, hole_points_player2,
+              round1_points_player1, round1_points_player2,
+              round2_points_player1, round2_points_player2,
+              round3_points_player1, round3_points_player2,
+              match_winner_id, match_live_bonus_player1, match_live_bonus_player2,
+              total_points_player1, total_points_player2)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+             ON CONFLICT (tournament_id, week_start_date, player1_id, player2_id)
+             DO UPDATE SET
+               player1_scorecard_id = EXCLUDED.player1_scorecard_id,
+               player2_scorecard_id = EXCLUDED.player2_scorecard_id,
+               hole_points_player1 = EXCLUDED.hole_points_player1,
+               hole_points_player2 = EXCLUDED.hole_points_player2,
+               round1_points_player1 = EXCLUDED.round1_points_player1,
+               round1_points_player2 = EXCLUDED.round1_points_player2,
+               round2_points_player1 = EXCLUDED.round2_points_player1,
+               round2_points_player2 = EXCLUDED.round2_points_player2,
+               round3_points_player1 = EXCLUDED.round3_points_player1,
+               round3_points_player2 = EXCLUDED.round3_points_player2,
+               match_winner_id = EXCLUDED.match_winner_id,
+               match_live_bonus_player1 = EXCLUDED.match_live_bonus_player1,
+               match_live_bonus_player2 = EXCLUDED.match_live_bonus_player2,
+               total_points_player1 = EXCLUDED.total_points_player1,
+               total_points_player2 = EXCLUDED.total_points_player2
+             RETURNING id`,
+            [tournamentId, weekStartDate, player1.user_id, player2.user_id,
+             player1.id, player2.id,
+             player1HolePoints, player2HolePoints,
+             roundPoints.round1.player1, roundPoints.round1.player2,
+             roundPoints.round2.player1, roundPoints.round2.player2,
+             roundPoints.round3.player1, roundPoints.round3.player2,
+             winnerId, 0, 0,
+             player1TotalPoints, player2TotalPoints]
+          );
+          
+          console.log(`Match inserted/updated successfully. Match ID: ${result.rows[0]?.id || 'N/A'}`);
+          
+        } catch (insertError) {
+          console.error(`Error inserting match between ${player1.first_name} and ${player2.first_name}:`, insertError);
+          console.error('Insert error details:', insertError.message);
+          console.error('Error code:', insertError.code);
+          console.error('Error constraint:', insertError.constraint);
+          console.error('Error detail:', insertError.detail);
+          
+          // Continue with other matches even if one fails
+          continue;
+        }
       }
     }
+    
+    console.log(`=== COMPLETED WEEKLY MATCH CALCULATION ===`);
+    console.log(`Tournament ${tournamentId}, Week ${weekStartDate}: Created ${matchCount} matches`);
     
     // Update leaderboard
     await updateWeeklyLeaderboard(tournamentId, weekStartDate);
