@@ -8472,8 +8472,19 @@ app.get('/api/tournaments/:id/admin/scorecards', authenticateToken, async (req, 
     // Use the provided date, tournament week_start_date, or current date as fallback
     const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
     
+    console.log(`Admin scorecards request - Tournament: ${id}, Requested week: ${week_start_date}, Normalized week: ${weekDate}`);
+    console.log(`Tournament dates - start: ${tournament.start_date}, end: ${tournament.end_date}, week_start: ${tournament.week_start_date}`);
+    
     // Get all possible week start dates for this tournament
     const possibleDates = await getPossibleWeekStartDates(id, weekDate);
+    
+    console.log(`Possible dates found: ${JSON.stringify(possibleDates)}`);
+    
+    // If no possible dates, return empty array
+    if (possibleDates.length === 0) {
+      console.log(`No possible dates found for tournament ${id}, returning empty array`);
+      return res.json([]);
+    }
     
     // Get all scorecards for the tournament and week
     let { rows } = await pool.query(
