@@ -25,9 +25,6 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
   const [matchesLoading, setMatchesLoading] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
-  
-
-
   // Helper function to get the tournament period (simple, no week calculations)
   const getTournamentPeriod = () => {
     // If a specific weekStartDate is provided, use that
@@ -201,13 +198,44 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
         </p>
         
         {/* Historical Data Notice */}
-        {tournamentEndDate && new Date(tournamentEndDate) < new Date() && (
-          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <p className="text-sm text-yellow-800">
-              📅 This tournament has ended. You're viewing historical data from the tournament period.
-            </p>
-          </div>
-        )}
+        {(() => {
+          // Debug logging for date comparison
+          if (tournamentEndDate) {
+            const endDate = new Date(tournamentEndDate);
+            const currentDate = new Date();
+            
+            // Convert tournament end date to end of day in local timezone
+            const endDateLocal = new Date(tournamentEndDate);
+            endDateLocal.setHours(23, 59, 59, 999); // End of day
+            
+            // Get current date at start of day for fair comparison
+            const currentDateStart = new Date();
+            currentDateStart.setHours(0, 0, 0, 0);
+            
+            console.log('🔍 Tournament End Date Check:');
+            console.log('  End date (end of day):', endDateLocal.toLocaleString());
+            console.log('  Current date (start of day):', currentDateStart.toLocaleDateString());
+            console.log('  Tournament ended:', endDateLocal < currentDateStart);
+          }
+          
+          // Tournament is ended if the end date (end of day) has passed
+          if (!tournamentEndDate) return null;
+          
+          const endDateLocal = new Date(tournamentEndDate);
+          endDateLocal.setHours(23, 59, 59, 999); // End of day
+          const currentDateStart = new Date();
+          currentDateStart.setHours(0, 0, 0, 0); // Start of current day
+          
+          const isTournamentEnded = endDateLocal < currentDateStart;
+          
+          return isTournamentEnded ? (
+            <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <p className="text-sm text-yellow-800">
+                📅 This tournament has ended. You're viewing historical data from the tournament period.
+              </p>
+            </div>
+          ) : null;
+        })()}
         
 
         
