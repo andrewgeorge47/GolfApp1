@@ -196,6 +196,9 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
         <p className="text-sm md:text-base text-gray-600">
           Current Week: {new Date(currentWeek).toLocaleDateString()}
         </p>
+        <p className="text-xs text-gray-500 mt-1">
+          💡 Click on any player row to view their detailed match results
+        </p>
         
         {/* Historical Data Notice */}
         {(() => {
@@ -259,15 +262,14 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
           {/* Desktop Header */}
           {!isMobile && (
             <div className="hidden md:block bg-gray-50 px-6 py-4 border-b">
-              <div className="grid grid-cols-11 gap-4 text-sm font-medium text-gray-700">
+              <div className="grid grid-cols-10 gap-4 text-sm font-medium text-gray-700">
                 <div className="col-span-1">Rank</div>
                 <div className="col-span-3">Player</div>
                 <div className="col-span-1 text-center">Hole Pts</div>
                 <div className="col-span-1 text-center">Round Pts</div>
                 <div className="col-span-1 text-center">Total</div>
                 <div className="col-span-2 text-center">Record</div>
-                <div className="col-span-1 text-center">Live</div>
-                <div className="col-span-1"></div>
+                <div className="col-span-1 text-center">Details</div>
               </div>
             </div>
           )}
@@ -278,8 +280,11 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
               <div key={player.user_id}>
                 {/* Desktop Layout */}
                 {!isMobile && (
-                  <div className="hidden md:block px-6 py-4 hover:bg-gray-50">
-                    <div className="grid grid-cols-11 gap-4 items-center">
+                  <div 
+                    className="hidden md:block px-6 py-4 hover:bg-gray-50 transition-colors cursor-pointer group border-l-4 border-l-transparent hover:border-l-blue-200"
+                    onClick={() => handlePlayerExpand(player.user_id)}
+                  >
+                    <div className="grid grid-cols-10 gap-4 items-center">
                       <div className="col-span-1">
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
                           index === 0 ? 'bg-yellow-100 text-yellow-800' :
@@ -330,27 +335,18 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
                       </div>
                       
                       <div className="col-span-1 text-center">
-                        {Number(player.live_matches_played || 0) > 0 ? (
-                          <div className="flex items-center justify-center space-x-1">
-                            <Users className="w-4 h-4 text-green-600" />
-                            <span className="text-sm font-semibold text-green-600">
-                              {Number(player.live_matches_played || 0)}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </div>
-                      
-                      <div className="col-span-1 text-right">
                         <button
-                          onClick={() => handlePlayerExpand(player.user_id)}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePlayerExpand(player.user_id);
+                          }}
+                          className="p-2 hover:bg-blue-100 rounded-lg transition-all duration-200 group-hover:bg-blue-50 transform hover:scale-105"
+                          title={expandedPlayer === player.user_id ? "Hide match details" : "View match details"}
                         >
                           {expandedPlayer === player.user_id ? (
-                            <ChevronUp className="w-5 h-5 text-gray-600" />
+                            <ChevronUp className="w-5 h-5 text-blue-600" />
                           ) : (
-                            <ChevronDown className="w-5 h-5 text-gray-600" />
+                            <ChevronDown className="w-5 h-5 text-gray-500 group-hover:text-blue-600 transition-colors" />
                           )}
                         </button>
                       </div>
@@ -381,12 +377,13 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
                       
                       <button
                         onClick={() => handlePlayerExpand(player.user_id)}
-                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                        className="p-2 hover:bg-blue-100 rounded-lg transition-colors"
+                        title={expandedPlayer === player.user_id ? "Hide match details" : "View match details"}
                       >
                         {expandedPlayer === player.user_id ? (
-                          <ChevronUp className="w-6 h-6 text-gray-600" />
+                          <ChevronUp className="w-6 h-6 text-blue-600" />
                         ) : (
-                          <ChevronDown className="w-6 h-6 text-gray-600" />
+                          <ChevronDown className="w-6 h-6 text-gray-500 hover:text-blue-600 transition-colors" />
                         )}
                       </button>
                     </div>
@@ -427,15 +424,27 @@ const NewWeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
                         </div>
                         <span className="text-gray-500">({Number(player.matches_played || 0)} played)</span>
                       </div>
-                      
-                      {Number(player.live_matches_played || 0) > 0 && (
-                        <div className="flex items-center gap-1">
-                          <Users className="w-4 h-4 text-green-600" />
-                          <span className="text-sm font-semibold text-green-600">
-                            {Number(player.live_matches_played || 0)}
-                          </span>
-                        </div>
-                      )}
+                    </div>
+                    
+                    {/* Mobile Expand Hint */}
+                    <div className="mt-3 text-center">
+                      <button
+                        onClick={() => handlePlayerExpand(player.user_id)}
+                        className="flex items-center justify-center gap-2 w-full py-2 px-4 bg-blue-50 hover:bg-blue-100 rounded-lg transition-all duration-200 text-sm text-blue-700 font-medium transform hover:scale-105"
+                        title={expandedPlayer === player.user_id ? "Hide match details" : "View match details"}
+                      >
+                        {expandedPlayer === player.user_id ? (
+                          <>
+                            <ChevronUp className="w-4 h-4" />
+                            Hide Match Details
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="w-4 h-4" />
+                            View Match Details
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
                 )}

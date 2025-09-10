@@ -9,6 +9,9 @@ interface Participant {
   email_address: string;
   club: string;
   role: string;
+  handicap?: number | string;
+  sim_handicap?: number | string;
+  grass_handicap?: number | string;
   registration_form_data?: any;
 }
 
@@ -37,7 +40,7 @@ interface ParticipantsTableProps {
   onUnregister?: (userId: number) => void;
 }
 
-type SortField = 'name' | 'club' | 'participation_type' | 'night_availability' | 'payment_status';
+type SortField = 'name' | 'club' | 'handicap' | 'participation_type' | 'night_availability' | 'payment_status';
 type SortDirection = 'asc' | 'desc';
 
 const ParticipantsTable: React.FC<ParticipantsTableProps> = ({
@@ -132,6 +135,38 @@ const ParticipantsTable: React.FC<ParticipantsTableProps> = ({
     }
   };
 
+  const getHandicapValue = (participant: Participant): number => {
+    // Priority: sim_handicap > handicap > grass_handicap
+    // Convert string values to numbers
+    if (participant.sim_handicap !== null && participant.sim_handicap !== undefined) {
+      return parseFloat(participant.sim_handicap.toString()) || 0;
+    }
+    if (participant.handicap !== null && participant.handicap !== undefined) {
+      return parseFloat(participant.handicap.toString()) || 0;
+    }
+    if (participant.grass_handicap !== null && participant.grass_handicap !== undefined) {
+      return parseFloat(participant.grass_handicap.toString()) || 0;
+    }
+    return 0;
+  };
+
+  const getHandicapDisplay = (participant: Participant): string => {
+    const value = getHandicapValue(participant);
+    if (value === 0) return 'N/A';
+    
+    // Show which handicap type is being used
+    if (participant.sim_handicap !== null && participant.sim_handicap !== undefined) {
+      return `${value.toFixed(1)} (Sim)`;
+    }
+    if (participant.handicap !== null && participant.handicap !== undefined) {
+      return `${value.toFixed(1)} (Reg)`;
+    }
+    if (participant.grass_handicap !== null && participant.grass_handicap !== undefined) {
+      return `${value.toFixed(1)} (Grass)`;
+    }
+    return 'N/A';
+  };
+
   const sortedParticipants = useMemo(() => {
     return [...participants].sort((a, b) => {
       let aValue: any;
@@ -145,6 +180,10 @@ const ParticipantsTable: React.FC<ParticipantsTableProps> = ({
         case 'club':
           aValue = a.club?.toLowerCase() || '';
           bValue = b.club?.toLowerCase() || '';
+          break;
+        case 'handicap':
+          aValue = getHandicapValue(a);
+          bValue = getHandicapValue(b);
           break;
         case 'participation_type':
           aValue = getParticipationType(a);
@@ -232,6 +271,15 @@ const ParticipantsTable: React.FC<ParticipantsTableProps> = ({
                 </th>
                 <th 
                   className="border border-neutral-300 px-4 py-3 text-left font-medium cursor-pointer hover:bg-neutral-100"
+                  onClick={() => handleSort('handicap')}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Handicap</span>
+                    {getSortIcon('handicap')}
+                  </div>
+                </th>
+                <th 
+                  className="border border-neutral-300 px-4 py-3 text-left font-medium cursor-pointer hover:bg-neutral-100"
                   onClick={() => handleSort('participation_type')}
                 >
                   <div className="flex items-center space-x-1">
@@ -280,6 +328,11 @@ const ParticipantsTable: React.FC<ParticipantsTableProps> = ({
                     <td className="border border-neutral-300 px-4 py-3">
                       <span className="px-2 py-1 bg-neutral-100 text-neutral-700 text-sm rounded">
                         {participant.club}
+                      </span>
+                    </td>
+                    <td className="border border-neutral-300 px-4 py-3">
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 text-sm rounded font-medium">
+                        {getHandicapDisplay(participant)}
                       </span>
                     </td>
                     <td className="border border-neutral-300 px-4 py-3">

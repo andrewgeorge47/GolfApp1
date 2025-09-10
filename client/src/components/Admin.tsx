@@ -27,6 +27,7 @@ import TournamentList from './TournamentList';
 import TournamentDetails from './TournamentDetails';
 import ParticipantsTable from './ParticipantsTable';
 import MatchesTable from './MatchesTable';
+import ChampionshipAdminDashboard from './ChampionshipAdminDashboard';
 
 import api from '../services/api';
 import { useAuth } from '../AuthContext';

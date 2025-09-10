@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Users, Settings, Plus, Search, MapPin } from 'lucide-react';
-import { createTournament, updateTournament, getSimulatorCourses } from '../services/api';
+import { createTournament, updateTournament, getSimulatorCourses, getAllClubs } from '../services/api';
 import { toast } from 'react-toastify';
+import LeagueSettings from './LeagueSettings';
 
 interface RegistrationFormQuestion {
   id: string;
@@ -28,6 +29,37 @@ interface TournamentFormProps {
   currentUser?: any;
 }
 
+interface LeagueConfig {
+  // Basic league info
+  name: string;
+  description: string;
+  
+  // Season configuration
+  season_start_date: string;
+  season_end_date: string;
+  auto_progression: boolean;
+  
+  // Scoring configuration
+  min_matches_per_week: number;
+  max_matches_per_week: number;
+  live_match_bonus: number;
+  tie_break_rules: string;
+  
+  // Participant management
+  max_participants: number;
+  min_participants: number;
+  registration_open: boolean;
+  
+  // Week configuration
+  week_start_day: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+  scoring_deadline_hours: number;
+  
+  // Advanced settings
+  playoff_enabled: boolean;
+  playoff_weeks: number;
+  drop_worst_weeks: number;
+}
+
 const TournamentForm: React.FC<TournamentFormProps> = ({
   mode,
   tournament,
@@ -41,6 +73,7 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     const date = new Date(dateString);
     return date.toISOString().split('T')[0];
   };
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [tournamentForm, setTournamentForm] = useState({
     name: tournament?.name || '',
@@ -81,7 +114,19 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     // Registration form settings
     has_registration_form: tournament?.has_registration_form || false,
     registration_form_template: tournament?.registration_form_template || '',
-    registration_form_data: tournament?.registration_form_data || null
+    registration_form_data: tournament?.registration_form_data || null,
+    // NEW: Championship settings
+    tournament_series: tournament?.tournament_series || 'regular',
+    is_club_championship: tournament?.is_club_championship || false,
+    is_national_tournament: tournament?.is_national_tournament || false,
+    championship_round: tournament?.championship_round || 1,
+    championship_club: tournament?.championship_club || '',
+    parent_tournament_id: tournament?.parent_tournament_id || '',
+    championship_type: tournament?.championship_type || 'single_club',
+    participating_clubs: tournament?.participating_clubs || '',
+    min_club_participants: tournament?.min_club_participants || '4',
+    auto_group_clubs: tournament?.auto_group_clubs || false,
+    auto_seed_champions: tournament?.auto_seed_champions || false
   });
 
   // Course selector state
@@ -91,6 +136,34 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
   const [filteredCourses, setFilteredCourses] = useState<any[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
   const [courseLoading, setCourseLoading] = useState(false);
+
+  // Club selection state
+  const [clubs, setClubs] = useState<string[]>([]);
+  const [selectedClubs, setSelectedClubs] = useState<string[]>([]);
+  const [clubSearchTerm, setClubSearchTerm] = useState('');
+  const [showClubDropdown, setShowClubDropdown] = useState(false);
+  const [filteredClubs, setFilteredClubs] = useState<string[]>([]);
+
+  // League configuration state
+  const [leagueConfig, setLeagueConfig] = useState<LeagueConfig>({
+    name: tournament?.league_config?.name || 'Weekly Golf League',
+    description: tournament?.league_config?.description || '',
+    season_start_date: tournament?.league_config?.season_start_date || '',
+    season_end_date: tournament?.league_config?.season_end_date || '',
+    auto_progression: tournament?.league_config?.auto_progression || false,
+    min_matches_per_week: tournament?.league_config?.min_matches_per_week || 3,
+    max_matches_per_week: tournament?.league_config?.max_matches_per_week || 5,
+    live_match_bonus: tournament?.league_config?.live_match_bonus || 1,
+    tie_break_rules: tournament?.league_config?.tie_break_rules || 'total_points',
+    max_participants: tournament?.league_config?.max_participants || 50,
+    min_participants: tournament?.league_config?.min_participants || 8,
+    registration_open: tournament?.league_config?.registration_open || true,
+    week_start_day: tournament?.league_config?.week_start_day || 'monday',
+    scoring_deadline_hours: tournament?.league_config?.scoring_deadline_hours || 72,
+    playoff_enabled: tournament?.league_config?.playoff_enabled || false,
+    playoff_weeks: tournament?.league_config?.playoff_weeks || 2,
+    drop_worst_weeks: tournament?.league_config?.drop_worst_weeks || 0
+  });
 
   // Registration form templates
   const registrationFormTemplates = {
@@ -160,7 +233,19 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
       }
     };
 
+    const fetchClubs = async () => {
+      try {
+        const response = await getAllClubs();
+        setClubs(response.data || []);
+        setFilteredClubs(response.data || []);
+      } catch (error) {
+        console.error('Error fetching clubs:', error);
+        toast.error('Failed to load clubs');
+      }
+    };
+
     fetchSimulatorCourses();
+    fetchClubs();
   }, []);
 
   // Initialize course selection when editing
@@ -188,6 +273,18 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     }
   }, [courseSearchTerm, simulatorCourses]);
 
+  // Filter clubs based on search term
+  useEffect(() => {
+    if (clubSearchTerm.trim()) {
+      const filtered = clubs.filter(club =>
+        club.toLowerCase().includes(clubSearchTerm.toLowerCase())
+      );
+      setFilteredClubs(filtered);
+    } else {
+      setFilteredClubs(clubs);
+    }
+  }, [clubSearchTerm, clubs]);
+
   // Handle clicking outside course dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -195,16 +292,30 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
       if (!target.closest('.course-dropdown-container')) {
         setShowCourseDropdown(false);
       }
+      if (!target.closest('.club-dropdown-container')) {
+        setShowClubDropdown(false);
+      }
     };
 
-    if (showCourseDropdown) {
+    if (showCourseDropdown || showClubDropdown) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [showCourseDropdown]);
+  }, [showCourseDropdown, showClubDropdown]);
+
+  // Initialize selected clubs from form data
+  useEffect(() => {
+    if (tournamentForm.participating_clubs) {
+      const clubsArray = tournamentForm.participating_clubs
+        .split(',')
+        .map((club: string) => club.trim())
+        .filter((club: string) => club.length > 0);
+      setSelectedClubs(clubsArray);
+    }
+  }, [tournamentForm.participating_clubs]);
 
   // Course selection handlers
   const handleCourseSelect = (course: any) => {
@@ -216,6 +327,27 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     }));
     setCourseSearchTerm(course.name);
     setShowCourseDropdown(false);
+  };
+
+  // Club selection handlers
+  const handleClubToggle = (club: string) => {
+    setSelectedClubs((prev: string[]) => {
+      const newSelection = prev.includes(club) 
+        ? prev.filter((c: string) => c !== club)
+        : [...prev, club];
+      
+      setTournamentForm(prev => ({
+        ...prev,
+        participating_clubs: newSelection.join(', ')
+      }));
+      
+      return newSelection;
+    });
+  };
+
+  const handleClubSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setClubSearchTerm(e.target.value);
+    setShowClubDropdown(true);
   };
 
   const handleCourseSearchChange = (value: string) => {
@@ -247,15 +379,23 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     }
   };
 
+  // Handle championship type changes
+  const handleChampionshipTypeChange = (type: string) => {
+    setTournamentForm(prev => ({
+      ...prev,
+      type,
+      tournament_series: type === 'club_championship' ? 'club_championship' : 
+                       type === 'national_championship' ? 'national_championship' : 'regular',
+      is_club_championship: type === 'club_championship',
+      is_national_tournament: type === 'national_championship',
+      tournament_format: type === 'club_championship' ? 'match_play' : 
+                        type === 'national_championship' ? 'match_play' : prev.tournament_format
+    }));
+  };
+
   // Form submission handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Validate required fields
-    if (!selectedCourse) {
-      toast.error('Please select a course for the tournament');
-      return;
-    }
     
     setIsSubmitting(true);
     
@@ -272,7 +412,7 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
         status: tournamentForm.status,
         registration_open: tournamentForm.registration_open,
         entry_fee: parseFloat(tournamentForm.entry_fee),
-        course: selectedCourse ? selectedCourse.name : tournamentForm.course,
+        course: selectedCourse ? selectedCourse.name : tournamentForm.course || undefined,
         course_id: tournamentForm.course_id ? parseInt(tournamentForm.course_id) : undefined,
         rules: tournamentForm.rules,
         notes: tournamentForm.notes,
@@ -299,6 +439,20 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
         has_registration_form: tournamentForm.has_registration_form,
         registration_form_template: tournamentForm.registration_form_template,
         registration_form_data: tournamentForm.registration_form_data,
+        // NEW: Championship settings
+        tournament_series: tournamentForm.tournament_series,
+        is_club_championship: tournamentForm.is_club_championship,
+        is_national_tournament: tournamentForm.is_national_tournament,
+        championship_round: tournamentForm.championship_round,
+        championship_club: tournamentForm.championship_club || undefined,
+        parent_tournament_id: tournamentForm.parent_tournament_id ? parseInt(tournamentForm.parent_tournament_id) : undefined,
+        championship_type: tournamentForm.championship_type,
+        participating_clubs: tournamentForm.participating_clubs || undefined,
+        min_club_participants: tournamentForm.min_club_participants ? parseInt(tournamentForm.min_club_participants) : undefined,
+        auto_group_clubs: tournamentForm.auto_group_clubs,
+        auto_seed_champions: tournamentForm.auto_seed_champions,
+        // League configuration
+        league_config: tournamentForm.type === 'league' ? leagueConfig : undefined,
         created_by: currentUser?.member_id
       };
       
@@ -364,11 +518,13 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
                 <label className="block text-sm font-medium text-neutral-600 mb-1">Type</label>
                 <select
                   value={tournamentForm.type || 'tournament'}
-                  onChange={e => setTournamentForm({ ...tournamentForm, type: e.target.value })}
+                  onChange={e => handleChampionshipTypeChange(e.target.value)}
                   className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
                 >
-                  <option value="tournament">Tournament</option>
+                  <option value="tournament">Regular Tournament</option>
                   <option value="league">League</option>
+                  <option value="club_championship">Club Championship</option>
+                  <option value="national_championship">National Championship</option>
                 </select>
               </div>
               <div>
@@ -403,6 +559,175 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
               </div>
             </div>
           </div>
+
+          {/* NEW: Championship Configuration Section */}
+          {(tournamentForm.type === 'club_championship' || tournamentForm.type === 'national_championship') && (
+            <div className="bg-blue-50 rounded-xl p-6">
+              <div className="flex items-center mb-4">
+                <Trophy className="w-5 h-5 text-blue-600 mr-2" />
+                <h4 className="text-lg font-semibold text-blue-900">Championship Configuration</h4>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {tournamentForm.type === 'club_championship' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-1">Championship Type</label>
+                      <select
+                        value={tournamentForm.championship_type || 'single_club'}
+                        onChange={e => setTournamentForm({ ...tournamentForm, championship_type: e.target.value })}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                      >
+                        <option value="single_club">Single Club Championship</option>
+                        <option value="multi_club">Multi-Club Championship (Combined)</option>
+                        <option value="regional">Regional Championship</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-1">Participating Clubs</label>
+                      <div className="relative club-dropdown-container">
+                        <input
+                          type="text"
+                          value={clubSearchTerm}
+                          onChange={handleClubSearchChange}
+                          onFocus={() => setShowClubDropdown(true)}
+                          className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                          placeholder="Search and select clubs..."
+                        />
+                        {showClubDropdown && (
+                          <div className="absolute z-10 w-full mt-1 bg-white border border-neutral-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                            {filteredClubs.length > 0 ? (
+                              filteredClubs.map((club) => (
+                                <div
+                                  key={club}
+                                  className="px-3 py-2 hover:bg-neutral-50 cursor-pointer flex items-center"
+                                  onClick={() => handleClubToggle(club)}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedClubs.includes(club)}
+                                    onChange={() => handleClubToggle(club)}
+                                    className="mr-2"
+                                  />
+                                  <span className="text-sm">{club}</span>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="px-3 py-2 text-neutral-500 text-sm">
+                                No clubs found
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {selectedClubs.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {selectedClubs.map((club) => (
+                            <span
+                              key={club}
+                              className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-brand-neon-green text-brand-black"
+                            >
+                              {club}
+                              <button
+                                type="button"
+                                onClick={() => handleClubToggle(club)}
+                                className="ml-1 hover:text-red-600"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-1">Minimum Participants per Club</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={tournamentForm.min_club_participants || '4'}
+                        onChange={e => setTournamentForm({ ...tournamentForm, min_club_participants: e.target.value })}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-1">Auto-Group Small Clubs</label>
+                      <div className="flex items-center mt-2">
+                        <input
+                          type="checkbox"
+                          id="auto_group_clubs"
+                          checked={tournamentForm.auto_group_clubs || false}
+                          onChange={e => setTournamentForm({ ...tournamentForm, auto_group_clubs: e.target.checked })}
+                          className="w-4 h-4 text-brand-neon-green border-neutral-300 rounded focus:ring-brand-neon-green focus:ring-2"
+                        />
+                        <label htmlFor="auto_group_clubs" className="ml-2 text-sm text-neutral-600">
+                          Automatically combine small clubs
+                        </label>
+                      </div>
+                    </div>
+                  </>
+                )}
+                {tournamentForm.type === 'national_championship' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-1">Parent Championship ID</label>
+                      <input
+                        type="number"
+                        value={tournamentForm.parent_tournament_id}
+                        onChange={e => setTournamentForm({ ...tournamentForm, parent_tournament_id: e.target.value })}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                        placeholder="ID of the main championship tournament"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-1">Auto-Seed from Club Champions</label>
+                      <div className="flex items-center mt-2">
+                        <input
+                          type="checkbox"
+                          id="auto_seed_champions"
+                          checked={tournamentForm.auto_seed_champions || false}
+                          onChange={e => setTournamentForm({ ...tournamentForm, auto_seed_champions: e.target.checked })}
+                          className="w-4 h-4 text-brand-neon-green border-neutral-300 rounded focus:ring-brand-neon-green focus:ring-2"
+                        />
+                        <label htmlFor="auto_seed_champions" className="ml-2 text-sm text-neutral-600">
+                          Automatically seed club champions
+                        </label>
+                      </div>
+                    </div>
+                  </>
+                )}
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Championship Round</label>
+                  <select
+                    value={tournamentForm.championship_round}
+                    onChange={e => setTournamentForm({ ...tournamentForm, championship_round: parseInt(e.target.value) })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  >
+                    <option value={1}>Round 1</option>
+                    <option value={2}>Round 2</option>
+                    <option value={3}>Round 3</option>
+                    <option value={4}>Round 4</option>
+                    <option value={5}>Round 5</option>
+                  </select>
+                </div>
+              </div>
+              <div className="mt-4 p-3 bg-blue-100 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  {tournamentForm.type === 'club_championship' 
+                    ? 'Club Championship: 3 match play matches per club group. Players are grouped by club, with small clubs combined automatically. Winner advances to National Championship.'
+                    : 'National Championship: Single-elimination tournament for club champions. Automatically seeded from completed club championships.'
+                  }
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* League Configuration Section */}
+          <LeagueSettings
+            tournamentId={tournament?.id}
+            isLeague={tournamentForm.type === 'league'}
+            onSettingsChange={setLeagueConfig}
+            initialSettings={leagueConfig}
+          />
 
           {/* Dates Section */}
           <div className="bg-neutral-50 rounded-xl p-6">
@@ -561,22 +886,22 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
             </div>
             <div>
               <label className="block text-sm font-medium text-neutral-600 mb-1">Hole Count</label>
-                              <select
-                  value={tournamentForm.hole_configuration}
-                  onChange={e => setTournamentForm({ ...tournamentForm, hole_configuration: e.target.value })}
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                >
-                  <option value="3">3 Holes</option>
-                  <option value="9">9 Holes (Any)</option>
-                  <option value="9_front">9 Holes Front</option>
-                  <option value="9_back">9 Holes Back</option>
-                  <option value="18">18 Holes</option>
-                </select>
+              <select
+                value={tournamentForm.hole_configuration}
+                onChange={e => setTournamentForm({ ...tournamentForm, hole_configuration: e.target.value })}
+                className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+              >
+                <option value="3">3 Holes</option>
+                <option value="9">9 Holes (Any)</option>
+                <option value="9_front">9 Holes Front</option>
+                <option value="9_back">9 Holes Back</option>
+                <option value="18">18 Holes</option>
+              </select>
             </div>
             
             {/* Course Selector */}
             <div className="mt-4">
-              <label className="block text-sm font-medium text-neutral-600 mb-1">Course *</label>
+              <label className="block text-sm font-medium text-neutral-600 mb-1">Course</label>
               <div className="relative course-dropdown-container">
                 <div className="flex items-center space-x-2">
                   <div className="flex-1 relative">
@@ -585,10 +910,8 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
                       value={courseSearchTerm}
                       onChange={e => handleCourseSearchChange(e.target.value)}
                       onFocus={() => setShowCourseDropdown(true)}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent pr-10 ${
-                        !selectedCourse ? 'border-red-300 focus:border-red-500' : 'border-neutral-300'
-                      }`}
-                      placeholder="Search for a course (required)..."
+                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent pr-10"
+                      placeholder="Search for a course (optional)..."
                     />
                     {courseLoading && (
                       <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
@@ -650,6 +973,11 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
                   </div>
                 )}
               </div>
+              
+              {/* Course Selection Note */}
+              <p className="text-xs text-neutral-500 mt-2">
+                Course selection is optional. You can create a tournament without specifying a course.
+              </p>
               
               {/* Selected Course Display */}
               {selectedCourse && (
@@ -848,59 +1176,59 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
               />
             </div>
 
-                         {tournamentForm.has_registration_form && (
-               <>
-                 <div className="space-y-4">
-                   <div>
-                     <label className="block text-sm font-medium text-neutral-600 mb-2">
-                       Registration Form Template
-                     </label>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                       {Object.entries(registrationFormTemplates).map(([key, template]) => (
-                         <button
-                           key={key}
-                           type="button"
-                           onClick={() => handleRegistrationTemplateSelect(key)}
-                           className={`p-4 rounded-lg border transition-all text-left ${
-                             tournamentForm.registration_form_template === key
-                               ? 'border-brand-neon-green bg-green-50'
-                               : 'border-neutral-200 hover:border-brand-neon-green'
-                           }`}
-                         >
-                           <h5 className="font-medium text-brand-black mb-1">{template.name}</h5>
-                           <p className="text-sm text-neutral-600">{template.description}</p>
-                         </button>
-                       ))}
-                     </div>
-                   </div>
-                   
-                   {tournamentForm.registration_form_template && (
-                     <div>
-                       <label className="block text-sm font-medium text-neutral-600 mb-2">
-                         Selected Template Preview
-                       </label>
-                       <div className="bg-neutral-100 p-4 rounded-lg">
-                         <h6 className="font-medium text-brand-black mb-2">
-                           {registrationFormTemplates[tournamentForm.registration_form_template as keyof typeof registrationFormTemplates]?.name}
-                         </h6>
-                         {registrationFormTemplates[tournamentForm.registration_form_template as keyof typeof registrationFormTemplates]?.questions.map((question, index) => (
-                           <div key={index} className="mb-3">
-                             <p className="text-sm font-medium text-neutral-700 mb-1">{question.question}</p>
-                             <div className="ml-4">
-                               {question.options.map((option, optIndex) => (
-                                 <div key={optIndex} className="text-xs text-neutral-600">
-                                   • {option}
-                                 </div>
-                               ))}
-                             </div>
-                           </div>
-                         ))}
-                       </div>
-                     </div>
-                   )}
-                 </div>
-               </>
-             )}
+            {tournamentForm.has_registration_form && (
+              <>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-600 mb-2">
+                      Registration Form Template
+                    </label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {Object.entries(registrationFormTemplates).map(([key, template]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => handleRegistrationTemplateSelect(key)}
+                          className={`p-4 rounded-lg border transition-all text-left ${
+                            tournamentForm.registration_form_template === key
+                              ? 'border-brand-neon-green bg-green-50'
+                              : 'border-neutral-200 hover:border-brand-neon-green'
+                          }`}
+                        >
+                          <h5 className="font-medium text-brand-black mb-1">{template.name}</h5>
+                          <p className="text-sm text-neutral-600">{template.description}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {tournamentForm.registration_form_template && (
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-2">
+                        Selected Template Preview
+                      </label>
+                      <div className="bg-neutral-100 p-4 rounded-lg">
+                        <h6 className="font-medium text-brand-black mb-2">
+                          {registrationFormTemplates[tournamentForm.registration_form_template as keyof typeof registrationFormTemplates]?.name}
+                        </h6>
+                        {registrationFormTemplates[tournamentForm.registration_form_template as keyof typeof registrationFormTemplates]?.questions.map((question, index) => (
+                          <div key={index} className="mb-3">
+                            <p className="text-sm font-medium text-neutral-700 mb-1">{question.question}</p>
+                            <div className="ml-4">
+                              {question.options.map((option, optIndex) => (
+                                <div key={optIndex} className="text-xs text-neutral-600">
+                                  • {option}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Additional Information Section */}
@@ -973,4 +1301,4 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
   );
 };
 
-export default TournamentForm; 
+export default TournamentForm;

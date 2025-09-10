@@ -6,6 +6,7 @@ import { ArrowLeft, Trophy, Users, Target } from 'lucide-react';
 import StrokeplayScoring from './StrokeplayScoring';
 import ScoreSubmission from './ScoreSubmission';
 import NewWeeklyScoring from './NewWeeklyScoring';
+import ChampionshipPlayerScoring from './ChampionshipPlayerScoring';
 
 const TournamentScoring: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -191,7 +192,13 @@ const TournamentScoring: React.FC = () => {
 
         {/* Scoring Component */}
         <div className="bg-white rounded-none sm:rounded-2xl shadow-lg p-3 sm:p-6">
-          {tournament.tournament_format === 'stroke_play' ? (
+          {tournament.type === 'club_championship' || tournament.type === 'national_championship' ? (
+            <ChampionshipPlayerScoring
+              tournamentId={tournament.id}
+              tournamentName={tournament.name}
+              onScoreSubmitted={handleScoreSubmitted}
+            />
+          ) : tournament.tournament_format === 'stroke_play' ? (
             <StrokeplayScoring
               tournamentId={tournament.id}
               tournamentFormat={tournament.tournament_format}

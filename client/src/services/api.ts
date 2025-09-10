@@ -725,6 +725,9 @@ export const getSimulatorCourse = (id: number) => {
 export const updateCourseParValues = (courseId: number, parValues: number[]) => 
   api.put(`/simulator-courses/${courseId}/par-values`, { par_values: parValues });
 
+export const updateCourseHoleIndexes = (courseId: number, holeIndexes: number[]) => 
+  api.put(`/simulator-courses/${courseId}/hole-indexes`, { hole_indexes: holeIndexes });
+
 export const updateCourseTeeboxData = (courseId: number, teebox: string, courseRating: number, courseSlope: number) => 
   api.put(`/simulator-courses/${courseId}/teebox-data`, { teebox, course_rating: courseRating, course_slope: courseSlope });
 

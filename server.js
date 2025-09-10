@@ -1359,6 +1359,7 @@ app.get('/api/tournaments/:id/participants', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT p.*, u.first_name, u.last_name, u.email_address, u.club, u.role,
+              u.handicap, u.sim_handicap, u.grass_handicap,
               rfr.form_data as registration_form_data
        FROM participation p 
        JOIN users u ON p.user_member_id = u.member_id 
@@ -3827,6 +3828,1055 @@ app.get('/api/tournaments/user/:userId', async (req, res) => {
   }
 });
 
+// =====================================================
+// CLUB CHAMPIONSHIP MANAGEMENT API ENDPOINTS
+// =====================================================
+
+// Get club participant counts for a tournament
+app.get('/api/tournaments/:id/club-participants', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await pool.query(`
+      SELECT 
+        u.club,
+        COUNT(p.user_member_id) as participant_count,
+        ARRAY_AGG(
+          JSON_BUILD_OBJECT(
+            'user_id', u.member_id,
+            'first_name', u.first_name,
+            'last_name', u.last_name,
+            'email', u.email_address
+          )
+        ) as participants
+      FROM participation p
+      JOIN users u ON p.user_member_id = u.member_id
+      WHERE p.tournament_id = $1 AND u.club IS NOT NULL
+      GROUP BY u.club
+      ORDER BY participant_count DESC, u.club
+    `, [id]);
+    
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching club participants:', err);
+    res.status(500).json({ error: 'Failed to fetch club participants' });
+  }
+});
+
+// Auto-group clubs for championship
+app.post('/api/tournaments/:id/auto-group-clubs', async (req, res) => {
+  const { id } = req.params;
+  const { minParticipants = 4 } = req.body;
+  
+  try {
+    // Get tournament details
+    const tournamentResult = await pool.query(
+      'SELECT * FROM tournaments WHERE id = $1',
+      [id]
+    );
+    
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    const tournament = tournamentResult.rows[0];
+    
+    // Get club participant counts
+    const clubCountsResult = await pool.query(`
+      SELECT 
+        u.club,
+        COUNT(p.user_member_id) as participant_count,
+        ARRAY_AGG(u.member_id) as user_ids
+      FROM participation p
+      JOIN users u ON p.user_member_id = u.member_id
+      WHERE p.tournament_id = $1 AND u.club IS NOT NULL
+      GROUP BY u.club
+      ORDER BY participant_count ASC
+    `, [id]);
+    
+    const clubCounts = clubCountsResult.rows;
+    console.log(`Found ${clubCounts.length} clubs with participants for tournament ${id}:`, clubCounts.map(c => `${c.club}: ${c.participant_count}`));
+    
+    // Group clubs based on minimum participants
+    const groups = [];
+    let currentGroup = [];
+    let currentGroupCount = 0;
+    let groupNumber = 1;
+    
+    for (const club of clubCounts) {
+      if (parseInt(club.participant_count) >= minParticipants) {
+        // Club has enough participants - create individual group
+        if (currentGroup.length > 0) {
+          groups.push({
+            group_name: `Combined Group ${groupNumber}`,
+            clubs: currentGroup.map(c => c.club),
+            participant_count: currentGroupCount,
+            user_ids: currentGroup.flatMap(c => c.user_ids)
+          });
+          groupNumber++;
+          currentGroup = [];
+          currentGroupCount = 0;
+        }
+        
+        groups.push({
+          group_name: `${club.club} Championship`,
+          clubs: [club.club],
+          participant_count: club.participant_count,
+          user_ids: club.user_ids
+        });
+      } else {
+        // Club needs to be grouped with others
+        currentGroup.push(club);
+        currentGroupCount += parseInt(club.participant_count);
+        
+        if (currentGroupCount >= minParticipants) {
+          groups.push({
+            group_name: `Combined Group ${groupNumber}`,
+            clubs: currentGroup.map(c => c.club),
+            participant_count: currentGroupCount,
+            user_ids: currentGroup.flatMap(c => c.user_ids)
+          });
+          groupNumber++;
+          currentGroup = [];
+          currentGroupCount = 0;
+        }
+      }
+    }
+    
+    // Handle remaining clubs - combine them into one group
+    if (currentGroup.length > 0) {
+      groups.push({
+        group_name: `Combined Group ${groupNumber}`,
+        clubs: currentGroup.map(c => c.club),
+        participant_count: currentGroupCount,
+        user_ids: currentGroup.flatMap(c => c.user_ids)
+      });
+    }
+    
+    // If we still have groups with insufficient participants, combine them
+    const insufficientGroups = groups.filter(g => g.participant_count < minParticipants);
+    if (insufficientGroups.length > 1) {
+      // Remove insufficient groups and create one combined group
+      const validGroups = groups.filter(g => g.participant_count >= minParticipants);
+      const combinedGroup = {
+        group_name: `Combined Group ${groupNumber}`,
+        clubs: insufficientGroups.flatMap(g => g.clubs),
+        participant_count: insufficientGroups.reduce((sum, g) => sum + g.participant_count, 0),
+        user_ids: insufficientGroups.flatMap(g => g.user_ids)
+      };
+      groups.splice(0, groups.length, ...validGroups, combinedGroup);
+    }
+    
+    console.log(`Created ${groups.length} groups:`, groups.map(g => `${g.group_name}: ${g.clubs.join(', ')} (${g.participant_count} participants)`));
+    
+    // Save groups to database
+    for (const group of groups) {
+      await pool.query(`
+        INSERT INTO club_groups (
+          tournament_id, 
+          group_name, 
+          participating_clubs, 
+          min_participants, 
+          participant_count
+        ) VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (tournament_id, group_name) 
+        DO UPDATE SET 
+          participating_clubs = EXCLUDED.participating_clubs,
+          participant_count = EXCLUDED.participant_count
+      `, [
+        id,
+        group.group_name,
+        group.clubs,
+        minParticipants,
+        group.participant_count
+      ]);
+    }
+    
+    res.json({
+      success: true,
+      groups: groups,
+      message: `Created ${groups.length} club groups`
+    });
+    
+  } catch (err) {
+    console.error('Error auto-grouping clubs:', err);
+    res.status(500).json({ error: 'Failed to auto-group clubs' });
+  }
+});
+
+// Create manual club group
+app.post('/api/tournaments/:id/create-club-group', async (req, res) => {
+  const { id } = req.params;
+  const { groupName, participantIds } = req.body;
+  
+  try {
+    // Get participant details
+    const participantResult = await pool.query(`
+      SELECT u.member_id, u.club, u.first_name, u.last_name
+      FROM users u
+      WHERE u.member_id = ANY($1)
+    `, [participantIds]);
+    
+    const participants = participantResult.rows;
+    const clubs = [...new Set(participants.map(p => p.club))];
+    const participantCount = participants.length;
+    
+    // Create the group
+    const result = await pool.query(`
+      INSERT INTO club_groups (
+        tournament_id,
+        group_name,
+        participating_clubs,
+        min_participants,
+        participant_count,
+        user_ids
+      ) VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `, [id, groupName, clubs, 4, participantCount, participantIds]);
+    
+    res.json({
+      success: true,
+      group: result.rows[0],
+      message: `Created club group "${groupName}"`
+    });
+    
+  } catch (err) {
+    console.error('Error creating club group:', err);
+    res.status(500).json({ error: 'Failed to create club group' });
+  }
+});
+
+// Update club group
+app.put('/api/tournaments/:id/club-groups/:groupId', async (req, res) => {
+  const { id, groupId } = req.params;
+  const { participantIds, groupName } = req.body;
+  
+  try {
+    // Get participant details
+    const participantResult = await pool.query(`
+      SELECT u.member_id, u.club, u.first_name, u.last_name
+      FROM users u
+      WHERE u.member_id = ANY($1)
+    `, [participantIds]);
+    
+    const participants = participantResult.rows;
+    const clubs = [...new Set(participants.map(p => p.club))];
+    const participantCount = participants.length;
+    
+    // Update the group
+    const result = await pool.query(`
+      UPDATE club_groups 
+      SET 
+        group_name = $1,
+        participating_clubs = $2,
+        participant_count = $3,
+        user_ids = $4
+      WHERE id = $5 AND tournament_id = $6
+      RETURNING *
+    `, [groupName, clubs, participantCount, participantIds, groupId, id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+    
+    res.json({
+      success: true,
+      group: result.rows[0],
+      message: `Updated club group`
+    });
+    
+  } catch (err) {
+    console.error('Error updating club group:', err);
+    res.status(500).json({ error: 'Failed to update club group' });
+  }
+});
+
+// Delete club group
+app.delete('/api/tournaments/:id/club-groups/:groupId', async (req, res) => {
+  const { id, groupId } = req.params;
+  
+  try {
+    // Delete associated matches first
+    await pool.query(`
+      DELETE FROM club_championship_matches 
+      WHERE tournament_id = $1 AND club_group IN (
+        SELECT group_name FROM club_groups WHERE id = $2 AND tournament_id = $1
+      )
+    `, [id, groupId]);
+    
+    // Delete the group
+    const result = await pool.query(`
+      DELETE FROM club_groups 
+      WHERE id = $1 AND tournament_id = $2
+      RETURNING *
+    `, [groupId, id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+    
+    res.json({
+      success: true,
+      message: `Deleted club group`
+    });
+    
+  } catch (err) {
+    console.error('Error deleting club group:', err);
+    res.status(500).json({ error: 'Failed to delete club group' });
+  }
+});
+
+// Create individual match
+app.post('/api/tournaments/:id/create-match', async (req, res) => {
+  const { id } = req.params;
+  const { groupId, player1Id, player2Id } = req.body;
+  
+  try {
+    // Get group details
+    const groupResult = await pool.query(`
+      SELECT group_name FROM club_groups WHERE id = $1 AND tournament_id = $2
+    `, [groupId, id]);
+    
+    if (groupResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+    
+    const groupName = groupResult.rows[0].group_name;
+    
+    // Get next match number for this group
+    const matchNumberResult = await pool.query(`
+      SELECT COALESCE(MAX(match_number), 0) + 1 as next_match_number
+      FROM club_championship_matches 
+      WHERE tournament_id = $1 AND club_group = $2
+    `, [id, groupName]);
+    
+    const matchNumber = matchNumberResult.rows[0].next_match_number;
+    
+    // Create the match
+    const result = await pool.query(`
+      INSERT INTO club_championship_matches (
+        tournament_id,
+        club_group,
+        player1_id,
+        player2_id,
+        match_number,
+        match_status
+      ) VALUES ($1, $2, $3, $4, $5, 'pending')
+      RETURNING *
+    `, [id, groupName, player1Id, player2Id, matchNumber]);
+    
+    res.json({
+      success: true,
+      match: result.rows[0],
+      message: `Created match ${matchNumber}`
+    });
+    
+  } catch (err) {
+    console.error('Error creating match:', err);
+    res.status(500).json({ error: 'Failed to create match' });
+  }
+});
+
+// Update match result
+app.put('/api/tournaments/:id/matches/:matchId/result', async (req, res) => {
+  const { id, matchId } = req.params;
+  const { 
+    player1_score, 
+    player2_score, 
+    winner_id,
+    player1_hole_scores,
+    player2_hole_scores,
+    player1_net_hole_scores,
+    player2_net_hole_scores,
+    player1_holes_won,
+    player2_holes_won,
+    player1_holes_lost,
+    player2_holes_lost,
+    player1_net_holes,
+    player2_net_holes,
+    course_id,
+    teebox,
+    match_status
+  } = req.body;
+  
+  try {
+    // Build dynamic query based on provided fields
+    let updateFields = [];
+    let values = [];
+    let paramCount = 1;
+
+    if (player1_score !== undefined) {
+      updateFields.push(`player1_score = $${paramCount++}`);
+      values.push(player1_score);
+    }
+    if (player2_score !== undefined) {
+      updateFields.push(`player2_score = $${paramCount++}`);
+      values.push(player2_score);
+    }
+    if (winner_id !== undefined) {
+      updateFields.push(`winner_id = $${paramCount++}`);
+      values.push(winner_id);
+    }
+    if (player1_hole_scores !== undefined) {
+      updateFields.push(`player1_hole_scores = $${paramCount++}`);
+      values.push(player1_hole_scores);
+    }
+    if (player2_hole_scores !== undefined) {
+      updateFields.push(`player2_hole_scores = $${paramCount++}`);
+      values.push(player2_hole_scores);
+    }
+    if (player1_net_hole_scores !== undefined) {
+      updateFields.push(`player1_net_hole_scores = $${paramCount++}`);
+      values.push(player1_net_hole_scores);
+    }
+    if (player2_net_hole_scores !== undefined) {
+      updateFields.push(`player2_net_hole_scores = $${paramCount++}`);
+      values.push(player2_net_hole_scores);
+    }
+    if (player1_holes_won !== undefined) {
+      updateFields.push(`player1_holes_won = $${paramCount++}`);
+      values.push(player1_holes_won);
+    }
+    if (player2_holes_won !== undefined) {
+      updateFields.push(`player2_holes_won = $${paramCount++}`);
+      values.push(player2_holes_won);
+    }
+    if (player1_holes_lost !== undefined) {
+      updateFields.push(`player1_holes_lost = $${paramCount++}`);
+      values.push(player1_holes_lost);
+    }
+    if (player2_holes_lost !== undefined) {
+      updateFields.push(`player2_holes_lost = $${paramCount++}`);
+      values.push(player2_holes_lost);
+    }
+    if (player1_net_holes !== undefined) {
+      updateFields.push(`player1_net_holes = $${paramCount++}`);
+      values.push(player1_net_holes);
+    }
+    if (player2_net_holes !== undefined) {
+      updateFields.push(`player2_net_holes = $${paramCount++}`);
+      values.push(player2_net_holes);
+    }
+    if (course_id !== undefined) {
+      updateFields.push(`course_id = $${paramCount++}`);
+      values.push(course_id);
+    }
+    if (teebox !== undefined) {
+      updateFields.push(`teebox = $${paramCount++}`);
+      values.push(teebox);
+    }
+    if (match_status !== undefined) {
+      updateFields.push(`match_status = $${paramCount++}`);
+      values.push(match_status);
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    // Add match ID and tournament ID as final parameters
+    values.push(matchId, id);
+
+    const query = `
+      UPDATE club_championship_matches 
+      SET ${updateFields.join(', ')}
+      WHERE id = $${paramCount++} AND tournament_id = $${paramCount++}
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, values);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    
+    res.json({
+      success: true,
+      match: result.rows[0],
+      message: `Updated match result`
+    });
+    
+  } catch (err) {
+    console.error('Error updating match result:', err);
+    res.status(500).json({ error: 'Failed to update match result' });
+  }
+});
+
+// Delete match
+app.delete('/api/tournaments/:id/matches/:matchId', async (req, res) => {
+  const { id, matchId } = req.params;
+  
+  try {
+    const result = await pool.query(`
+      DELETE FROM club_championship_matches 
+      WHERE id = $1 AND tournament_id = $2
+      RETURNING *
+    `, [matchId, id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    
+    res.json({
+      success: true,
+      message: `Deleted match`
+    });
+    
+  } catch (err) {
+    console.error('Error deleting match:', err);
+    res.status(500).json({ error: 'Failed to delete match' });
+  }
+});
+
+// Get club groups for a tournament
+app.get('/api/tournaments/:id/club-groups', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await pool.query(`
+      SELECT * FROM club_groups 
+      WHERE tournament_id = $1 
+      ORDER BY group_name
+    `, [id]);
+    
+    // Ensure user_ids is always an array and participating_clubs is always an array
+    const groupsWithDefaults = rows.map(group => ({
+      ...group,
+      user_ids: group.user_ids || [],
+      participating_clubs: group.participating_clubs || []
+    }));
+    
+    res.json(groupsWithDefaults);
+  } catch (err) {
+    console.error('Error fetching club groups:', err);
+    res.status(500).json({ error: 'Failed to fetch club groups' });
+  }
+});
+
+// Generate matches for club groups
+app.post('/api/tournaments/:id/generate-championship-matches', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // Get all club groups for this tournament
+    const groupsResult = await pool.query(`
+      SELECT cg.*, 
+             ARRAY_AGG(u.member_id) as user_ids
+      FROM club_groups cg
+      JOIN participation p ON p.tournament_id = cg.tournament_id
+      JOIN users u ON p.user_member_id = u.member_id AND u.club = ANY(cg.participating_clubs)
+      WHERE cg.tournament_id = $1
+      GROUP BY cg.id, cg.group_name, cg.participating_clubs, cg.min_participants, cg.participant_count
+    `, [id]);
+    
+    const groups = groupsResult.rows;
+    console.log(`Found ${groups.length} club groups for tournament ${id}`);
+    
+    if (groups.length === 0) {
+      return res.status(400).json({ 
+        error: 'No club groups found. Please create club groups first using the auto-group or manual grouping feature.' 
+      });
+    }
+    
+    // Clear existing matches for this tournament first
+    await pool.query(
+      'DELETE FROM club_championship_matches WHERE tournament_id = $1',
+      [id]
+    );
+    console.log(`Cleared existing matches for tournament ${id}`);
+    
+    const matches = [];
+    
+    for (const group of groups) {
+      const userIds = group.user_ids;
+      console.log(`Processing group ${group.group_name} with ${userIds.length} users:`, userIds);
+      
+      // Generate exactly 3 matches per player
+      const playerMatches = new Map(); // Track how many matches each player has
+      const allMatches = []; // Store all possible matchups
+      
+      // Initialize match count for each player
+      userIds.forEach(userId => {
+        playerMatches.set(userId, 0);
+      });
+      
+      // Generate all possible matchups
+      for (let i = 0; i < userIds.length; i++) {
+        for (let j = i + 1; j < userIds.length; j++) {
+          allMatches.push([userIds[i], userIds[j]]);
+        }
+      }
+      
+      console.log(`  Found ${allMatches.length} possible matchups for ${userIds.length} players`);
+      
+      // Select matches ensuring each player gets exactly 3 matches
+      const selectedMatches = [];
+      let matchNumber = 1;
+      
+      // First pass: give each player their first match
+      for (const [player1, player2] of allMatches) {
+        if (playerMatches.get(player1) < 3 && playerMatches.get(player2) < 3) {
+          selectedMatches.push([player1, player2, matchNumber]);
+          playerMatches.set(player1, playerMatches.get(player1) + 1);
+          playerMatches.set(player2, playerMatches.get(player2) + 1);
+          matchNumber++;
+        }
+      }
+      
+      // Second pass: fill remaining matches for players who need more
+      for (const [player1, player2] of allMatches) {
+        if (playerMatches.get(player1) < 3 && playerMatches.get(player2) < 3) {
+          selectedMatches.push([player1, player2, matchNumber]);
+          playerMatches.set(player1, playerMatches.get(player1) + 1);
+          playerMatches.set(player2, playerMatches.get(player2) + 1);
+          matchNumber++;
+        }
+      }
+      
+      // Third pass: fill any remaining matches (some players might need more)
+      for (const [player1, player2] of allMatches) {
+        if (playerMatches.get(player1) < 3 && playerMatches.get(player2) < 3) {
+          selectedMatches.push([player1, player2, matchNumber]);
+          playerMatches.set(player1, playerMatches.get(player1) + 1);
+          playerMatches.set(player2, playerMatches.get(player2) + 1);
+          matchNumber++;
+        }
+      }
+      
+      console.log(`  Selected ${selectedMatches.length} matches for group ${group.group_name}`);
+      
+      // Insert the selected matches into the database
+      for (const [player1, player2, matchNum] of selectedMatches) {
+        try {
+          console.log(`    Creating match: ${player1} vs ${player2} (Match ${matchNum})`);
+          const matchResult = await pool.query(`
+            INSERT INTO club_championship_matches (
+              tournament_id,
+              club_group,
+              player1_id,
+              player2_id,
+              match_number,
+              match_status
+            ) VALUES ($1, $2, $3, $4, $5, 'pending')
+            RETURNING *
+          `, [id, group.group_name, player1, player2, matchNum]);
+          
+          matches.push(matchResult.rows[0]);
+          console.log(`    ✅ Match created successfully`);
+        } catch (matchError) {
+          console.error(`    ❌ Error creating match:`, matchError.message);
+          throw matchError;
+        }
+      }
+    }
+    
+    res.json({
+      success: true,
+      matches: matches,
+      message: `Generated ${matches.length} matches for ${groups.length} groups`
+    });
+    
+  } catch (err) {
+    console.error('Error generating matches:', err);
+    console.error('Error details:', {
+      message: err.message,
+      code: err.code,
+      detail: err.detail,
+      hint: err.hint
+    });
+    res.status(500).json({ 
+      error: 'Failed to generate matches',
+      details: err.message 
+    });
+  }
+});
+
+// Get championship matches for a tournament
+app.get('/api/tournaments/:id/championship-matches', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const { rows } = await pool.query(`
+      SELECT 
+        ccm.*,
+        u1.first_name as player1_name,
+        u1.last_name as player1_last_name,
+        u2.first_name as player2_name,
+        u2.last_name as player2_last_name
+      FROM club_championship_matches ccm
+      JOIN users u1 ON ccm.player1_id = u1.member_id
+      JOIN users u2 ON ccm.player2_id = u2.member_id
+      WHERE ccm.tournament_id = $1
+      ORDER BY ccm.club_group, ccm.match_number, ccm.id
+    `, [id]);
+    
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching championship matches:', err);
+    res.status(500).json({ error: 'Failed to fetch championship matches' });
+  }
+});
+
+// Update championship match result
+app.put('/api/tournaments/:id/championship-matches/:matchId/result', async (req, res) => {
+  const { id, matchId } = req.params;
+  const { 
+    player1_score, 
+    player2_score, 
+    winner_id,
+    player1_hole_scores,
+    player2_hole_scores,
+    player1_net_hole_scores,
+    player2_net_hole_scores,
+    player1_holes_won,
+    player2_holes_won,
+    player1_holes_lost,
+    player2_holes_lost,
+    player1_net_holes,
+    player2_net_holes,
+    course_id,
+    teebox,
+    match_status
+  } = req.body;
+  
+  try {
+    // Build dynamic query based on provided fields
+    let updateFields = [];
+    let values = [];
+    let paramCount = 1;
+
+    if (player1_score !== undefined) {
+      updateFields.push(`player1_score = $${paramCount++}`);
+      values.push(player1_score);
+    }
+    if (player2_score !== undefined) {
+      updateFields.push(`player2_score = $${paramCount++}`);
+      values.push(player2_score);
+    }
+    if (winner_id !== undefined) {
+      updateFields.push(`winner_id = $${paramCount++}`);
+      values.push(winner_id);
+    }
+    if (player1_hole_scores !== undefined) {
+      updateFields.push(`player1_hole_scores = $${paramCount++}`);
+      values.push(player1_hole_scores);
+    }
+    if (player2_hole_scores !== undefined) {
+      updateFields.push(`player2_hole_scores = $${paramCount++}`);
+      values.push(player2_hole_scores);
+    }
+    if (player1_net_hole_scores !== undefined) {
+      updateFields.push(`player1_net_hole_scores = $${paramCount++}`);
+      values.push(player1_net_hole_scores);
+    }
+    if (player2_net_hole_scores !== undefined) {
+      updateFields.push(`player2_net_hole_scores = $${paramCount++}`);
+      values.push(player2_net_hole_scores);
+    }
+    if (player1_holes_won !== undefined) {
+      updateFields.push(`player1_holes_won = $${paramCount++}`);
+      values.push(player1_holes_won);
+    }
+    if (player2_holes_won !== undefined) {
+      updateFields.push(`player2_holes_won = $${paramCount++}`);
+      values.push(player2_holes_won);
+    }
+    if (player1_holes_lost !== undefined) {
+      updateFields.push(`player1_holes_lost = $${paramCount++}`);
+      values.push(player1_holes_lost);
+    }
+    if (player2_holes_lost !== undefined) {
+      updateFields.push(`player2_holes_lost = $${paramCount++}`);
+      values.push(player2_holes_lost);
+    }
+    if (player1_net_holes !== undefined) {
+      updateFields.push(`player1_net_holes = $${paramCount++}`);
+      values.push(player1_net_holes);
+    }
+    if (player2_net_holes !== undefined) {
+      updateFields.push(`player2_net_holes = $${paramCount++}`);
+      values.push(player2_net_holes);
+    }
+    if (course_id !== undefined) {
+      updateFields.push(`course_id = $${paramCount++}`);
+      values.push(course_id);
+    }
+    if (teebox !== undefined) {
+      updateFields.push(`teebox = $${paramCount++}`);
+      values.push(teebox);
+    }
+    if (match_status !== undefined) {
+      updateFields.push(`match_status = $${paramCount++}`);
+      values.push(match_status);
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    // Add match ID and tournament ID as final parameters
+    values.push(matchId, id);
+
+    const query = `
+      UPDATE club_championship_matches 
+      SET ${updateFields.join(', ')}
+      WHERE id = $${paramCount++} AND tournament_id = $${paramCount++}
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, values);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Championship match not found' });
+    }
+    
+    res.json({
+      success: true,
+      match: result.rows[0],
+      message: `Updated championship match result`
+    });
+    
+  } catch (err) {
+    console.error('Error updating championship match result:', err);
+    res.status(500).json({ error: 'Failed to update championship match result' });
+  }
+});
+
+// Get championship standings
+app.get('/api/tournaments/:id/championship-standings', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // Get all club groups for this tournament
+    const groupsResult = await pool.query(`
+      SELECT id, group_name, participating_clubs, participant_count, user_ids
+      FROM club_groups 
+      WHERE tournament_id = $1
+      ORDER BY group_name
+    `, [id]);
+
+    const standings = [];
+
+    for (const group of groupsResult.rows) {
+      // Get participants for this group from participation table
+      const participantsResult = await pool.query(`
+        SELECT 
+          p.user_member_id as user_id,
+          u.first_name,
+          u.last_name,
+          u.club
+        FROM participation p
+        JOIN users u ON p.user_member_id = u.member_id
+        WHERE p.tournament_id = $1 
+        AND p.user_member_id = ANY($2)
+        ORDER BY u.first_name, u.last_name
+      `, [id, group.user_ids || []]);
+
+      // Calculate match statistics for each participant
+      const participantsWithStats = [];
+      
+      for (const participant of participantsResult.rows) {
+        // Get match statistics from club_championship_matches
+        const matchStatsResult = await pool.query(`
+          SELECT 
+            COUNT(*) as total_matches,
+            COUNT(CASE WHEN winner_id = $1 THEN 1 END) as match_wins,
+            COUNT(CASE WHEN winner_id != $1 AND winner_id IS NOT NULL THEN 1 END) as match_losses,
+            COUNT(CASE WHEN winner_id IS NULL AND match_status = 'completed' THEN 1 END) as match_ties,
+            COALESCE(SUM(CASE WHEN player1_id = $1 THEN player1_holes_won ELSE player2_holes_won END), 0) as total_holes_won,
+            COALESCE(SUM(CASE WHEN player1_id = $1 THEN player1_holes_lost ELSE player2_holes_lost END), 0) as total_holes_lost,
+            COALESCE(SUM(CASE WHEN player1_id = $1 THEN player1_net_holes ELSE player2_net_holes END), 0) as net_holes
+          FROM club_championship_matches 
+          WHERE tournament_id = $2 
+          AND (player1_id = $1 OR player2_id = $1)
+          AND match_status = 'completed'
+        `, [participant.user_id, id]);
+
+        const stats = matchStatsResult.rows[0];
+        
+        // Calculate tiebreaker points (total holes won)
+        const tiebreakerPoints = parseInt(stats.total_holes_won) || 0;
+        
+        participantsWithStats.push({
+          ...participant,
+          match_wins: parseInt(stats.match_wins) || 0,
+          match_losses: parseInt(stats.match_losses) || 0,
+          match_ties: parseInt(stats.match_ties) || 0,
+          total_matches: parseInt(stats.total_matches) || 0,
+          tiebreaker_points: tiebreakerPoints,
+          total_holes_won: parseInt(stats.total_holes_won) || 0,
+          total_holes_lost: parseInt(stats.total_holes_lost) || 0,
+          net_holes: parseInt(stats.net_holes) || 0
+        });
+      }
+
+      // Sort participants by wins, then tiebreaker points, then net holes
+      participantsWithStats.sort((a, b) => {
+        // First by match wins (descending)
+        if (b.match_wins !== a.match_wins) {
+          return b.match_wins - a.match_wins;
+        }
+        // Then by tiebreaker points (descending)
+        if (b.tiebreaker_points !== a.tiebreaker_points) {
+          return b.tiebreaker_points - a.tiebreaker_points;
+        }
+        // Finally by net holes (descending)
+        return b.net_holes - a.net_holes;
+      });
+
+      standings.push({
+        group_id: group.id,
+        group_name: group.group_name,
+        participants: participantsWithStats
+      });
+    }
+
+    res.json(standings);
+  } catch (err) {
+    console.error('Error fetching championship standings:', err);
+    res.status(500).json({ error: 'Failed to fetch championship standings' });
+  }
+});
+
+// Determine club champions
+app.post('/api/tournaments/:id/determine-champions', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // Get all completed matches with results
+    const matchesResult = await pool.query(`
+      SELECT 
+        ccm.*,
+        u1.first_name as player1_name,
+        u1.last_name as player1_last_name,
+        u2.first_name as player2_name,
+        u2.last_name as player2_last_name
+      FROM club_championship_matches ccm
+      JOIN users u1 ON ccm.player1_id = u1.member_id
+      JOIN users u2 ON ccm.player2_id = u2.member_id
+      WHERE ccm.tournament_id = $1 AND ccm.match_status = 'completed'
+    `, [id]);
+    
+    const matches = matchesResult.rows;
+    
+    // Calculate standings for each group
+    const groupStandings = {};
+    
+    for (const match of matches) {
+      const group = match.club_group;
+      if (!groupStandings[group]) {
+        groupStandings[group] = {};
+      }
+      
+      const standings = groupStandings[group];
+      
+      // Initialize players if not exists
+      if (!standings[match.player1_id]) {
+        standings[match.player1_id] = {
+          user_id: match.player1_id,
+          name: `${match.player1_name} ${match.player1_last_name}`,
+          match_wins: 0,
+          match_losses: 0,
+          match_ties: 0,
+          tiebreaker_points: 0,
+          total_holes_won: 0,
+          total_holes_lost: 0
+        };
+      }
+      
+      if (!standings[match.player2_id]) {
+        standings[match.player2_id] = {
+          user_id: match.player2_id,
+          name: `${match.player2_name} ${match.player2_last_name}`,
+          match_wins: 0,
+          match_losses: 0,
+          match_ties: 0,
+          tiebreaker_points: 0,
+          total_holes_won: 0,
+          total_holes_lost: 0
+        };
+      }
+      
+      // Update standings based on match result
+      if (match.winner_id === match.player1_id) {
+        standings[match.player1_id].match_wins++;
+        standings[match.player2_id].match_losses++;
+        standings[match.player1_id].tiebreaker_points += match.player1_net_holes;
+        standings[match.player2_id].tiebreaker_points += match.player2_net_holes;
+      } else if (match.winner_id === match.player2_id) {
+        standings[match.player2_id].match_wins++;
+        standings[match.player1_id].match_losses++;
+        standings[match.player2_id].tiebreaker_points += match.player2_net_holes;
+        standings[match.player1_id].tiebreaker_points += match.player1_net_holes;
+      } else {
+        // Tie
+        standings[match.player1_id].match_ties++;
+        standings[match.player2_id].match_ties++;
+      }
+      
+      standings[match.player1_id].total_holes_won += match.player1_holes_won;
+      standings[match.player1_id].total_holes_lost += match.player1_holes_lost;
+      standings[match.player2_id].total_holes_won += match.player2_holes_won;
+      standings[match.player2_id].total_holes_lost += match.player2_holes_lost;
+    }
+    
+    // Determine champions for each group
+    const champions = [];
+    
+    for (const [groupName, standings] of Object.entries(groupStandings)) {
+      const players = Object.values(standings);
+      
+      // Sort by match record, then tiebreaker points
+      players.sort((a, b) => {
+        if (a.match_wins !== b.match_wins) return b.match_wins - a.match_wins;
+        if (a.match_ties !== b.match_ties) return b.match_ties - a.match_ties;
+        return b.tiebreaker_points - a.tiebreaker_points;
+      });
+      
+      const champion = players[0];
+      champions.push({
+        group_name: groupName,
+        champion: champion,
+        standings: players
+      });
+      
+      // Update database with championship results
+      await pool.query(`
+        UPDATE club_championship_participants 
+        SET 
+          match_wins = $1,
+          match_losses = $2,
+          match_ties = $3,
+          tiebreaker_points = $4,
+          total_holes_won = $5,
+          total_holes_lost = $6,
+          net_holes = $7,
+          is_club_champion = $8,
+          championship_rank = $9
+        WHERE tournament_id = $10 AND user_id = $11
+      `, [
+        champion.match_wins,
+        champion.match_losses,
+        champion.match_ties,
+        champion.tiebreaker_points,
+        champion.total_holes_won,
+        champion.total_holes_lost,
+        champion.total_holes_won - champion.total_holes_lost,
+        true,
+        1
+      ]);
+    }
+    
+    res.json({
+      success: true,
+      champions: champions,
+      message: `Determined ${champions.length} club champions`
+    });
+    
+  } catch (err) {
+    console.error('Error determining champions:', err);
+    res.status(500).json({ error: 'Failed to determine champions' });
+  }
+});
+
 // Update tournament status
 app.put('/api/tournaments/:id/status', async (req, res) => {
   const { id } = req.params;
@@ -5250,10 +6300,17 @@ app.get('/api/simulator-courses/:id', async (req, res) => {
 // Combined Simulator Courses API
 app.get('/api/simulator-courses', async (req, res) => {
   try {
-    const { search, platform, server, designer, location, courseType, limit = 20, offset = 0 } = req.query;
+    const { search, platform, server, designer, location, courseType, id, limit = 20, offset = 0 } = req.query;
     let query = 'SELECT * FROM simulator_courses_combined WHERE 1=1';
     const params = [];
     let paramCount = 0;
+
+    // ID filter
+    if (id) {
+      paramCount++;
+      query += ` AND id = $${paramCount}`;
+      params.push(parseInt(id));
+    }
 
     // Platform filter
     if (platform === 'gspro') {
@@ -5424,6 +6481,59 @@ app.put('/api/simulator-courses/:id/par-values', authenticateToken, async (req, 
   } catch (error) {
     console.error('Error updating course par values:', error);
     res.status(500).json({ error: 'Failed to update par values', details: error.message });
+  }
+});
+
+// Update course hole indexes
+app.put('/api/simulator-courses/:id/hole-indexes', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { hole_indexes } = req.body;
+    
+    console.log('Hole indexes update request:', { id, hole_indexes, userId: req.user.member_id });
+    
+    // Validate hole indexes
+    if (!Array.isArray(hole_indexes) || hole_indexes.length === 0) {
+      console.log('Validation failed: hole_indexes is not a non-empty array');
+      return res.status(400).json({ error: 'Hole indexes must be a non-empty array' });
+    }
+    
+    // Validate each hole index is between 1 and 18
+    if (hole_indexes.some(index => !Number.isInteger(index) || index < 1 || index > 18)) {
+      console.log('Validation failed: hole indexes out of range');
+      return res.status(400).json({ error: 'Hole indexes must be integers between 1 and 18' });
+    }
+    
+    // Check if course exists first
+    const { rows: courseCheck } = await pool.query(`
+      SELECT id, name FROM simulator_courses_combined WHERE id = $1
+    `, [id]);
+    
+    if (courseCheck.length === 0) {
+      console.log('Course not found with ID:', id);
+      return res.status(404).json({ error: 'Course not found' });
+    }
+    
+    console.log('Found course:', courseCheck[0]);
+    
+    // Update the course with hole indexes
+    const { rows } = await pool.query(`
+      UPDATE simulator_courses_combined 
+      SET hole_indexes = $1, updated_at = NOW()
+      WHERE id = $2
+      RETURNING id, name, hole_indexes
+    `, [JSON.stringify(hole_indexes), id]);
+    
+    console.log('Update result:', rows[0]);
+    
+    res.json({
+      message: 'Hole indexes updated successfully',
+      course: rows[0]
+    });
+    
+  } catch (error) {
+    console.error('Error updating course hole indexes:', error);
+    res.status(500).json({ error: 'Failed to update hole indexes', details: error.message });
   }
 });
 // Get existing teebox data for a course

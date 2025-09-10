@@ -43,7 +43,8 @@ const AddUserModal: React.FC<AddUserModalProps> = ({ isOpen, onClose, onUserAdde
     'No. 8',
     'No. 9',
     'No. 10',
-    'No. 11'
+    'No. 11',
+    'No. 12'
   ];
 
   const roles = [

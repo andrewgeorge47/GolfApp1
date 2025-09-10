@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, Edit3, Target, Info, AlertCircle, CheckCircle, Pencil, X as XIcon } from 'lucide-react';
-import { getCourseTeeboxData, updateCourseTeeboxData, updateCourseParValues } from '../services/api';
+import { getCourseTeeboxData, updateCourseTeeboxData, updateCourseParValues, updateCourseHoleIndexes } from '../services/api';
 import { useAuth } from '../AuthContext';
 
 interface CourseEditModalProps {
@@ -12,6 +12,7 @@ interface CourseEditModalProps {
     location?: string;
     designer?: string;
     par_values?: number[];
+    hole_indexes?: number[];
   } | null;
 }
 
@@ -25,8 +26,9 @@ interface TeeboxData {
 
 const CourseEditModal: React.FC<CourseEditModalProps> = ({ isOpen, onClose, course }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'par' | 'teebox'>('par');
+  const [activeTab, setActiveTab] = useState<'par' | 'teebox' | 'holeindex'>('par');
   const [parValues, setParValues] = useState<number[]>([]);
+  const [holeIndexes, setHoleIndexes] = useState<number[]>([]);
   const [teeboxData, setTeeboxData] = useState<TeeboxData[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -70,6 +72,14 @@ const CourseEditModal: React.FC<CourseEditModalProps> = ({ isOpen, onClose, cour
         setParValues([4, 3, 4, 5, 4, 3, 4, 4, 4, 4, 3, 4, 5, 4, 3, 4, 4, 4]);
       }
 
+      // Load hole indexes
+      if (course.hole_indexes) {
+        setHoleIndexes([...course.hole_indexes]);
+      } else {
+        // Default hole indexes for 18 holes (1-18)
+        setHoleIndexes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+      }
+
       // Load teebox data
       const teeboxResponse = await getCourseTeeboxData(course.id);
       const teeboxData = teeboxResponse.data.teeboxData || [];
@@ -107,6 +117,25 @@ const CourseEditModal: React.FC<CourseEditModalProps> = ({ isOpen, onClose, cour
     } catch (err) {
       console.error('Error saving par values:', err);
       setError('Failed to save par values');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveHoleIndexes = async () => {
+    if (!course) return;
+    
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+    
+    try {
+      await updateCourseHoleIndexes(course.id, holeIndexes);
+      setSuccess('Hole indexes updated successfully');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      console.error('Error saving hole indexes:', err);
+      setError('Failed to save hole indexes');
     } finally {
       setSaving(false);
     }
@@ -293,6 +322,7 @@ const CourseEditModal: React.FC<CourseEditModalProps> = ({ isOpen, onClose, cour
   const handleClose = () => {
     setActiveTab('par');
     setParValues([]);
+    setHoleIndexes([]);
     setTeeboxData([]);
     setTeeboxInputs({});
     setEditingTeeboxes(new Set());
@@ -342,6 +372,17 @@ const CourseEditModal: React.FC<CourseEditModalProps> = ({ isOpen, onClose, cour
                 >
                   <Target className="w-4 h-4 inline mr-2" />
                   Par Values
+                </button>
+                <button
+                  onClick={() => setActiveTab('holeindex')}
+                  className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                    activeTab === 'holeindex'
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <Info className="w-4 h-4 inline mr-2" />
+                  Hole Indexes
                 </button>
                 <button
                   onClick={() => setActiveTab('teebox')}
@@ -419,6 +460,58 @@ const CourseEditModal: React.FC<CourseEditModalProps> = ({ isOpen, onClose, cour
                        </button>
                      </div>
                    )}
+                </div>
+              )}
+
+              {/* Hole Indexes Tab */}
+              {activeTab === 'holeindex' && (
+                <div>
+                  <div className="mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Hole Indexes</h3>
+                    <p className="text-sm text-gray-600">
+                      Set the handicap index for each hole. This determines which holes receive handicap strokes during match play.
+                    </p>
+                  </div>
+                  
+                  <div className="grid grid-cols-6 md:grid-cols-9 lg:grid-cols-18 gap-2 mb-6">
+                    {holeIndexes.map((index, holeNumber) => (
+                      <div key={holeNumber} className="text-center">
+                        <label className="block text-xs text-gray-600 mb-1">Hole {holeNumber + 1}</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="18"
+                          value={index}
+                          onChange={(e) => {
+                            const newIndexes = [...holeIndexes];
+                            newIndexes[holeNumber] = parseInt(e.target.value) || 1;
+                            setHoleIndexes(newIndexes);
+                          }}
+                          disabled={!canEdit()}
+                          className={`w-full px-2 py-1 text-center border rounded focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent ${
+                            !canEdit() ? 'border-gray-200 bg-gray-100 text-gray-600 cursor-not-allowed' : 'border-gray-300'
+                          }`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {canEdit() && (
+                    <div className="flex justify-end">
+                      <button
+                        onClick={handleSaveHoleIndexes}
+                        disabled={saving}
+                        className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {saving ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        ) : (
+                          <Save className="w-4 h-4 mr-2" />
+                        )}
+                        Save Hole Indexes
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 

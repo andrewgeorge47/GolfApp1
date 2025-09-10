@@ -27,6 +27,7 @@ import TournamentLeaderboard from './TournamentLeaderboard';
 import MatchplayLeaderboard from './MatchplayLeaderboard';
 import StrokeplayLeaderboard from './StrokeplayLeaderboard';
 import NewWeeklyLeaderboard from './NewWeeklyLeaderboard';
+import ChampionshipStandings from './ChampionshipStandings';
 
 // Define the ClubLeaderboardData interface to match what the server returns
 interface ClubLeaderboardData {
@@ -745,7 +746,15 @@ const Leaderboard: React.FC = () => {
                     <span>Share Leaderboard</span>
                   </button>
                 </div>
-                {selectedTournament.tournament_format === 'match_play' ? (
+                {selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship' ? (
+                  <ChampionshipStandings
+                    tournamentId={selectedTournament.id}
+                    tournamentName={selectedTournament.name}
+                    onRefresh={() => {
+                      // Refresh tournament data if needed
+                    }}
+                  />
+                ) : selectedTournament.tournament_format === 'match_play' ? (
                   <MatchplayLeaderboard
                     tournamentId={selectedTournament.id}
                     tournamentFormat={selectedTournament.tournament_format}

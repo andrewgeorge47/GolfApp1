@@ -33,6 +33,7 @@ import NewWeeklyLeaderboard from './NewWeeklyLeaderboard';
 import AdminScorecardEditor from './AdminScorecardEditor';
 import AdminStrokeplayScorecardEditor from './AdminStrokeplayScorecardEditor';
 import AdminMatchplayEditor from './AdminMatchplayEditor';
+import ChampionshipAdminDashboard from './ChampionshipAdminDashboard';
 
 interface TournamentManagementProps {
   // Add any props if needed
@@ -49,7 +50,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
   const [tournamentScores, setTournamentScores] = useState<any[]>([]);
   const [tournamentPayouts, setTournamentPayouts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'registration' | 'checkin' | 'teams' | 'matches' | 'scoring' | 'leaderboard'>('registration');
+  const [activeTab, setActiveTab] = useState<'registration' | 'checkin' | 'teams' | 'matches' | 'scoring' | 'leaderboard' | 'championship'>('registration');
 
   // Tournament form state
   const [showTournamentForm, setShowTournamentForm] = useState(false);
@@ -275,6 +276,13 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
   const handleSelectTournament = (tournament: any) => {
     setSelectedTournament(tournament);
     window.location.hash = `/tournament-management?tournament=${tournament.id}`;
+    
+    // Auto-switch to championship tab for championship tournaments
+    if (tournament.type === 'club_championship' || tournament.type === 'national_championship') {
+      setActiveTab('championship');
+    } else {
+      setActiveTab('registration'); // Default to registration for regular tournaments
+    }
   };
 
   // When returning to the list, clear the hash
@@ -1010,7 +1018,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                           Teams
                         </button>
                       )}
-                      {requiresMatches(selectedTournament.tournament_format || 'match_play') && (
+                      {requiresMatches(selectedTournament.tournament_format || 'match_play') && !(selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship') && (
                         <button
                           className={`py-2 px-4 font-medium ${activeTab === 'matches' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
                           onClick={() => setActiveTab('matches')}
@@ -1019,20 +1027,33 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                           Matches
                         </button>
                       )}
-                      <button
-                        className={`py-2 px-4 font-medium ${activeTab === 'scoring' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
-                        onClick={() => setActiveTab('scoring')}
-                      >
-                        <BarChart3 className="w-4 h-4 mr-2 inline" />
-                        Scoring
-                      </button>
-                      <button
-                        className={`py-2 px-4 font-medium ${activeTab === 'leaderboard' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
-                        onClick={() => setActiveTab('leaderboard')}
-                      >
-                        <Trophy className="w-4 h-4 mr-2 inline" />
-                        Leaderboard
-                      </button>
+                      {!(selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship') && (
+                        <button
+                          className={`py-2 px-4 font-medium ${activeTab === 'scoring' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
+                          onClick={() => setActiveTab('scoring')}
+                        >
+                          <BarChart3 className="w-4 h-4 mr-2 inline" />
+                          Scoring
+                        </button>
+                      )}
+                      {!(selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship') && (
+                        <button
+                          className={`py-2 px-4 font-medium ${activeTab === 'leaderboard' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
+                          onClick={() => setActiveTab('leaderboard')}
+                        >
+                          <Trophy className="w-4 h-4 mr-2 inline" />
+                          Leaderboard
+                        </button>
+                      )}
+                      {(selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship') && (
+                        <button
+                          className={`py-2 px-4 font-medium ${activeTab === 'championship' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
+                          onClick={() => setActiveTab('championship')}
+                        >
+                          <Award className="w-4 h-4 mr-2 inline" />
+                          Championship Management
+                        </button>
+                      )}
                     </div>
 
                     {/* Tab Content */}
@@ -1073,7 +1094,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                         />
                       )}
                       
-                      {activeTab === 'matches' && requiresMatches(selectedTournament.tournament_format || 'match_play') && (
+                      {activeTab === 'matches' && requiresMatches(selectedTournament.tournament_format || 'match_play') && !(selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship') && (
                         <MatchGenerator
                           tournamentId={selectedTournament.id}
                           tournamentMatches={tournamentMatches}
@@ -1084,7 +1105,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                         />
                       )}
                       
-                      {activeTab === 'scoring' && (
+                      {activeTab === 'scoring' && !(selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship') && (
                         <div className="space-y-6">
                           {/* Custom Matchplay Scoring for 3-hole tournaments */}
                           {selectedTournament.tournament_format === 'match_play' && 
@@ -1319,7 +1340,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                         </div>
                       )}
                       
-                      {activeTab === 'leaderboard' && (
+                      {activeTab === 'leaderboard' && !(selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship') && (
                         <div className="space-y-6">
                           {/* Custom Matchplay Leaderboard for 3-hole tournaments */}
                           {selectedTournament.tournament_format === 'match_play' && 
@@ -1686,6 +1707,24 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                            )}
                          </div>
                        )}
+                      
+                      {activeTab === 'championship' && (
+                        <ChampionshipAdminDashboard
+                          tournamentId={selectedTournament.id}
+                          tournamentName={selectedTournament.name}
+                          tournamentParticipants={tournamentParticipants}
+                          tournamentMatches={tournamentMatches}
+                          tournamentCourse={selectedTournament.course}
+                          tournamentCourseId={selectedTournament.course_id}
+                          onDataRefresh={() => {
+                            // Refresh tournament data
+                            if (selectedTournament) {
+                              getTournamentParticipants(selectedTournament.id).then(response => setTournamentParticipants(response.data));
+                              getTournamentMatches(selectedTournament.id).then(response => setTournamentMatches(response.data));
+                            }
+                          }}
+                        />
+                      )}
                     </div>
                   </div>
                 </div>

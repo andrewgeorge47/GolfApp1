@@ -13,6 +13,8 @@ interface CombinedCourse {
   designer?: string;
   elevation?: number;
   course_types: string[];
+  par_values?: number[];
+  hole_indexes?: number[];
 }
 
 interface SimulatorStats {
