@@ -205,6 +205,7 @@ const TournamentScoring: React.FC = () => {
               tournamentSettings={tournamentSettings}
               onScoreSubmitted={handleScoreSubmitted}
               courseId={tournament.course_id}
+              tournament={tournament}
             />
           ) : tournament.tournament_format === 'par3_match_play' ? (
             <NewWeeklyScoring
@@ -222,6 +223,7 @@ const TournamentScoring: React.FC = () => {
               teams={tournamentTeams}
               tournamentSettings={tournamentSettings}
               courseId={tournament.course_id}
+              tournament={tournament}
             />
           )}
         </div>

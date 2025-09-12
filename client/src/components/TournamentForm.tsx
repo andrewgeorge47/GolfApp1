@@ -90,6 +90,11 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     location: tournament?.location || '',
     course: tournament?.course || '',
     course_id: tournament?.course_id || '',
+    // Platform-specific course selections
+    gspro_course: tournament?.gspro_course || '',
+    gspro_course_id: tournament?.gspro_course_id || '',
+    trackman_course: tournament?.trackman_course || '',
+    trackman_course_id: tournament?.trackman_course_id || '',
     rules: tournament?.rules || '',
     notes: tournament?.notes || '',
     type: tournament?.type || 'tournament',
@@ -136,6 +141,20 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
   const [filteredCourses, setFilteredCourses] = useState<any[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
   const [courseLoading, setCourseLoading] = useState(false);
+  
+  // Platform-specific course selection state
+  const [gsproCourses, setGsproCourses] = useState<any[]>([]);
+  const [trackmanCourses, setTrackmanCourses] = useState<any[]>([]);
+  const [gsproSearchTerm, setGsproSearchTerm] = useState('');
+  const [trackmanSearchTerm, setTrackmanSearchTerm] = useState('');
+  const [showGsproDropdown, setShowGsproDropdown] = useState(false);
+  const [showTrackmanDropdown, setShowTrackmanDropdown] = useState(false);
+  const [filteredGsproCourses, setFilteredGsproCourses] = useState<any[]>([]);
+  const [filteredTrackmanCourses, setFilteredTrackmanCourses] = useState<any[]>([]);
+  const [selectedGsproCourse, setSelectedGsproCourse] = useState<any>(null);
+  const [selectedTrackmanCourse, setSelectedTrackmanCourse] = useState<any>(null);
+  const [gsproLoading, setGsproLoading] = useState(false);
+  const [trackmanLoading, setTrackmanLoading] = useState(false);
 
   // Club selection state
   const [clubs, setClubs] = useState<string[]>([]);
@@ -248,6 +267,31 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     fetchClubs();
   }, []);
 
+  // Load platform-specific courses
+  useEffect(() => {
+    const fetchPlatformCourses = async () => {
+      try {
+        // Fetch GSPro courses
+        setGsproLoading(true);
+        const gsproResponse = await getSimulatorCourses(undefined, 'gspro', 10000);
+        setGsproCourses(gsproResponse.data.courses || []);
+        setGsproLoading(false);
+
+        // Fetch Trackman courses
+        setTrackmanLoading(true);
+        const trackmanResponse = await getSimulatorCourses(undefined, 'trackman', 10000);
+        setTrackmanCourses(trackmanResponse.data.courses || []);
+        setTrackmanLoading(false);
+      } catch (error) {
+        console.error('Error fetching platform courses:', error);
+        setGsproLoading(false);
+        setTrackmanLoading(false);
+      }
+    };
+
+    fetchPlatformCourses();
+  }, []);
+
   // Initialize course selection when editing
   useEffect(() => {
     if (mode === 'edit' && tournament?.course_id && simulatorCourses.length > 0) {
@@ -258,6 +302,36 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
       }
     }
   }, [mode, tournament, simulatorCourses]);
+
+  // Initialize GSPro course selection when editing
+  useEffect(() => {
+    if (mode === 'edit' && tournament?.gspro_course_id && gsproCourses.length > 0) {
+      console.log('Initializing GSPro course:', { tournament: tournament.gspro_course_id, gsproCourses: gsproCourses.length });
+      const existingGsproCourse = gsproCourses.find(course => course.id === tournament.gspro_course_id);
+      if (existingGsproCourse) {
+        console.log('Found GSPro course:', existingGsproCourse);
+        setSelectedGsproCourse(existingGsproCourse);
+        setGsproSearchTerm(existingGsproCourse.name);
+      } else {
+        console.log('GSPro course not found in available courses');
+      }
+    }
+  }, [mode, tournament, gsproCourses]);
+
+  // Initialize Trackman course selection when editing
+  useEffect(() => {
+    if (mode === 'edit' && tournament?.trackman_course_id && trackmanCourses.length > 0) {
+      console.log('Initializing Trackman course:', { tournament: tournament.trackman_course_id, trackmanCourses: trackmanCourses.length });
+      const existingTrackmanCourse = trackmanCourses.find(course => course.id === tournament.trackman_course_id);
+      if (existingTrackmanCourse) {
+        console.log('Found Trackman course:', existingTrackmanCourse);
+        setSelectedTrackmanCourse(existingTrackmanCourse);
+        setTrackmanSearchTerm(existingTrackmanCourse.name);
+      } else {
+        console.log('Trackman course not found in available courses');
+      }
+    }
+  }, [mode, tournament, trackmanCourses]);
 
   // Filter courses based on search term
   useEffect(() => {
@@ -272,6 +346,34 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
       setFilteredCourses([]);
     }
   }, [courseSearchTerm, simulatorCourses]);
+
+  // Filter GSPro courses based on search term
+  useEffect(() => {
+    if (gsproSearchTerm.trim()) {
+      const filtered = gsproCourses.filter(course =>
+        course.name.toLowerCase().includes(gsproSearchTerm.toLowerCase()) ||
+        (course.location && course.location.toLowerCase().includes(gsproSearchTerm.toLowerCase())) ||
+        (course.designer && course.designer.toLowerCase().includes(gsproSearchTerm.toLowerCase()))
+      ).slice(0, 10);
+      setFilteredGsproCourses(filtered);
+    } else {
+      setFilteredGsproCourses([]);
+    }
+  }, [gsproSearchTerm, gsproCourses]);
+
+  // Filter Trackman courses based on search term
+  useEffect(() => {
+    if (trackmanSearchTerm.trim()) {
+      const filtered = trackmanCourses.filter(course =>
+        course.name.toLowerCase().includes(trackmanSearchTerm.toLowerCase()) ||
+        (course.location && course.location.toLowerCase().includes(trackmanSearchTerm.toLowerCase())) ||
+        (course.designer && course.designer.toLowerCase().includes(trackmanSearchTerm.toLowerCase()))
+      ).slice(0, 10);
+      setFilteredTrackmanCourses(filtered);
+    } else {
+      setFilteredTrackmanCourses([]);
+    }
+  }, [trackmanSearchTerm, trackmanCourses]);
 
   // Filter clubs based on search term
   useEffect(() => {
@@ -292,19 +394,25 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
       if (!target.closest('.course-dropdown-container')) {
         setShowCourseDropdown(false);
       }
+      if (!target.closest('.gspro-dropdown-container')) {
+        setShowGsproDropdown(false);
+      }
+      if (!target.closest('.trackman-dropdown-container')) {
+        setShowTrackmanDropdown(false);
+      }
       if (!target.closest('.club-dropdown-container')) {
         setShowClubDropdown(false);
       }
     };
 
-    if (showCourseDropdown || showClubDropdown) {
+    if (showCourseDropdown || showGsproDropdown || showTrackmanDropdown || showClubDropdown) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [showCourseDropdown, showClubDropdown]);
+  }, [showCourseDropdown, showGsproDropdown, showTrackmanDropdown, showClubDropdown]);
 
   // Initialize selected clubs from form data
   useEffect(() => {
@@ -366,6 +474,62 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     setShowCourseDropdown(false);
   };
 
+  // GSPro course selection handlers
+  const handleGsproCourseSelect = (course: any) => {
+    setSelectedGsproCourse(course);
+    setTournamentForm(prev => ({
+      ...prev,
+      gspro_course: course.name,
+      gspro_course_id: course.id.toString()
+    }));
+    setGsproSearchTerm(course.name);
+    setShowGsproDropdown(false);
+  };
+
+  const handleGsproCourseSearchChange = (value: string) => {
+    setGsproSearchTerm(value);
+    setShowGsproDropdown(true);
+    if (!value.trim()) {
+      setSelectedGsproCourse(null);
+      setTournamentForm(prev => ({ ...prev, gspro_course: '', gspro_course_id: '' }));
+    }
+  };
+
+  const clearGsproCourseSelection = () => {
+    setSelectedGsproCourse(null);
+    setGsproSearchTerm('');
+    setTournamentForm(prev => ({ ...prev, gspro_course: '', gspro_course_id: '' }));
+    setShowGsproDropdown(false);
+  };
+
+  // Trackman course selection handlers
+  const handleTrackmanCourseSelect = (course: any) => {
+    setSelectedTrackmanCourse(course);
+    setTournamentForm(prev => ({
+      ...prev,
+      trackman_course: course.name,
+      trackman_course_id: course.id.toString()
+    }));
+    setTrackmanSearchTerm(course.name);
+    setShowTrackmanDropdown(false);
+  };
+
+  const handleTrackmanCourseSearchChange = (value: string) => {
+    setTrackmanSearchTerm(value);
+    setShowTrackmanDropdown(true);
+    if (!value.trim()) {
+      setSelectedTrackmanCourse(null);
+      setTournamentForm(prev => ({ ...prev, trackman_course: '', trackman_course_id: '' }));
+    }
+  };
+
+  const clearTrackmanCourseSelection = () => {
+    setSelectedTrackmanCourse(null);
+    setTrackmanSearchTerm('');
+    setTournamentForm(prev => ({ ...prev, trackman_course: '', trackman_course_id: '' }));
+    setShowTrackmanDropdown(false);
+  };
+
   // Handle registration form template selection
   const handleRegistrationTemplateSelect = (templateKey: string) => {
     const template = registrationFormTemplates[templateKey as keyof typeof registrationFormTemplates];
@@ -414,6 +578,11 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
         entry_fee: parseFloat(tournamentForm.entry_fee),
         course: selectedCourse ? selectedCourse.name : tournamentForm.course || undefined,
         course_id: tournamentForm.course_id ? parseInt(tournamentForm.course_id) : undefined,
+        // Platform-specific course selections
+        gspro_course: selectedGsproCourse ? selectedGsproCourse.name : tournamentForm.gspro_course || undefined,
+        gspro_course_id: tournamentForm.gspro_course_id ? parseInt(tournamentForm.gspro_course_id) : undefined,
+        trackman_course: selectedTrackmanCourse ? selectedTrackmanCourse.name : tournamentForm.trackman_course || undefined,
+        trackman_course_id: tournamentForm.trackman_course_id ? parseInt(tournamentForm.trackman_course_id) : undefined,
         rules: tournamentForm.rules,
         notes: tournamentForm.notes,
         type: tournamentForm.type,
@@ -899,112 +1068,225 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
               </select>
             </div>
             
-            {/* Course Selector */}
+            {/* Platform-Specific Course Selectors */}
             <div className="mt-4">
-              <label className="block text-sm font-medium text-neutral-600 mb-1">Course</label>
-              <div className="relative course-dropdown-container">
-                <div className="flex items-center space-x-2">
-                  <div className="flex-1 relative">
-                    <input
-                      type="text"
-                      value={courseSearchTerm}
-                      onChange={e => handleCourseSearchChange(e.target.value)}
-                      onFocus={() => setShowCourseDropdown(true)}
-                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent pr-10"
-                      placeholder="Search for a course (optional)..."
-                    />
-                    {courseLoading && (
-                      <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-neon-green"></div>
+              <label className="block text-sm font-medium text-neutral-600 mb-3">Course Selection</label>
+              
+              {/* GSPro Course Selector */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-neutral-600 mb-1">
+                  GSPro Course <span className="text-xs text-neutral-400">(Optional)</span>
+                </label>
+                <div className="relative gspro-dropdown-container">
+                  <div className="flex items-center space-x-2">
+                    <div className="flex-1 relative">
+                      <input
+                        type="text"
+                        value={gsproSearchTerm}
+                        onChange={e => handleGsproCourseSearchChange(e.target.value)}
+                        onFocus={() => setShowGsproDropdown(true)}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-10"
+                        placeholder="Search for a GSPro course..."
+                      />
+                      {gsproLoading && (
+                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                        </div>
+                      )}
+                      {!gsproLoading && gsproSearchTerm && (
+                        <button
+                          onClick={clearGsproCourseSelection}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* GSPro Course Dropdown */}
+                  {showGsproDropdown && (filteredGsproCourses.length > 0 || gsproSearchTerm) && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-neutral-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      {filteredGsproCourses.length > 0 ? (
+                        filteredGsproCourses.map(course => (
+                          <button
+                            key={course.id}
+                            onClick={() => handleGsproCourseSelect(course)}
+                            className="w-full px-4 py-3 text-left hover:bg-blue-50 border-b border-neutral-100 last:border-b-0"
+                          >
+                            <div className="font-medium text-brand-black">{course.name}</div>
+                            <div className="text-sm text-neutral-600 flex items-center">
+                              <MapPin className="w-3 h-3 mr-1" />
+                              {course.location || 'Unknown location'}
+                              {course.designer && (
+                                <span className="ml-2">• {course.designer}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center mt-1">
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                GSPro
+                              </span>
+                            </div>
+                          </button>
+                        ))
+                      ) : gsproSearchTerm ? (
+                        <div className="px-4 py-3 text-neutral-500">
+                          No GSPro courses found matching "{gsproSearchTerm}"
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+                
+                {/* Selected GSPro Course Display */}
+                {selectedGsproCourse && (
+                  <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-blue-800">{selectedGsproCourse.name}</div>
+                        <div className="text-sm text-blue-600">
+                          {selectedGsproCourse.location && (
+                            <span className="flex items-center">
+                              <MapPin className="w-3 h-3 mr-1" />
+                              {selectedGsproCourse.location}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    )}
-                    {!courseLoading && courseSearchTerm && (
                       <button
-                        onClick={clearCourseSelection}
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
+                        onClick={clearGsproCourseSelection}
+                        className="text-blue-600 hover:text-blue-800"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
-                    )}
+                    </div>
                   </div>
+                )}
+              </div>
+
+              {/* Trackman Course Selector */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-neutral-600 mb-1">
+                  Trackman Course <span className="text-xs text-neutral-400">(Optional)</span>
+                </label>
+                <div className="relative trackman-dropdown-container">
+                  <div className="flex items-center space-x-2">
+                    <div className="flex-1 relative">
+                      <input
+                        type="text"
+                        value={trackmanSearchTerm}
+                        onChange={e => handleTrackmanCourseSearchChange(e.target.value)}
+                        onFocus={() => setShowTrackmanDropdown(true)}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-10"
+                        placeholder="Search for a Trackman course..."
+                      />
+                      {trackmanLoading && (
+                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-500"></div>
+                        </div>
+                      )}
+                      {!trackmanLoading && trackmanSearchTerm && (
+                        <button
+                          onClick={clearTrackmanCourseSelection}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Trackman Course Dropdown */}
+                  {showTrackmanDropdown && (filteredTrackmanCourses.length > 0 || trackmanSearchTerm) && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-neutral-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      {filteredTrackmanCourses.length > 0 ? (
+                        filteredTrackmanCourses.map(course => (
+                          <button
+                            key={course.id}
+                            onClick={() => handleTrackmanCourseSelect(course)}
+                            className="w-full px-4 py-3 text-left hover:bg-purple-50 border-b border-neutral-100 last:border-b-0"
+                          >
+                            <div className="font-medium text-brand-black">{course.name}</div>
+                            <div className="text-sm text-neutral-600 flex items-center">
+                              <MapPin className="w-3 h-3 mr-1" />
+                              {course.location || 'Unknown location'}
+                              {course.designer && (
+                                <span className="ml-2">• {course.designer}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center mt-1">
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                Trackman
+                              </span>
+                            </div>
+                          </button>
+                        ))
+                      ) : trackmanSearchTerm ? (
+                        <div className="px-4 py-3 text-neutral-500">
+                          No Trackman courses found matching "{trackmanSearchTerm}"
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
                 
-                {/* Course Dropdown */}
-                {showCourseDropdown && (filteredCourses.length > 0 || courseSearchTerm) && (
-                  <div className="absolute z-50 w-full mt-1 bg-white border border-neutral-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    {filteredCourses.length > 0 ? (
-                      filteredCourses.map(course => (
-                        <button
-                          key={course.id}
-                          onClick={() => handleCourseSelect(course)}
-                          className="w-full px-4 py-3 text-left hover:bg-neutral-50 border-b border-neutral-100 last:border-b-0"
-                        >
-                          <div className="font-medium text-brand-black">{course.name}</div>
-                          <div className="text-sm text-neutral-600 flex items-center">
-                            <MapPin className="w-3 h-3 mr-1" />
-                            {course.location || 'Unknown location'}
-                            {course.designer && (
-                              <span className="ml-2">• {course.designer}</span>
-                            )}
-                          </div>
-                          <div className="flex items-center mt-1">
-                            {course.platforms?.map((platform: string) => (
-                              <span
-                                key={platform}
-                                className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium mr-1 ${
-                                  platform === 'GSPro' 
-                                    ? 'bg-blue-100 text-blue-800' 
-                                    : 'bg-purple-100 text-purple-800'
-                                }`}
-                              >
-                                {platform}
-                              </span>
-                            ))}
-                          </div>
-                        </button>
-                      ))
-                    ) : courseSearchTerm ? (
-                      <div className="px-4 py-3 text-neutral-500">
-                        No courses found matching "{courseSearchTerm}"
+                {/* Selected Trackman Course Display */}
+                {selectedTrackmanCourse && (
+                  <div className="mt-2 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-purple-800">{selectedTrackmanCourse.name}</div>
+                        <div className="text-sm text-purple-600">
+                          {selectedTrackmanCourse.location && (
+                            <span className="flex items-center">
+                              <MapPin className="w-3 h-3 mr-1" />
+                              {selectedTrackmanCourse.location}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    ) : null}
+                      <button
+                        onClick={clearTrackmanCourseSelection}
+                        className="text-purple-600 hover:text-purple-800"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
               
               {/* Course Selection Note */}
               <p className="text-xs text-neutral-500 mt-2">
-                Course selection is optional. You can create a tournament without specifying a course.
+                You can select courses for both platforms, one platform, or neither. This allows players to choose their preferred simulator platform.
               </p>
               
-              {/* Selected Course Display */}
-              {selectedCourse && (
-                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-green-800">{selectedCourse.name}</div>
-                      <div className="text-sm text-green-600">
-                        {selectedCourse.location && (
-                          <span className="flex items-center">
-                            <MapPin className="w-3 h-3 mr-1" />
-                            {selectedCourse.location}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <button
-                      onClick={clearCourseSelection}
-                      className="text-green-600 hover:text-green-800"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
+              {/* Course Assignment Rules */}
+              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="text-sm font-medium text-blue-800 mb-2">Course Assignment Rules</h4>
+                <div className="text-xs text-blue-700 space-y-1">
+                  <div className="flex items-center">
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 mr-2">
+                      📊 Trackman
+                    </span>
+                    <span>Club No. 8 members will automatically use the Trackman course</span>
+                  </div>
+                  <div className="flex items-center">
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-2">
+                      🎯 GSPro
+                    </span>
+                    <span>All other clubs will automatically use the GSPro course</span>
                   </div>
                 </div>
-              )}
+              </div>
             </div>
           </div>
 

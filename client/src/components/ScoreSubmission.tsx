@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Users, Target, Award, Crown, CheckCircle } from 'lucide-react';
 import { updateTournamentMatch, submitTeamScore, getSimulatorCourses, getSimulatorCourse, getTeamScores } from '../services/api';
+import { useUserCourse } from '../hooks/useUserCourse';
 import { toast } from 'react-toastify';
 import { useAuth } from '../AuthContext';
 
@@ -46,6 +47,7 @@ interface ScoreSubmissionProps {
   teams?: Team[];
   tournamentSettings?: any;
   courseId?: number;
+  tournament?: any; // Add tournament object for course assignment
 }
 
 interface CourseData {
@@ -112,7 +114,8 @@ const ScoreSubmission: React.FC<ScoreSubmissionProps> = ({
   requiresMatches = true,
   teams = [],
   tournamentSettings,
-  courseId
+  courseId,
+  tournament
 }) => {
   console.log('ScoreSubmission component props:', {
     tournamentId,
@@ -126,20 +129,25 @@ const ScoreSubmission: React.FC<ScoreSubmissionProps> = ({
   const [teamScores, setTeamScores] = useState<any[]>([]);
   const [teamScoresLoading, setTeamScoresLoading] = useState(false);
   const scoringInfo = getFormatScoringInfo(tournamentFormat);
+
+  // Get user's appropriate course based on their club
+  const { courseData: userCourseData, loading: userCourseLoading, courseId: userCourseId } = useUserCourse(tournamentId, tournament);
   
-  // Fetch course data if courseId is provided
+  // Fetch course data - use user's course ID if available, otherwise fall back to tournament course ID
   useEffect(() => {
     const fetchCourseData = async () => {
-      if (!courseId) {
-        console.log('No courseId provided, skipping course data fetch');
+      const effectiveCourseId = userCourseId || courseId;
+      
+      if (!effectiveCourseId) {
+        console.log('No courseId available, skipping course data fetch');
         return;
       }
       
-      console.log('Fetching course data for courseId:', courseId);
+      console.log('Fetching course data for courseId:', effectiveCourseId, 'userCourseId:', userCourseId, 'tournamentCourseId:', courseId);
       
       try {
         setCourseLoading(true);
-        const response = await getSimulatorCourse(courseId);
+        const response = await getSimulatorCourse(effectiveCourseId);
         console.log('Course data response:', response.data);
         
         if (response.data) {
@@ -147,7 +155,7 @@ const ScoreSubmission: React.FC<ScoreSubmissionProps> = ({
           console.log('Course data set successfully:', response.data);
           console.log('Par values:', response.data.par_values);
         } else {
-          console.log('No course data found for courseId:', courseId);
+          console.log('No course data found for courseId:', effectiveCourseId);
         }
       } catch (error) {
         console.error('Error fetching course data:', error);
@@ -156,8 +164,11 @@ const ScoreSubmission: React.FC<ScoreSubmissionProps> = ({
       }
     };
 
-    fetchCourseData();
-  }, [courseId]);
+    // Only fetch if we have a course ID and user course loading is complete
+    if (!userCourseLoading) {
+      fetchCourseData();
+    }
+  }, [userCourseId, courseId, userCourseLoading]);
 
   // Fetch team scores for team-based tournaments
   useEffect(() => {

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
-import api from '../services/api';
+import api, { uploadScorecardPhoto } from '../services/api';
 import { toast } from 'react-toastify';
-import { Trophy, Users, Target, CheckCircle } from 'lucide-react';
+import { Trophy, Users, Target, CheckCircle, Camera, Upload, X } from 'lucide-react';
 
 interface ChampionshipPlayerScoringProps {
   tournamentId: number;
@@ -48,6 +48,11 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
   const [holeScores, setHoleScores] = useState<number[]>(new Array(18).fill(0));
   const [submitting, setSubmitting] = useState(false);
 
+  // Scorecard photo upload state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [scorecardPhotoUrl, setScorecardPhotoUrl] = useState<string | null>(null);
+
   useEffect(() => {
     loadPlayerMatches();
   }, [tournamentId, user?.member_id]);
@@ -87,6 +92,7 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
   const handleScoreMatch = (match: Match) => {
     setSelectedMatch(match);
     setHoleScores(new Array(18).fill(0));
+    setScorecardPhotoUrl(null); // Reset photo when opening new match
     setShowScoringModal(true);
   };
 
@@ -115,6 +121,7 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
       const response = await api.put(`/tournaments/${tournamentId}/championship-matches/${selectedMatch.id}/result`, {
         [isPlayer1 ? 'player1_hole_scores' : 'player2_hole_scores']: JSON.stringify(holeScores),
         [isPlayer1 ? 'player1_net_hole_scores' : 'player2_net_hole_scores']: JSON.stringify(holeScores), // Simplified - would need handicap calculation
+        [isPlayer1 ? 'player1_scorecard_photo_url' : 'player2_scorecard_photo_url']: scorecardPhotoUrl || null,
         match_status: 'in_progress' // Set to in_progress until opponent submits
       });
 
@@ -149,6 +156,59 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
       return 'text-blue-600';
     }
     return 'text-yellow-600';
+  };
+
+  // Photo upload handlers
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    console.log('Photo upload started:', file.name, file.size, file.type);
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
+      return;
+    }
+
+    // Validate file size (5MB limit)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File size must be less than 5MB');
+      return;
+    }
+
+    setUploadingPhoto(true);
+    try {
+      console.log('Uploading photo to server...');
+      const response = await uploadScorecardPhoto(file);
+      console.log('Photo upload response:', response.data);
+      
+      if (response.data.success) {
+        setScorecardPhotoUrl(response.data.photoUrl);
+        toast.success('Scorecard photo uploaded successfully');
+        console.log('Photo URL set:', response.data.photoUrl);
+      } else {
+        console.error('Upload failed:', response.data);
+        toast.error('Upload failed: ' + (response.data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      console.error('Error uploading photo:', err);
+      console.error('Error details:', err.response?.data);
+      toast.error('Failed to upload photo. Please try again.');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const triggerPhotoUpload = () => {
+    fileInputRef.current?.click();
+  };
+
+  const removePhoto = () => {
+    setScorecardPhotoUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   if (loading) {
@@ -279,6 +339,73 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                 <span className="text-lg font-bold text-brand-black">
                   {holeScores.reduce((sum, score) => sum + (score || 0), 0)}
                 </span>
+              </div>
+            </div>
+
+            {/* Scorecard Photo Upload */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-neutral-700 mb-2">
+                Scorecard Photo (Optional)
+              </label>
+              <div className="space-y-3">
+                {!scorecardPhotoUrl ? (
+                  <div className="flex items-center space-x-3">
+                    <button
+                      type="button"
+                      onClick={triggerPhotoUpload}
+                      disabled={uploadingPhoto}
+                      className="flex items-center px-4 py-2 border border-neutral-300 rounded-lg text-sm font-medium text-neutral-700 bg-white hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-brand-neon-green focus:border-brand-neon-green disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {uploadingPhoto ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-neon-green mr-2"></div>
+                          Uploading...
+                        </>
+                      ) : (
+                        <>
+                          <Camera className="w-4 h-4 mr-2" />
+                          Upload Photo
+                        </>
+                      )}
+                    </button>
+                    <span className="text-xs text-neutral-500">
+                      JPG, PNG, GIF up to 5MB
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-3">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2 text-sm text-green-600">
+                        <CheckCircle className="w-4 h-4" />
+                        <span>Photo uploaded successfully</span>
+                      </div>
+                      <div className="mt-1">
+                        <img
+                          src={scorecardPhotoUrl}
+                          alt="Scorecard"
+                          className="w-32 h-24 object-cover rounded-lg border border-neutral-200"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={removePhoto}
+                      className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Remove photo"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+                
+                {/* Hidden file input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoUpload}
+                  className="hidden"
+                />
               </div>
             </div>
 

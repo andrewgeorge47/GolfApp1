@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import api from '../services/api';
+import { useUserCourse } from '../hooks/useUserCourse';
+import { useAuth } from '../AuthContext';
 
 interface ChampionshipAdminDashboardProps {
   tournamentId: number;
@@ -29,6 +31,7 @@ interface ChampionshipAdminDashboardProps {
   tournamentMatches: any[];
   tournamentCourse?: string;
   tournamentCourseId?: number;
+  tournament?: any; // Add tournament object for course assignment
   onDataRefresh: () => void;
 }
 
@@ -72,6 +75,9 @@ interface Match {
   player2_net_holes?: number;
   course_id?: number;
   teebox?: string;
+  // Scorecard photo fields
+  player1_scorecard_photo_url?: string;
+  player2_scorecard_photo_url?: string;
 }
 
 interface MatchResult {
@@ -87,6 +93,7 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
   tournamentMatches,
   tournamentCourse,
   tournamentCourseId,
+  tournament,
   onDataRefresh
 }) => {
   const [clubGroups, setClubGroups] = useState<ClubGroup[]>([]);
@@ -103,6 +110,13 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedClubs, setSelectedClubs] = useState<string[]>([]);
   const [selectedParticipants, setSelectedParticipants] = useState<number[]>([]);
+  
+  // Match management states
+  const [selectedMatches, setSelectedMatches] = useState<number[]>([]);
+  const [newMatchGroupId, setNewMatchGroupId] = useState<number | null>(null);
+  const [newMatchPlayer1Id, setNewMatchPlayer1Id] = useState<number | null>(null);
+  const [newMatchPlayer2Id, setNewMatchPlayer2Id] = useState<number | null>(null);
+  const [showEditMatchModal, setShowEditMatchModal] = useState(false);
   
   // Scoring states
   const [scoringMatch, setScoringMatch] = useState<Match | null>(null);
@@ -121,16 +135,58 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
   const [holeIndexes, setHoleIndexes] = useState<number[]>([]);
   const [courseParValues, setCourseParValues] = useState<number[]>([]);
   const [showMatchPlayScoring, setShowMatchPlayScoring] = useState(false);
+  
+  // Current match course assignment
+  const [currentMatchCourse, setCurrentMatchCourse] = useState<{
+    courseId: number | null;
+    courseName: string | null;
+    platform: string;
+    reason: string;
+  } | null>(null);
+  
+  // Scorecard photo modal states
+  const [showScorecardModal, setShowScorecardModal] = useState(false);
+  const [selectedScorecardUrl, setSelectedScorecardUrl] = useState<string>('');
+  const [selectedScorecardPlayer, setSelectedScorecardPlayer] = useState<string>('');
+
+  // Get user's appropriate course based on their club (for reference only)
+  const { courseData: userCourseData, loading: userCourseLoading, courseId: userCourseId } = useUserCourse(tournamentId, tournament);
+
+  // Function to determine course based on players' clubs
+  const getCourseForPlayers = (player1Id: number, player2Id: number) => {
+    const player1 = tournamentParticipants.find(p => p.user_member_id === player1Id);
+    const player2 = tournamentParticipants.find(p => p.user_member_id === player2Id);
+    
+    // If either player is from Club No. 8, use Trackman course
+    if (player1?.club === 'No. 8' || player2?.club === 'No. 8') {
+      return {
+        courseId: tournament?.trackman_course_id,
+        courseName: tournament?.trackman_course,
+        platform: 'trackman',
+        reason: 'One or both players are from Club No. 8 (Trackman)'
+      };
+    }
+    
+    // Otherwise use GSPro course
+    return {
+      courseId: tournament?.gspro_course_id,
+      courseName: tournament?.gspro_course,
+      platform: 'gspro',
+      reason: 'Both players are from other clubs (GSPro)'
+    };
+  };
 
   useEffect(() => {
     console.log('ChampionshipAdminDashboard mounted with:', {
       tournamentId,
       tournamentCourse,
       tournamentCourseId,
-      tournamentParticipants: tournamentParticipants?.length
+      tournamentParticipants: tournamentParticipants?.length,
+      userCourseId,
+      userCourseLoading
     });
     loadDashboardData();
-  }, [tournamentId, tournamentParticipants, tournamentMatches]);
+  }, [tournamentId, tournamentParticipants, tournamentMatches, userCourseId, userCourseLoading]);
 
 
 
@@ -280,21 +336,62 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
   };
 
   // Manual Match Management
-  const handleCreateMatch = async (groupId: number) => {
-    const group = clubGroups.find(g => g.id === groupId);
-    if (!group || group.user_ids.length < 2) {
-      toast.error('Group must have at least 2 participants');
+
+  const handleEditMatch = (match: Match) => {
+    setEditingMatch(match);
+    setNewMatchPlayer1Id(match.player1_id);
+    setNewMatchPlayer2Id(match.player2_id);
+    setShowEditMatchModal(true);
+  };
+
+  const handleUpdateMatch = async () => {
+    if (!editingMatch || !newMatchPlayer1Id || !newMatchPlayer2Id) {
+      toast.error('Please select both players');
+      return;
+    }
+
+    try {
+      const response = await api.put(`/tournaments/${tournamentId}/championship-matches/${editingMatch.id}`, {
+        player1Id: newMatchPlayer1Id,
+        player2Id: newMatchPlayer2Id
+      });
+
+      toast.success('Match updated successfully');
+      setShowEditMatchModal(false);
+      setEditingMatch(null);
+      setNewMatchPlayer1Id(null);
+      setNewMatchPlayer2Id(null);
+      loadDashboardData();
+      onDataRefresh();
+    } catch (error) {
+      console.error('Error updating match:', error);
+      toast.error('Failed to update match');
+    }
+  };
+
+  const handleCreateNewMatch = async () => {
+    if (!newMatchGroupId || !newMatchPlayer1Id || !newMatchPlayer2Id) {
+      toast.error('Please select a group and both players');
+      return;
+    }
+
+    if (newMatchPlayer1Id === newMatchPlayer2Id) {
+      toast.error('Players must be different');
       return;
     }
 
     try {
       const response = await api.post(`/tournaments/${tournamentId}/create-match`, {
-        groupId,
-        player1Id: group.user_ids[0],
-        player2Id: group.user_ids[1]
+        groupId: newMatchGroupId,
+        player1Id: newMatchPlayer1Id,
+        player2Id: newMatchPlayer2Id
       });
 
       toast.success('Match created successfully');
+      setShowCreateMatch(false);
+      setNewMatchGroupId(null);
+      setNewMatchPlayer1Id(null);
+      setNewMatchPlayer2Id(null);
       loadDashboardData();
       onDataRefresh();
     } catch (error) {
@@ -303,8 +400,47 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
     }
   };
 
-  const handleEditMatch = (match: Match) => {
-    setEditingMatch(match);
+  const handleSelectMatch = (matchId: number) => {
+    setSelectedMatches(prev => 
+      prev.includes(matchId) 
+        ? prev.filter(id => id !== matchId)
+        : [...prev, matchId]
+    );
+  };
+
+  const handleSelectAllMatches = () => {
+    if (selectedMatches.length === matches.length) {
+      setSelectedMatches([]);
+    } else {
+      setSelectedMatches(matches.map(match => match.id));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedMatches.length === 0) {
+      toast.error('No matches selected');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete ${selectedMatches.length} selected matches?`)) {
+      return;
+    }
+
+    try {
+      await Promise.all(
+        selectedMatches.map(matchId => 
+          api.delete(`/tournaments/${tournamentId}/matches/${matchId}`)
+        )
+      );
+      
+      toast.success(`${selectedMatches.length} matches deleted successfully`);
+      setSelectedMatches([]);
+      loadDashboardData();
+      onDataRefresh();
+    } catch (error) {
+      console.error('Error deleting matches:', error);
+      toast.error('Failed to delete some matches');
+    }
   };
 
   const handleUpdateMatchResult = async (matchId: number, result: MatchResult) => {
@@ -372,6 +508,7 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
   // Match play scoring functions
 
   const handleOpenMatchPlayScoring = async (match: Match) => {
+    console.log('Opening match play scoring for match:', match);
     setScoringMatch(match);
     
     // Load player handicaps
@@ -389,17 +526,26 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
       setPlayer2Handicap(handicap);
     }
     
-    // Load tournament course data directly
-    if (tournamentCourseId) {
-      console.log('Loading tournament course data for ID:', tournamentCourseId);
+    // Determine course based on players' clubs
+    const matchCourse = getCourseForPlayers(match.player1_id, match.player2_id);
+    setCurrentMatchCourse(matchCourse);
+    
+    console.log('Match course assignment:', matchCourse);
+    console.log('Player 1 club:', player1?.club, 'Player 2 club:', player2?.club);
+    
+    // Load course data based on players' clubs
+    const effectiveCourseId = matchCourse.courseId || tournamentCourseId;
+    
+    if (effectiveCourseId) {
+      console.log('Loading course data for ID:', effectiveCourseId, 'matchCourseId:', matchCourse.courseId, 'tournamentCourseId:', tournamentCourseId);
       try {
-        const response = await api.get(`/simulator-courses?id=${tournamentCourseId}`);
+        const response = await api.get(`/simulator-courses?id=${effectiveCourseId}`);
         const courses = response.data.courses || response.data;
         const course = Array.isArray(courses) ? courses[0] : courses;
         
         if (course && course.id) {
-          console.log('Loaded tournament course:', course.name);
-          setSelectedCourse(tournamentCourseId);
+          console.log('Loaded course:', course.name, 'for platform:', matchCourse.platform);
+          setSelectedCourse(effectiveCourseId);
           
           // Load hole indexes
           if (course.hole_indexes) {
@@ -438,12 +584,12 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
             setCourseParValues(new Array(18).fill(4));
           }
         } else {
-          console.error('Tournament course not found. Response:', response.data);
-          toast.error(`Tournament course (ID: ${tournamentCourseId}) not found`);
+          console.error('Course not found. Response:', response.data);
+          toast.error(`Course (ID: ${effectiveCourseId}) not found`);
         }
       } catch (error) {
-        console.error('Error loading tournament course:', error);
-        toast.error('Failed to load tournament course data');
+        console.error('Error loading course:', error);
+        toast.error('Failed to load course data');
       }
     } else {
       console.log('No tournament course ID available');
@@ -451,23 +597,53 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
     }
     
     // Initialize hole scores with existing data if available
-    try {
-      if (match.player1_hole_scores) {
-        setPlayer1HoleScores(JSON.parse(match.player1_hole_scores));
-      } else {
-        setPlayer1HoleScores(new Array(18).fill(0));
+    const parseHoleScores = (scoreData: any): number[] => {
+      if (!scoreData) {
+        return new Array(18).fill(0);
       }
       
-      if (match.player2_hole_scores) {
-        setPlayer2HoleScores(JSON.parse(match.player2_hole_scores));
-      } else {
-        setPlayer2HoleScores(new Array(18).fill(0));
+      try {
+        // If it's already an array, return it
+        if (Array.isArray(scoreData)) {
+          return scoreData.length === 18 ? scoreData : new Array(18).fill(0);
+        }
+        
+        // If it's a string, try to parse it
+        if (typeof scoreData === 'string') {
+          // Clean the string - remove any extra characters
+          const cleaned = scoreData.trim();
+          
+          // If it looks like an array string, try to parse it
+          if (cleaned.startsWith('[') && cleaned.endsWith(']')) {
+            const parsed = JSON.parse(cleaned);
+            return Array.isArray(parsed) && parsed.length === 18 ? parsed : new Array(18).fill(0);
+          }
+          
+          // If it's a comma-separated string, split and convert to numbers
+          if (cleaned.includes(',')) {
+            const scores = cleaned.split(',').map(s => parseInt(s.trim()) || 0);
+            return scores.length === 18 ? scores : new Array(18).fill(0);
+          }
+        }
+        
+        return new Array(18).fill(0);
+      } catch (e) {
+        console.error('Error parsing hole scores:', e, 'Raw data:', scoreData);
+        return new Array(18).fill(0);
       }
-    } catch (e) {
-      console.error('Error parsing hole scores:', e);
-      setPlayer1HoleScores(new Array(18).fill(0));
-      setPlayer2HoleScores(new Array(18).fill(0));
-    }
+    };
+    
+    console.log('Loading existing scores - player1_hole_scores:', match.player1_hole_scores);
+    console.log('Loading existing scores - player2_hole_scores:', match.player2_hole_scores);
+    
+    const player1Scores = parseHoleScores(match.player1_hole_scores);
+    const player2Scores = parseHoleScores(match.player2_hole_scores);
+    
+    console.log('Parsed player1 scores:', player1Scores);
+    console.log('Parsed player2 scores:', player2Scores);
+    
+    setPlayer1HoleScores(player1Scores);
+    setPlayer2HoleScores(player2Scores);
     
     setShowMatchPlayScoring(true);
   };
@@ -578,6 +754,18 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
     setSelectedCourse(null);
     setSelectedTeebox('');
     setHoleIndexes([]);
+  };
+
+  const handleOpenScorecard = (photoUrl: string, playerName: string) => {
+    setSelectedScorecardUrl(photoUrl);
+    setSelectedScorecardPlayer(playerName);
+    setShowScorecardModal(true);
+  };
+
+  const handleCloseScorecard = () => {
+    setShowScorecardModal(false);
+    setSelectedScorecardUrl('');
+    setSelectedScorecardPlayer('');
   };
 
   const handleDeleteMatch = async (matchId: number) => {
@@ -867,7 +1055,31 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                             const currentGroupParticipants = tournamentParticipants.filter(p => 
                               editingGroup.user_ids?.includes(p.user_member_id)
                             );
-                            const allParticipants = [...currentGroupParticipants, ...availableParticipants];
+                            
+                            // Create a map to avoid duplicates - combine current group participants with available participants
+                            const participantMap = new Map();
+                            
+                            // Add current group participants first
+                            currentGroupParticipants.forEach(participant => {
+                              participantMap.set(participant.user_member_id, {
+                                ...participant,
+                                isCurrentlyInGroup: true,
+                                isAvailable: true
+                              });
+                            });
+                            
+                            // Add available participants (this won't duplicate current group participants)
+                            availableParticipants.forEach(participant => {
+                              if (!participantMap.has(participant.user_member_id)) {
+                                participantMap.set(participant.user_member_id, {
+                                  ...participant,
+                                  isCurrentlyInGroup: false,
+                                  isAvailable: true
+                                });
+                              }
+                            });
+                            
+                            const allParticipants = Array.from(participantMap.values());
                             
                             return allParticipants.length === 0 ? (
                               <div className="text-center py-4 text-gray-500">
@@ -875,15 +1087,12 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                               </div>
                             ) : (
                               allParticipants.map(participant => {
-                                const isCurrentlyInGroup = editingGroup.user_ids?.includes(participant.user_member_id);
-                                const isAvailable = availableParticipants.some(p => p.user_member_id === participant.user_member_id);
-                                
                                 return (
-                                  <label key={participant.user_member_id} className={`flex items-center p-2 hover:bg-gray-50 ${!isAvailable && !isCurrentlyInGroup ? 'opacity-50' : ''}`}>
+                                  <label key={participant.user_member_id} className={`flex items-center p-2 hover:bg-gray-50 ${!participant.isAvailable ? 'opacity-50' : ''}`}>
                                     <input
                                       type="checkbox"
                                       checked={selectedParticipants.includes(participant.user_member_id)}
-                                      disabled={!isAvailable && !isCurrentlyInGroup}
+                                      disabled={!participant.isAvailable}
                                       onChange={(e) => {
                                         if (e.target.checked) {
                                           setSelectedParticipants([...selectedParticipants, participant.user_member_id]);
@@ -895,8 +1104,8 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                                     />
                                     <span className="text-sm">
                                       {participant.first_name} {participant.last_name} ({participant.club})
-                                      {isCurrentlyInGroup && <span className="text-blue-600 text-xs ml-1">(Current)</span>}
-                                      {!isAvailable && !isCurrentlyInGroup && <span className="text-gray-400 text-xs ml-1">(Assigned to another group)</span>}
+                                      {participant.isCurrentlyInGroup && <span className="text-blue-600 text-xs ml-1">(Current)</span>}
+                                      {!participant.isAvailable && <span className="text-gray-400 text-xs ml-1">(Assigned to another group)</span>}
                                     </span>
                                   </label>
                                 );
@@ -984,15 +1193,37 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
           {activeTab === 'matches' && (
             <div className="space-y-6">
               <div className="flex justify-between items-center">
-                <h3 className="text-lg font-semibold text-gray-900">Championship Matches</h3>
+                <div className="flex items-center space-x-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Championship Matches</h3>
+                  {matches.length > 0 && (
+                    <label className="flex items-center space-x-2 text-sm text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={selectedMatches.length === matches.length && matches.length > 0}
+                        onChange={handleSelectAllMatches}
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      />
+                      <span>Select All ({matches.length})</span>
+                    </label>
+                  )}
+                </div>
                 <div className="flex space-x-2">
                   <button
-                    onClick={handleGenerateMatches}
-                    className="flex items-center px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                    onClick={() => setShowCreateMatch(true)}
+                    className="flex items-center px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
                   >
-                    <Play className="w-4 h-4 mr-2" />
-                    Generate All Matches
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create Match
                   </button>
+                  {selectedMatches.length > 0 && (
+                    <button
+                      onClick={handleBulkDelete}
+                      className="flex items-center px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Selected ({selectedMatches.length})
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1004,7 +1235,10 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                     <div className="flex justify-between items-center mb-4">
                       <h4 className="text-lg font-semibold text-gray-900">{group.group_name}</h4>
                       <button
-                        onClick={() => handleCreateMatch(group.id)}
+                        onClick={() => {
+                          setNewMatchGroupId(group.id);
+                          setShowCreateMatch(true);
+                        }}
                         className="flex items-center px-3 py-1 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600"
                       >
                         <Plus className="w-4 h-4 mr-1" />
@@ -1017,6 +1251,12 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                         {groupMatches.map(match => (
                           <div key={match.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                             <div className="flex items-center space-x-4">
+                              <input
+                                type="checkbox"
+                                checked={selectedMatches.includes(match.id)}
+                                onChange={() => handleSelectMatch(match.id)}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                              />
                               <span className="text-sm font-medium text-gray-600">Match {match.match_number}</span>
                               <span className="text-sm">
                                 {match.player1_name} vs {match.player2_name}
@@ -1033,12 +1273,14 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                               <button
                                 onClick={() => handleEditMatch(match)}
                                 className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                                title="Edit Match"
                               >
                                 <Edit className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => handleDeleteMatch(match.id)}
                                 className="p-1 text-red-600 hover:bg-red-50 rounded"
+                                title="Delete Match"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -1105,6 +1347,47 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                                   )}
                                 </span>
                               )}
+                              {/* Scorecard Photos */}
+                              {(() => {
+                                console.log('Match scorecard photos:', {
+                                  matchId: match.id,
+                                  player1Photo: match.player1_scorecard_photo_url,
+                                  player2Photo: match.player2_scorecard_photo_url,
+                                  hasPhotos: !!(match.player1_scorecard_photo_url || match.player2_scorecard_photo_url)
+                                });
+                                return null;
+                              })()}
+                              {(match.player1_scorecard_photo_url || match.player2_scorecard_photo_url) && (
+                                <div className="flex items-center space-x-2 mt-2">
+                                  <span className="text-xs text-gray-500">Scorecard Photos:</span>
+                                  {match.player1_scorecard_photo_url && (
+                                    <button
+                                      onClick={() => handleOpenScorecard(match.player1_scorecard_photo_url!, match.player1_name!)}
+                                      className="flex items-center space-x-1 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200 transition-colors"
+                                      title={`${match.player1_name}'s scorecard`}
+                                    >
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                                      </svg>
+                                      <span>{match.player1_name}</span>
+                                    </button>
+                                  )}
+                                  {match.player2_scorecard_photo_url && (
+                                    <button
+                                      onClick={() => handleOpenScorecard(match.player2_scorecard_photo_url!, match.player2_name!)}
+                                      className="flex items-center space-x-1 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200 transition-colors"
+                                      title={`${match.player2_name}'s scorecard`}
+                                    >
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                                      </svg>
+                                      <span>{match.player2_name}</span>
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                             </div>
                             <div className="flex space-x-2">
                               <button
@@ -1112,12 +1395,6 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                                 className="px-3 py-1 bg-green-500 text-white text-sm rounded-lg hover:bg-green-600"
                               >
                                 {match.match_status === 'completed' ? 'Edit Match Play' : 'Enter Match Play'}
-                              </button>
-                              <button
-                                onClick={() => handleOpenScoring(match)}
-                                className="px-3 py-1 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600"
-                              >
-                                {match.match_status === 'completed' ? 'Edit Stroke Play' : 'Enter Stroke Play'}
                               </button>
                             </div>
                           </div>
@@ -1319,11 +1596,16 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Course</label>
                   <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-800 font-medium">
-                    {tournamentCourse || 'No course selected'}
+                    {currentMatchCourse?.courseName || tournamentCourse || 'No course selected'}
                   </div>
                   <div className="text-xs text-green-600 mt-1 font-medium">
-                    ✅ Tournament course automatically loaded
+                    ✅ {currentMatchCourse ? `Assigned course (${currentMatchCourse.platform.toUpperCase()})` : 'Tournament course automatically loaded'}
                   </div>
+                  {currentMatchCourse && (
+                    <div className="text-xs text-blue-600 mt-1">
+                      {currentMatchCourse.reason}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Teebox</label>
@@ -1478,6 +1760,214 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                   Submit Match Play Score
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Match Modal */}
+      {showCreateMatch && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h4 className="text-lg font-semibold mb-4">Create New Match</h4>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Group</label>
+                <select
+                  value={newMatchGroupId || ''}
+                  onChange={(e) => setNewMatchGroupId(parseInt(e.target.value) || null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">Select a group</option>
+                  {clubGroups.map(group => (
+                    <option key={group.id} value={group.id}>{group.group_name}</option>
+                  ))}
+                </select>
+              </div>
+              
+              {newMatchGroupId && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Player 1</label>
+                    <select
+                      value={newMatchPlayer1Id || ''}
+                      onChange={(e) => setNewMatchPlayer1Id(parseInt(e.target.value) || null)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select Player 1</option>
+                      {(() => {
+                        const group = clubGroups.find(g => g.id === newMatchGroupId);
+                        return group?.user_ids?.map(userId => {
+                          const participant = tournamentParticipants.find(p => p.user_member_id === userId);
+                          return participant ? (
+                            <option key={userId} value={userId}>
+                              {participant.first_name} {participant.last_name}
+                            </option>
+                          ) : null;
+                        }).filter(Boolean);
+                      })()}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Player 2</label>
+                    <select
+                      value={newMatchPlayer2Id || ''}
+                      onChange={(e) => setNewMatchPlayer2Id(parseInt(e.target.value) || null)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select Player 2</option>
+                      {(() => {
+                        const group = clubGroups.find(g => g.id === newMatchGroupId);
+                        return group?.user_ids?.map(userId => {
+                          const participant = tournamentParticipants.find(p => p.user_member_id === userId);
+                          return participant ? (
+                            <option key={userId} value={userId}>
+                              {participant.first_name} {participant.last_name}
+                            </option>
+                          ) : null;
+                        }).filter(Boolean);
+                      })()}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => {
+                    setShowCreateMatch(false);
+                    setNewMatchGroupId(null);
+                    setNewMatchPlayer1Id(null);
+                    setNewMatchPlayer2Id(null);
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateNewMatch}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                >
+                  Create Match
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Match Modal */}
+      {showEditMatchModal && editingMatch && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h4 className="text-lg font-semibold mb-4">Edit Match</h4>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Player 1</label>
+                <select
+                  value={newMatchPlayer1Id || ''}
+                  onChange={(e) => setNewMatchPlayer1Id(parseInt(e.target.value) || null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">Select Player 1</option>
+                  {(() => {
+                    const group = clubGroups.find(g => g.group_name === editingMatch.club_group);
+                    return group?.user_ids?.map(userId => {
+                      const participant = tournamentParticipants.find(p => p.user_member_id === userId);
+                      return participant ? (
+                        <option key={userId} value={userId}>
+                          {participant.first_name} {participant.last_name}
+                        </option>
+                      ) : null;
+                    }).filter(Boolean);
+                  })()}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Player 2</label>
+                <select
+                  value={newMatchPlayer2Id || ''}
+                  onChange={(e) => setNewMatchPlayer2Id(parseInt(e.target.value) || null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">Select Player 2</option>
+                  {(() => {
+                    const group = clubGroups.find(g => g.group_name === editingMatch.club_group);
+                    return group?.user_ids?.map(userId => {
+                      const participant = tournamentParticipants.find(p => p.user_member_id === userId);
+                      return participant ? (
+                        <option key={userId} value={userId}>
+                          {participant.first_name} {participant.last_name}
+                        </option>
+                      ) : null;
+                    }).filter(Boolean);
+                  })()}
+                </select>
+              </div>
+
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => {
+                    setShowEditMatchModal(false);
+                    setEditingMatch(null);
+                    setNewMatchPlayer1Id(null);
+                    setNewMatchPlayer2Id(null);
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateMatch}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                >
+                  Update Match
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scorecard Photo Modal */}
+      {showScorecardModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-4xl max-h-[90vh] w-full overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold">
+                {selectedScorecardPlayer}'s Scorecard
+              </h3>
+              <button
+                onClick={handleCloseScorecard}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[80vh]">
+              <img 
+                src={selectedScorecardUrl} 
+                alt={`${selectedScorecardPlayer}'s scorecard`}
+                className="w-full h-auto rounded-lg border border-gray-200"
+              />
+            </div>
+            <div className="flex justify-end p-4 border-t bg-gray-50">
+              <button
+                onClick={() => window.open(selectedScorecardUrl, '_blank')}
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                Open in New Tab
+              </button>
+              <button
+                onClick={handleCloseScorecard}
+                className="ml-2 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

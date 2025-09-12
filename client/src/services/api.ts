@@ -734,6 +734,11 @@ export const updateCourseTeeboxData = (courseId: number, teebox: string, courseR
 export const getCourseTeeboxData = (courseId: number) => 
   api.get(`/simulator-courses/${courseId}/teebox-data`);
 
+// Get user's appropriate course for a tournament based on their club
+export const getUserCourse = (tournamentId: number, userId: number) => {
+  return api.get(`/tournaments/${tournamentId}/user-course/${userId}`);
+};
+
 // Admin user tracking interfaces
 export interface UserTrackingStats {
   userStats: {

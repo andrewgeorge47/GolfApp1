@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Users, Save, Plus, X, Clock, Trophy, Target, Award, Camera, Check } from 'lucide-react';
 import { getTournamentParticipants, getSimulatorCourse, uploadScorecardPhoto, submitTournamentStrokeplayScore, getTournamentStrokeplayScores } from '../services/api';
+import { useUserCourse } from '../hooks/useUserCourse';
 import { toast } from 'react-toastify';
 
 interface StrokeplayScoringProps {
@@ -9,6 +10,7 @@ interface StrokeplayScoringProps {
   tournamentSettings: any;
   onScoreSubmitted: () => void;
   courseId?: number;
+  tournament?: any; // Add tournament object for course assignment
 }
 
 interface Participant {
@@ -34,7 +36,8 @@ const StrokeplayScoring: React.FC<StrokeplayScoringProps> = ({
   tournamentFormat,
   tournamentSettings,
   onScoreSubmitted,
-  courseId
+  courseId,
+  tournament
 }) => {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [submittedScores, setSubmittedScores] = useState<any[]>([]);
@@ -50,6 +53,9 @@ const StrokeplayScoring: React.FC<StrokeplayScoringProps> = ({
     holes: [],
     notes: ''
   });
+
+  // Get user's appropriate course based on their club
+  const { courseData: userCourseData, loading: userCourseLoading, courseId: userCourseId } = useUserCourse(tournamentId, tournament);
 
   // Scorecard photo upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -74,19 +80,21 @@ const StrokeplayScoring: React.FC<StrokeplayScoringProps> = ({
 
   const { holeCount, startHole } = getHoleConfiguration();
 
-  // Fetch course data if courseId is provided
+  // Fetch course data - use user's course ID if available, otherwise fall back to tournament course ID
   useEffect(() => {
     const fetchCourseData = async () => {
-      if (!courseId) {
-        console.log('No courseId provided, skipping course data fetch');
+      const effectiveCourseId = userCourseId || courseId;
+      
+      if (!effectiveCourseId) {
+        console.log('No courseId available, skipping course data fetch');
         return;
       }
       
-      console.log('Fetching course data for courseId:', courseId);
+      console.log('Fetching course data for courseId:', effectiveCourseId, 'userCourseId:', userCourseId, 'tournamentCourseId:', courseId);
       
       try {
         setCourseLoading(true);
-        const response = await getSimulatorCourse(courseId);
+        const response = await getSimulatorCourse(effectiveCourseId);
         console.log('Course data response:', response.data);
         
         if (response.data) {
@@ -94,7 +102,7 @@ const StrokeplayScoring: React.FC<StrokeplayScoringProps> = ({
           console.log('Course data set successfully:', response.data);
           console.log('Par values:', response.data.par_values);
         } else {
-          console.log('No course data found for courseId:', courseId);
+          console.log('No course data found for courseId:', effectiveCourseId);
         }
       } catch (error) {
         console.error('Error fetching course data:', error);
@@ -103,8 +111,11 @@ const StrokeplayScoring: React.FC<StrokeplayScoringProps> = ({
       }
     };
 
-    fetchCourseData();
-  }, [courseId]);
+    // Only fetch if we have a course ID and user course loading is complete
+    if (!userCourseLoading) {
+      fetchCourseData();
+    }
+  }, [userCourseId, courseId, userCourseLoading]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -311,6 +322,28 @@ const StrokeplayScoring: React.FC<StrokeplayScoringProps> = ({
               <div className="font-medium">{courseData.name}</div>
               {courseData.location && <div className="text-neutral-600">{courseData.location}</div>}
               {courseData.designer && <div className="text-neutral-600">by {courseData.designer}</div>}
+            </div>
+          </div>
+        )}
+        
+        {/* User Course Assignment Info */}
+        {userCourseData && (
+          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="text-sm text-blue-800">
+              <div className="font-medium">Your Course Assignment</div>
+              <div className="flex items-center space-x-2 mt-1">
+                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                  userCourseData.platform === 'gspro' ? 'bg-blue-100 text-blue-800' : 
+                  userCourseData.platform === 'trackman' ? 'bg-purple-100 text-purple-800' : 
+                  'bg-gray-100 text-gray-800'
+                }`}>
+                  {userCourseData.platform === 'gspro' ? '🎯' : userCourseData.platform === 'trackman' ? '📊' : '🏌️'} {userCourseData.platform.toUpperCase()}
+                </span>
+                <span>{userCourseData.course}</span>
+              </div>
+              <div className="text-xs text-blue-600 mt-1">
+                {userCourseData.user_club === 'No. 8' ? 'Club No. 8 uses Trackman' : 'All other clubs use GSPro'}
+              </div>
             </div>
           </div>
         )}

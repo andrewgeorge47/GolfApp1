@@ -1197,6 +1197,10 @@ app.post('/api/tournaments', async (req, res) => {
     location,
     course,
     course_id,
+    gspro_course,
+    gspro_course_id,
+    trackman_course,
+    trackman_course_id,
     rules,
     notes, 
     type,
@@ -1232,17 +1236,19 @@ app.post('/api/tournaments', async (req, res) => {
       `INSERT INTO tournaments (
         name, description, start_date, end_date, registration_deadline,
         max_participants, min_participants, tournament_format, status,
-        registration_open, entry_fee, location, course, course_id, rules, notes, type, 
+        registration_open, entry_fee, location, course, course_id, gspro_course, gspro_course_id, 
+        trackman_course, trackman_course_id, rules, notes, type, 
         club_restriction, team_size, hole_configuration, tee, pins, putting_gimme, elevation,
         stimp, mulligan, game_play, firmness, wind, handicap_enabled, has_registration_form,
         registration_form_template, registration_form_data, payment_organizer, payment_organizer_name,
         payment_venmo_url, created_by, week_start_date
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38) RETURNING *`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42) RETURNING *`,
       [
         name, description, start_date, end_date, registration_deadline,
         max_participants, min_participants || 2, tournament_format || 'match_play', 
         status || 'draft', registration_open !== false, entry_fee || 0,
-        location, course, course_id, rules, notes, type || 'tournament', 
+        location, course, course_id, gspro_course, gspro_course_id, trackman_course, trackman_course_id,
+        rules, notes, type || 'tournament', 
         club_restriction || 'open', team_size, hole_configuration || '18', tee || 'Red',
         pins || 'Friday', putting_gimme || '8', elevation || 'Course', stimp || '11',
         mulligan || 'No', game_play || 'Force Realistic', firmness || 'Normal',
@@ -1280,6 +1286,10 @@ app.put('/api/tournaments/:id', async (req, res) => {
     location,
     course,
     course_id,
+    gspro_course,
+    gspro_course_id,
+    trackman_course,
+    trackman_course_id,
     rules,
     notes, 
     type,
@@ -1314,19 +1324,21 @@ app.put('/api/tournaments/:id', async (req, res) => {
         name = $1, description = $2, start_date = $3, end_date = $4, 
         registration_deadline = $5, max_participants = $6, min_participants = $7,
         tournament_format = $8, status = $9, registration_open = $10,
-        entry_fee = $11, location = $12, course = $13, course_id = $14, rules = $15,
-        notes = $16, type = $17, club_restriction = $18, team_size = $19, hole_configuration = $20,
-        tee = $21, pins = $22, putting_gimme = $23, elevation = $24, stimp = $25,
-        mulligan = $26, game_play = $27, firmness = $28, wind = $29, handicap_enabled = $30,
-        has_registration_form = $31, registration_form_template = $32, registration_form_data = $33,
-        payment_organizer = $34, payment_organizer_name = $35, payment_venmo_url = $36,
-        created_by = $37, week_start_date = $38, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $39 RETURNING *`,
+        entry_fee = $11, location = $12, course = $13, course_id = $14, 
+        gspro_course = $15, gspro_course_id = $16, trackman_course = $17, trackman_course_id = $18,
+        rules = $19, notes = $20, type = $21, club_restriction = $22, team_size = $23, hole_configuration = $24,
+        tee = $25, pins = $26, putting_gimme = $27, elevation = $28, stimp = $29,
+        mulligan = $30, game_play = $31, firmness = $32, wind = $33, handicap_enabled = $34,
+        has_registration_form = $35, registration_form_template = $36, registration_form_data = $37,
+        payment_organizer = $38, payment_organizer_name = $39, payment_venmo_url = $40,
+        created_by = $41, week_start_date = $42, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $43 RETURNING *`,
       [
         name, description, start_date, end_date, registration_deadline,
         max_participants, min_participants, tournament_format, status,
-        registration_open, entry_fee, location, course, course_id, rules, notes, type,
-        club_restriction, team_size, hole_configuration, tee, pins, putting_gimme, elevation,
+        registration_open, entry_fee, location, course, course_id, 
+        gspro_course, gspro_course_id, trackman_course, trackman_course_id,
+        rules, notes, type, club_restriction, team_size, hole_configuration, tee, pins, putting_gimme, elevation,
         stimp, mulligan, game_play, firmness, wind, handicap_enabled, has_registration_form,
         registration_form_template, registration_form_data, payment_organizer, payment_organizer_name,
         payment_venmo_url, created_by, weekStartDate, id
@@ -4508,10 +4520,80 @@ app.get('/api/tournaments/:id/championship-matches', async (req, res) => {
       ORDER BY ccm.club_group, ccm.match_number, ccm.id
     `, [id]);
     
+    console.log('Championship matches query result:', rows.length, 'matches');
+    if (rows.length > 0) {
+      console.log('Sample match data:', {
+        id: rows[0].id,
+        player1_scorecard_photo_url: rows[0].player1_scorecard_photo_url,
+        player2_scorecard_photo_url: rows[0].player2_scorecard_photo_url,
+        allColumns: Object.keys(rows[0])
+      });
+    }
+    
     res.json(rows);
   } catch (err) {
     console.error('Error fetching championship matches:', err);
     res.status(500).json({ error: 'Failed to fetch championship matches' });
+  }
+});
+
+// Update championship match players
+app.put('/api/tournaments/:id/championship-matches/:matchId', async (req, res) => {
+  const { id, matchId } = req.params;
+  const { player1Id, player2Id } = req.body;
+  
+  try {
+    // Validate that both players are provided
+    if (!player1Id || !player2Id) {
+      return res.status(400).json({ error: 'Both player1Id and player2Id are required' });
+    }
+
+    if (player1Id === player2Id) {
+      return res.status(400).json({ error: 'Players must be different' });
+    }
+
+    // Validate that the match exists and belongs to the tournament
+    const matchResult = await pool.query(
+      'SELECT * FROM club_championship_matches WHERE id = $1 AND tournament_id = $2',
+      [matchId, id]
+    );
+    
+    if (matchResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    // Validate that both players exist
+    const playersResult = await pool.query(
+      'SELECT member_id FROM users WHERE member_id IN ($1, $2)',
+      [player1Id, player2Id]
+    );
+    
+    if (playersResult.rows.length !== 2) {
+      return res.status(400).json({ error: 'One or both players not found' });
+    }
+
+    // Update the match
+    const updateResult = await pool.query(
+      `UPDATE club_championship_matches 
+       SET player1_id = $1, player2_id = $2, updated_at = NOW()
+       WHERE id = $3 AND tournament_id = $4
+       RETURNING *`,
+      [player1Id, player2Id, matchId, id]
+    );
+    
+    if (updateResult.rows.length === 0) {
+      return res.status(500).json({ error: 'Failed to update match' });
+    }
+    
+    res.json({
+      success: true,
+      match: updateResult.rows[0],
+      message: 'Match updated successfully'
+    });
+    
+  } catch (err) {
+    console.error('Error updating championship match:', err);
+    res.status(500).json({ error: 'Failed to update match' });
   }
 });
 
@@ -4532,10 +4614,21 @@ app.put('/api/tournaments/:id/championship-matches/:matchId/result', async (req,
     player2_holes_lost,
     player1_net_holes,
     player2_net_holes,
+    player1_scorecard_photo_url,
+    player2_scorecard_photo_url,
     course_id,
     teebox,
     match_status
   } = req.body;
+  
+  console.log('Championship match result update request:', {
+    matchId,
+    tournamentId: id,
+    player1_scorecard_photo_url,
+    player2_scorecard_photo_url,
+    match_status,
+    allBodyKeys: Object.keys(req.body)
+  });
   
   try {
     // Build dynamic query based on provided fields
@@ -4607,7 +4700,15 @@ app.put('/api/tournaments/:id/championship-matches/:matchId/result', async (req,
       updateFields.push(`match_status = $${paramCount++}`);
       values.push(match_status);
     }
-
+    if (player1_scorecard_photo_url !== undefined) {
+      updateFields.push(`player1_scorecard_photo_url = $${paramCount++}`);
+      values.push(player1_scorecard_photo_url);
+    }
+    if (player2_scorecard_photo_url !== undefined) {
+      updateFields.push(`player2_scorecard_photo_url = $${paramCount++}`);
+      values.push(player2_scorecard_photo_url);
+    }
+    
     if (updateFields.length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
     }
@@ -7778,6 +7879,38 @@ function getWeekStartFromDate(dateString) {
   return result;
 }
 
+// Helper function to determine which course a user should use based on their club
+function getUserCoursePreference(userClub) {
+  // Club No. 8 uses Trackman, all other clubs use GSPro
+  return userClub === 'No. 8' ? 'trackman' : 'gspro';
+}
+
+// Helper function to get the appropriate course for a user
+function getUserCourse(tournament, userClub) {
+  const preference = getUserCoursePreference(userClub);
+  
+  if (preference === 'trackman' && tournament.trackman_course_id) {
+    return {
+      course: tournament.trackman_course,
+      course_id: tournament.trackman_course_id,
+      platform: 'trackman'
+    };
+  } else if (preference === 'gspro' && tournament.gspro_course_id) {
+    return {
+      course: tournament.gspro_course,
+      course_id: tournament.gspro_course_id,
+      platform: 'gspro'
+    };
+  }
+  
+  // Fallback to legacy course if platform-specific course not available
+  return {
+    course: tournament.course,
+    course_id: tournament.course_id,
+    platform: 'legacy'
+  };
+}
+
 // Helper function to get week start date (Monday) for current date
 function getWeekStartDate(date = new Date()) {
   const d = new Date(date);
@@ -10055,6 +10188,58 @@ app.get('/api/tournaments/:id/available-weeks', async (req, res) => {
   }
 });
 
+// Get user's appropriate course for a tournament based on their club
+app.get('/api/tournaments/:id/user-course/:userId', async (req, res) => {
+  try {
+    const { id, userId } = req.params;
+    
+    // Validate that id is a number
+    if (isNaN(Number(id)) || isNaN(Number(userId))) {
+      return res.status(400).json({ error: 'Tournament ID and User ID must be numbers' });
+    }
+    
+    // Get tournament details
+    const tournamentResult = await pool.query(
+      `SELECT id, name, course, course_id, gspro_course, gspro_course_id, trackman_course, trackman_course_id
+       FROM tournaments WHERE id = $1`,
+      [Number(id)]
+    );
+    
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    // Get user's club
+    const userResult = await pool.query(
+      'SELECT member_id, first_name, last_name, club FROM users WHERE member_id = $1',
+      [Number(userId)]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const tournament = tournamentResult.rows[0];
+    const user = userResult.rows[0];
+    
+    // Get the appropriate course for this user
+    const userCourse = getUserCourse(tournament, user.club);
+    
+    res.json({
+      tournament_id: tournament.id,
+      tournament_name: tournament.name,
+      user_id: user.member_id,
+      user_name: `${user.first_name} ${user.last_name}`,
+      user_club: user.club,
+      course_preference: getUserCoursePreference(user.club),
+      ...userCourse
+    });
+  } catch (err) {
+    console.error('Error fetching user course:', err);
+    res.status(500).json({ error: 'Failed to fetch user course' });
+  }
+});
+
 // General tournament route - must be placed AFTER all specific routes to avoid conflicts
 app.get('/api/tournaments/:id', async (req, res) => {
   try {
@@ -10067,7 +10252,12 @@ app.get('/api/tournaments/:id', async (req, res) => {
     
     const { rows } = await pool.query(
       `SELECT id, name, description, start_date, end_date, week_start_date, status, type, club_restriction,
-              team_size, hole_configuration, handicap_enabled, created_by, created_at, updated_at
+              team_size, hole_configuration, handicap_enabled, created_by, created_at, updated_at,
+              course, course_id, gspro_course, gspro_course_id, trackman_course, trackman_course_id,
+              location, rules, notes, tournament_format, registration_deadline, max_participants, 
+              min_participants, registration_open, entry_fee, tee, pins, putting_gimme, elevation,
+              stimp, mulligan, game_play, firmness, wind, has_registration_form, registration_form_template,
+              registration_form_data, payment_organizer, payment_organizer_name, payment_venmo_url
        FROM tournaments WHERE id = $1`,
       [Number(id)]
     );

@@ -476,7 +476,7 @@ const ProfileTournaments: React.FC = () => {
                       onClick={() => handleSubmitScore(tournament)} 
                       className="px-3 py-1 bg-brand-neon-green text-brand-black rounded text-xs hover:bg-green-400 transition-colors flex items-center"
                     >
-                      <Trophy className="w-4 h-4 mr-1" /> Submit Score
+                      <Trophy className="w-4 h-4 mr-1" /> {tournament.type === 'club_championship' ? 'My Matches' : 'Submit Score'}
                     </button>
                     <button 
                       onClick={() => handleViewLeaderboard(tournament)} 

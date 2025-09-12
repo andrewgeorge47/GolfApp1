@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Medal, Users, Target, Award, ChevronRight, RefreshCw } from 'lucide-react';
+import { Trophy, Medal, Users, Target, Award, ChevronRight, RefreshCw, Zap } from 'lucide-react';
 import api from '../services/api';
+import NationalChampionshipBracket from './NationalChampionshipBracket';
 
 interface ChampionshipStandingsProps {
   tournamentId: number;
@@ -24,6 +25,8 @@ interface GroupStanding {
     total_holes_won: number;
     total_holes_lost: number;
     net_holes: number;
+    group_name?: string;
+    position?: number;
   }>;
 }
 
@@ -35,6 +38,7 @@ const ChampionshipStandings: React.FC<ChampionshipStandingsProps> = ({
   const [standings, setStandings] = useState<GroupStanding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'standings' | 'bracket'>('standings');
 
   const fetchStandings = async () => {
     try {
@@ -131,8 +135,45 @@ const ChampionshipStandings: React.FC<ChampionshipStandingsProps> = ({
         </div>
       </div>
 
-      {/* Group Standings */}
-      {standings.length === 0 ? (
+      {/* Tab Navigation */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div className="border-b border-gray-200">
+          <nav className="flex space-x-8 px-6" aria-label="Tabs">
+            <button
+              onClick={() => setActiveTab('standings')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'standings'
+                  ? 'border-brand-neon-green text-brand-neon-green'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center space-x-2">
+                <Trophy className="w-4 h-4" />
+                <span>Club Standings</span>
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('bracket')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'bracket'
+                  ? 'border-brand-neon-green text-brand-neon-green'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center space-x-2">
+                <Zap className="w-4 h-4" />
+                <span>National Championship Bracket</span>
+              </div>
+            </button>
+          </nav>
+        </div>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'standings' ? (
+        <>
+          {/* Group Standings */}
+          {standings.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="text-center py-8">
             <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
@@ -157,8 +198,8 @@ const ChampionshipStandings: React.FC<ChampionshipStandingsProps> = ({
                 </div>
               </div>
 
-              {/* Standings Table */}
-              <div className="overflow-x-auto">
+              {/* Desktop Table */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50">
                     <tr>
@@ -243,9 +284,56 @@ const ChampionshipStandings: React.FC<ChampionshipStandingsProps> = ({
                   </tbody>
                 </table>
               </div>
+
+              {/* Mobile Cards */}
+              <div className="md:hidden space-y-3">
+                {group.participants.map((participant, index) => (
+                  <div key={participant.user_id} className="bg-white border border-gray-200 rounded-lg p-4 hover:bg-gray-50">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center space-x-3">
+                        {getPositionIcon(index + 1)}
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <span className="font-semibold text-gray-900">
+                              {participant.first_name} {participant.last_name}
+                            </span>
+                            {index === 0 && <Trophy className="w-4 h-4 text-yellow-500" />}
+                          </div>
+                          <div className="text-sm text-gray-600 mt-1">
+                            {participant.club}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-medium text-gray-900">
+                          {participant.match_wins}-{participant.match_losses}-{participant.match_ties}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {getWinRate(participant.match_wins, participant.total_matches)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                      <div className="text-sm text-gray-600">
+                        Tiebreaker Points
+                      </div>
+                      <div className="text-sm font-medium text-gray-900">
+                        {participant.tiebreaker_points}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>
+      )}
+        </>
+      ) : (
+        <NationalChampionshipBracket 
+          tournamentId={tournamentId}
+          standings={standings}
+        />
       )}
     </div>
   );
