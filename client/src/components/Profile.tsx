@@ -19,6 +19,7 @@ const Profile: React.FC = () => {
   const [combinedStats, setCombinedStats] = useState<SimStats | null>(null);
   const [courseRecords, setCourseRecords] = useState<UserCourseRecord[]>([]);
   const [userTournaments, setUserTournaments] = useState<any[]>([]);
+  const [showAllTournaments, setShowAllTournaments] = useState(false);
   const [statsTab, setStatsTab] = useState<'overview' | 'sim' | 'records'>('overview');
   const [formData, setFormData] = useState({
     first_name: user?.first_name || '',
@@ -316,6 +317,32 @@ const Profile: React.FC = () => {
   // Helper function to determine if a tournament is eligible for score submission
   const isTournamentEligibleForScore = (tournament: any) => {
     return (tournament.status === 'open' || tournament.status === 'active') && !tournament.has_submitted_score;
+  };
+
+  // Helper function to sort tournaments with those needing scores first
+  const getSortedTournaments = (tournaments: any[]) => {
+    return [...tournaments].sort((a, b) => {
+      const aNeedsScore = isTournamentEligibleForScore(a);
+      const bNeedsScore = isTournamentEligibleForScore(b);
+      
+      // If one needs score and the other doesn't, prioritize the one that needs score
+      if (aNeedsScore && !bNeedsScore) return -1;
+      if (!aNeedsScore && bNeedsScore) return 1;
+      
+      // If both need scores or both don't need scores, sort by start date (newest first)
+      if (a.start_date && b.start_date) {
+        return new Date(b.start_date).getTime() - new Date(a.start_date).getTime();
+      }
+      
+      // If no start dates, maintain original order
+      return 0;
+    });
+  };
+
+  // Get tournaments to display (limited to 3 initially, or all if showAllTournaments is true)
+  const getDisplayedTournaments = () => {
+    const sortedTournaments = getSortedTournaments(userTournaments);
+    return showAllTournaments ? sortedTournaments : sortedTournaments.slice(0, 3);
   };
 
   // Function to determine which rounds are used for handicap calculation
@@ -1267,14 +1294,14 @@ const Profile: React.FC = () => {
       {/* My Tournaments */}
       {user && (
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
             <h2 className="text-2xl font-bold text-brand-black flex items-center">
               <Trophy className="w-6 h-6 mr-3" />
               My Tournaments
             </h2>
             <Link
               to="/tournaments"
-              className="flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors"
+              className="flex items-center justify-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors w-full sm:w-auto"
             >
               <Award className="w-4 h-4 mr-2" />
               Browse All Tournaments
@@ -1294,13 +1321,14 @@ const Profile: React.FC = () => {
           )}
           
           {userTournaments.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {userTournaments.map((tournament) => (
-              <div key={tournament.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-brand-neon-green transition-all group">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold text-brand-black group-hover:text-brand-neon-green transition-colors">
-                    {tournament.name}
-                  </h3>
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {getDisplayedTournaments().map((tournament) => (
+                <div key={tournament.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-brand-neon-green transition-all group">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold text-brand-black group-hover:text-brand-neon-green transition-colors">
+                      {tournament.name}
+                    </h3>
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                     tournament.status === 'active' ? 'bg-green-100 text-green-800' :
                     tournament.status === 'open' ? 'bg-blue-100 text-blue-800' :
@@ -1314,67 +1342,93 @@ const Profile: React.FC = () => {
                      tournament.status === 'cancelled' ? 'Cancelled' :
                      tournament.status || 'Draft'}
                   </span>
-                </div>
-                <div className="text-sm text-neutral-600 mb-2">
-                  {tournament.tournament_format || 'match_play'} • {tournament.type || 'tournament'}
-                </div>
-                {tournament.start_date && (
-                  <div className="text-xs text-neutral-500 mb-2">
-                    <Calendar className="inline w-4 h-4 mr-1" />
-                    {new Date(tournament.start_date).toLocaleDateString()}
                   </div>
-                )}
-                {tournament.location && (
-                  <div className="text-xs text-neutral-500 mb-2">
-                    <MapPin className="inline w-4 h-4 mr-1" />
-                    {tournament.location}
+                  <div className="text-sm text-neutral-600 mb-2">
+                    {tournament.tournament_format || 'match_play'} • {tournament.type || 'tournament'}
                   </div>
-                )}
-                {tournament.entry_fee && tournament.entry_fee > 0 && (
-                  <div className="text-xs text-neutral-500 mb-2">
-                    <DollarSign className="inline w-4 h-4 mr-1" />
-                    ${tournament.entry_fee} entry fee
-                  </div>
-                )}
-                <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
-                  {/* Only show Submit Score button if tournament is open/active and user hasn't submitted */}
-                  {isTournamentEligibleForScore(tournament) ? (
-                    <button
-                      onClick={() => handleSubmitScore(tournament.id)}
-                      className="flex items-center justify-center w-full px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors text-sm"
-                    >
-                      <Trophy className="w-4 h-4 mr-2" />
-                      Submit Score
-                    </button>
-                  ) : tournament.has_submitted_score ? (
-                    <div className="flex flex-col items-center justify-center w-full px-3 py-2 bg-green-50 text-green-700 rounded-lg text-sm border border-green-200">
-                      <div className="flex items-center font-medium">
-                        <Circle className="w-4 h-4 mr-2" />
-                        Score Submitted
-                      </div>
-                      {tournament.last_score_date && (
-                        <div className="text-xs text-green-600 mt-1">
-                          {new Date(tournament.last_score_date).toLocaleDateString()}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center w-full px-3 py-2 bg-gray-100 text-gray-600 rounded-lg font-medium text-sm">
-                      <Clock className="w-4 h-4 mr-2" />
-                      Tournament Closed
+                  {tournament.start_date && (
+                    <div className="text-xs text-neutral-500 mb-2">
+                      <Calendar className="inline w-4 h-4 mr-1" />
+                      {new Date(tournament.start_date).toLocaleDateString()}
                     </div>
                   )}
+                  {tournament.location && (
+                    <div className="text-xs text-neutral-500 mb-2">
+                      <MapPin className="inline w-4 h-4 mr-1" />
+                      {tournament.location}
+                    </div>
+                  )}
+                  {tournament.entry_fee && tournament.entry_fee > 0 && (
+                    <div className="text-xs text-neutral-500 mb-2">
+                      <DollarSign className="inline w-4 h-4 mr-1" />
+                      ${tournament.entry_fee} entry fee
+                    </div>
+                  )}
+                  <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
+                    {/* Only show Submit Score button if tournament is open/active and user hasn't submitted */}
+                    {isTournamentEligibleForScore(tournament) ? (
+                      <button
+                        onClick={() => handleSubmitScore(tournament.id)}
+                        className="flex items-center justify-center w-full px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors text-sm"
+                      >
+                        <Trophy className="w-4 h-4 mr-2" />
+                        Submit Score
+                      </button>
+                    ) : tournament.has_submitted_score ? (
+                      <div className="flex flex-col items-center justify-center w-full px-3 py-2 bg-green-50 text-green-700 rounded-lg text-sm border border-green-200">
+                        <div className="flex items-center font-medium">
+                          <Circle className="w-4 h-4 mr-2" />
+                          Score Submitted
+                        </div>
+                        {tournament.last_score_date && (
+                          <div className="text-xs text-green-600 mt-1">
+                            {new Date(tournament.last_score_date).toLocaleDateString()}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center w-full px-3 py-2 bg-gray-100 text-gray-600 rounded-lg font-medium text-sm">
+                        <Clock className="w-4 h-4 mr-2" />
+                        Tournament Closed
+                      </div>
+                    )}
+                    <button
+                      onClick={() => handleViewLeaderboard(tournament.id)}
+                      className="flex items-center justify-center w-full px-3 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors text-sm"
+                    >
+                      <Eye className="w-4 h-4 mr-2" />
+                      View Leaderboard
+                    </button>
+                  </div>
+                </div>
+              ))}
+              </div>
+              
+              {/* Load More Button */}
+              {userTournaments.length > 3 && !showAllTournaments && (
+                <div className="mt-6 text-center">
                   <button
-                    onClick={() => handleViewLeaderboard(tournament.id)}
-                    className="flex items-center justify-center w-full px-3 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors text-sm"
+                    onClick={() => setShowAllTournaments(true)}
+                    className="inline-flex items-center px-6 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
                   >
-                    <Eye className="w-4 h-4 mr-2" />
-                    View Leaderboard
+                    <Trophy className="w-4 h-4 mr-2" />
+                    Load More Tournaments ({userTournaments.length - 3} more)
                   </button>
                 </div>
-              </div>
-            ))}
-          </div>
+              )}
+              
+              {/* Show Less Button */}
+              {showAllTournaments && userTournaments.length > 3 && (
+                <div className="mt-6 text-center">
+                  <button
+                    onClick={() => setShowAllTournaments(false)}
+                    className="inline-flex items-center px-6 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+                  >
+                    Show Less
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-center py-8">
               <Trophy className="w-16 h-16 text-gray-400 mx-auto mb-4" />
