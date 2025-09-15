@@ -4597,6 +4597,48 @@ app.put('/api/tournaments/:id/championship-matches/:matchId', async (req, res) =
   }
 });
 
+// Helper function to calculate net score for match play
+function calculateNetScore(grossScore, handicap, holeIndex, opponentHandicap = 0) {
+  if (holeIndex === 0) return grossScore;
+  
+  // Calculate the handicap differential (max 8 strokes for match play)
+  const handicapDifferential = Math.min(Math.abs(handicap - opponentHandicap), 8);
+  
+  // Determine which player gets strokes (the higher handicap player)
+  const playerGetsStrokes = handicap > opponentHandicap;
+  
+  if (!playerGetsStrokes) {
+    // This player doesn't get strokes, return gross score
+    return grossScore;
+  }
+  
+  // Calculate handicap strokes for this hole
+  // Distribute strokes across holes 1-18, with harder holes (lower index) getting strokes first
+  const handicapStrokes = Math.floor(handicapDifferential / 18) + 
+    (handicapDifferential % 18 >= holeIndex ? 1 : 0);
+  
+  // Return net score (gross - handicap strokes), minimum 1
+  return Math.max(1, grossScore - handicapStrokes);
+}
+
+// Helper function to calculate net score with proper course handicap indexes
+function calculateNetScoreWithIndex(grossScore, playerHandicap, holeIndex, handicapDifferential, playerGetsStrokes) {
+  if (holeIndex === 0) return grossScore;
+  
+  if (!playerGetsStrokes) {
+    // This player doesn't get strokes, return gross score
+    return grossScore;
+  }
+  
+  // Calculate handicap strokes for this hole based on course handicap index
+  // Distribute strokes across holes based on their handicap index (1-18)
+  const handicapStrokes = Math.floor(handicapDifferential / 18) + 
+    (handicapDifferential % 18 >= holeIndex ? 1 : 0);
+  
+  // Return net score (gross - handicap strokes), minimum 1
+  return Math.max(1, grossScore - handicapStrokes);
+}
+
 // Update championship match result
 app.put('/api/tournaments/:id/championship-matches/:matchId/result', async (req, res) => {
   const { id, matchId } = req.params;
@@ -4729,9 +4771,300 @@ app.put('/api/tournaments/:id/championship-matches/:matchId/result', async (req,
       return res.status(404).json({ error: 'Championship match not found' });
     }
     
+    const updatedMatch = result.rows[0];
+    
+    // Check if both players have submitted their scores and auto-complete the match
+    if (updatedMatch.player1_hole_scores && updatedMatch.player2_hole_scores && updatedMatch.match_status === 'in_progress') {
+      try {
+        // Debug logging
+        console.log('Attempting to auto-complete match:', {
+          matchId,
+          player1_hole_scores: updatedMatch.player1_hole_scores,
+          player2_hole_scores: updatedMatch.player2_hole_scores,
+          player1_type: typeof updatedMatch.player1_hole_scores,
+          player2_type: typeof updatedMatch.player2_hole_scores
+        });
+        
+        // Calculate match results - handle both JSON strings and arrays
+        let player1Scores, player2Scores;
+        
+        // Handle player1 scores - could be JSON string or already parsed array
+        if (typeof updatedMatch.player1_hole_scores === 'string') {
+          try {
+            player1Scores = JSON.parse(updatedMatch.player1_hole_scores);
+          } catch (e) {
+            console.error('Error parsing player1_hole_scores:', updatedMatch.player1_hole_scores, e);
+            player1Scores = [];
+          }
+        } else if (Array.isArray(updatedMatch.player1_hole_scores)) {
+          player1Scores = updatedMatch.player1_hole_scores;
+        } else {
+          console.error('Invalid player1_hole_scores type:', typeof updatedMatch.player1_hole_scores);
+          player1Scores = [];
+        }
+        
+        // Handle player2 scores - could be JSON string or already parsed array
+        if (typeof updatedMatch.player2_hole_scores === 'string') {
+          try {
+            player2Scores = JSON.parse(updatedMatch.player2_hole_scores);
+          } catch (e) {
+            console.error('Error parsing player2_hole_scores:', updatedMatch.player2_hole_scores, e);
+            player2Scores = [];
+          }
+        } else if (Array.isArray(updatedMatch.player2_hole_scores)) {
+          player2Scores = updatedMatch.player2_hole_scores;
+        } else {
+          console.error('Invalid player2_hole_scores type:', typeof updatedMatch.player2_hole_scores);
+          player2Scores = [];
+        }
+        
+        // Validate that we have valid score arrays
+        if (!Array.isArray(player1Scores) || !Array.isArray(player2Scores)) {
+          console.error('Invalid score arrays:', { player1Scores, player2Scores });
+          return res.json({
+            success: true,
+            match: updatedMatch,
+            message: `Updated championship match result`
+          });
+        }
+        
+        let player1HolesWon = 0;
+        let player2HolesWon = 0;
+        
+        // Get both players' handicaps for proper net score calculation
+        const player1HandicapResult = await pool.query(
+          'SELECT sim_handicap, handicap FROM users WHERE member_id = $1',
+          [updatedMatch.player1_id]
+        );
+        const player2HandicapResult = await pool.query(
+          'SELECT sim_handicap, handicap FROM users WHERE member_id = $1',
+          [updatedMatch.player2_id]
+        );
+        
+        const player1Handicap = parseFloat(player1HandicapResult.rows[0]?.sim_handicap || player1HandicapResult.rows[0]?.handicap || 0);
+        const player2Handicap = parseFloat(player2HandicapResult.rows[0]?.sim_handicap || player2HandicapResult.rows[0]?.handicap || 0);
+        
+        // Get course data for handicap index calculation
+        let courseData = null;
+        console.log('Course data lookup:', {
+          matchCourseId: updatedMatch.course_id,
+          hasCourseId: !!updatedMatch.course_id
+        });
+        
+        if (updatedMatch.course_id) {
+          const courseResult = await pool.query(
+            'SELECT hole_indexes, par_values FROM simulator_courses_combined WHERE id = $1',
+            [updatedMatch.course_id]
+          );
+          if (courseResult.rows.length > 0) {
+            courseData = courseResult.rows[0];
+            console.log('Course data found:', {
+              courseId: updatedMatch.course_id,
+              holeIndexes: courseData.hole_indexes,
+              parValues: courseData.par_values
+            });
+          }
+        } else {
+          // Try to get course data from the tournament
+          console.log('No course_id in match, trying to get course from tournament');
+          const tournamentResult = await pool.query(
+            'SELECT course_id, trackman_course_id, gspro_course_id FROM tournaments WHERE id = $1',
+            [id]
+          );
+          
+          if (tournamentResult.rows.length > 0) {
+            const tournament = tournamentResult.rows[0];
+            const courseId = tournament.course_id || tournament.trackman_course_id || tournament.gspro_course_id;
+            
+            if (courseId) {
+              console.log('Found tournament course_id:', courseId);
+              const courseResult = await pool.query(
+                'SELECT hole_indexes, par_values FROM simulator_courses_combined WHERE id = $1',
+                [courseId]
+              );
+              if (courseResult.rows.length > 0) {
+                courseData = courseResult.rows[0];
+                console.log('Tournament course data found:', {
+                  courseId: courseId,
+                  holeIndexes: courseData.hole_indexes,
+                  parValues: courseData.par_values
+                });
+              }
+            }
+          }
+          
+          // If still no course data, try to get a default course
+          if (!courseData) {
+            console.log('No tournament course found, trying default course');
+            const defaultCourseResult = await pool.query(
+              'SELECT hole_indexes, par_values FROM simulator_courses_combined WHERE is_default = true LIMIT 1'
+            );
+            if (defaultCourseResult.rows.length > 0) {
+              courseData = defaultCourseResult.rows[0];
+              console.log('Default course data found:', {
+                holeIndexes: courseData.hole_indexes,
+                parValues: courseData.par_values
+              });
+            } else {
+              // Last resort: get any course with handicap indexes
+              console.log('No default course found, trying any course with handicap indexes');
+              const anyCourseResult = await pool.query(
+                'SELECT hole_indexes, par_values FROM simulator_courses_combined WHERE hole_indexes IS NOT NULL LIMIT 1'
+              );
+              if (anyCourseResult.rows.length > 0) {
+                courseData = anyCourseResult.rows[0];
+                console.log('Any course with handicap indexes found:', {
+                  holeIndexes: courseData.hole_indexes,
+                  parValues: courseData.par_values
+                });
+              }
+            }
+          }
+        }
+        
+        // Default hole indexes if no course data (1-18, with 1 being hardest)
+        const holeIndexes = courseData?.hole_indexes || [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+        
+        console.log('Final hole indexes being used:', {
+          holeIndexes: holeIndexes.slice(0, 10), // Show first 10
+          source: courseData ? 'course_data' : 'default',
+          courseId: updatedMatch.course_id
+        });
+        
+        console.log('Player handicaps:', { 
+          player1: player1Handicap, 
+          player2: player2Handicap,
+          player1_id: updatedMatch.player1_id,
+          player2_id: updatedMatch.player2_id
+        });
+        
+        console.log('Score arrays:', {
+          player1Scores: player1Scores.slice(0, 5), // Show first 5 scores
+          player2Scores: player2Scores.slice(0, 5), // Show first 5 scores
+          player1Length: player1Scores.length,
+          player2Length: player2Scores.length
+        });
+        
+        // Calculate handicap differential (max 8 strokes for match play)
+        const handicapDifferential = Math.min(Math.abs(player1Handicap - player2Handicap), 8);
+        const higherHandicapPlayer = player1Handicap > player2Handicap ? 1 : 2;
+        
+        console.log('Handicap calculation:', {
+          player1Handicap,
+          player2Handicap,
+          handicapDifferential,
+          higherHandicapPlayer,
+          holeIndexes: holeIndexes.slice(0, 5) // Show first 5 hole indexes
+        });
+        
+        // Recalculate net scores with proper handicap differentials and course indexes
+        const recalculatedPlayer1NetScores = player1Scores.map((score, index) => {
+          if (score === 0) return 0;
+          const holeNumber = index + 1; // Hole numbers are 1-18
+          const holeHandicapIndex = holeIndexes[index] || (index + 1); // The handicap index for this hole
+          const netScore = calculateNetScoreWithIndex(score, player1Handicap, holeHandicapIndex, handicapDifferential, higherHandicapPlayer === 1);
+          return netScore;
+        });
+        
+        const recalculatedPlayer2NetScores = player2Scores.map((score, index) => {
+          if (score === 0) return 0;
+          const holeNumber = index + 1; // Hole numbers are 1-18
+          const holeHandicapIndex = holeIndexes[index] || (index + 1); // The handicap index for this hole
+          const netScore = calculateNetScoreWithIndex(score, player2Handicap, holeHandicapIndex, handicapDifferential, higherHandicapPlayer === 2);
+          return netScore;
+        });
+        
+        console.log('Net score calculation:', {
+          player1Handicap: player1Handicap,
+          player2Handicap: player2Handicap,
+          handicapDifferential: handicapDifferential,
+          higherHandicapPlayer: higherHandicapPlayer,
+          player1GetsStrokes: higherHandicapPlayer === 1,
+          player2GetsStrokes: higherHandicapPlayer === 2,
+          player1NetScores: recalculatedPlayer1NetScores.slice(0, 5), // First 5 holes
+          player2NetScores: recalculatedPlayer2NetScores.slice(0, 5), // First 5 holes
+          player1GrossScores: player1Scores.slice(0, 5),
+          player2GrossScores: player2Scores.slice(0, 5)
+        });
+        
+        // Show detailed calculation for first few holes
+        console.log('Detailed net score calculation (first 3 holes):');
+        for (let i = 0; i < Math.min(3, player1Scores.length); i++) {
+          const holeNumber = i + 1;
+          const holeHandicapIndex = holeIndexes[i] || (i + 1);
+          const p1Gross = player1Scores[i];
+          const p2Gross = player2Scores[i];
+          const p1Net = recalculatedPlayer1NetScores[i];
+          const p2Net = recalculatedPlayer2NetScores[i];
+          
+          console.log(`Hole ${holeNumber} (Index ${holeHandicapIndex}): P1 ${p1Gross}->${p1Net}, P2 ${p2Gross}->${p2Net}`);
+        }
+        
+        // Simple match play scoring - compare hole by hole using net scores
+        for (let i = 0; i < Math.min(recalculatedPlayer1NetScores.length, recalculatedPlayer2NetScores.length); i++) {
+          if (recalculatedPlayer1NetScores[i] > 0 && recalculatedPlayer2NetScores[i] > 0) { // Both players played the hole
+            if (recalculatedPlayer1NetScores[i] < recalculatedPlayer2NetScores[i]) {
+              player1HolesWon++;
+            } else if (recalculatedPlayer2NetScores[i] < recalculatedPlayer1NetScores[i]) {
+              player2HolesWon++;
+            }
+          }
+        }
+        
+        const player1HolesLost = player2HolesWon;
+        const player2HolesLost = player1HolesWon;
+        const player1NetHoles = player1HolesWon - player1HolesLost;
+        const player2NetHoles = player2HolesWon - player2HolesLost;
+        
+        // Determine winner
+        let winnerId = null;
+        if (player1NetHoles > player2NetHoles) {
+          winnerId = updatedMatch.player1_id;
+        } else if (player2NetHoles > player1NetHoles) {
+          winnerId = updatedMatch.player2_id;
+        }
+        
+        // Update match with calculated results and recalculated net scores
+        await pool.query(`
+          UPDATE club_championship_matches 
+          SET player1_holes_won = $1, player2_holes_won = $2, 
+              player1_holes_lost = $3, player2_holes_lost = $4,
+              player1_net_holes = $5, player2_net_holes = $6,
+              player1_net_hole_scores = $7, player2_net_hole_scores = $8,
+              winner_id = $9, match_status = 'completed'
+          WHERE id = $10
+        `, [player1HolesWon, player2HolesWon, player1HolesLost, player2HolesLost, 
+            player1NetHoles, player2NetHoles, 
+            JSON.stringify(recalculatedPlayer1NetScores), 
+            JSON.stringify(recalculatedPlayer2NetScores),
+            winnerId, matchId]);
+        
+        // Get the final updated match
+        const finalResult = await pool.query(
+          'SELECT * FROM club_championship_matches WHERE id = $1',
+          [matchId]
+        );
+        
+        return res.json({
+          success: true,
+          match: finalResult.rows[0],
+          message: `Match completed automatically - both players submitted scores`
+        });
+        
+      } catch (error) {
+        console.error('Error processing match completion:', error);
+        // If there's an error in processing, just return the updated match without auto-completion
+        return res.json({
+          success: true,
+          match: updatedMatch,
+          message: `Updated championship match result`
+        });
+      }
+    }
+    
     res.json({
       success: true,
-      match: result.rows[0],
+      match: updatedMatch,
       message: `Updated championship match result`
     });
     

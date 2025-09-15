@@ -3,11 +3,13 @@ import { useAuth } from '../AuthContext';
 import api, { uploadScorecardPhoto } from '../services/api';
 import { toast } from 'react-toastify';
 import { Trophy, Users, Target, CheckCircle, Camera, Upload, X } from 'lucide-react';
+import { useUserCourse } from '../hooks/useUserCourse';
 
 interface ChampionshipPlayerScoringProps {
   tournamentId: number;
   tournamentName: string;
   onScoreSubmitted: () => void;
+  tournament?: any; // Add tournament object for course assignment
 }
 
 interface Match {
@@ -23,6 +25,14 @@ interface Match {
   winner_id?: number;
   course_id?: number;
   teebox?: string;
+  player1_hole_scores?: string;
+  player2_hole_scores?: string;
+  player1_net_hole_scores?: string;
+  player2_net_hole_scores?: string;
+  player1_scorecard_photo_url?: string;
+  player2_scorecard_photo_url?: string;
+  player1_handicap?: number;
+  player2_handicap?: number;
 }
 
 interface PlayerMatch {
@@ -38,7 +48,8 @@ interface PlayerMatch {
 const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
   tournamentId,
   tournamentName,
-  onScoreSubmitted
+  onScoreSubmitted,
+  tournament
 }) => {
   const { user } = useAuth();
   const [playerMatches, setPlayerMatches] = useState<PlayerMatch[]>([]);
@@ -47,6 +58,15 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
   const [showScoringModal, setShowScoringModal] = useState(false);
   const [holeScores, setHoleScores] = useState<number[]>(new Array(18).fill(0));
   const [submitting, setSubmitting] = useState(false);
+  
+  // Course data for handicap calculation
+  const [courseData, setCourseData] = useState<any>(null);
+  const [holeIndexes, setHoleIndexes] = useState<number[]>([]);
+  const [parValues, setParValues] = useState<number[]>([]);
+  const [opponentHandicap, setOpponentHandicap] = useState<number>(0);
+  
+  // Get user's appropriate course based on their club
+  const { courseData: userCourseData, loading: userCourseLoading, courseId: userCourseId } = useUserCourse(tournamentId, tournament);
 
   // Scorecard photo upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -57,12 +77,102 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
     loadPlayerMatches();
   }, [tournamentId, user?.member_id]);
 
+  // Fetch course data for handicap calculation
+  useEffect(() => {
+    const fetchCourseData = async () => {
+      const effectiveCourseId = userCourseId || tournament?.course_id;
+      
+      if (!effectiveCourseId) {
+        console.log('No course ID available for handicap calculation');
+        return;
+      }
+      
+      try {
+        const response = await api.get(`/simulator-courses?id=${effectiveCourseId}`);
+        const courses = response.data.courses || response.data;
+        
+        if (courses && courses.length > 0) {
+          const course = courses[0];
+          setCourseData(course);
+          setHoleIndexes(course.hole_indexes || []);
+          setParValues(course.par_values || []);
+          console.log('Course data loaded for handicap calculation:', {
+            courseId: effectiveCourseId,
+            holeIndexes: course.hole_indexes,
+            parValues: course.par_values
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching course data:', error);
+      }
+    };
+
+    if (userCourseId || tournament?.course_id) {
+      fetchCourseData();
+    }
+  }, [userCourseId, tournament?.course_id]);
+
+  // Calculate net score for a hole based on handicap
+  const calculateNetScore = (grossScore: number, handicap: number, holeNumber: number, opponentHandicap: number = 0): number => {
+    if (holeNumber === 0) return grossScore;
+    
+    // Calculate the handicap differential (max 8 strokes for match play)
+    const handicapDifferential = Math.min(Math.abs(handicap - opponentHandicap), 8);
+    
+    // Determine which player gets strokes (the higher handicap player)
+    const playerGetsStrokes = handicap > opponentHandicap;
+    
+    if (!playerGetsStrokes) {
+      // This player doesn't get strokes, return gross score
+      return grossScore;
+    }
+    
+    // Get the actual hole index from course data (1-18, with 1 being hardest)
+    // If no course data, fall back to hole number
+    const actualHoleIndex = holeIndexes[holeNumber - 1] || holeNumber;
+    
+    // Calculate handicap strokes for this hole based on course handicap index
+    // Distribute strokes across holes based on their handicap index (1-18)
+    const handicapStrokes = Math.floor(handicapDifferential / 18) +
+      (handicapDifferential % 18 >= actualHoleIndex ? 1 : 0);
+    
+    // Return net score (gross - handicap strokes), minimum 1
+    return Math.max(1, grossScore - handicapStrokes);
+  };
+
+  // Check if player gets strokes on a specific hole
+  const playerGetsStrokesOnHole = (holeNumber: number): boolean => {
+    if (!user?.member_id || !selectedMatch) return false;
+    
+    const currentPlayerHandicap = user?.sim_handicap || user?.handicap || 0;
+    const isPlayer1 = selectedMatch.player1_id === user.member_id;
+    const opponentHandicap = isPlayer1 ? 
+      (selectedMatch.player2_handicap || 0) : 
+      (selectedMatch.player1_handicap || 0);
+    
+    // Calculate the handicap differential (max 8 strokes for match play)
+    const handicapDifferential = Math.min(Math.abs(currentPlayerHandicap - opponentHandicap), 8);
+    
+    // Determine which player gets strokes (the higher handicap player)
+    const playerGetsStrokes = currentPlayerHandicap > opponentHandicap;
+    
+    if (!playerGetsStrokes) return false;
+    
+    // Get the actual hole index from course data
+    const actualHoleIndex = holeIndexes[holeNumber - 1] || holeNumber;
+    
+    // Check if this hole gets strokes
+    return handicapDifferential % 18 >= actualHoleIndex;
+  };
+
   const loadPlayerMatches = async () => {
     if (!user?.member_id) return;
 
     try {
       setLoading(true);
+      console.log('Loading championship matches for tournament:', tournamentId, 'user:', user.member_id);
       const response = await api.get(`/tournaments/${tournamentId}/championship-matches`);
+      console.log('Championship matches response:', response.data);
       const matches: Match[] = response.data;
 
       // Filter matches for this player
@@ -80,6 +190,7 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
           isPlayer1: match.player1_id === user.member_id
         }));
 
+      console.log('Filtered player matches:', playerMatchesData);
       setPlayerMatches(playerMatchesData);
     } catch (error) {
       console.error('Error loading player matches:', error);
@@ -109,18 +220,26 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
     setSubmitting(true);
 
     try {
-      // Get player handicap for net score calculation
-      const handicap = user?.handicap || user?.sim_handicap || 0;
-      
-      // For now, we'll submit the player's scores
-      // The opponent would need to submit their own scores separately
-      // This is a simplified version - in a full implementation, both players would submit scores
-      
+      // Get both players' handicaps for proper net score calculation
+      const currentPlayerHandicap = user?.sim_handicap || user?.handicap || 0;
       const isPlayer1 = selectedMatch.player1_id === user.member_id;
+      
+      // For now, we'll use a simplified approach where we only calculate net scores
+      // for the current player. The opponent's net scores will be calculated when they submit.
+      // In a full implementation, we'd need to fetch the opponent's handicap as well.
+      
+      // Calculate net scores for the current player using actual course hole indexes
+      const netScores = holeScores.map((score, index) => {
+        if (score === 0) return 0;
+        const holeNumber = index + 1; // Hole numbers are 1-18
+        // For now, we'll calculate net score without opponent handicap
+        // This will be corrected when both players have submitted
+        return calculateNetScore(score, currentPlayerHandicap, holeNumber, 0);
+      });
       
       const response = await api.put(`/tournaments/${tournamentId}/championship-matches/${selectedMatch.id}/result`, {
         [isPlayer1 ? 'player1_hole_scores' : 'player2_hole_scores']: JSON.stringify(holeScores),
-        [isPlayer1 ? 'player1_net_hole_scores' : 'player2_net_hole_scores']: JSON.stringify(holeScores), // Simplified - would need handicap calculation
+        [isPlayer1 ? 'player1_net_hole_scores' : 'player2_net_hole_scores']: JSON.stringify(netScores),
         [isPlayer1 ? 'player1_scorecard_photo_url' : 'player2_scorecard_photo_url']: scorecardPhotoUrl || null,
         match_status: 'in_progress' // Set to in_progress until opponent submits
       });
@@ -242,7 +361,9 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
           </div>
         ) : (
           <div className="grid gap-4">
-            {playerMatches.map((playerMatch) => (
+            {playerMatches.map((playerMatch) => {
+              console.log('Rendering match:', playerMatch);
+              return (
               <div key={playerMatch.match.id} className="bg-white border border-neutral-200 rounded-lg p-4">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
@@ -272,9 +393,48 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                       </button>
                     )}
                     {playerMatch.match.match_status === 'in_progress' && (
-                      <div className="flex items-center text-blue-600">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                        <span className="text-sm font-medium">Waiting for opponent</span>
+                      <div className="flex items-center space-x-2">
+                        {/* Check if current player has already submitted their score */}
+                        {(() => {
+                          const isPlayer1 = playerMatch.match.player1_id === user?.member_id;
+                          const currentPlayerScores = isPlayer1 ? playerMatch.match.player1_hole_scores : playerMatch.match.player2_hole_scores;
+                          
+                          // Simple check: if scores exist and are not empty/null
+                          const hasCurrentPlayerScores = currentPlayerScores && 
+                            currentPlayerScores !== 'null' && 
+                            currentPlayerScores !== '[]' &&
+                            (typeof currentPlayerScores === 'string' ? currentPlayerScores.trim() !== '' : true);
+                          
+                          console.log('Score check debug:', {
+                            isPlayer1,
+                            currentPlayerScores,
+                            hasCurrentPlayerScores,
+                            matchStatus: playerMatch.match.match_status,
+                            player1Scores: playerMatch.match.player1_hole_scores,
+                            player2Scores: playerMatch.match.player2_hole_scores
+                          });
+                          
+                          return hasCurrentPlayerScores;
+                        })() ? (
+                          <div className="flex items-center space-x-2">
+                            <div className="flex items-center text-green-600">
+                              <CheckCircle className="w-4 h-4 mr-1" />
+                              <span className="text-sm font-medium">Score Submitted</span>
+                            </div>
+                            <div className="flex items-center text-blue-600">
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+                              <span className="text-sm font-medium">Waiting for opponent</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => handleScoreMatch(playerMatch.match)}
+                            className="px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center"
+                          >
+                            <Target className="w-4 h-4 mr-2" />
+                            Enter Score
+                          </button>
+                        )}
                       </div>
                     )}
                     {playerMatch.match.match_status === 'completed' && (
@@ -286,7 +446,8 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -308,28 +469,82 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
               </p>
             </div>
 
-            {/* Hole Scores Grid */}
-            <div className="grid grid-cols-6 gap-2 mb-6">
-              {Array.from({ length: 18 }, (_, i) => (
-                <div key={i} className="text-center">
-                  <label className="block text-xs text-neutral-600 mb-1">
-                    Hole {i + 1}
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="15"
-                    value={holeScores[i] || ''}
-                    onChange={(e) => {
-                      const newScores = [...holeScores];
-                      newScores[i] = parseInt(e.target.value) || 0;
-                      setHoleScores(newScores);
-                    }}
-                    className="w-full px-2 py-1 border border-neutral-300 rounded text-center focus:ring-2 focus:ring-brand-neon-green focus:border-brand-neon-green"
-                    placeholder="0"
-                  />
-                </div>
-              ))}
+            {/* Hole Scores Table */}
+            <div className="mb-6">
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse border border-neutral-300">
+                  <thead>
+                    <tr className="bg-neutral-50">
+                      <th className="border border-neutral-300 px-3 py-2 text-left text-sm font-medium text-neutral-700">Hole</th>
+                      <th className="border border-neutral-300 px-3 py-2 text-center text-sm font-medium text-neutral-700">Index</th>
+                      <th className="border border-neutral-300 px-3 py-2 text-center text-sm font-medium text-neutral-700">Par</th>
+                      <th className="border border-neutral-300 px-3 py-2 text-center text-sm font-medium text-neutral-700">Score</th>
+                      <th className="border border-neutral-300 px-3 py-2 text-center text-sm font-medium text-neutral-700">Net</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: 18 }, (_, i) => {
+                      const holeIndex = holeIndexes[i] || (i + 1);
+                      const parValue = parValues[i] || 4;
+                      const isBackNine = i >= 9;
+                      const holeNumber = i + 1;
+                      const getsStrokes = playerGetsStrokesOnHole(holeNumber);
+                      const currentPlayerHandicap = user?.sim_handicap || user?.handicap || 0;
+                      const isPlayer1 = selectedMatch?.player1_id === user?.member_id;
+                      const opponentHandicap = isPlayer1 ? 
+                        (selectedMatch?.player2_handicap || 0) : 
+                        (selectedMatch?.player1_handicap || 0);
+                      const netScore = holeScores[i] > 0 ? 
+                        calculateNetScore(holeScores[i], currentPlayerHandicap, holeNumber, opponentHandicap) : 0;
+                      
+                      return (
+                        <tr 
+                          key={i} 
+                          className={`${i % 2 === 0 ? 'bg-white' : 'bg-neutral-50'} ${getsStrokes ? 'bg-green-50 border-l-4 border-l-green-400' : ''}`}
+                        >
+                          <td className="border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700">
+                            <div className="flex items-center">
+                              {i + 1}
+                              {isBackNine && <span className="text-xs text-neutral-500 ml-1">(Back 9)</span>}
+                              {getsStrokes && <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">Stroke</span>}
+                            </div>
+                          </td>
+                          <td className="border border-neutral-300 px-3 py-2 text-center text-sm text-neutral-600">
+                            {holeIndex}
+                          </td>
+                          <td className="border border-neutral-300 px-3 py-2 text-center text-sm text-neutral-600">
+                            {parValue}
+                          </td>
+                          <td className="border border-neutral-300 px-3 py-2">
+                            <input
+                              type="number"
+                              min="1"
+                              max="15"
+                              value={holeScores[i] || ''}
+                              onChange={(e) => {
+                                const newScores = [...holeScores];
+                                newScores[i] = parseInt(e.target.value) || 0;
+                                setHoleScores(newScores);
+                              }}
+                              className="w-full px-2 py-1 border border-neutral-300 rounded text-center text-sm focus:ring-2 focus:ring-brand-neon-green focus:border-brand-neon-green"
+                              placeholder="0"
+                            />
+                          </td>
+                          <td className="border border-neutral-300 px-3 py-2 text-center text-sm">
+                            {netScore > 0 ? (
+                              <span className={`font-medium ${netScore < holeScores[i] ? 'text-green-600' : 'text-neutral-600'}`}>
+                                {netScore}
+                              </span>
+                            ) : (
+                              <span className="text-neutral-400">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             {/* Total Score Display */}

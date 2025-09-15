@@ -128,6 +128,8 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
   // Match play scoring states
   const [player1HoleScores, setPlayer1HoleScores] = useState<number[]>(new Array(18).fill(0));
   const [player2HoleScores, setPlayer2HoleScores] = useState<number[]>(new Array(18).fill(0));
+  const [player1NetScores, setPlayer1NetScores] = useState<number[]>(new Array(18).fill(0));
+  const [player2NetScores, setPlayer2NetScores] = useState<number[]>(new Array(18).fill(0));
   const [player1Handicap, setPlayer1Handicap] = useState<number>(0);
   const [player2Handicap, setPlayer2Handicap] = useState<number>(0);
   const [selectedCourse, setSelectedCourse] = useState<number | null>(null);
@@ -635,15 +637,23 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
     
     console.log('Loading existing scores - player1_hole_scores:', match.player1_hole_scores);
     console.log('Loading existing scores - player2_hole_scores:', match.player2_hole_scores);
+    console.log('Loading existing scores - player1_net_hole_scores:', match.player1_net_hole_scores);
+    console.log('Loading existing scores - player2_net_hole_scores:', match.player2_net_hole_scores);
     
     const player1Scores = parseHoleScores(match.player1_hole_scores);
     const player2Scores = parseHoleScores(match.player2_hole_scores);
+    const player1NetScores = parseHoleScores(match.player1_net_hole_scores);
+    const player2NetScores = parseHoleScores(match.player2_net_hole_scores);
     
     console.log('Parsed player1 scores:', player1Scores);
     console.log('Parsed player2 scores:', player2Scores);
+    console.log('Parsed player1 net scores:', player1NetScores);
+    console.log('Parsed player2 net scores:', player2NetScores);
     
     setPlayer1HoleScores(player1Scores);
     setPlayer2HoleScores(player2Scores);
+    setPlayer1NetScores(player1NetScores);
+    setPlayer2NetScores(player2NetScores);
     
     setShowMatchPlayScoring(true);
   };
@@ -724,12 +734,8 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
       const response = await api.put(`/tournaments/${tournamentId}/championship-matches/${scoringMatch.id}/result`, {
         player1_hole_scores: JSON.stringify(player1HoleScores),
         player2_hole_scores: JSON.stringify(player2HoleScores),
-        player1_net_hole_scores: JSON.stringify(player1HoleScores.map((score, i) => 
-          calculateNetScore(score, player1Handicap, holeIndexes[i] || 0, player2Handicap)
-        )),
-        player2_net_hole_scores: JSON.stringify(player2HoleScores.map((score, i) => 
-          calculateNetScore(score, player2Handicap, holeIndexes[i] || 0, player1Handicap)
-        )),
+        player1_net_hole_scores: JSON.stringify(player1NetScores),
+        player2_net_hole_scores: JSON.stringify(player2NetScores),
         player1_holes_won: matchResult.player1HolesWon,
         player2_holes_won: matchResult.player2HolesWon,
         player1_holes_lost: matchResult.player1HolesLost,
@@ -1712,8 +1718,9 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                         const parValue = courseParValues[i] || 4;
                         const p1Gross = player1HoleScores[i] || 0;
                         const p2Gross = player2HoleScores[i] || 0;
-                        const p1Net = p1Gross > 0 ? calculateNetScore(p1Gross, player1Handicap, holeIndex, player2Handicap) : 0;
-                        const p2Net = p2Gross > 0 ? calculateNetScore(p2Gross, player2Handicap, holeIndex, player1Handicap) : 0;
+                        // Use loaded net scores from database, or calculate if not available
+                        const p1Net = player1NetScores[i] || (p1Gross > 0 ? calculateNetScore(p1Gross, player1Handicap, holeIndex, player2Handicap) : 0);
+                        const p2Net = player2NetScores[i] || (p2Gross > 0 ? calculateNetScore(p2Gross, player2Handicap, holeIndex, player1Handicap) : 0);
                         const winner = p1Gross > 0 && p2Gross > 0 ? 
                           (p1Net < p2Net ? 'P1' : p2Net < p1Net ? 'P2' : 'H') : '';
                         
@@ -1733,6 +1740,11 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                                   const newScores = [...player1HoleScores];
                                   newScores[i] = parseInt(e.target.value) || 0;
                                   setPlayer1HoleScores(newScores);
+                                  
+                                  // Recalculate net scores
+                                  const newNetScores = [...player1NetScores];
+                                  newNetScores[i] = newScores[i] > 0 ? calculateNetScore(newScores[i], player1Handicap, holeIndex, player2Handicap) : 0;
+                                  setPlayer1NetScores(newNetScores);
                                 }}
                                 className="w-full px-1 py-1 text-xs border border-gray-300 rounded text-center"
                               />
@@ -1748,6 +1760,11 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                                   const newScores = [...player2HoleScores];
                                   newScores[i] = parseInt(e.target.value) || 0;
                                   setPlayer2HoleScores(newScores);
+                                  
+                                  // Recalculate net scores
+                                  const newNetScores = [...player2NetScores];
+                                  newNetScores[i] = newScores[i] > 0 ? calculateNetScore(newScores[i], player2Handicap, holeIndex, player1Handicap) : 0;
+                                  setPlayer2NetScores(newNetScores);
                                 }}
                                 className="w-full px-1 py-1 text-xs border border-gray-300 rounded text-center"
                               />

@@ -73,6 +73,13 @@ const TournamentScoring: React.FC = () => {
     fetchTournamentData();
   }, [tournamentId]);
 
+  // Log tournament type for debugging
+  useEffect(() => {
+    if (tournament) {
+      console.log('Tournament type:', tournament.type, 'Is championship:', tournament.type === 'club_championship' || tournament.type === 'national_championship');
+    }
+  }, [tournament]);
+
   const handleScoreSubmitted = () => {
     toast.success('Score submitted successfully!');
     // Stay on current page - no navigation needed
@@ -197,6 +204,7 @@ const TournamentScoring: React.FC = () => {
               tournamentId={tournament.id}
               tournamentName={tournament.name}
               onScoreSubmitted={handleScoreSubmitted}
+              tournament={tournament}
             />
           ) : tournament.tournament_format === 'stroke_play' ? (
             <StrokeplayScoring

@@ -40,6 +40,8 @@ interface PlayerInfo {
   handicap: number;
 }
 
+type ScoringMode = 'hole-by-hole' | 'total-score';
+
 const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSave, userInfo, holes = 18, course, nineType }) => {
   const { user } = useAuth();
   const [playerInfo, setPlayerInfo] = useState<PlayerInfo>({
@@ -66,6 +68,8 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
     }))
   );
 
+  const [scoringMode, setScoringMode] = useState<ScoringMode>('hole-by-hole');
+  const [totalScore, setTotalScore] = useState<number>(0);
   const [errors, setErrors] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [showParValueModal, setShowParValueModal] = useState(false);
@@ -111,7 +115,7 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
     }
   }, [course, user]);
 
-  const totalStrokes = holesState.reduce((sum, hole) => sum + hole.strokes, 0);
+  const totalStrokes = scoringMode === 'total-score' ? totalScore : holesState.reduce((sum, hole) => sum + hole.strokes, 0);
   const totalPar = parValues.reduce((sum, par) => sum + par, 0);
   const scoreToPar = totalStrokes - totalPar;
 
@@ -136,12 +140,14 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
     ));
   };
 
+
   const resetScoreCard = () => {
     if (window.confirm('Are you sure you want to reset the scorecard? This will clear all scores.')) {
       setHolesState(Array.from({ length: holes }, (_, i) => ({
         hole: i + 1,
         strokes: 0
       })));
+      setTotalScore(0);
       setErrors([]);
     }
   };
@@ -157,9 +163,15 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
       errors.push('Date is required');
     }
     
-    const holesWithScores = holesState.filter(hole => hole.strokes > 0).length;
-    if (holesWithScores === 0) {
-      errors.push('At least one hole must have a score');
+    if (scoringMode === 'hole-by-hole') {
+      const holesWithScores = holesState.filter(hole => hole.strokes > 0).length;
+      if (holesWithScores === 0) {
+        errors.push('At least one hole must have a score');
+      }
+    } else {
+      if (totalScore <= 0) {
+        errors.push('Total score must be greater than 0');
+      }
     }
     
     // Check if handicap differential can be calculated
@@ -172,7 +184,7 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
 
   const handleSave = async () => {
     console.log('Starting StrokePlay save process...'); // Debug log
-    console.log('Current data:', { playerInfo, holes: holesState, totalStrokes, totalPar, scoreToPar, handicapDifferential }); // Debug log
+    console.log('Current data:', { playerInfo, holes: holesState, totalStrokes, totalPar, scoreToPar, handicapDifferential, scoringMode }); // Debug log
     
     const validationErrors = validateScoreCard();
     console.log('Validation errors:', validationErrors); // Debug log
@@ -187,10 +199,16 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
     try {
       console.log('Calling onSave with stroke play data...'); // Debug log
       if (onSave) {
+        // For total score mode, we don't need individual hole scores
+        // For hole-by-hole mode, use the actual hole scores
+        const finalHoleScores = scoringMode === 'total-score' 
+          ? [] // Empty array for total score mode
+          : holesState;
+        
         // Include teebox data in the scorecard data
         const scoreCardWithTeebox = {
           playerInfo,
-          holes: holesState,
+          holes: finalHoleScores,
           totalStrokes,
           totalPar,
           scoreToPar,
@@ -198,7 +216,8 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
           teebox: course?.teeboxData?.teebox,
           course_rating: course?.teeboxData?.courseRating,
           course_slope: course?.teeboxData?.courseSlope,
-          handicap_differential: handicapDifferential // Add the calculated differential
+          handicap_differential: handicapDifferential, // Add the calculated differential
+          scoringMode // Include the scoring mode used
         };
         console.log('Scorecard data being sent:', scoreCardWithTeebox); // Debug log
         await onSave(scoreCardWithTeebox);
@@ -287,79 +306,8 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
               )}
             </div>
           </div>
-          <div className="flex space-x-2">
-            <button
-              onClick={resetScoreCard}
-              className="flex items-center px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
-            >
-              <RotateCcw className="w-4 h-4 mr-2" />
-              Reset
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-brand-neon-green/90 transition-colors disabled:opacity-50"
-            >
-              <Save className="w-4 h-4 mr-2" />
-              {isSaving ? 'Saving...' : 'Save Round'}
-            </button>
-            {onClose && (
-              <button
-                onClick={onClose}
-                className="flex items-center px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-              >
-                Close
-              </button>
-            )}
-          </div>
         </div>
 
-        {/* Score Summary */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="text-center">
-                <div className="text-sm text-gray-600">Total Strokes</div>
-                <div className="text-2xl font-bold text-gray-900">{totalStrokes}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-sm text-gray-600">Total Par</div>
-                <div className="text-2xl font-bold text-blue-600">{totalPar}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-sm text-gray-600">Score to Par</div>
-                <div className={`text-2xl font-bold ${scoreToPar > 0 ? 'text-red-600' : scoreToPar < 0 ? 'text-green-600' : 'text-gray-900'}`}>
-                  {scoreToPar > 0 ? `+${scoreToPar}` : scoreToPar}
-                </div>
-              </div>
-              {handicapDifferential !== null && (
-                <div className="text-center">
-                  <div className="text-sm text-gray-600">Handicap Differential</div>
-                  <div className="text-2xl font-bold text-purple-600">
-                    {handicapDifferential.toFixed(1)}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-          {handicapDifferential === null && totalStrokes > 0 && course?.teeboxData && (
-            <div className="mt-3 text-sm text-gray-600">
-              <div className="flex items-center justify-center space-x-4">
-                <span>Course Rating: {course.teeboxData.courseRating}</span>
-                <span>Slope: {course.teeboxData.courseSlope}</span>
-                <span>Teebox: {course.teeboxData.teebox}</span>
-              </div>
-              <div className="mt-2 text-center">
-                <span className="text-orange-600 font-medium">✓ Handicap differential will be calculated on submission</span>
-              </div>
-            </div>
-          )}
-          {handicapDifferential === null && totalStrokes > 0 && !course?.teeboxData && (
-            <div className="mt-3 text-sm text-red-600 text-center">
-              <span className="font-medium">⚠️ Handicap differential cannot be calculated - missing course rating and slope data</span>
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Player Information */}
@@ -419,8 +367,127 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
         </div>
       </div>
 
-      {/* Scorecard Table */}
+      {/* Scoring Mode Selection */}
       <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+        <h2 className="text-xl font-bold text-brand-black mb-4">Scoring Method</h2>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button
+            onClick={() => setScoringMode('hole-by-hole')}
+            className={`p-4 rounded-lg border-2 transition-all ${
+              scoringMode === 'hole-by-hole'
+                ? 'border-brand-neon-green bg-green-50 text-brand-black'
+                : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+            }`}
+          >
+            <div className="flex items-center space-x-3">
+              <div className={`w-4 h-4 rounded-full border-2 ${
+                scoringMode === 'hole-by-hole' ? 'border-brand-neon-green bg-brand-neon-green' : 'border-gray-300'
+              }`}>
+                {scoringMode === 'hole-by-hole' && (
+                  <div className="w-2 h-2 bg-white rounded-full m-0.5"></div>
+                )}
+              </div>
+              <div className="text-left">
+                <div className="font-semibold">Hole-by-Hole Scoring</div>
+                <div className="text-sm text-gray-600">Enter individual scores for each hole</div>
+              </div>
+            </div>
+          </button>
+          
+          <button
+            onClick={() => setScoringMode('total-score')}
+            className={`p-4 rounded-lg border-2 transition-all ${
+              scoringMode === 'total-score'
+                ? 'border-brand-neon-green bg-green-50 text-brand-black'
+                : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+            }`}
+          >
+            <div className="flex items-center space-x-3">
+              <div className={`w-4 h-4 rounded-full border-2 ${
+                scoringMode === 'total-score' ? 'border-brand-neon-green bg-brand-neon-green' : 'border-gray-300'
+              }`}>
+                {scoringMode === 'total-score' && (
+                  <div className="w-2 h-2 bg-white rounded-full m-0.5"></div>
+                )}
+              </div>
+              <div className="text-left">
+                <div className="font-semibold">Total Score</div>
+                <div className="text-sm text-gray-600">Enter your total score for the round</div>
+              </div>
+            </div>
+          </button>
+        </div>
+
+        {/* Total Score Input */}
+        {scoringMode === 'total-score' && (
+          <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Total Score *
+            </label>
+            <input
+              type="number"
+              value={totalScore || ''}
+              onChange={(e) => setTotalScore(parseInt(e.target.value) || 0)}
+              placeholder="Enter your total score"
+              min="1"
+              max="200"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent text-center text-lg font-semibold"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Score Summary - Compact display */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <div className="text-center">
+              <div className="text-sm text-gray-600">Total Strokes</div>
+              <div className="text-2xl font-bold text-gray-900">{totalStrokes}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm text-gray-600">Total Par</div>
+              <div className="text-2xl font-bold text-blue-600">{totalPar}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm text-gray-600">Score to Par</div>
+              <div className={`text-2xl font-bold ${scoreToPar > 0 ? 'text-red-600' : scoreToPar < 0 ? 'text-green-600' : 'text-gray-900'}`}>
+                {scoreToPar > 0 ? `+${scoreToPar}` : scoreToPar}
+              </div>
+            </div>
+            {handicapDifferential !== null && (
+              <div className="text-center">
+                <div className="text-sm text-gray-600">Handicap Differential</div>
+                <div className="text-2xl font-bold text-purple-600">
+                  {handicapDifferential.toFixed(1)}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        {handicapDifferential === null && totalStrokes > 0 && course?.teeboxData && (
+          <div className="mt-3 text-sm text-gray-600">
+            <div className="flex items-center justify-center space-x-4">
+              <span>Course Rating: {course.teeboxData.courseRating}</span>
+              <span>Slope: {course.teeboxData.courseSlope}</span>
+              <span>Teebox: {course.teeboxData.teebox}</span>
+            </div>
+            <div className="mt-2 text-center">
+              <span className="text-orange-600 font-medium">✓ Handicap differential will be calculated on submission</span>
+            </div>
+          </div>
+        )}
+        {handicapDifferential === null && totalStrokes > 0 && !course?.teeboxData && (
+          <div className="mt-3 text-sm text-red-600 text-center">
+            <span className="font-medium">⚠️ Handicap differential cannot be calculated - missing course rating and slope data</span>
+          </div>
+        )}
+      </div>
+
+      {/* Scorecard Table - Only show for hole-by-hole mode */}
+      {scoringMode === 'hole-by-hole' && (
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
         <h2 className="text-xl font-bold text-brand-black mb-4 flex items-center">
           <Target className="w-5 h-5 mr-2" />
           Scorecard
@@ -483,10 +550,13 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
             );
           })}
         </div>
-      </div>
+        </div>
+      )}
 
-      {/* Final Summary */}
-      <div className="bg-white rounded-lg shadow-lg p-6">
+
+      {/* Final Summary - Only show for hole-by-hole mode */}
+      {scoringMode === 'hole-by-hole' && (
+        <div className="bg-white rounded-lg shadow-lg p-6">
         <h2 className="text-xl font-bold text-brand-black mb-4 flex items-center">
           <Award className="w-5 h-5 mr-2" />
           Final Summary
@@ -527,6 +597,36 @@ const StrokePlayScoreCard: React.FC<StrokePlayScoreCardProps> = ({ onClose, onSa
             </div>
           </div>
         )}
+        </div>
+      )}
+
+      {/* Action Buttons - Bottom */}
+      <div className="bg-white rounded-lg shadow-lg p-6">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-2">
+          <button
+            onClick={resetScoreCard}
+            className="flex items-center justify-center px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors text-sm font-medium"
+          >
+            <RotateCcw className="w-4 h-4 mr-2" />
+            Reset
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="flex items-center justify-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-brand-neon-green/90 transition-colors disabled:opacity-50 text-sm font-medium"
+          >
+            <Save className="w-4 h-4 mr-2" />
+            {isSaving ? 'Saving...' : 'Save Round'}
+          </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="flex items-center justify-center px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium"
+            >
+              Close
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Par Value Input Modal */}
