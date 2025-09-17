@@ -1372,7 +1372,7 @@ const Profile: React.FC = () => {
                         className="flex items-center justify-center w-full px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors text-sm"
                       >
                         <Trophy className="w-4 h-4 mr-2" />
-                        Submit Score
+                        {tournament.type === 'club_championship' ? 'My Matches' : 'Submit Score'}
                       </button>
                     ) : tournament.has_submitted_score ? (
                       <div className="flex flex-col items-center justify-center w-full px-3 py-2 bg-green-50 text-green-700 rounded-lg text-sm border border-green-200">

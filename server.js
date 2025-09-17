@@ -4511,8 +4511,12 @@ app.get('/api/tournaments/:id/championship-matches', async (req, res) => {
         ccm.*,
         u1.first_name as player1_name,
         u1.last_name as player1_last_name,
+        u1.sim_handicap as player1_handicap,
+        u1.handicap as player1_grass_handicap,
         u2.first_name as player2_name,
-        u2.last_name as player2_last_name
+        u2.last_name as player2_last_name,
+        u2.sim_handicap as player2_handicap,
+        u2.handicap as player2_grass_handicap
       FROM club_championship_matches ccm
       JOIN users u1 ON ccm.player1_id = u1.member_id
       JOIN users u2 ON ccm.player2_id = u2.member_id

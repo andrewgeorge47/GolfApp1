@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
 import api, { uploadScorecardPhoto } from '../services/api';
 import { toast } from 'react-toastify';
-import { Trophy, Users, Target, CheckCircle, Camera, Upload, X } from 'lucide-react';
+import { Trophy, Users, Target, CheckCircle, Camera, Upload, X, Clock } from 'lucide-react';
 import { useUserCourse } from '../hooks/useUserCourse';
 
 interface ChampionshipPlayerScoringProps {
@@ -18,8 +18,12 @@ interface Match {
   player2_id: number;
   player1_name: string;
   player1_last_name: string;
+  player1_handicap?: number;
+  player1_grass_handicap?: number;
   player2_name: string;
   player2_last_name: string;
+  player2_handicap?: number;
+  player2_grass_handicap?: number;
   match_number: number;
   match_status: string;
   winner_id?: number;
@@ -31,8 +35,6 @@ interface Match {
   player2_net_hole_scores?: string;
   player1_scorecard_photo_url?: string;
   player2_scorecard_photo_url?: string;
-  player1_handicap?: number;
-  player2_handicap?: number;
 }
 
 interface PlayerMatch {
@@ -163,6 +165,23 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
     
     // Check if this hole gets strokes
     return handicapDifferential % 18 >= actualHoleIndex;
+  };
+
+  // Calculate stroke difference for match play
+  const calculateStrokeDifference = (match: Match) => {
+    const player1Handicap = match.player1_handicap || match.player1_grass_handicap || 0;
+    const player2Handicap = match.player2_handicap || match.player2_grass_handicap || 0;
+    
+    // Calculate the handicap differential (max 8 strokes for match play)
+    const handicapDifferential = Math.min(Math.abs(player1Handicap - player2Handicap), 8);
+    
+    return {
+      player1Handicap,
+      player2Handicap,
+      handicapDifferential,
+      higherHandicapPlayer: player1Handicap > player2Handicap ? 'player1' : 'player2',
+      strokesReceived: handicapDifferential
+    };
   };
 
   const loadPlayerMatches = async () => {
@@ -363,87 +382,151 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
           <div className="grid gap-4">
             {playerMatches.map((playerMatch) => {
               console.log('Rendering match:', playerMatch);
+              const strokeInfo = calculateStrokeDifference(playerMatch.match);
+              const currentPlayerName = playerMatch.isPlayer1 ? 
+                `${playerMatch.match.player1_name} ${playerMatch.match.player1_last_name}` :
+                `${playerMatch.match.player2_name} ${playerMatch.match.player2_last_name}`;
+              const currentPlayerHandicap = playerMatch.isPlayer1 ? 
+                strokeInfo.player1Handicap : strokeInfo.player2Handicap;
+              const opponentHandicap = playerMatch.isPlayer1 ? 
+                strokeInfo.player2Handicap : strokeInfo.player1Handicap;
+              
               return (
-              <div key={playerMatch.match.id} className="bg-white border border-neutral-200 rounded-lg p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-4">
-                      <div className="text-sm font-medium text-neutral-600">
-                        Match {playerMatch.match.match_number}
-                      </div>
-                      <div className="text-lg font-semibold text-brand-black">
-                        vs {playerMatch.opponent.name} {playerMatch.opponent.last_name}
-                      </div>
-                    </div>
-                    <div className="mt-2">
-                      <span className={`text-sm font-medium ${getMatchStatusColor(playerMatch.match)}`}>
-                        {getMatchStatus(playerMatch.match)}
-                      </span>
-                    </div>
+              <div key={playerMatch.match.id} className="bg-white border border-neutral-200 rounded-lg p-3 sm:p-4">
+                {/* Header with Match Number and Status */}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-sm font-medium text-neutral-600">
+                    Match {playerMatch.match.match_number}
                   </div>
-                  
-                  <div className="flex items-center space-x-2">
+                  {/* Status Badge */}
+                  <div className="flex items-center">
                     {playerMatch.match.match_status === 'pending' && (
-                      <button
-                        onClick={() => handleScoreMatch(playerMatch.match)}
-                        className="px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center"
-                      >
-                        <Target className="w-4 h-4 mr-2" />
-                        Enter Score
-                      </button>
+                      <div className="flex items-center px-2 sm:px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs sm:text-sm font-medium">
+                        <Clock className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                        Pending
+                      </div>
                     )}
                     {playerMatch.match.match_status === 'in_progress' && (
-                      <div className="flex items-center space-x-2">
-                        {/* Check if current player has already submitted their score */}
-                        {(() => {
-                          const isPlayer1 = playerMatch.match.player1_id === user?.member_id;
-                          const currentPlayerScores = isPlayer1 ? playerMatch.match.player1_hole_scores : playerMatch.match.player2_hole_scores;
-                          
-                          // Simple check: if scores exist and are not empty/null
-                          const hasCurrentPlayerScores = currentPlayerScores && 
-                            currentPlayerScores !== 'null' && 
-                            currentPlayerScores !== '[]' &&
-                            (typeof currentPlayerScores === 'string' ? currentPlayerScores.trim() !== '' : true);
-                          
-                          console.log('Score check debug:', {
-                            isPlayer1,
-                            currentPlayerScores,
-                            hasCurrentPlayerScores,
-                            matchStatus: playerMatch.match.match_status,
-                            player1Scores: playerMatch.match.player1_hole_scores,
-                            player2Scores: playerMatch.match.player2_hole_scores
-                          });
-                          
-                          return hasCurrentPlayerScores;
-                        })() ? (
-                          <div className="flex items-center space-x-2">
-                            <div className="flex items-center text-green-600">
-                              <CheckCircle className="w-4 h-4 mr-1" />
-                              <span className="text-sm font-medium">Score Submitted</span>
-                            </div>
-                            <div className="flex items-center text-blue-600">
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                              <span className="text-sm font-medium">Waiting for opponent</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => handleScoreMatch(playerMatch.match)}
-                            className="px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center"
-                          >
-                            <Target className="w-4 h-4 mr-2" />
-                            Enter Score
-                          </button>
-                        )}
+                      <div className="flex items-center px-2 sm:px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs sm:text-sm font-medium">
+                        <div className="w-2 h-2 sm:w-3 sm:h-3 bg-blue-600 rounded-full mr-1 sm:mr-2"></div>
+                        <span className="hidden sm:inline">In Progress</span>
+                        <span className="sm:hidden">Progress</span>
                       </div>
                     )}
                     {playerMatch.match.match_status === 'completed' && (
-                      <div className="flex items-center text-green-600">
-                        <CheckCircle className="w-5 h-5 mr-1" />
-                        <span className="text-sm font-medium">Completed</span>
+                      <div className={`flex items-center px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${
+                        playerMatch.match.winner_id === user?.member_id 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        <Trophy className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                        {playerMatch.match.winner_id === user?.member_id ? 'Won' : 'Lost'}
                       </div>
                     )}
                   </div>
+                </div>
+                
+                {/* Players and Handicaps - Mobile Optimized Layout */}
+                <div className="grid grid-cols-2 sm:grid-cols-2 gap-2 sm:gap-3 mb-3">
+                  <div className="bg-blue-50 p-2 sm:p-3 rounded-lg">
+                    <div className="text-xs font-medium text-blue-800 mb-1">You</div>
+                    <div className="text-sm sm:text-lg font-semibold text-blue-900 truncate">
+                      {currentPlayerName}
+                    </div>
+                    <div className="text-xs text-blue-700">
+                      Hcp: {currentPlayerHandicap}
+                    </div>
+                  </div>
+                  <div className="bg-green-50 p-2 sm:p-3 rounded-lg">
+                    <div className="text-xs font-medium text-green-800 mb-1">Opponent</div>
+                    <div className="text-sm sm:text-lg font-semibold text-green-900 truncate">
+                      {playerMatch.opponent.name} {playerMatch.opponent.last_name}
+                    </div>
+                    <div className="text-xs text-green-700">
+                      Hcp: {opponentHandicap}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Stroke Information */}
+                {strokeInfo.handicapDifferential > 0 && (
+                  <div className="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="text-xs sm:text-sm text-yellow-800">
+                      <strong>
+                        {strokeInfo.higherHandicapPlayer === 'player1' ? 
+                          `${playerMatch.match.player1_name} ${playerMatch.match.player1_last_name}` :
+                          `${playerMatch.match.player2_name} ${playerMatch.match.player2_last_name}`
+                        }
+                      </strong> receives {strokeInfo.strokesReceived} stroke{strokeInfo.strokesReceived !== 1 ? 's' : ''} for this match
+                    </div>
+                  </div>
+                )}
+                
+                {/* Action Button - Mobile Optimized */}
+                <div className="mt-3">
+                  {playerMatch.match.match_status === 'pending' && (
+                    <button
+                      onClick={() => handleScoreMatch(playerMatch.match)}
+                      className="w-full px-3 sm:px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center justify-center shadow-sm text-sm"
+                    >
+                      <Target className="w-4 h-4 mr-2" />
+                      Enter Score
+                    </button>
+                  )}
+                  {playerMatch.match.match_status === 'in_progress' && (
+                    <div className="space-y-2">
+                      {/* Check if current player has already submitted their score */}
+                      {(() => {
+                        const isPlayer1 = playerMatch.match.player1_id === user?.member_id;
+                        const currentPlayerScores = isPlayer1 ? playerMatch.match.player1_hole_scores : playerMatch.match.player2_hole_scores;
+                        
+                        // Simple check: if scores exist and are not empty/null
+                        const hasCurrentPlayerScores = currentPlayerScores && 
+                          currentPlayerScores !== 'null' && 
+                          currentPlayerScores !== '[]' &&
+                          (typeof currentPlayerScores === 'string' ? currentPlayerScores.trim() !== '' : true);
+                        
+                        console.log('Score check debug:', {
+                          isPlayer1,
+                          currentPlayerScores,
+                          hasCurrentPlayerScores,
+                          matchStatus: playerMatch.match.match_status,
+                          player1Scores: playerMatch.match.player1_hole_scores,
+                          player2Scores: playerMatch.match.player2_hole_scores
+                        });
+                        
+                        return hasCurrentPlayerScores;
+                      })() ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div className="flex items-center justify-center px-2 sm:px-3 py-2 bg-green-100 text-green-800 rounded-lg text-xs sm:text-sm font-medium">
+                            <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+                            <span className="hidden sm:inline">Score Submitted</span>
+                            <span className="sm:hidden">Submitted</span>
+                          </div>
+                          <div className="flex items-center justify-center px-2 sm:px-3 py-2 bg-blue-100 text-blue-800 rounded-lg text-xs sm:text-sm font-medium">
+                            <div className="w-2 h-2 sm:w-3 sm:h-3 bg-blue-600 rounded-full mr-1 sm:mr-2"></div>
+                            <span className="hidden sm:inline">Waiting for opponent</span>
+                            <span className="sm:hidden">Waiting</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleScoreMatch(playerMatch.match)}
+                          className="w-full px-3 sm:px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center justify-center shadow-sm text-sm"
+                        >
+                          <Target className="w-4 h-4 mr-2" />
+                          Enter Score
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {playerMatch.match.match_status === 'completed' && (
+                    <div className="flex items-center justify-center px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium">
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      <span className="hidden sm:inline">Match Complete</span>
+                      <span className="sm:hidden">Complete</span>
+                    </div>
+                  )}
                 </div>
               </div>
               );
@@ -452,34 +535,80 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
         )}
       </div>
 
-      {/* Scoring Modal */}
+      {/* Scoring Modal - Mobile Optimized */}
       {showScoringModal && selectedMatch && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <h4 className="text-lg font-semibold mb-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 w-full max-w-2xl max-h-[95vh] sm:max-h-[90vh] overflow-y-auto">
+            <h4 className="text-base sm:text-lg font-semibold mb-4">
               Enter Scores - Match {selectedMatch.match_number}
             </h4>
             
             <div className="mb-4">
-              <p className="text-sm text-neutral-600">
-                vs {selectedMatch.player1_id === user?.member_id ? 
-                  `${selectedMatch.player2_name} ${selectedMatch.player2_last_name}` : 
-                  `${selectedMatch.player1_name} ${selectedMatch.player1_last_name}`
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-3">
+                <div className="bg-blue-50 p-3 rounded-lg">
+                  <div className="text-xs sm:text-sm font-medium text-blue-800 mb-1">You</div>
+                  <div className="text-base sm:text-lg font-semibold text-blue-900 truncate">
+                    {selectedMatch.player1_id === user?.member_id ? 
+                      `${selectedMatch.player1_name} ${selectedMatch.player1_last_name}` : 
+                      `${selectedMatch.player2_name} ${selectedMatch.player2_last_name}`
+                    }
+                  </div>
+                  <div className="text-xs sm:text-sm text-blue-700">
+                    Handicap: {selectedMatch.player1_id === user?.member_id ? 
+                      (selectedMatch.player1_handicap || selectedMatch.player1_grass_handicap || 0) :
+                      (selectedMatch.player2_handicap || selectedMatch.player2_grass_handicap || 0)
+                    }
+                  </div>
+                </div>
+                <div className="bg-green-50 p-3 rounded-lg">
+                  <div className="text-xs sm:text-sm font-medium text-green-800 mb-1">Opponent</div>
+                  <div className="text-base sm:text-lg font-semibold text-green-900 truncate">
+                    {selectedMatch.player1_id === user?.member_id ? 
+                      `${selectedMatch.player2_name} ${selectedMatch.player2_last_name}` : 
+                      `${selectedMatch.player1_name} ${selectedMatch.player1_last_name}`
+                    }
+                  </div>
+                  <div className="text-xs sm:text-sm text-green-700">
+                    Handicap: {selectedMatch.player1_id === user?.member_id ? 
+                      (selectedMatch.player2_handicap || selectedMatch.player2_grass_handicap || 0) :
+                      (selectedMatch.player1_handicap || selectedMatch.player1_grass_handicap || 0)
+                    }
+                  </div>
+                </div>
+              </div>
+              
+              {/* Stroke Information - Mobile Optimized */}
+              {(() => {
+                const strokeInfo = calculateStrokeDifference(selectedMatch);
+                if (strokeInfo.handicapDifferential > 0) {
+                  return (
+                    <div className="p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="text-xs sm:text-sm text-yellow-800">
+                        <strong>
+                          {strokeInfo.higherHandicapPlayer === 'player1' ? 
+                            `${selectedMatch.player1_name} ${selectedMatch.player1_last_name}` :
+                            `${selectedMatch.player2_name} ${selectedMatch.player2_last_name}`
+                          }
+                        </strong> receives {strokeInfo.strokesReceived} stroke{strokeInfo.strokesReceived !== 1 ? 's' : ''} for this match
+                      </div>
+                    </div>
+                  );
                 }
-              </p>
+                return null;
+              })()}
             </div>
 
-            {/* Hole Scores Table */}
+            {/* Hole Scores Table - Mobile Optimized */}
             <div className="mb-6">
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse border border-neutral-300">
+                <table className="w-full border-collapse border border-neutral-300 text-xs sm:text-sm">
                   <thead>
                     <tr className="bg-neutral-50">
-                      <th className="border border-neutral-300 px-3 py-2 text-left text-sm font-medium text-neutral-700">Hole</th>
-                      <th className="border border-neutral-300 px-3 py-2 text-center text-sm font-medium text-neutral-700">Index</th>
-                      <th className="border border-neutral-300 px-3 py-2 text-center text-sm font-medium text-neutral-700">Par</th>
-                      <th className="border border-neutral-300 px-3 py-2 text-center text-sm font-medium text-neutral-700">Score</th>
-                      <th className="border border-neutral-300 px-3 py-2 text-center text-sm font-medium text-neutral-700">Net</th>
+                      <th className="border border-neutral-300 px-2 sm:px-3 py-2 text-left text-xs sm:text-sm font-medium text-neutral-700">Hole</th>
+                      <th className="border border-neutral-300 px-1 sm:px-3 py-2 text-center text-xs sm:text-sm font-medium text-neutral-700">Idx</th>
+                      <th className="border border-neutral-300 px-1 sm:px-3 py-2 text-center text-xs sm:text-sm font-medium text-neutral-700">Par</th>
+                      <th className="border border-neutral-300 px-2 sm:px-3 py-2 text-center text-xs sm:text-sm font-medium text-neutral-700">Score</th>
+                      <th className="border border-neutral-300 px-1 sm:px-3 py-2 text-center text-xs sm:text-sm font-medium text-neutral-700">Net</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -502,20 +631,20 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                           key={i} 
                           className={`${i % 2 === 0 ? 'bg-white' : 'bg-neutral-50'} ${getsStrokes ? 'bg-green-50 border-l-4 border-l-green-400' : ''}`}
                         >
-                          <td className="border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700">
+                          <td className="border border-neutral-300 px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium text-neutral-700">
                             <div className="flex items-center">
                               {i + 1}
-                              {isBackNine && <span className="text-xs text-neutral-500 ml-1">(Back 9)</span>}
-                              {getsStrokes && <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">Stroke</span>}
+                              {isBackNine && <span className="text-xs text-neutral-500 ml-1 hidden sm:inline">(Back 9)</span>}
+                              {getsStrokes && <span className="ml-1 sm:ml-2 text-xs bg-green-100 text-green-800 px-1 sm:px-2 py-1 rounded-full">S</span>}
                             </div>
                           </td>
-                          <td className="border border-neutral-300 px-3 py-2 text-center text-sm text-neutral-600">
+                          <td className="border border-neutral-300 px-1 sm:px-3 py-2 text-center text-xs sm:text-sm text-neutral-600">
                             {holeIndex}
                           </td>
-                          <td className="border border-neutral-300 px-3 py-2 text-center text-sm text-neutral-600">
+                          <td className="border border-neutral-300 px-1 sm:px-3 py-2 text-center text-xs sm:text-sm text-neutral-600">
                             {parValue}
                           </td>
-                          <td className="border border-neutral-300 px-3 py-2">
+                          <td className="border border-neutral-300 px-2 sm:px-3 py-2">
                             <input
                               type="number"
                               min="1"
@@ -526,11 +655,11 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                                 newScores[i] = parseInt(e.target.value) || 0;
                                 setHoleScores(newScores);
                               }}
-                              className="w-full px-2 py-1 border border-neutral-300 rounded text-center text-sm focus:ring-2 focus:ring-brand-neon-green focus:border-brand-neon-green"
+                              className="w-full px-1 sm:px-2 py-1 border border-neutral-300 rounded text-center text-xs sm:text-sm focus:ring-2 focus:ring-brand-neon-green focus:border-brand-neon-green"
                               placeholder="0"
                             />
                           </td>
-                          <td className="border border-neutral-300 px-3 py-2 text-center text-sm">
+                          <td className="border border-neutral-300 px-1 sm:px-3 py-2 text-center text-xs sm:text-sm">
                             {netScore > 0 ? (
                               <span className={`font-medium ${netScore < holeScores[i] ? 'text-green-600' : 'text-neutral-600'}`}>
                                 {netScore}
@@ -624,11 +753,11 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex justify-end space-x-3">
+            {/* Action Buttons - Mobile Optimized */}
+            <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3">
               <button
                 onClick={() => setShowScoringModal(false)}
-                className="px-4 py-2 text-neutral-600 hover:text-neutral-800"
+                className="w-full sm:w-auto px-4 py-2 text-neutral-600 hover:text-neutral-800 text-sm sm:text-base"
                 disabled={submitting}
               >
                 Cancel
@@ -636,7 +765,7 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
               <button
                 onClick={handleSubmitScore}
                 disabled={submitting}
-                className="px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors disabled:opacity-50"
+                className="w-full sm:w-auto px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors disabled:opacity-50 text-sm sm:text-base"
               >
                 {submitting ? 'Submitting...' : 'Submit Score'}
               </button>
