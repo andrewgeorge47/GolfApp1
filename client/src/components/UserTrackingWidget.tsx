@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Users, UserCheck, Calendar, TrendingUp, BarChart3, Filter, Clock, Edit3, Save, X, UserPlus, Trash2 } from 'lucide-react';
+import { Users, UserCheck, Calendar, TrendingUp, BarChart3, Filter, Clock, Edit3, Save, X, UserPlus, Trash2, Plus } from 'lucide-react';
 import { getUserTrackingStats, getUserTrackingDetails, updateUser, deleteUser, type UserTrackingStats, type UserTrackingDetails } from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../AuthContext';
 import AddUserModal from './AddUserModal';
+import AdminRoundAdder from './AdminRoundAdder';
 
 interface UserTrackingWidgetProps {
   className?: string;
@@ -24,6 +25,7 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
   const [editingRole, setEditingRole] = useState<string>('');
   const [updatingRole, setUpdatingRole] = useState<number | null>(null);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showAdminRoundAdder, setShowAdminRoundAdder] = useState(false);
 
   // Available roles for editing
   const availableRoles = ['Member', 'Admin', 'Club Pro', 'Ambassador', 'Deactivated'];
@@ -272,6 +274,13 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
             Add New User
           </button>
           <button
+            onClick={() => setShowAdminRoundAdder(true)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Rounds
+          </button>
+          <button
             onClick={handleViewDetails}
             className="px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center"
           >
@@ -481,14 +490,15 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
               </div>
             ) : (
               <div className="overflow-x-auto border border-neutral-300 rounded-lg">
-                <table className="w-full min-w-[900px] border-collapse">
+                <table className="w-full min-w-[1000px] border-collapse">
                   <thead className="bg-neutral-100">
                     <tr>
-                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[40%]">Name</th>
-                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[12%]">Club</th>
-                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[18%]">Role</th>
-                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[12%]">Claimed</th>
-                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[18%]">Actions</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[30%]">Name</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[10%]">Club</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-center font-medium text-sm w-[8%]">Scorecards</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[15%]">Role</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[10%]">Claimed</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[27%]">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -511,6 +521,20 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
                             <span className="px-2 py-1 bg-neutral-100 text-neutral-700 text-xs rounded font-medium">
                               {user.club}
                             </span>
+                          </td>
+                          <td className="border border-neutral-300 px-3 py-3 text-center">
+                            <div className="flex flex-col items-center">
+                              <span className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+                                {user.total_rounds || 0}
+                              </span>
+                              {(user.sim_rounds > 0 || user.grass_rounds > 0) && (
+                                <div className="text-xs text-neutral-500 mt-1">
+                                  {user.sim_rounds > 0 && `${user.sim_rounds} sim`}
+                                  {user.sim_rounds > 0 && user.grass_rounds > 0 && ' • '}
+                                  {user.grass_rounds > 0 && `${user.grass_rounds} grass`}
+                                </div>
+                              )}
+                            </div>
                           </td>
                           <td className="border border-neutral-300 px-3 py-3 text-neutral-600">
                             {editingUserId === user.member_id ? (
@@ -596,6 +620,32 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
         onClose={() => setShowAddUserModal(false)}
         onUserAdded={handleUserAdded}
       />
+
+      {/* Admin Round Adder Modal */}
+      {showAdminRoundAdder && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-semibold text-gray-900">Add Rounds for Users</h3>
+                <button
+                  onClick={() => setShowAdminRoundAdder(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <AdminRoundAdder
+                onRoundsAdded={() => {
+                  setShowAdminRoundAdder(false);
+                  fetchStats(); // Refresh stats after adding rounds
+                  toast.success('Scorecard added successfully');
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -30,3 +30,4 @@ COMMENT ON COLUMN tournaments.gspro_course IS 'Name of the selected GSPro course
 COMMENT ON COLUMN tournaments.gspro_course_id IS 'ID of the selected GSPro course from simulator_courses_combined table';
 COMMENT ON COLUMN tournaments.trackman_course IS 'Name of the selected Trackman course for this tournament';
 COMMENT ON COLUMN tournaments.trackman_course_id IS 'ID of the selected Trackman course from simulator_courses_combined table';
+

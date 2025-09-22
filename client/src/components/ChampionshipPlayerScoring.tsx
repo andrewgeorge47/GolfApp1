@@ -119,7 +119,8 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
     if (holeNumber === 0) return grossScore;
     
     // Calculate the handicap differential (max 8 strokes for match play)
-    const handicapDifferential = Math.min(Math.abs(handicap - opponentHandicap), 8);
+    const rawDifferential = Math.abs(handicap - opponentHandicap);
+    const handicapDifferential = Math.min(Math.round(rawDifferential), 8);
     
     // Determine which player gets strokes (the higher handicap player)
     const playerGetsStrokes = handicap > opponentHandicap;
@@ -153,7 +154,8 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
       (selectedMatch.player1_handicap || 0);
     
     // Calculate the handicap differential (max 8 strokes for match play)
-    const handicapDifferential = Math.min(Math.abs(currentPlayerHandicap - opponentHandicap), 8);
+    const rawDifferential = Math.abs(currentPlayerHandicap - opponentHandicap);
+    const handicapDifferential = Math.min(Math.round(rawDifferential), 8);
     
     // Determine which player gets strokes (the higher handicap player)
     const playerGetsStrokes = currentPlayerHandicap > opponentHandicap;
@@ -163,24 +165,54 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
     // Get the actual hole index from course data
     const actualHoleIndex = holeIndexes[holeNumber - 1] || holeNumber;
     
-    // Check if this hole gets strokes
+    // Check if this hole gets strokes using rounded differential
+    return handicapDifferential % 18 >= actualHoleIndex;
+  };
+
+  // Check if opponent gets strokes on a specific hole (from current player's perspective)
+  const opponentGetsStrokesOnHole = (holeNumber: number, match?: Match): boolean => {
+    const matchToUse = match || selectedMatch;
+    if (!user?.member_id || !matchToUse) return false;
+    
+    const currentPlayerHandicap = user?.sim_handicap || user?.handicap || 0;
+    const isPlayer1 = matchToUse.player1_id === user.member_id;
+    const opponentHandicap = isPlayer1 ? 
+      (matchToUse.player2_handicap || 0) : 
+      (matchToUse.player1_handicap || 0);
+    
+    // Calculate the handicap differential (max 8 strokes for match play)
+    const rawDifferential = Math.abs(currentPlayerHandicap - opponentHandicap);
+    const handicapDifferential = Math.min(Math.round(rawDifferential), 8);
+    
+    // Determine which player gets strokes (the higher handicap player)
+    const opponentGetsStrokes = opponentHandicap > currentPlayerHandicap;
+    
+    if (!opponentGetsStrokes) return false;
+    
+    // Get the actual hole index from course data
+    const actualHoleIndex = holeIndexes[holeNumber - 1] || holeNumber;
+    
+    // Check if this hole gets strokes using rounded differential
     return handicapDifferential % 18 >= actualHoleIndex;
   };
 
   // Calculate stroke difference for match play
   const calculateStrokeDifference = (match: Match) => {
-    const player1Handicap = match.player1_handicap || match.player1_grass_handicap || 0;
-    const player2Handicap = match.player2_handicap || match.player2_grass_handicap || 0;
+    const player1Handicap = Number(match.player1_handicap || match.player1_grass_handicap || 0);
+    const player2Handicap = Number(match.player2_handicap || match.player2_grass_handicap || 0);
     
     // Calculate the handicap differential (max 8 strokes for match play)
     const handicapDifferential = Math.min(Math.abs(player1Handicap - player2Handicap), 8);
     
+    // Determine higher handicap player before rounding
+    const higherHandicapPlayer = player1Handicap > player2Handicap ? 'player1' : 'player2';
+    
     return {
-      player1Handicap,
-      player2Handicap,
-      handicapDifferential,
-      higherHandicapPlayer: player1Handicap > player2Handicap ? 'player1' : 'player2',
-      strokesReceived: handicapDifferential
+      player1Handicap: Number(player1Handicap.toFixed(1)),
+      player2Handicap: Number(player2Handicap.toFixed(1)),
+      handicapDifferential: Number(handicapDifferential.toFixed(1)),
+      higherHandicapPlayer,
+      strokesReceived: Math.round(handicapDifferential)
     };
   };
 
@@ -434,7 +466,7 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                       {currentPlayerName}
                     </div>
                     <div className="text-xs text-blue-700">
-                      Hcp: {currentPlayerHandicap}
+                      Hcp: {Number(currentPlayerHandicap || 0).toFixed(1)}
                     </div>
                   </div>
                   <div className="bg-green-50 p-2 sm:p-3 rounded-lg">
@@ -443,22 +475,45 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                       {playerMatch.opponent.name} {playerMatch.opponent.last_name}
                     </div>
                     <div className="text-xs text-green-700">
-                      Hcp: {opponentHandicap}
+                      Hcp: {Number(opponentHandicap || 0).toFixed(1)}
                     </div>
                   </div>
                 </div>
                 
                 {/* Stroke Information */}
                 {strokeInfo.handicapDifferential > 0 && (
-                  <div className="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <div className="text-xs sm:text-sm text-yellow-800">
-                      <strong>
-                        {strokeInfo.higherHandicapPlayer === 'player1' ? 
-                          `${playerMatch.match.player1_name} ${playerMatch.match.player1_last_name}` :
-                          `${playerMatch.match.player2_name} ${playerMatch.match.player2_last_name}`
-                        }
-                      </strong> receives {strokeInfo.strokesReceived} stroke{strokeInfo.strokesReceived !== 1 ? 's' : ''} for this match
+                  <div className="mb-3 space-y-2">
+                    <div className="p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="text-xs sm:text-sm text-yellow-800">
+                        <strong>
+                          {strokeInfo.higherHandicapPlayer === 'player1' ? 
+                            `${playerMatch.match.player1_name} ${playerMatch.match.player1_last_name}` :
+                            `${playerMatch.match.player2_name} ${playerMatch.match.player2_last_name}`
+                          }
+                        </strong> receives {strokeInfo.strokesReceived} stroke{strokeInfo.strokesReceived !== 1 ? 's' : ''} for this match
+                      </div>
                     </div>
+                    
+                    {/* Show which holes opponent gets strokes on */}
+                    {(() => {
+                      const opponentStrokeHoles = [];
+                      for (let i = 1; i <= 18; i++) {
+                        if (opponentGetsStrokesOnHole(i, playerMatch.match)) {
+                          opponentStrokeHoles.push(i);
+                        }
+                      }
+                      
+                      if (opponentStrokeHoles.length > 0) {
+                        return (
+                          <div className="p-2 bg-orange-50 border border-orange-200 rounded-lg">
+                            <div className="text-xs text-orange-800">
+                              <strong>Your opponent gets strokes on holes:</strong> {opponentStrokeHoles.join(', ')}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 )}
                 
@@ -577,25 +632,61 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                 </div>
               </div>
               
-              {/* Stroke Information - Mobile Optimized */}
-              {(() => {
-                const strokeInfo = calculateStrokeDifference(selectedMatch);
-                if (strokeInfo.handicapDifferential > 0) {
-                  return (
-                    <div className="p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
-                      <div className="text-xs sm:text-sm text-yellow-800">
-                        <strong>
-                          {strokeInfo.higherHandicapPlayer === 'player1' ? 
-                            `${selectedMatch.player1_name} ${selectedMatch.player1_last_name}` :
-                            `${selectedMatch.player2_name} ${selectedMatch.player2_last_name}`
-                          }
-                        </strong> receives {strokeInfo.strokesReceived} stroke{strokeInfo.strokesReceived !== 1 ? 's' : ''} for this match
+                {/* Stroke Information - Mobile Optimized */}
+                {(() => {
+                  const strokeInfo = calculateStrokeDifference(selectedMatch);
+                  if (strokeInfo.handicapDifferential > 0) {
+                    // Get holes where opponent gets strokes
+                    const opponentStrokeHoles = [];
+                    for (let i = 1; i <= 18; i++) {
+                      if (opponentGetsStrokesOnHole(i, selectedMatch)) {
+                        opponentStrokeHoles.push(i);
+                      }
+                    }
+                    
+                    return (
+                      <div className="space-y-3">
+                        <div className="p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+                          <div className="text-xs sm:text-sm text-yellow-800">
+                            <strong>
+                              {strokeInfo.higherHandicapPlayer === 'player1' ? 
+                                `${selectedMatch.player1_name} ${selectedMatch.player1_last_name}` :
+                                `${selectedMatch.player2_name} ${selectedMatch.player2_last_name}`
+                              }
+                            </strong> receives {strokeInfo.strokesReceived} stroke{strokeInfo.strokesReceived !== 1 ? 's' : ''} for this match
+                          </div>
+                        </div>
+                        
+                        {/* Legend */}
+                        <div className="p-2 bg-gray-50 border border-gray-200 rounded-lg">
+                          <div className="text-xs text-gray-700 mb-2 font-medium">Scorecard Legend:</div>
+                          <div className="flex flex-wrap gap-3 text-xs text-gray-600">
+                            <div className="flex items-center">
+                              <span className="w-3 h-3 bg-green-100 border border-green-300 rounded-full mr-1"></span>
+                              <span className="bg-green-100 text-green-800 px-1 py-0.5 rounded text-xs mr-1">S</span>
+                              You get strokes
+                            </div>
+                            <div className="flex items-center">
+                              <span className="w-3 h-3 bg-orange-100 border border-orange-300 rounded-full mr-1"></span>
+                              <span className="bg-orange-100 text-orange-800 px-1 py-0.5 rounded text-xs mr-1">O</span>
+                              Opponent gets strokes
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Opponent stroke holes summary */}
+                        {opponentStrokeHoles.length > 0 && (
+                          <div className="p-2 bg-orange-50 border border-orange-200 rounded-lg">
+                            <div className="text-xs text-orange-800">
+                              <strong>Your opponent gets strokes on holes:</strong> {opponentStrokeHoles.join(', ')}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
+                    );
+                  }
+                  return null;
+                })()}
             </div>
 
             {/* Hole Scores Table - Mobile Optimized */}
@@ -618,6 +709,7 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                       const isBackNine = i >= 9;
                       const holeNumber = i + 1;
                       const getsStrokes = playerGetsStrokesOnHole(holeNumber);
+                      const opponentGetsStrokes = opponentGetsStrokesOnHole(holeNumber, selectedMatch);
                       const currentPlayerHandicap = user?.sim_handicap || user?.handicap || 0;
                       const isPlayer1 = selectedMatch?.player1_id === user?.member_id;
                       const opponentHandicap = isPlayer1 ? 
@@ -629,13 +721,14 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                       return (
                         <tr 
                           key={i} 
-                          className={`${i % 2 === 0 ? 'bg-white' : 'bg-neutral-50'} ${getsStrokes ? 'bg-green-50 border-l-4 border-l-green-400' : ''}`}
+                          className={`${i % 2 === 0 ? 'bg-white' : 'bg-neutral-50'} ${getsStrokes ? 'bg-green-50 border-l-4 border-l-green-400' : ''} ${opponentGetsStrokes ? 'bg-orange-50 border-l-4 border-l-orange-400' : ''}`}
                         >
                           <td className="border border-neutral-300 px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium text-neutral-700">
                             <div className="flex items-center">
                               {i + 1}
                               {isBackNine && <span className="text-xs text-neutral-500 ml-1 hidden sm:inline">(Back 9)</span>}
                               {getsStrokes && <span className="ml-1 sm:ml-2 text-xs bg-green-100 text-green-800 px-1 sm:px-2 py-1 rounded-full">S</span>}
+                              {opponentGetsStrokes && <span className="ml-1 sm:ml-2 text-xs bg-orange-100 text-orange-800 px-1 sm:px-2 py-1 rounded-full">O</span>}
                             </div>
                           </td>
                           <td className="border border-neutral-300 px-1 sm:px-3 py-2 text-center text-xs sm:text-sm text-neutral-600">

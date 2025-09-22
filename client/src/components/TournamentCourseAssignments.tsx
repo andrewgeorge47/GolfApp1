@@ -136,3 +136,4 @@ const TournamentCourseAssignments: React.FC<TournamentCourseAssignmentsProps> = 
 };
 
 export default TournamentCourseAssignments;
+

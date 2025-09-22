@@ -91,3 +91,4 @@ export function getCourseAssignmentDescription(userClub: string): string {
     ? 'Club No. 8 uses Trackman' 
     : 'All other clubs use GSPro';
 }
+

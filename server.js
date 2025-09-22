@@ -4606,7 +4606,8 @@ function calculateNetScore(grossScore, handicap, holeIndex, opponentHandicap = 0
   if (holeIndex === 0) return grossScore;
   
   // Calculate the handicap differential (max 8 strokes for match play)
-  const handicapDifferential = Math.min(Math.abs(handicap - opponentHandicap), 8);
+  const rawDifferential = Math.abs(handicap - opponentHandicap);
+  const handicapDifferential = Math.min(Math.round(rawDifferential), 8);
   
   // Determine which player gets strokes (the higher handicap player)
   const playerGetsStrokes = handicap > opponentHandicap;
@@ -4636,6 +4637,7 @@ function calculateNetScoreWithIndex(grossScore, playerHandicap, holeIndex, handi
   
   // Calculate handicap strokes for this hole based on course handicap index
   // Distribute strokes across holes based on their handicap index (1-18)
+  // Note: handicapDifferential should already be rounded when passed to this function
   const handicapStrokes = Math.floor(handicapDifferential / 18) + 
     (handicapDifferential % 18 >= holeIndex ? 1 : 0);
   
@@ -4950,7 +4952,8 @@ app.put('/api/tournaments/:id/championship-matches/:matchId/result', async (req,
         });
         
         // Calculate handicap differential (max 8 strokes for match play)
-        const handicapDifferential = Math.min(Math.abs(player1Handicap - player2Handicap), 8);
+        const rawDifferential = Math.abs(player1Handicap - player2Handicap);
+        const handicapDifferential = Math.min(Math.round(rawDifferential), 8);
         const higherHandicapPlayer = player1Handicap > player2Handicap ? 1 : 2;
         
         console.log('Handicap calculation:', {
@@ -7984,7 +7987,14 @@ app.get('/api/admin/user-tracking-stats', authenticateToken, async (req, res) =>
       [req.user.member_id]
     );
     
-    if (userRows.length === 0 || userRows[0].role !== 'Admin') {
+    if (userRows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    
+    const userRole = userRows[0].role;
+    const isAdmin = userRole === 'Admin' || userRole === 'admin' || userRole === 'super_admin' || userRole === 'Super Admin';
+    
+    if (!isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -8082,7 +8092,14 @@ app.get('/api/admin/user-tracking-details', authenticateToken, async (req, res) 
       [req.user.member_id]
     );
     
-    if (userRows.length === 0 || userRows[0].role !== 'Admin') {
+    if (userRows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    
+    const userRole = userRows[0].role;
+    const isAdmin = userRole === 'Admin' || userRole === 'admin' || userRole === 'super_admin' || userRole === 'Super Admin';
+    
+    if (!isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -10373,6 +10390,244 @@ app.delete('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', auth
   } catch (err) {
     console.error('Error deleting admin strokeplay scorecard:', err);
     res.status(500).json({ error: 'Failed to delete scorecard' });
+  }
+});
+
+
+// Admin endpoint: Add regular scorecards for handicap tracking (admin only)
+app.post('/api/admin/scorecards', authenticateToken, async (req, res) => {
+  const { user_id, hole_scores, total_score, notes, round_type, course_id, course_name, teebox, course_rating, course_slope, handicap, date_played } = req.body;
+  
+  try {
+    // Check if user is admin or super admin
+    const userResult = await pool.query(
+      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    
+    const user = userResult.rows[0];
+    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
+    const isAdmin = user.role === 'admin';
+    
+    if (!isAdmin && !isSuperAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Validate required fields
+    if (!user_id) {
+      return res.status(400).json({ error: 'user_id is required' });
+    }
+
+    if (!hole_scores || !Array.isArray(hole_scores)) {
+      return res.status(400).json({ error: 'hole_scores must be an array' });
+    }
+
+    // Check if user exists
+    const userCheck = await pool.query(
+      'SELECT member_id, first_name, last_name FROM users WHERE member_id = $1',
+      [user_id]
+    );
+    
+    if (userCheck.rows.length === 0) {
+      return res.status(400).json({ error: 'User not found' });
+    }
+
+    // Calculate total score if not provided
+    const calculatedTotal = total_score || hole_scores.reduce((sum, score) => sum + (score || 0), 0);
+
+    // Calculate differential for handicap tracking
+    let differential = null;
+    if (course_rating && course_slope && calculatedTotal) {
+      differential = ((calculatedTotal - course_rating) * 113) / course_slope;
+    }
+
+    // Insert into regular scorecards table (no tournament_id for handicap tracking)
+    const insertQuery = `
+      INSERT INTO scorecards (user_id, tournament_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, differential, course_name, course_id, teebox, holes_played, nine_type, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      RETURNING *
+    `;
+    
+    const insertValues = [
+      user_id,
+      null, // tournament_id - null for regular scorecards
+      'stroke_play', // type
+      `${userCheck.rows[0].first_name} ${userCheck.rows[0].last_name}`, // player_name
+      date_played || new Date().toISOString().split('T')[0], // date_played
+      handicap || 0, // handicap
+      JSON.stringify(hole_scores), // scores
+      calculatedTotal, // total_strokes
+      0, // total_mulligans
+      calculatedTotal, // final_score
+      round_type || 'sim', // round_type
+      course_rating || null, // course_rating
+      course_slope || null, // course_slope
+      differential, // differential
+      course_name || null, // course_name
+      course_id || null, // course_id
+      teebox || null, // teebox
+      hole_scores.length, // holes_played
+      null, // nine_type
+      new Date() // created_at
+    ];
+
+    const { rows } = await pool.query(insertQuery, insertValues);
+    
+    // Recalculate handicap for this user after saving scorecard
+    try {
+      await calculateAndUpdateUserHandicap(user_id);
+      console.log('Handicap recalculated for user after admin scorecard save');
+    } catch (handicapErr) {
+      console.error('Error recalculating handicap:', handicapErr);
+      // Don't fail the scorecard save if handicap calculation fails
+    }
+    
+    console.log(`Admin added scorecard for user ${user_id}:`, rows[0]);
+    
+    res.json({ 
+      success: true, 
+      scorecard: rows[0],
+      message: 'Scorecard added successfully for handicap tracking' 
+    });
+    
+  } catch (err) {
+    console.error('Error adding admin scorecard:', err);
+    res.status(500).json({ error: 'Failed to add scorecard', details: err.message });
+  }
+});
+
+// Admin endpoint: Add multiple rounds for users (admin only)
+app.post('/api/tournaments/:id/admin/rounds/bulk', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { rounds } = req.body;
+  
+  try {
+    // Check if user is admin or super admin (Andrew George)
+    const userResult = await pool.query(
+      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    
+    const user = userResult.rows[0];
+    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
+    const isAdmin = user.role === 'admin';
+    
+    if (!isAdmin && !isSuperAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!rounds || !Array.isArray(rounds) || rounds.length === 0) {
+      return res.status(400).json({ error: 'rounds array is required' });
+    }
+
+    const results = [];
+    const errors = [];
+
+    for (let i = 0; i < rounds.length; i++) {
+      const round = rounds[i];
+      const { user_id, week_start_date, hole_scores, total_score, notes, round_type, course_id, course_name, teebox, course_rating, course_slope, handicap, date_played } = round;
+      
+      try {
+        // Validate required fields
+        if (!user_id || !hole_scores || !Array.isArray(hole_scores) || hole_scores.length === 0) {
+          errors.push({ index: i, error: 'user_id and hole_scores are required' });
+          continue;
+        }
+
+        // Check if user exists
+        const userCheck = await pool.query(
+          'SELECT member_id, first_name, last_name FROM users WHERE member_id = $1',
+          [user_id]
+        );
+        
+        if (userCheck.rows.length === 0) {
+          errors.push({ index: i, error: 'User not found' });
+          continue;
+        }
+
+        // Calculate total score if not provided
+        const calculatedTotal = total_score || hole_scores.reduce((sum, score) => sum + (score || 0), 0);
+        
+        // Determine the appropriate table based on tournament format
+        let tableName, insertQuery, insertValues;
+        
+        if (week_start_date) {
+          // Use weekly_scorecards table
+          tableName = 'weekly_scorecards';
+          insertQuery = `
+            INSERT INTO weekly_scorecards (user_id, tournament_id, week_start_date, hole_scores, total_score, is_live, group_id, submitted_at, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING *
+          `;
+          insertValues = [
+            user_id,
+            id,
+            week_start_date,
+            JSON.stringify(hole_scores),
+            calculatedTotal,
+            false,
+            'admin_added',
+            new Date(),
+            new Date()
+          ];
+        } else {
+          // Use regular scorecards table
+          tableName = 'scorecards';
+          insertQuery = `
+            INSERT INTO scorecards (user_id, tournament_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, course_name, course_id, teebox, holes_played, nine_type, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+            RETURNING *
+          `;
+          insertValues = [
+            user_id,
+            id,
+            'stroke_play',
+            `${userCheck.rows[0].first_name} ${userCheck.rows[0].last_name}`,
+            date_played || new Date().toISOString().split('T')[0],
+            handicap || 0,
+            JSON.stringify(hole_scores),
+            calculatedTotal,
+            0,
+            calculatedTotal,
+            round_type || 'sim',
+            course_rating || null,
+            course_slope || null,
+            course_name || null,
+            course_id || null,
+            teebox || null,
+            hole_scores.length,
+            null,
+            new Date()
+          ];
+        }
+
+        const { rows } = await pool.query(insertQuery, insertValues);
+        results.push({ index: i, scorecard: rows[0] });
+        
+      } catch (err) {
+        console.error(`Error adding round ${i}:`, err);
+        errors.push({ index: i, error: err.message });
+      }
+    }
+    
+    console.log(`Admin bulk added rounds: ${results.length} successful, ${errors.length} failed`);
+    
+    res.status(201).json({
+      message: `Bulk round addition completed: ${results.length} successful, ${errors.length} failed`,
+      results,
+      errors
+    });
+  } catch (err) {
+    console.error('Error in bulk round addition:', err);
+    res.status(500).json({ error: 'Failed to add rounds' });
   }
 });
 

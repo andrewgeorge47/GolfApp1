@@ -936,6 +936,42 @@ export const deleteAdminStrokeplayScorecard = (tournamentId: number, scorecardId
   return api.delete(`/tournaments/${tournamentId}/admin/strokeplay-scorecards/${scorecardId}`);
 };
 
+// Admin round management functions
+export const addAdminScorecard = (scorecardData: {
+  user_id: number;
+  hole_scores: number[];
+  total_score?: number;
+  notes?: string;
+  round_type?: string;
+  course_id?: number;
+  course_name?: string;
+  teebox?: string;
+  course_rating?: number;
+  course_slope?: number;
+  handicap?: number;
+  date_played?: string;
+}) => {
+  return api.post('/admin/scorecards', scorecardData);
+};
+
+export const addAdminRoundsBulk = (tournamentId: number, rounds: Array<{
+  user_id: number;
+  week_start_date?: string;
+  hole_scores: number[];
+  total_score?: number;
+  notes?: string;
+  round_type?: string;
+  course_id?: number;
+  course_name?: string;
+  teebox?: string;
+  course_rating?: number;
+  course_slope?: number;
+  handicap?: number;
+  date_played?: string;
+}>) => {
+  return api.post(`/tournaments/${tournamentId}/admin/rounds/bulk`, { rounds });
+};
+
 // Admin matchplay match editing functions
 export const getAdminMatchplayMatches = (tournamentId: number) => {
   return api.get(`/tournaments/${tournamentId}/admin/matchplay-matches`);

@@ -663,7 +663,8 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
     if (holeIndex === 0) return grossScore;
     
     // Calculate the handicap differential (max 8 strokes)
-    const handicapDifferential = Math.min(Math.abs(handicap - opponentHandicap), 8);
+    const rawDifferential = Math.abs(handicap - opponentHandicap);
+    const handicapDifferential = Math.min(Math.round(rawDifferential), 8);
     
     // Determine who gets the strokes (higher handicap player)
     // Higher handicap = more strokes needed = worse player
@@ -1680,9 +1681,9 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                     </p>
                     <p className="text-xs text-blue-600 mt-1">
                       {player1Handicap > player2Handicap 
-                        ? `${scoringMatch.player1_name} gets strokes on the ${Math.min(Math.abs(player1Handicap - player2Handicap), 8)} hardest holes`
+                        ? `${scoringMatch.player1_name} gets strokes on the ${Math.round(Math.min(Math.abs(player1Handicap - player2Handicap), 8))} hardest holes`
                         : player2Handicap > player1Handicap
-                        ? `${scoringMatch.player2_name} gets strokes on the ${Math.min(Math.abs(player1Handicap - player2Handicap), 8)} hardest holes`
+                        ? `${scoringMatch.player2_name} gets strokes on the ${Math.round(Math.min(Math.abs(player1Handicap - player2Handicap), 8))} hardest holes`
                         : 'No strokes given - handicaps are equal'
                       }
                     </p>
@@ -1724,10 +1725,21 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                         const winner = p1Gross > 0 && p2Gross > 0 ? 
                           (p1Net < p2Net ? 'P1' : p2Net < p1Net ? 'P2' : 'H') : '';
                         
+                        // Check which player gets strokes on this hole
+                        const rawDifferential = Math.abs(player1Handicap - player2Handicap);
+                        const handicapDifferential = Math.min(Math.round(rawDifferential), 8);
+                        const p1GetsStrokes = player1Handicap > player2Handicap && handicapDifferential % 18 >= holeIndex;
+                        const p2GetsStrokes = player2Handicap > player1Handicap && handicapDifferential % 18 >= holeIndex;
                         
                         return (
-                          <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                            <td className="border border-gray-300 px-2 py-1 text-center text-xs font-medium">{i + 1}</td>
+                          <tr key={i} className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} ${p1GetsStrokes ? 'bg-green-50' : ''} ${p2GetsStrokes ? 'bg-orange-50' : ''}`}>
+                            <td className="border border-gray-300 px-2 py-1 text-center text-xs font-medium">
+                              <div className="flex items-center justify-center">
+                                {i + 1}
+                                {p1GetsStrokes && <span className="ml-1 text-xs bg-green-100 text-green-800 px-1 py-0.5 rounded">P1</span>}
+                                {p2GetsStrokes && <span className="ml-1 text-xs bg-orange-100 text-orange-800 px-1 py-0.5 rounded">P2</span>}
+                              </div>
+                            </td>
                             <td className="border border-gray-300 px-2 py-1 text-center text-xs">{holeIndex}</td>
                             <td className="border border-gray-300 px-2 py-1 text-center text-xs">{parValue}</td>
                             <td className="border border-gray-300 px-2 py-1">
