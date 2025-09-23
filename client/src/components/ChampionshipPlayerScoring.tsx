@@ -147,11 +147,14 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
   const playerGetsStrokesOnHole = (holeNumber: number): boolean => {
     if (!user?.member_id || !selectedMatch) return false;
     
-    const currentPlayerHandicap = user?.sim_handicap || user?.handicap || 0;
+    // Use the same handicap values as the match data for consistency
     const isPlayer1 = selectedMatch.player1_id === user.member_id;
+    const currentPlayerHandicap = isPlayer1 ? 
+      (selectedMatch.player1_handicap || selectedMatch.player1_grass_handicap || 0) : 
+      (selectedMatch.player2_handicap || selectedMatch.player2_grass_handicap || 0);
     const opponentHandicap = isPlayer1 ? 
-      (selectedMatch.player2_handicap || 0) : 
-      (selectedMatch.player1_handicap || 0);
+      (selectedMatch.player2_handicap || selectedMatch.player2_grass_handicap || 0) : 
+      (selectedMatch.player1_handicap || selectedMatch.player1_grass_handicap || 0);
     
     // Calculate the handicap differential (max 8 strokes for match play)
     const rawDifferential = Math.abs(currentPlayerHandicap - opponentHandicap);
@@ -174,11 +177,14 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
     const matchToUse = match || selectedMatch;
     if (!user?.member_id || !matchToUse) return false;
     
-    const currentPlayerHandicap = user?.sim_handicap || user?.handicap || 0;
+    // Use the same handicap values as the match data for consistency
     const isPlayer1 = matchToUse.player1_id === user.member_id;
+    const currentPlayerHandicap = isPlayer1 ? 
+      (matchToUse.player1_handicap || matchToUse.player1_grass_handicap || 0) : 
+      (matchToUse.player2_handicap || matchToUse.player2_grass_handicap || 0);
     const opponentHandicap = isPlayer1 ? 
-      (matchToUse.player2_handicap || 0) : 
-      (matchToUse.player1_handicap || 0);
+      (matchToUse.player2_handicap || matchToUse.player2_grass_handicap || 0) : 
+      (matchToUse.player1_handicap || matchToUse.player1_grass_handicap || 0);
     
     // Calculate the handicap differential (max 8 strokes for match play)
     const rawDifferential = Math.abs(currentPlayerHandicap - opponentHandicap);
@@ -202,7 +208,8 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
     const player2Handicap = Number(match.player2_handicap || match.player2_grass_handicap || 0);
     
     // Calculate the handicap differential (max 8 strokes for match play)
-    const handicapDifferential = Math.min(Math.abs(player1Handicap - player2Handicap), 8);
+    const rawDifferential = Math.abs(player1Handicap - player2Handicap);
+    const handicapDifferential = Math.min(Math.round(rawDifferential), 8);
     
     // Determine higher handicap player before rounding
     const higherHandicapPlayer = player1Handicap > player2Handicap ? 'player1' : 'player2';
@@ -274,18 +281,16 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
       // Get both players' handicaps for proper net score calculation
       const currentPlayerHandicap = user?.sim_handicap || user?.handicap || 0;
       const isPlayer1 = selectedMatch.player1_id === user.member_id;
-      
-      // For now, we'll use a simplified approach where we only calculate net scores
-      // for the current player. The opponent's net scores will be calculated when they submit.
-      // In a full implementation, we'd need to fetch the opponent's handicap as well.
+      const opponentHandicap = isPlayer1 ? 
+        (selectedMatch.player2_handicap || selectedMatch.player2_grass_handicap || 0) : 
+        (selectedMatch.player1_handicap || selectedMatch.player1_grass_handicap || 0);
       
       // Calculate net scores for the current player using actual course hole indexes
       const netScores = holeScores.map((score, index) => {
         if (score === 0) return 0;
         const holeNumber = index + 1; // Hole numbers are 1-18
-        // For now, we'll calculate net score without opponent handicap
-        // This will be corrected when both players have submitted
-        return calculateNetScore(score, currentPlayerHandicap, holeNumber, 0);
+        // Calculate net score with proper opponent handicap for correct stroke assignment
+        return calculateNetScore(score, currentPlayerHandicap, holeNumber, opponentHandicap);
       });
       
       const response = await api.put(`/tournaments/${tournamentId}/championship-matches/${selectedMatch.id}/result`, {
@@ -710,11 +715,13 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                       const holeNumber = i + 1;
                       const getsStrokes = playerGetsStrokesOnHole(holeNumber);
                       const opponentGetsStrokes = opponentGetsStrokesOnHole(holeNumber, selectedMatch);
-                      const currentPlayerHandicap = user?.sim_handicap || user?.handicap || 0;
                       const isPlayer1 = selectedMatch?.player1_id === user?.member_id;
+                      const currentPlayerHandicap = isPlayer1 ? 
+                        (selectedMatch?.player1_handicap || selectedMatch?.player1_grass_handicap || 0) : 
+                        (selectedMatch?.player2_handicap || selectedMatch?.player2_grass_handicap || 0);
                       const opponentHandicap = isPlayer1 ? 
-                        (selectedMatch?.player2_handicap || 0) : 
-                        (selectedMatch?.player1_handicap || 0);
+                        (selectedMatch?.player2_handicap || selectedMatch?.player2_grass_handicap || 0) : 
+                        (selectedMatch?.player1_handicap || selectedMatch?.player1_grass_handicap || 0);
                       const netScore = holeScores[i] > 0 ? 
                         calculateNetScore(holeScores[i], currentPlayerHandicap, holeNumber, opponentHandicap) : 0;
                       
