@@ -518,12 +518,12 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
     const player2 = tournamentParticipants.find(p => p.user_member_id === match.player2_id);
     
     if (player1) {
-      const handicap = player1.sim_handicap || player1.handicap || 0;
+      const handicap = Number(player1.sim_handicap || player1.handicap || 0);
       console.log('Player 1 handicap:', handicap, 'from fields:', { sim_handicap: player1.sim_handicap, handicap: player1.handicap });
       setPlayer1Handicap(handicap);
     }
     if (player2) {
-      const handicap = player2.sim_handicap || player2.handicap || 0;
+      const handicap = Number(player2.sim_handicap || player2.handicap || 0);
       console.log('Player 2 handicap:', handicap, 'from fields:', { sim_handicap: player2.sim_handicap, handicap: player2.handicap });
       setPlayer2Handicap(handicap);
     }
@@ -660,7 +660,8 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
 
 
   const calculateNetScore = (grossScore: number, handicap: number, holeIndex: number, opponentHandicap: number = 0): number => {
-    if (holeIndex === 0) return grossScore;
+    // Use hole number (1-18) if holeIndex is invalid
+    const actualHoleIndex = holeIndex > 0 ? holeIndex : 1;
     
     // Calculate the handicap differential (max 8 strokes)
     const rawDifferential = Math.abs(handicap - opponentHandicap);
@@ -671,14 +672,30 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
     const higherHandicap = Math.max(handicap, opponentHandicap);
     const isHigherHandicapPlayer = handicap === higherHandicap;
     
+    // Debug logging for stroke calculation
+    console.log('Admin calculateNetScore debug:', {
+      grossScore,
+      handicap,
+      opponentHandicap,
+      holeIndex,
+      actualHoleIndex,
+      rawDifferential,
+      handicapDifferential,
+      higherHandicap,
+      isHigherHandicapPlayer
+    });
+    
     // If this player is the higher handicap player, they get strokes
     if (isHigherHandicapPlayer) {
       // Calculate strokes for the higher handicap player (capped at 8)
-      const handicapStrokes = Math.floor(handicapDifferential / 18) + (handicapDifferential % 18 >= holeIndex ? 1 : 0);
-      return Math.max(1, grossScore - handicapStrokes);
+      const handicapStrokes = Math.floor(handicapDifferential / 18) + (handicapDifferential % 18 >= actualHoleIndex ? 1 : 0);
+      const netScore = Math.max(1, grossScore - handicapStrokes);
+      console.log(`Higher handicap player gets ${handicapStrokes} strokes on hole ${actualHoleIndex}: ${grossScore} -> ${netScore}`);
+      return netScore;
     } else {
       // This player is the lower handicap player (better player)
       // They don't get strokes, but their opponent does
+      console.log(`Lower handicap player gets no strokes on hole ${actualHoleIndex}: ${grossScore}`);
       return grossScore;
     }
   };
@@ -848,8 +865,8 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
   };
 
   const calculateTiebreakerPoints = (wins: number, losses: number, ties: number, holesWon: number, holesLost: number) => {
-    const netHoles = holesWon - holesLost;
-    return wins * 3 + ties + netHoles * 0.1;
+    // Use simple sum of holes won (consistent with server-side implementation)
+    return holesWon;
   };
 
   if (loading) {
@@ -1693,6 +1710,15 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                       </p>
                     )}
                   </div>
+                  
+                  {/* Debug Information */}
+                  <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
+                    <p className="font-semibold text-yellow-800">Debug Info:</p>
+                    <p>Player 1 ({scoringMatch.player1_name}): {player1Handicap}</p>
+                    <p>Player 2 ({scoringMatch.player2_name}): {player2Handicap}</p>
+                    <p>Higher handicap: {player1Handicap > player2Handicap ? scoringMatch.player1_name : scoringMatch.player2_name}</p>
+                    <p>Strokes to give: {Math.round(Math.min(Math.abs(player1Handicap - player2Handicap), 8))}</p>
+                  </div>
                 </div>
               )}
 
@@ -1730,6 +1756,20 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                         const handicapDifferential = Math.min(Math.round(rawDifferential), 8);
                         const p1GetsStrokes = player1Handicap > player2Handicap && handicapDifferential % 18 >= holeIndex;
                         const p2GetsStrokes = player2Handicap > player1Handicap && handicapDifferential % 18 >= holeIndex;
+                        
+                        // Debug logging for first few holes
+                        if (i < 3) {
+                          console.log(`Hole ${i + 1} stroke calculation:`, {
+                            holeIndex,
+                            player1Handicap,
+                            player2Handicap,
+                            rawDifferential,
+                            handicapDifferential,
+                            p1GetsStrokes,
+                            p2GetsStrokes,
+                            condition: `${handicapDifferential} % 18 >= ${holeIndex} = ${handicapDifferential % 18 >= holeIndex}`
+                          });
+                        }
                         
                         return (
                           <tr key={i} className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} ${p1GetsStrokes ? 'bg-green-50' : ''} ${p2GetsStrokes ? 'bg-orange-50' : ''}`}>

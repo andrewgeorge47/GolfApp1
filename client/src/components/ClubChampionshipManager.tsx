@@ -185,9 +185,9 @@ const ClubChampionshipManager: React.FC<ClubChampionshipManagerProps> = ({
       .filter(match => match.player1_id === playerId || match.player2_id === playerId)
       .reduce((total, match) => {
         if (match.player1_id === playerId) {
-          return total + match.player1_net_holes;
+          return total + match.player1_holes_won;
         } else {
-          return total + match.player2_net_holes;
+          return total + match.player2_holes_won;
         }
       }, 0);
   };
