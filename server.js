@@ -5133,8 +5133,26 @@ app.get('/api/tournaments/:id/championship-standings', async (req, res) => {
 
         const stats = matchStatsResult.rows[0];
         
-        // Calculate tiebreaker points (total holes won)
-        const tiebreakerPoints = parseInt(stats.total_holes_won) || 0;
+        // Calculate traditional match play tiebreaker points
+        // Get individual match results to calculate tiebreaker points correctly
+        const individualMatchesResult = await pool.query(`
+          SELECT 
+            CASE WHEN player1_id = $1 THEN player1_net_holes ELSE player2_net_holes END as net_holes,
+            winner_id
+          FROM club_championship_matches 
+          WHERE tournament_id = $2 
+          AND (player1_id = $1 OR player2_id = $1)
+          AND match_status = 'completed'
+        `, [participant.user_id, id]);
+
+        let tiebreakerPoints = 0;
+        for (const match of individualMatchesResult.rows) {
+          if (match.winner_id === participant.user_id) {
+            // Player won this match - add tiebreaker points equal to their net holes advantage
+            tiebreakerPoints += Math.max(1, match.net_holes);
+          }
+          // If player lost or tied, they get 0 tiebreaker points for that match
+        }
         
         participantsWithStats.push({
           ...participant,
@@ -5236,21 +5254,42 @@ app.post('/api/tournaments/:id/determine-champions', async (req, res) => {
         };
       }
       
+      // Calculate traditional match play tiebreaker points
+      // Tiebreaker points = how many holes ahead the winner was when they clinched the match
+      let player1TiebreakerPoints = 0;
+      let player2TiebreakerPoints = 0;
+      
+      if (match.winner_id === match.player1_id) {
+        // Player 1 won - they get tiebreaker points equal to their net holes advantage
+        player1TiebreakerPoints = Math.max(1, match.player1_net_holes);
+        player2TiebreakerPoints = 0;
+      } else if (match.winner_id === match.player2_id) {
+        // Player 2 won - they get tiebreaker points equal to their net holes advantage
+        player1TiebreakerPoints = 0;
+        player2TiebreakerPoints = Math.max(1, match.player2_net_holes);
+      } else {
+        // Tie - both players get 0 tiebreaker points
+        player1TiebreakerPoints = 0;
+        player2TiebreakerPoints = 0;
+      }
+
       // Update standings based on match result
       if (match.winner_id === match.player1_id) {
         standings[match.player1_id].match_wins++;
         standings[match.player2_id].match_losses++;
-        standings[match.player1_id].tiebreaker_points += match.player1_net_holes;
-        standings[match.player2_id].tiebreaker_points += match.player2_net_holes;
+        standings[match.player1_id].tiebreaker_points += player1TiebreakerPoints;
+        standings[match.player2_id].tiebreaker_points += player2TiebreakerPoints;
       } else if (match.winner_id === match.player2_id) {
         standings[match.player2_id].match_wins++;
         standings[match.player1_id].match_losses++;
-        standings[match.player2_id].tiebreaker_points += match.player2_net_holes;
-        standings[match.player1_id].tiebreaker_points += match.player1_net_holes;
+        standings[match.player2_id].tiebreaker_points += player2TiebreakerPoints;
+        standings[match.player1_id].tiebreaker_points += player1TiebreakerPoints;
       } else {
         // Tie
         standings[match.player1_id].match_ties++;
         standings[match.player2_id].match_ties++;
+        standings[match.player1_id].tiebreaker_points += player1TiebreakerPoints;
+        standings[match.player2_id].tiebreaker_points += player2TiebreakerPoints;
       }
       
       standings[match.player1_id].total_holes_won += match.player1_holes_won;

@@ -181,13 +181,17 @@ const ClubChampionshipManager: React.FC<ClubChampionshipManagerProps> = ({
   };
 
   const calculateTiebreakerPoints = (matches: MatchResult[], playerId: number): number => {
+    // Note: This function calculates tiebreaker points using traditional match play scoring
+    // Tiebreaker points = sum of net holes advantage for matches won
     return matches
       .filter(match => match.player1_id === playerId || match.player2_id === playerId)
       .reduce((total, match) => {
         if (match.player1_id === playerId) {
-          return total + match.player1_holes_won;
+          // Player 1 won if they have positive net holes
+          return match.player1_net_holes > 0 ? total + match.player1_net_holes : total;
         } else {
-          return total + match.player2_holes_won;
+          // Player 2 won if they have positive net holes
+          return match.player2_net_holes > 0 ? total + match.player2_net_holes : total;
         }
       }, 0);
   };

@@ -865,8 +865,10 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
   };
 
   const calculateTiebreakerPoints = (wins: number, losses: number, ties: number, holesWon: number, holesLost: number) => {
-    // Use simple sum of holes won (consistent with server-side implementation)
-    return holesWon;
+    // Note: This is a placeholder function. Actual tiebreaker points are calculated server-side
+    // using traditional match play scoring (how many holes ahead when match was won)
+    // For now, return 0 as this is just for display purposes
+    return 0;
   };
 
   if (loading) {

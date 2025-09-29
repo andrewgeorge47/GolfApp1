@@ -332,6 +332,9 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
 
   const getMatchStatus = (match: Match) => {
     if (match.match_status === 'completed') {
+      if (match.winner_id === null) {
+        return 'Tied';
+      }
       return match.winner_id === user?.member_id ? 'Won' : 'Lost';
     }
     if (match.match_status === 'in_progress') {
@@ -342,12 +345,15 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
 
   const getMatchStatusColor = (match: Match) => {
     if (match.match_status === 'completed') {
+      if (match.winner_id === null) {
+        return 'text-yellow-600';
+      }
       return match.winner_id === user?.member_id ? 'text-green-600' : 'text-red-600';
     }
     if (match.match_status === 'in_progress') {
       return 'text-blue-600';
     }
-    return 'text-yellow-600';
+    return 'text-gray-600';
   };
 
   // Photo upload handlers
@@ -469,12 +475,19 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                     )}
                     {playerMatch.match.match_status === 'completed' && (
                       <div className={`flex items-center px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${
-                        playerMatch.match.winner_id === user?.member_id 
+                        playerMatch.match.winner_id === null
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : playerMatch.match.winner_id === user?.member_id 
                           ? 'bg-green-100 text-green-800' 
                           : 'bg-red-100 text-red-800'
                       }`}>
                         <Trophy className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
-                        {playerMatch.match.winner_id === user?.member_id ? 'Won' : 'Lost'}
+                        {playerMatch.match.winner_id === null 
+                          ? 'Tied' 
+                          : playerMatch.match.winner_id === user?.member_id 
+                          ? 'Won' 
+                          : 'Lost'
+                        }
                       </div>
                     )}
                   </div>
