@@ -14,6 +14,7 @@ import AdminUserProfile from './components/AdminUserProfile';
 import AvailableTournaments from './components/AvailableTournaments';
 import NewWeeklyScoring from './components/NewWeeklyScoring';
 import NewWeeklyLeaderboard from './components/NewWeeklyLeaderboard';
+import AdminPermissionsManager from './components/AdminPermissionsManager';
 import { AuthProvider, useAuth } from './AuthContext';
 import ClubProDashboard from './components/ClubProDashboard';
 import Login from './components/Login';
@@ -438,6 +439,11 @@ function AppContent() {
         <Route path="/admin/users/:userId" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <AdminProtectedRoute><AdminUserProfile /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/permissions" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><AdminPermissionsManager /></AdminProtectedRoute>
           </main>
         } />
         <Route path="/login" element={
