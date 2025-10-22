@@ -43,6 +43,114 @@ function authenticateToken(req, res, next) {
   });
 }
 
+// ========================================
+// Role Utilities - Centralized role checking
+// ========================================
+
+// Valid roles in the system
+const UserRole = {
+  MEMBER: 'Member',
+  ADMIN: 'Admin',
+  CLUB_PRO: 'Club Pro',
+  AMBASSADOR: 'Ambassador',
+  DEACTIVATED: 'Deactivated'
+};
+
+// Normalize role string to canonical format
+function normalizeRole(role) {
+  if (!role) return null;
+
+  const normalized = role.trim().toLowerCase();
+  const roleMap = {
+    'admin': UserRole.ADMIN,
+    'super admin': UserRole.ADMIN,
+    'super_admin': UserRole.ADMIN,
+    'clubpro': UserRole.CLUB_PRO,
+    'club pro': UserRole.CLUB_PRO,
+    'member': UserRole.MEMBER,
+    'ambassador': UserRole.AMBASSADOR,
+    'deactivated': UserRole.DEACTIVATED
+  };
+
+  return roleMap[normalized] || null;
+}
+
+// Check if user has admin privileges
+function isAdmin(user) {
+  if (!user || !user.role) return false;
+  return normalizeRole(user.role) === UserRole.ADMIN;
+}
+
+// Check if user has club pro privileges
+function isClubPro(user) {
+  if (!user || !user.role) return false;
+  return normalizeRole(user.role) === UserRole.CLUB_PRO;
+}
+
+// Check if user has admin or club pro privileges
+function isAdminOrClubPro(user) {
+  return isAdmin(user) || isClubPro(user);
+}
+
+// ========================================
+// Authorization Middleware
+// ========================================
+
+// Middleware to require admin role
+async function requireAdmin(req, res, next) {
+  try {
+    // req.user is already set by authenticateToken
+    const { rows: userRows } = await pool.query(
+      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+
+    if (userRows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+
+    const user = userRows[0];
+
+    if (!isAdmin(user)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Attach full user data to request for use in route handlers
+    req.userDetails = user;
+    next();
+  } catch (error) {
+    console.error('Error in requireAdmin middleware:', error);
+    res.status(500).json({ error: 'Authorization check failed' });
+  }
+}
+
+// Middleware to require club pro or admin role
+async function requireClubProOrAdmin(req, res, next) {
+  try {
+    const { rows: userRows } = await pool.query(
+      'SELECT role, first_name, last_name, club FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+
+    if (userRows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+
+    const user = userRows[0];
+
+    if (!isAdminOrClubPro(user)) {
+      return res.status(403).json({ error: 'Club Pro or Admin access required' });
+    }
+
+    // Attach full user data to request
+    req.userDetails = user;
+    next();
+  } catch (error) {
+    console.error('Error in requireClubProOrAdmin middleware:', error);
+    res.status(500).json({ error: 'Authorization check failed' });
+  }
+}
+
 // Test route
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -5834,24 +5942,11 @@ app.get('/api/handicaps', async (req, res) => {
 });
 
 // Club Pro: Get handicaps for users in the pro's club (auth required)
-app.get('/api/club-pro/handicaps', authenticateToken, async (req, res) => {
+app.get('/api/club-pro/handicaps', authenticateToken, requireClubProOrAdmin, async (req, res) => {
   try {
-    // Fetch the requesting user's club
-    const { rows: userRows } = await pool.query(
-      'SELECT club, role FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-
-    if (userRows.length === 0) {
-      return res.status(404).json({ error: 'Requesting user not found' });
-    }
-
-    const { club: userClub, role } = userRows[0];
-    const isAdmin = role && (role.toLowerCase() === 'admin');
-    const isClubPro = role && (role.toLowerCase() === 'club pro' || role.toLowerCase() === 'clubpro');
-    if (!isAdmin && !isClubPro) {
-      return res.status(403).json({ error: 'Only club pros or admins can access this resource' });
-    }
+    // Access check is now handled by requireClubProOrAdmin middleware
+    // User details are in req.userDetails
+    const userClub = req.userDetails.club;
 
     // Use club from query parameter if provided (for view-as mode), otherwise use user's club
     const targetClub = req.query.club || userClub;
@@ -5879,24 +5974,13 @@ app.get('/api/club-pro/handicaps', authenticateToken, async (req, res) => {
 });
 
 // Club Pro: Get weekly matches for the pro's club for a tournament/week (auth required)
-app.get('/api/club-pro/tournaments/:id/weekly-matches', authenticateToken, async (req, res) => {
+app.get('/api/club-pro/tournaments/:id/weekly-matches', authenticateToken, requireClubProOrAdmin, async (req, res) => {
   const { id } = req.params;
   const { week_start_date } = req.query;
   try {
-    // Determine requester club and role
-    const { rows: userRows } = await pool.query(
-      'SELECT club, role FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-    if (userRows.length === 0) {
-      return res.status(404).json({ error: 'Requesting user not found' });
-    }
-    const { club, role } = userRows[0];
-    const isAdmin = role && (role.toLowerCase() === 'admin');
-    const isClubPro = role && (role.toLowerCase() === 'club pro' || role.toLowerCase() === 'clubpro');
-    if (!isAdmin && !isClubPro) {
-      return res.status(403).json({ error: 'Only club pros or admins can access this resource' });
-    }
+    // Access check is now handled by requireClubProOrAdmin middleware
+    // User details are in req.userDetails
+    const club = req.userDetails.club;
 
     // Resolve week date using existing helper if available; otherwise accept query
     let weekDate = week_start_date;
@@ -5932,22 +6016,13 @@ app.get('/api/club-pro/tournaments/:id/weekly-matches', authenticateToken, async
 });
 
 // Club Pro: Get player tournament participation data for the pro's club (auth required)
-app.get('/api/club-pro/player-tournaments', authenticateToken, async (req, res) => {
+app.get('/api/club-pro/player-tournaments', authenticateToken, requireClubProOrAdmin, async (req, res) => {
   try {
-    // Fetch the requesting user's club
-    const { rows: userRows } = await pool.query(
-      'SELECT club, role FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
+    // Access check is now handled by requireClubProOrAdmin middleware
+    // User details are in req.userDetails
+    const userClub = req.userDetails.club;
 
-    if (userRows.length === 0) {
-      return res.status(404).json({ error: 'Requesting user not found' });
-    }
-
-    const { club: userClub, role } = userRows[0];
-    const isAdmin = role && (role.toLowerCase() === 'admin');
-    const isClubPro = role && (role.toLowerCase() === 'club pro' || role.toLowerCase() === 'clubpro');
-    if (!isAdmin && !isClubPro) {
+    if (!userClub) {
       return res.status(403).json({ error: 'Only club pros or admins can access this resource' });
     }
 
@@ -8283,25 +8358,9 @@ function transformUserData(user) {
 }
 
 // Get admin user tracking statistics
-app.get('/api/admin/user-tracking-stats', authenticateToken, async (req, res) => {
+app.get('/api/admin/user-tracking-stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    // Check if user is admin
-    const { rows: userRows } = await pool.query(
-      'SELECT role FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-    
-    if (userRows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    
-    const userRole = userRows[0].role;
-    const isAdmin = userRole === 'Admin' || userRole === 'admin' || userRole === 'super_admin' || userRole === 'Super Admin';
-    
-    if (!isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
+    // Admin check is now handled by requireAdmin middleware
     // Get total users and claimed accounts
     console.log('Fetching user stats...');
     const { rows: userStats } = await pool.query(`
@@ -8388,25 +8447,9 @@ app.get('/api/admin/user-tracking-stats', authenticateToken, async (req, res) =>
 });
 
 // Get detailed user tracking data for a specific date range
-app.get('/api/admin/user-tracking-details', authenticateToken, async (req, res) => {
+app.get('/api/admin/user-tracking-details', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    // Check if user is admin
-    const { rows: userRows } = await pool.query(
-      'SELECT role FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-    
-    if (userRows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    
-    const userRole = userRows[0].role;
-    const isAdmin = userRole === 'Admin' || userRole === 'admin' || userRole === 'super_admin' || userRole === 'Super Admin';
-    
-    if (!isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
+    // Admin check is now handled by requireAdmin middleware
     const { startDate, endDate, club } = req.query;
     
     let whereClause = '';
@@ -8462,31 +8505,14 @@ app.get('/api/admin/user-tracking-details', authenticateToken, async (req, res) 
 });
 
 // Get view-as mode data for admins (roles and clubs)
-app.get('/api/admin/view-as-data', authenticateToken, async (req, res) => {
+app.get('/api/admin/view-as-data', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    // Check if user is admin
-    const { rows: userRows } = await pool.query(
-      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-    
-    if (userRows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    
-    const user = userRows[0];
-    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role === 'Admin' || user.role === 'admin' || user.role === 'super_admin' || user.role === 'Super Admin';
-    
-    if (!isAdmin && !isSuperAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
+    // Admin check is now handled by requireAdmin middleware
     // Get available roles for view-as mode
     const availableRoles = [
-      { value: 'Member', label: 'Member' },
-      { value: 'Club Pro', label: 'Club Pro' },
-      { value: 'Ambassador', label: 'Ambassador' }
+      { value: UserRole.MEMBER, label: 'Member' },
+      { value: UserRole.CLUB_PRO, label: 'Club Pro' },
+      { value: UserRole.AMBASSADOR, label: 'Ambassador' }
     ];
 
     // Get available clubs
@@ -10697,28 +10723,11 @@ app.put('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', authent
 });
 
 // Admin endpoint: Delete a strokeplay scorecard (admin only)
-app.delete('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', authenticateToken, async (req, res) => {
+app.delete('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', authenticateToken, requireAdmin, async (req, res) => {
   const { id, scorecardId } = req.params;
-  
+
   try {
-    // Check if user is admin or super admin (Andrew George)
-    const userResult = await pool.query(
-      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    
-    const user = userResult.rows[0];
-    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role?.toLowerCase() === 'admin';
-    
-    if (!isAdmin && !isSuperAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
+    // Admin check is now handled by requireAdmin middleware
     // Validate scorecard exists and belongs to the tournament
     const scorecardResult = await pool.query(
       'SELECT * FROM scorecards WHERE id = $1 AND tournament_id = $2 AND type = $3',
@@ -10748,28 +10757,11 @@ app.delete('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', auth
 
 
 // Admin endpoint: Add regular scorecards for handicap tracking (admin only)
-app.post('/api/admin/scorecards', authenticateToken, async (req, res) => {
+app.post('/api/admin/scorecards', authenticateToken, requireAdmin, async (req, res) => {
   const { user_id, hole_scores, total_score, notes, round_type, course_id, course_name, teebox, course_rating, course_slope, handicap, date_played } = req.body;
-  
-  try {
-    // Check if user is admin or super admin
-    const userResult = await pool.query(
-      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    
-    const user = userResult.rows[0];
-    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role?.toLowerCase() === 'admin';
-    
-    if (!isAdmin && !isSuperAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
 
+  try {
+    // Admin check is now handled by requireAdmin middleware
     // Validate required fields
     if (!user_id) {
       return res.status(400).json({ error: 'user_id is required' });

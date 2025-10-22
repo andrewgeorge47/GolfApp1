@@ -21,6 +21,7 @@ import PasswordSetup from './components/PasswordSetup';
 import ClaimAccount from './components/ClaimAccount';
 import ResetPassword from './components/ResetPassword';
 import ViewAsModeIndicator from './components/ViewAsModeIndicator';
+import { isClubPro, isAdminOrClubPro } from './utils/roleUtils';
 
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -135,11 +136,10 @@ function ClubProProtectedRoute({ children }: { children: React.ReactNode }) {
       if (!user) {
         navigate('/login');
       } else {
-        const roleLc = (user.role || '').toLowerCase();
-        const isClubPro = roleLc === 'club pro' || roleLc === 'clubpro';
-        const isAdminRole = isAdmin; // This checks original admin status, not view-as
-        
-        if (!isClubPro && !isAdminRole) {
+        // Use centralized role checking
+        const hasAccess = isAdminOrClubPro(user) || isAdmin;
+
+        if (!hasAccess) {
           navigate('/');
         }
       }
@@ -154,11 +154,10 @@ function ClubProProtectedRoute({ children }: { children: React.ReactNode }) {
     return <div className="p-4 text-center">Redirecting to login...</div>;
   }
 
-  const roleLc = (user.role || '').toLowerCase();
-  const isClubPro = roleLc === 'club pro' || roleLc === 'clubpro';
-  const isAdminRole = isAdmin; // This checks original admin status, not view-as
-  
-  if (!isClubPro && !isAdminRole) {
+  // Use centralized role checking
+  const hasAccess = isAdminOrClubPro(user) || isAdmin;
+
+  if (!hasAccess) {
     return <div className="p-4 text-center">Redirecting...</div>;
   }
 

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { login as apiLogin, getCurrentUser } from './services/api';
+import { isAdmin as checkIsAdmin } from './utils/roleUtils';
 
 interface ViewAsMode {
   isActive: boolean;
@@ -40,12 +41,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     viewAsClub: ''
   });
   
-  // Helper to check if current user is admin (original user, not view-as)
-  const isAdmin = user && (
-    user.role?.toLowerCase() === 'admin' || 
-    user.role?.toLowerCase() === 'super admin' ||
-    (user.first_name === 'Andrew' && user.last_name === 'George')
-  );
+  // Helper to check if current user is admin (uses centralized role checking)
+  // Note: This checks the ORIGINAL user's role, not the view-as role
+  const isAdmin = checkIsAdmin(user);
 
   useEffect(() => {
     const fetchUser = async () => {

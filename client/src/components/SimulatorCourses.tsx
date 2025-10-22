@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
 import api from '../services/api';
 import CourseEditModal from './CourseEditModal';
+import { canEditCourses as checkCanEditCourses } from '../utils/roleUtils';
 
 interface CombinedCourse {
   id: number;
@@ -174,12 +175,9 @@ const SimulatorCourses: React.FC = () => {
     setSelectedCourse(null);
   };
 
-  // Helper function to check if user has edit permissions
+  // Helper function to check if user has edit permissions (using centralized role check)
   const canEditCourses = () => {
-    if (!user) return false;
-    
-    const userRole = user.role?.toLowerCase();
-    return userRole === 'admin' || userRole === 'club pro' || userRole === 'ambassador';
+    return checkCanEditCourses(user);
   };
 
   const shouldShowGsproFilters = () => {
