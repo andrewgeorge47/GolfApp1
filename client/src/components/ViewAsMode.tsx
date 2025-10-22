@@ -24,7 +24,7 @@ const ViewAsMode: React.FC<ViewAsModeProps> = ({ className = '' }) => {
       
       try {
         setDataLoading(true);
-        const response = await api.get('/api/admin/view-as-data');
+        const response = await api.get('/admin/view-as-data');
         setAvailableRoles(response.data.roles);
         setAvailableClubs(response.data.clubs);
         
