@@ -162,8 +162,9 @@ const AdminPermissionsManager: React.FC = () => {
 
     setSelectedPermissions(prev => {
       if (checked) {
-        // Add all permissions from this category
-        return [...new Set([...prev, ...categoryPermissionIds])];
+        // Add all permissions from this category (deduplicate with Set and convert back to array)
+        const combined = prev.concat(categoryPermissionIds);
+        return Array.from(new Set(combined));
       } else {
         // Remove all permissions from this category
         return prev.filter(id => !categoryPermissionIds.includes(id));
@@ -224,7 +225,9 @@ const AdminPermissionsManager: React.FC = () => {
                     {role.role_name}
                   </span>
                   {role.is_system_role && (
-                    <Lock className="w-4 h-4 text-gray-400" title="System Role" />
+                    <div title="System Role" className="inline-flex">
+                      <Lock className="w-4 h-4 text-gray-400" />
+                    </div>
                   )}
                 </div>
                 <p className="text-sm text-gray-600 line-clamp-2">
