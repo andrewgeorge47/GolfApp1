@@ -6,6 +6,7 @@ import { useAuth } from '../AuthContext';
 import { useNavigate } from 'react-router-dom';
 import AddUserModal from './AddUserModal';
 import AdminRoundAdder from './AdminRoundAdder';
+import { isAdmin, getAvailableRoles, getRoleBadgeColor, UserRole } from '../utils/roleUtils';
 
 interface UserTrackingWidgetProps {
   className?: string;
@@ -29,22 +30,20 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [showAdminRoundAdder, setShowAdminRoundAdder] = useState(false);
 
-  // Available roles for editing
-  const availableRoles = ['Member', 'Admin', 'Club Pro', 'Ambassador', 'Deactivated'];
+  // Available roles for editing (using centralized role utilities)
+  const availableRoles = getAvailableRoles().map(r => r.value);
 
   useEffect(() => {
     console.log('Current user:', user);
     console.log('User role:', user?.role);
     console.log('User object keys:', user ? Object.keys(user) : 'No user');
-    
-    // Check if user is loaded and has admin privileges
+
+    // Check if user is loaded and has admin privileges (using centralized role check)
     if (user) {
-      // Check for both possible role formats
-      const isAdmin = user.role === 'admin' || user.role === 'super_admin' || 
-                     user.role === 'Admin' || user.role === 'Super Admin';
-      console.log('Is admin?', isAdmin);
-      
-      if (isAdmin) {
+      const userIsAdmin = isAdmin(user);
+      console.log('Is admin?', userIsAdmin);
+
+      if (userIsAdmin) {
         fetchStats();
       } else {
         console.log('User does not have admin privileges. Role:', user.role);
@@ -122,7 +121,7 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
         last_name: user.last_name,
         email_address: user.email_address,
         club: user.club,
-        role: editingRole
+        role: editingRole as UserRole
       });
       toast.success(`Role updated successfully for ${userName}`);
       
@@ -191,20 +190,8 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
     }
   };
 
-  const getRoleBadgeColor = (role: string) => {
-    switch (role.toLowerCase()) {
-      case 'admin':
-        return 'bg-red-100 text-red-800';
-      case 'ambassador':
-        return 'bg-purple-100 text-purple-800';
-      case 'club pro':
-        return 'bg-blue-100 text-blue-800';
-      case 'deactivated':
-        return 'bg-gray-100 text-gray-500';
-      default:
-        return 'bg-neutral-100 text-neutral-700';
-    }
-  };
+  // Role badge color is now handled by centralized utility
+  // const getRoleBadgeColor is imported from roleUtils
 
 
   const formatDate = (dateString: string) => {
@@ -243,15 +230,15 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
     );
   }
 
-  if (user.role !== 'admin' && user.role !== 'super_admin' && 
-      user.role !== 'Admin' && user.role !== 'Super Admin') {
+  // Check admin access using centralized role check
+  if (!isAdmin(user)) {
     return (
       <div className={`bg-white rounded-xl p-6 border border-neutral-200 ${className}`}>
         <div className="text-center">
           <Users className="w-12 h-12 text-neutral-400 mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-neutral-600 mb-2">Access Denied</h3>
           <p className="text-neutral-500">
-            You need admin privileges to view user tracking statistics. 
+            You need admin privileges to view user tracking statistics.
             <br />
             Current role: {user.role || 'No role assigned'}
           </p>

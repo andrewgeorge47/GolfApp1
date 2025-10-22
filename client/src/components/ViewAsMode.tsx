@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Eye, X, User, MapPin, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 import api from '../services/api';
+import { getAvailableRoles } from '../utils/roleUtils';
 
 interface ViewAsModeProps {
   className?: string;
@@ -34,12 +35,11 @@ const ViewAsMode: React.FC<ViewAsModeProps> = ({ className = '' }) => {
         }
       } catch (error) {
         console.error('Error fetching view-as data:', error);
-        // Fallback to static data
-        setAvailableRoles([
-          { value: 'Member', label: 'Member' },
-          { value: 'Club Pro', label: 'Club Pro' },
-          { value: 'Ambassador', label: 'Ambassador' }
-        ]);
+        // Fallback to centralized role data (excluding Admin and Deactivated for view-as mode)
+        const allRoles = getAvailableRoles();
+        setAvailableRoles(
+          allRoles.filter(r => r.value !== 'Admin' && r.value !== 'Deactivated')
+        );
         setAvailableClubs([
           'No. 1', 'No. 2', 'No. 3', 'No. 4', 'No. 5', 'No. 6',
           'No. 7', 'No. 8', 'No. 9', 'No. 10', 'No. 11', 'No. 12'

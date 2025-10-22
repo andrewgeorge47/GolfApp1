@@ -189,7 +189,8 @@ CREATE TABLE IF NOT EXISTS public.users
     email_address character varying(255) COLLATE pg_catalog."default",
     club character varying(100) COLLATE pg_catalog."default",
     role character varying(50) COLLATE pg_catalog."default",
-    CONSTRAINT users_pkey PRIMARY KEY (member_id)
+    CONSTRAINT users_pkey PRIMARY KEY (member_id),
+    CONSTRAINT valid_role_check CHECK (role IN ('Member', 'Admin', 'Club Pro', 'Ambassador', 'Deactivated'))
 )
 
 TABLESPACE pg_default;
