@@ -1046,4 +1046,53 @@ export const getClubProPlayerTournaments = (club?: string) => {
   }> }>(`/club-pro/player-tournaments${params}`);
 };
 
+// ============================================================================
+// PERMISSION MANAGEMENT API
+// ============================================================================
+
+import type { Role, Permission, RoleCreateRequest, RoleUpdateRequest, AuditLogEntry } from '../types/permissions';
+
+// Get all roles
+export const getRoles = () => {
+  return api.get<Role[]>('/admin/roles');
+};
+
+// Get a specific role with its permissions
+export const getRole = (id: number) => {
+  return api.get<Role>(`/admin/roles/${id}`);
+};
+
+// Get all available permissions
+export const getPermissions = () => {
+  return api.get<{ permissions: Permission[]; grouped: { [category: string]: Permission[] } }>('/admin/permissions');
+};
+
+// Create a new role
+export const createRole = (data: RoleCreateRequest) => {
+  return api.post<Role>('/admin/roles', data);
+};
+
+// Update a role
+export const updateRole = (id: number, data: RoleUpdateRequest) => {
+  return api.put<Role>(`/admin/roles/${id}`, data);
+};
+
+// Delete a role
+export const deleteRole = (id: number) => {
+  return api.delete<{ message: string }>(`/admin/roles/${id}`);
+};
+
+// Update role permissions
+export const updateRolePermissions = (id: number, permissions: number[]) => {
+  return api.put<{ role_id: number; role_name: string; permissions: Permission[] }>(
+    `/admin/roles/${id}/permissions`,
+    { permissions }
+  );
+};
+
+// Get permission audit log
+export const getPermissionAuditLog = (limit: number = 50) => {
+  return api.get<AuditLogEntry[]>(`/admin/permission-audit-log?limit=${limit}`);
+};
+
 export default api; 

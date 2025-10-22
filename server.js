@@ -8517,13 +8517,13 @@ app.get('/api/admin/view-as-data', authenticateToken, requireAdmin, async (req, 
 
     // Get available clubs
     const { rows: clubRows } = await pool.query(`
-      SELECT DISTINCT club 
-      FROM users 
-      WHERE club IS NOT NULL AND club != '' 
+      SELECT DISTINCT club
+      FROM users
+      WHERE club IS NOT NULL AND club != ''
       AND role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
       ORDER BY club
     `);
-    
+
     const availableClubs = clubRows.map(row => row.club);
 
     res.json({
@@ -8533,6 +8533,420 @@ app.get('/api/admin/view-as-data', authenticateToken, requireAdmin, async (req, 
   } catch (err) {
     console.error('Error fetching view-as mode data:', err);
     res.status(500).json({ error: 'Failed to fetch view-as mode data' });
+  }
+});
+
+// ============================================================================
+// PERMISSION MANAGEMENT API ENDPOINTS
+// ============================================================================
+
+// Get all roles with their permission counts
+app.get('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        r.id,
+        r.role_name,
+        r.role_key,
+        r.description,
+        r.is_system_role,
+        r.is_active,
+        r.created_at,
+        COUNT(rp.permission_id) as permission_count,
+        COUNT(u.member_id) as user_count
+      FROM roles r
+      LEFT JOIN role_permissions rp ON r.id = rp.role_id
+      LEFT JOIN users u ON u.role_id = r.id
+      WHERE r.is_active = TRUE
+      GROUP BY r.id, r.role_name, r.role_key, r.description, r.is_system_role, r.is_active, r.created_at
+      ORDER BY
+        CASE r.role_key
+          WHEN 'admin' THEN 1
+          WHEN 'club_pro' THEN 2
+          WHEN 'ambassador' THEN 3
+          WHEN 'member' THEN 4
+          WHEN 'deactivated' THEN 5
+          ELSE 6
+        END,
+        r.role_name
+    `);
+
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching roles:', err);
+    res.status(500).json({ error: 'Failed to fetch roles' });
+  }
+});
+
+// Get a specific role with its permissions
+app.get('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get role details
+    const { rows: roleRows } = await pool.query(`
+      SELECT
+        id,
+        role_name,
+        role_key,
+        description,
+        is_system_role,
+        is_active,
+        created_at
+      FROM roles
+      WHERE id = $1
+    `, [id]);
+
+    if (roleRows.length === 0) {
+      return res.status(404).json({ error: 'Role not found' });
+    }
+
+    const role = roleRows[0];
+
+    // Get role's permissions
+    const { rows: permissionRows } = await pool.query(`
+      SELECT
+        p.id,
+        p.permission_key,
+        p.permission_name,
+        p.description,
+        p.category
+      FROM permissions p
+      INNER JOIN role_permissions rp ON p.id = rp.permission_id
+      WHERE rp.role_id = $1
+      ORDER BY p.category, p.permission_name
+    `, [id]);
+
+    role.permissions = permissionRows;
+
+    res.json(role);
+  } catch (err) {
+    console.error('Error fetching role:', err);
+    res.status(500).json({ error: 'Failed to fetch role' });
+  }
+});
+
+// Get all available permissions grouped by category
+app.get('/api/admin/permissions', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        id,
+        permission_key,
+        permission_name,
+        description,
+        category,
+        created_at
+      FROM permissions
+      ORDER BY category, permission_name
+    `);
+
+    // Group by category
+    const grouped = rows.reduce((acc, permission) => {
+      const category = permission.category || 'other';
+      if (!acc[category]) {
+        acc[category] = [];
+      }
+      acc[category].push(permission);
+      return acc;
+    }, {});
+
+    res.json({
+      permissions: rows,
+      grouped: grouped
+    });
+  } catch (err) {
+    console.error('Error fetching permissions:', err);
+    res.status(500).json({ error: 'Failed to fetch permissions' });
+  }
+});
+
+// Create a new role
+app.post('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { role_name, role_key, description, permissions } = req.body;
+
+    // Validate required fields
+    if (!role_name || !role_key) {
+      return res.status(400).json({ error: 'role_name and role_key are required' });
+    }
+
+    // Create slug from role_key (lowercase, replace spaces with underscores)
+    const slug = role_key.toLowerCase().replace(/\s+/g, '_');
+
+    // Check if role_key already exists
+    const { rows: existingRoles } = await pool.query(
+      'SELECT id FROM roles WHERE role_key = $1',
+      [slug]
+    );
+
+    if (existingRoles.length > 0) {
+      return res.status(409).json({ error: 'A role with this key already exists' });
+    }
+
+    // Insert new role
+    const { rows: newRoleRows } = await pool.query(`
+      INSERT INTO roles (role_name, role_key, description, is_system_role, is_active)
+      VALUES ($1, $2, $3, FALSE, TRUE)
+      RETURNING id, role_name, role_key, description, is_system_role, is_active, created_at
+    `, [role_name, slug, description || null]);
+
+    const newRole = newRoleRows[0];
+
+    // Assign permissions if provided
+    if (permissions && Array.isArray(permissions) && permissions.length > 0) {
+      const permissionValues = permissions.map((permId, idx) =>
+        `($1, $${idx + 2})`
+      ).join(', ');
+
+      await pool.query(
+        `INSERT INTO role_permissions (role_id, permission_id) VALUES ${permissionValues}`,
+        [newRole.id, ...permissions]
+      );
+    }
+
+    // Log the action
+    await pool.query(`
+      INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
+      VALUES ($1, $2, $3, $4)
+    `, [
+      'role_created',
+      newRole.id,
+      req.user.member_id,
+      JSON.stringify({ role_name, permissions: permissions || [] })
+    ]);
+
+    res.status(201).json(newRole);
+  } catch (err) {
+    console.error('Error creating role:', err);
+    res.status(500).json({ error: 'Failed to create role', details: err.message });
+  }
+});
+
+// Update a role
+app.put('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role_name, description, is_active } = req.body;
+
+    // Check if role exists and is not a system role
+    const { rows: roleRows } = await pool.query(
+      'SELECT is_system_role FROM roles WHERE id = $1',
+      [id]
+    );
+
+    if (roleRows.length === 0) {
+      return res.status(404).json({ error: 'Role not found' });
+    }
+
+    // Build update query dynamically
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (role_name !== undefined) {
+      updates.push(`role_name = $${paramCount++}`);
+      values.push(role_name);
+    }
+
+    if (description !== undefined) {
+      updates.push(`description = $${paramCount++}`);
+      values.push(description);
+    }
+
+    if (is_active !== undefined) {
+      updates.push(`is_active = $${paramCount++}`);
+      values.push(is_active);
+    }
+
+    updates.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(id);
+
+    const { rows: updatedRows } = await pool.query(`
+      UPDATE roles
+      SET ${updates.join(', ')}
+      WHERE id = $${paramCount}
+      RETURNING id, role_name, role_key, description, is_system_role, is_active, updated_at
+    `, values);
+
+    // Log the action
+    await pool.query(`
+      INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
+      VALUES ($1, $2, $3, $4)
+    `, [
+      'role_updated',
+      id,
+      req.user.member_id,
+      JSON.stringify({ role_name, description, is_active })
+    ]);
+
+    res.json(updatedRows[0]);
+  } catch (err) {
+    console.error('Error updating role:', err);
+    res.status(500).json({ error: 'Failed to update role' });
+  }
+});
+
+// Delete a role
+app.delete('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if role exists and is not a system role
+    const { rows: roleRows } = await pool.query(
+      'SELECT role_name, is_system_role FROM roles WHERE id = $1',
+      [id]
+    );
+
+    if (roleRows.length === 0) {
+      return res.status(404).json({ error: 'Role not found' });
+    }
+
+    if (roleRows[0].is_system_role) {
+      return res.status(403).json({ error: 'Cannot delete system roles' });
+    }
+
+    // Check if any users have this role
+    const { rows: userRows } = await pool.query(
+      'SELECT COUNT(*) as count FROM users WHERE role_id = $1',
+      [id]
+    );
+
+    if (parseInt(userRows[0].count) > 0) {
+      return res.status(409).json({
+        error: 'Cannot delete role with assigned users',
+        user_count: userRows[0].count
+      });
+    }
+
+    // Log the action before deletion
+    await pool.query(`
+      INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
+      VALUES ($1, $2, $3, $4)
+    `, [
+      'role_deleted',
+      id,
+      req.user.member_id,
+      JSON.stringify({ role_name: roleRows[0].role_name })
+    ]);
+
+    // Delete role (CASCADE will delete role_permissions)
+    await pool.query('DELETE FROM roles WHERE id = $1', [id]);
+
+    res.json({ message: 'Role deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting role:', err);
+    res.status(500).json({ error: 'Failed to delete role' });
+  }
+});
+
+// Update role permissions
+app.put('/api/admin/roles/:id/permissions', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { permissions } = req.body;
+
+    if (!Array.isArray(permissions)) {
+      return res.status(400).json({ error: 'permissions must be an array of permission IDs' });
+    }
+
+    // Check if role exists
+    const { rows: roleRows } = await pool.query(
+      'SELECT role_name FROM roles WHERE id = $1',
+      [id]
+    );
+
+    if (roleRows.length === 0) {
+      return res.status(404).json({ error: 'Role not found' });
+    }
+
+    // Begin transaction
+    await pool.query('BEGIN');
+
+    try {
+      // Remove all existing permissions for this role
+      await pool.query('DELETE FROM role_permissions WHERE role_id = $1', [id]);
+
+      // Add new permissions
+      if (permissions.length > 0) {
+        const permissionValues = permissions.map((permId, idx) =>
+          `($1, $${idx + 2})`
+        ).join(', ');
+
+        await pool.query(
+          `INSERT INTO role_permissions (role_id, permission_id) VALUES ${permissionValues}`,
+          [id, ...permissions]
+        );
+      }
+
+      // Log the action
+      await pool.query(`
+        INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
+        VALUES ($1, $2, $3, $4)
+      `, [
+        'permissions_updated',
+        id,
+        req.user.member_id,
+        JSON.stringify({ permission_count: permissions.length, permission_ids: permissions })
+      ]);
+
+      await pool.query('COMMIT');
+
+      // Return updated role with permissions
+      const { rows: updatedPermissions } = await pool.query(`
+        SELECT
+          p.id,
+          p.permission_key,
+          p.permission_name,
+          p.category
+        FROM permissions p
+        INNER JOIN role_permissions rp ON p.id = rp.permission_id
+        WHERE rp.role_id = $1
+        ORDER BY p.category, p.permission_name
+      `, [id]);
+
+      res.json({
+        role_id: id,
+        role_name: roleRows[0].role_name,
+        permissions: updatedPermissions
+      });
+    } catch (error) {
+      await pool.query('ROLLBACK');
+      throw error;
+    }
+  } catch (err) {
+    console.error('Error updating role permissions:', err);
+    res.status(500).json({ error: 'Failed to update role permissions' });
+  }
+});
+
+// Get permission audit log
+app.get('/api/admin/permission-audit-log', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { limit = 50 } = req.query;
+
+    const { rows } = await pool.query(`
+      SELECT
+        pal.id,
+        pal.action,
+        pal.created_at,
+        r.role_name,
+        p.permission_name,
+        u.first_name,
+        u.last_name,
+        pal.details
+      FROM permission_audit_log pal
+      LEFT JOIN roles r ON pal.role_id = r.id
+      LEFT JOIN permissions p ON pal.permission_id = p.id
+      LEFT JOIN users u ON pal.admin_user_id = u.member_id
+      ORDER BY pal.created_at DESC
+      LIMIT $1
+    `, [limit]);
+
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching audit log:', err);
+    res.status(500).json({ error: 'Failed to fetch audit log' });
   }
 });
 
