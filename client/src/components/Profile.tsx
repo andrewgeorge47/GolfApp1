@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
 import api, { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser, getUserTournaments } from '../services/api';
-import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign, MessageSquare, Eye, CheckCircle, Info } from 'lucide-react';
+import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign, MessageSquare, Eye, CheckCircle, Info, AlertTriangle } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
 import ScoreCard from './ScoreCard';
 import StrokePlayScoreCard from './StrokePlayScoreCard';
+import ViewAsMode from './ViewAsMode';
 
 const Profile: React.FC = () => {
   const { user, token, logout, refreshUser } = useAuth();
@@ -607,9 +608,15 @@ const Profile: React.FC = () => {
                       <Edit3 className="w-4 h-4 sm:w-5 sm:h-5" />
                     </button>
                   )}
+                  {user?.role?.toLowerCase() === 'admin' && !isEditing && (
+                    <div className="ml-2 sm:ml-3">
+                      <ViewAsMode />
+                    </div>
+                  )}
                 </h1>
                 <div className="bg-white/20 backdrop-blur-sm rounded-full px-2 sm:px-3 py-1 text-xs sm:text-sm font-medium">
                   {user?.role?.toLowerCase() === 'admin' ? 'Admin' : 
+                   user?.role?.toLowerCase() === 'club pro' ? 'Club Pro' :
                    user?.role?.toLowerCase() === 'ambassador' ? 'Ambassador' : 'Member'}
                 </div>
               </div>

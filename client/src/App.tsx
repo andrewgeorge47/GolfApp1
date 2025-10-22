@@ -20,6 +20,7 @@ import Login from './components/Login';
 import PasswordSetup from './components/PasswordSetup';
 import ClaimAccount from './components/ClaimAccount';
 import ResetPassword from './components/ResetPassword';
+import ViewAsModeIndicator from './components/ViewAsModeIndicator';
 
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -85,23 +86,23 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, isAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   
-  console.log('AdminProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'role=', user?.role, 'pathname=', location.pathname);
+  console.log('AdminProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'role=', user?.role, 'isAdmin=', isAdmin, 'pathname=', location.pathname);
   
   useEffect(() => {
     if (!loading) {
       if (!user) {
         console.log('AdminProtectedRoute: No user, redirecting to login');
         navigate('/login');
-      } else if (user.role?.toLowerCase() !== 'admin') {
+      } else if (!isAdmin) {
         console.log('AdminProtectedRoute: User is not admin, redirecting to home');
         navigate('/');
       }
     }
-  }, [loading, user, navigate]);
+  }, [loading, user, navigate, isAdmin]);
   
   if (loading) {
     console.log('AdminProtectedRoute: Showing loading state');
@@ -113,7 +114,7 @@ function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
     return <div className="p-4 text-center">Redirecting to login...</div>;
   }
   
-  if (user.role?.toLowerCase() !== 'admin') {
+  if (!isAdmin) {
     console.log('AdminProtectedRoute: User is not admin, showing loading while redirecting');
     return <div className="p-4 text-center">Redirecting...</div>;
   }
@@ -123,21 +124,27 @@ function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function ClubProProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, isAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  console.log('ClubProProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'role=', user?.role, 'pathname=', location.pathname);
+  console.log('ClubProProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'role=', user?.role, 'isAdmin=', isAdmin, 'pathname=', location.pathname);
 
   useEffect(() => {
     if (!loading) {
       if (!user) {
         navigate('/login');
-      } else if (!user.role || (user.role.toLowerCase() !== 'club pro' && user.role.toLowerCase() !== 'admin' && user.role.toLowerCase() !== 'clubpro')) {
-        navigate('/');
+      } else {
+        const roleLc = (user.role || '').toLowerCase();
+        const isClubPro = roleLc === 'club pro' || roleLc === 'clubpro';
+        const isAdminRole = isAdmin; // This checks original admin status, not view-as
+        
+        if (!isClubPro && !isAdminRole) {
+          navigate('/');
+        }
       }
     }
-  }, [loading, user, navigate]);
+  }, [loading, user, navigate, isAdmin]);
 
   if (loading) {
     return <div className="p-4 text-center">Loading...</div>;
@@ -148,7 +155,10 @@ function ClubProProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   const roleLc = (user.role || '').toLowerCase();
-  if (roleLc !== 'club pro' && roleLc !== 'admin' && roleLc !== 'clubpro') {
+  const isClubPro = roleLc === 'club pro' || roleLc === 'clubpro';
+  const isAdminRole = isAdmin; // This checks original admin status, not view-as
+  
+  if (!isClubPro && !isAdminRole) {
     return <div className="p-4 text-center">Redirecting...</div>;
   }
 
@@ -345,7 +355,8 @@ function Navigation() {
 function AppContent() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-brand-dark-green to-brand-muted-green">
-
+      {/* Global View-As Mode Indicator */}
+      <ViewAsModeIndicator />
       
       {/* Navigation */}
       <Navigation />

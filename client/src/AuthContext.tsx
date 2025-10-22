@@ -1,6 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { login as apiLogin, getCurrentUser } from './services/api';
 
+interface ViewAsMode {
+  isActive: boolean;
+  originalUser: any;
+  viewAsRole: string;
+  viewAsClub: string;
+}
+
 interface AuthContextType {
   user: any;
   token: string | null;
@@ -8,6 +15,11 @@ interface AuthContextType {
   logout: () => void;
   loading: boolean;
   refreshUser: () => Promise<void>;
+  // View-as mode functionality
+  viewAsMode: ViewAsMode;
+  enterViewAsMode: (role: string, club: string) => void;
+  exitViewAsMode: () => void;
+  isAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -19,6 +31,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return storedToken;
   });
   const [loading, setLoading] = useState(true);
+  
+  // View-as mode state
+  const [viewAsMode, setViewAsMode] = useState<ViewAsMode>({
+    isActive: false,
+    originalUser: null,
+    viewAsRole: '',
+    viewAsClub: ''
+  });
+  
+  // Helper to check if current user is admin (original user, not view-as)
+  const isAdmin = user && (
+    user.role?.toLowerCase() === 'admin' || 
+    user.role?.toLowerCase() === 'super admin' ||
+    (user.first_name === 'Andrew' && user.last_name === 'George')
+  );
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -75,8 +102,55 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // View-as mode functions
+  const enterViewAsMode = (role: string, club: string) => {
+    if (!isAdmin) {
+      console.error('Only admins can enter view-as mode');
+      return;
+    }
+    
+    const originalUser = user;
+    const viewAsUser = {
+      ...originalUser,
+      role: role,
+      club: club
+    };
+    
+    setViewAsMode({
+      isActive: true,
+      originalUser: originalUser,
+      viewAsRole: role,
+      viewAsClub: club
+    });
+    
+    setUser(viewAsUser);
+  };
+
+  const exitViewAsMode = () => {
+    if (viewAsMode.isActive && viewAsMode.originalUser) {
+      setUser(viewAsMode.originalUser);
+      setViewAsMode({
+        isActive: false,
+        originalUser: null,
+        viewAsRole: '',
+        viewAsClub: ''
+      });
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, loading, refreshUser }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      token, 
+      login, 
+      logout, 
+      loading, 
+      refreshUser,
+      viewAsMode,
+      enterViewAsMode,
+      exitViewAsMode,
+      isAdmin
+    }}>
       {children}
     </AuthContext.Provider>
   );

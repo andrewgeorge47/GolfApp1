@@ -5846,12 +5846,15 @@ app.get('/api/club-pro/handicaps', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Requesting user not found' });
     }
 
-    const { club, role } = userRows[0];
+    const { club: userClub, role } = userRows[0];
     const isAdmin = role && (role.toLowerCase() === 'admin');
     const isClubPro = role && (role.toLowerCase() === 'club pro' || role.toLowerCase() === 'clubpro');
     if (!isAdmin && !isClubPro) {
       return res.status(403).json({ error: 'Only club pros or admins can access this resource' });
     }
+
+    // Use club from query parameter if provided (for view-as mode), otherwise use user's club
+    const targetClub = req.query.club || userClub;
 
     const { rows } = await pool.query(`
       SELECT u.member_id, u.first_name, u.last_name, u.club,
@@ -5866,9 +5869,9 @@ app.get('/api/club-pro/handicaps', authenticateToken, async (req, res) => {
       WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
       GROUP BY u.member_id, u.first_name, u.last_name, u.club, u.sim_handicap, u.grass_handicap
       ORDER BY u.first_name, u.last_name
-    `, [club]);
+    `, [targetClub]);
 
-    res.json({ club, players: rows });
+    res.json({ club: targetClub, players: rows });
   } catch (error) {
     console.error('Error fetching club pro handicaps:', error);
     res.status(500).json({ error: 'Failed to fetch handicaps' });
@@ -5941,12 +5944,15 @@ app.get('/api/club-pro/player-tournaments', authenticateToken, async (req, res) 
       return res.status(404).json({ error: 'Requesting user not found' });
     }
 
-    const { club, role } = userRows[0];
+    const { club: userClub, role } = userRows[0];
     const isAdmin = role && (role.toLowerCase() === 'admin');
     const isClubPro = role && (role.toLowerCase() === 'club pro' || role.toLowerCase() === 'clubpro');
     if (!isAdmin && !isClubPro) {
       return res.status(403).json({ error: 'Only club pros or admins can access this resource' });
     }
+
+    // Use club from query parameter if provided (for view-as mode), otherwise use user's club
+    const targetClub = req.query.club || userClub;
 
     const { rows } = await pool.query(`
       SELECT 
@@ -5971,7 +5977,7 @@ app.get('/api/club-pro/player-tournaments', authenticateToken, async (req, res) 
       WHERE u.club = $1 
         AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
       ORDER BY u.first_name, u.last_name, t.start_date DESC
-    `, [club]);
+    `, [targetClub]);
 
     // Group by player
     const playerData = {};
@@ -5998,7 +6004,7 @@ app.get('/api/club-pro/player-tournaments', authenticateToken, async (req, res) 
       }
     });
 
-    res.json({ club, players: Object.values(playerData) });
+    res.json({ club: targetClub, players: Object.values(playerData) });
   } catch (error) {
     console.error('Error fetching club pro player tournaments:', error);
     res.status(500).json({ error: 'Failed to fetch player tournament data' });
@@ -8452,6 +8458,55 @@ app.get('/api/admin/user-tracking-details', authenticateToken, async (req, res) 
   } catch (err) {
     console.error('Error fetching detailed user tracking data:', err);
     res.status(500).json({ error: 'Failed to fetch detailed user tracking data' });
+  }
+});
+
+// Get view-as mode data for admins (roles and clubs)
+app.get('/api/admin/view-as-data', authenticateToken, async (req, res) => {
+  try {
+    // Check if user is admin
+    const { rows: userRows } = await pool.query(
+      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userRows.length === 0) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    
+    const user = userRows[0];
+    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
+    const isAdmin = user.role === 'Admin' || user.role === 'admin' || user.role === 'super_admin' || user.role === 'Super Admin';
+    
+    if (!isAdmin && !isSuperAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Get available roles for view-as mode
+    const availableRoles = [
+      { value: 'Member', label: 'Member' },
+      { value: 'Club Pro', label: 'Club Pro' },
+      { value: 'Ambassador', label: 'Ambassador' }
+    ];
+
+    // Get available clubs
+    const { rows: clubRows } = await pool.query(`
+      SELECT DISTINCT club 
+      FROM users 
+      WHERE club IS NOT NULL AND club != '' 
+      AND role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      ORDER BY club
+    `);
+    
+    const availableClubs = clubRows.map(row => row.club);
+
+    res.json({
+      roles: availableRoles,
+      clubs: availableClubs
+    });
+  } catch (err) {
+    console.error('Error fetching view-as mode data:', err);
+    res.status(500).json({ error: 'Failed to fetch view-as mode data' });
   }
 });
 

@@ -3,7 +3,7 @@ import { getClubProHandicaps, getClubProPlayerTournaments } from '../services/ap
 import { useAuth } from '../AuthContext';
 
 const ClubProDashboard: React.FC = () => {
-  const { user } = useAuth();
+  const { user, viewAsMode } = useAuth();
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
@@ -31,11 +31,20 @@ const ClubProDashboard: React.FC = () => {
       try {
         setLoading(true);
         setError(null);
-        console.log('Loading club pro data...', { user: user?.member_id, role: user?.role });
+        
+        // Use view-as club if in view-as mode, otherwise use user's club
+        const targetClub = viewAsMode.isActive ? viewAsMode.viewAsClub : user?.club;
+        
+        console.log('Loading club pro data...', { 
+          user: user?.member_id, 
+          role: user?.role, 
+          targetClub,
+          viewAsMode: viewAsMode.isActive 
+        });
         
         const [handicapsRes, tournamentsRes] = await Promise.all([
-          getClubProHandicaps(),
-          getClubProPlayerTournaments(),
+          getClubProHandicaps(targetClub),
+          getClubProPlayerTournaments(targetClub),
         ]);
         
         console.log('Handicaps response:', handicapsRes.data);
@@ -69,7 +78,7 @@ const ClubProDashboard: React.FC = () => {
     if (user) {
       load();
     }
-  }, [user]);
+  }, [user, viewAsMode]);
 
   const toggleRowExpansion = (memberId: number) => {
     const newExpandedRows = new Set(expandedRows);

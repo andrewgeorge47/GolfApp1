@@ -1018,8 +1018,9 @@ export interface ClubProHandicapEntry {
   avg_differential: string | number | null;
 }
 
-export const getClubProHandicaps = () => {
-  return api.get<{ club: string; players: ClubProHandicapEntry[] }>(`/club-pro/handicaps`);
+export const getClubProHandicaps = (club?: string) => {
+  const params = club ? `?club=${encodeURIComponent(club)}` : '';
+  return api.get<{ club: string; players: ClubProHandicapEntry[] }>(`/club-pro/handicaps${params}`);
 };
 
 export const getClubProWeeklyMatches = (tournamentId: number, weekStartDate?: string) => {
@@ -1027,8 +1028,9 @@ export const getClubProWeeklyMatches = (tournamentId: number, weekStartDate?: st
   return api.get<{ club: string; matches: WeeklyMatch[] }>(`/club-pro/tournaments/${tournamentId}/weekly-matches${qs}`);
 };
 
-export const getClubProPlayerTournaments = () => 
-  api.get<{ club: string; players: Array<{
+export const getClubProPlayerTournaments = (club?: string) => {
+  const params = club ? `?club=${encodeURIComponent(club)}` : '';
+  return api.get<{ club: string; players: Array<{
     member_id: number;
     first_name: string;
     last_name: string;
@@ -1041,6 +1043,7 @@ export const getClubProPlayerTournaments = () =>
       end_date?: string;
       participation_status: string;
     }>;
-  }> }>('/club-pro/player-tournaments');
+  }> }>(`/club-pro/player-tournaments${params}`);
+};
 
 export default api; 

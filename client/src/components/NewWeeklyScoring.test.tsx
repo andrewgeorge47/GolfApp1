@@ -49,7 +49,16 @@ describe('NewWeeklyScoring', () => {
       login: jest.fn(),
       logout: jest.fn(),
       loading: false,
-      refreshUser: jest.fn()
+      refreshUser: jest.fn(),
+      viewAsMode: {
+        isActive: false,
+        originalUser: null,
+        viewAsRole: '',
+        viewAsClub: ''
+      },
+      enterViewAsMode: jest.fn(),
+      exitViewAsMode: jest.fn(),
+      isAdmin: false
     });
     
     // Mock API responses
