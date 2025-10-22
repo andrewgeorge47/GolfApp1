@@ -219,6 +219,8 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
             onClick={() => {
               const availableUsers = getAvailableUsers();
               if (availableUsers.length > 0) {
+                const confirmMessage = `Register all ${availableUsers.length} available user(s)?`;
+                if (!window.confirm(confirmMessage)) return;
                 handleRegisterUsers(availableUsers.map(u => u.member_id));
               }
             }}

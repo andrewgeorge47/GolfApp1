@@ -686,6 +686,18 @@ const Profile: React.FC = () => {
                   </a>
                 </div>
               )}
+              {(user?.role?.toLowerCase() === 'club pro' || user?.role?.toLowerCase() === 'admin') && (
+                <div className="flex flex-col gap-2 w-full sm:w-auto">
+                  <button
+                    onClick={() => navigate('/club-pro')}
+                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-3 sm:px-4 py-2 border border-brand-neon-green/40 flex items-center justify-center space-x-2 shadow-sm transition-colors font-medium text-sm sm:text-base"
+                  >
+                    <BarChart3 className="w-3 h-3 sm:w-4 sm:h-4" />
+                    <span className="hidden sm:inline">Club Pro Dashboard</span>
+                    <span className="sm:hidden">Club Dashboard</span>
+                  </button>
+                </div>
+              )}
               {user?.role?.toLowerCase() === 'ambassador' && (
                 <div className="flex flex-col gap-2 w-full sm:w-auto">
                   <a

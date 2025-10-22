@@ -11,7 +11,6 @@ const fs = require('fs');
 const { Storage } = require('@google-cloud/storage');
 
 const app = express();
-const port = process.env.PORT || 3001;
 
 // PostgreSQL connection pool
 const pool = new Pool({
@@ -5797,7 +5796,7 @@ app.post('/api/calculate-handicaps/:userId', authenticateToken, async (req, res)
   const { userId } = req.params;
   
   // Only allow users to calculate their own handicap or admins to calculate any
-  if (req.user.member_id !== parseInt(userId) && req.user.role !== 'admin') {
+  if (req.user.member_id !== parseInt(userId) && req.user.role?.toLowerCase() !== 'admin') {
     return res.status(403).json({ error: 'Unauthorized' });
   }
   
@@ -5834,13 +5833,185 @@ app.get('/api/handicaps', async (req, res) => {
   }
 });
 
+// Club Pro: Get handicaps for users in the pro's club (auth required)
+app.get('/api/club-pro/handicaps', authenticateToken, async (req, res) => {
+  try {
+    // Fetch the requesting user's club
+    const { rows: userRows } = await pool.query(
+      'SELECT club, role FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+
+    if (userRows.length === 0) {
+      return res.status(404).json({ error: 'Requesting user not found' });
+    }
+
+    const { club, role } = userRows[0];
+    const isAdmin = role && (role.toLowerCase() === 'admin');
+    const isClubPro = role && (role.toLowerCase() === 'club pro' || role.toLowerCase() === 'clubpro');
+    if (!isAdmin && !isClubPro) {
+      return res.status(403).json({ error: 'Only club pros or admins can access this resource' });
+    }
+
+    const { rows } = await pool.query(`
+      SELECT u.member_id, u.first_name, u.last_name, u.club,
+             u.sim_handicap, u.grass_handicap,
+             COUNT(s.id) as total_rounds,
+             COUNT(CASE WHEN s.round_type = 'sim' OR s.round_type IS NULL THEN 1 END) as sim_rounds,
+             COUNT(CASE WHEN s.round_type = 'grass' THEN 1 END) as grass_rounds,
+             MIN(s.differential) as best_differential,
+             AVG(s.differential) as avg_differential
+      FROM users u
+      LEFT JOIN scorecards s ON u.member_id = s.user_id AND s.differential IS NOT NULL
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      GROUP BY u.member_id, u.first_name, u.last_name, u.club, u.sim_handicap, u.grass_handicap
+      ORDER BY u.first_name, u.last_name
+    `, [club]);
+
+    res.json({ club, players: rows });
+  } catch (error) {
+    console.error('Error fetching club pro handicaps:', error);
+    res.status(500).json({ error: 'Failed to fetch handicaps' });
+  }
+});
+
+// Club Pro: Get weekly matches for the pro's club for a tournament/week (auth required)
+app.get('/api/club-pro/tournaments/:id/weekly-matches', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { week_start_date } = req.query;
+  try {
+    // Determine requester club and role
+    const { rows: userRows } = await pool.query(
+      'SELECT club, role FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    if (userRows.length === 0) {
+      return res.status(404).json({ error: 'Requesting user not found' });
+    }
+    const { club, role } = userRows[0];
+    const isAdmin = role && (role.toLowerCase() === 'admin');
+    const isClubPro = role && (role.toLowerCase() === 'club pro' || role.toLowerCase() === 'clubpro');
+    if (!isAdmin && !isClubPro) {
+      return res.status(403).json({ error: 'Only club pros or admins can access this resource' });
+    }
+
+    // Resolve week date using existing helper if available; otherwise accept query
+    let weekDate = week_start_date;
+    try {
+      if (!weekDate && typeof getWeekStartDate === 'function') {
+        weekDate = getWeekStartDate();
+      }
+    } catch {}
+
+    // Fetch matches where either player belongs to the pro's club
+    const { rows } = await pool.query(
+      `SELECT wm.*, 
+              u1.first_name as player1_first_name, u1.last_name as player1_last_name, u1.club as player1_club,
+              u2.first_name as player2_first_name, u2.last_name as player2_last_name, u2.club as player2_club,
+              ws1.hole_scores as player1_scores, ws2.hole_scores as player2_scores
+       FROM weekly_matches wm
+       JOIN users u1 ON wm.player1_id = u1.member_id
+       JOIN users u2 ON wm.player2_id = u2.member_id
+       JOIN weekly_scorecards ws1 ON wm.player1_scorecard_id = ws1.id
+       JOIN weekly_scorecards ws2 ON wm.player2_scorecard_id = ws2.id
+       WHERE wm.tournament_id = $1
+         AND ($2::date IS NULL OR wm.week_start_date = $2::date)
+         AND (u1.club = $3 OR u2.club = $3)
+       ORDER BY wm.created_at`,
+      [id, weekDate || null, club]
+    );
+
+    res.json({ club, matches: rows });
+  } catch (err) {
+    console.error('Error fetching club pro weekly matches:', err);
+    res.status(500).json({ error: 'Failed to fetch matches' });
+  }
+});
+
+// Club Pro: Get player tournament participation data for the pro's club (auth required)
+app.get('/api/club-pro/player-tournaments', authenticateToken, async (req, res) => {
+  try {
+    // Fetch the requesting user's club
+    const { rows: userRows } = await pool.query(
+      'SELECT club, role FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+
+    if (userRows.length === 0) {
+      return res.status(404).json({ error: 'Requesting user not found' });
+    }
+
+    const { club, role } = userRows[0];
+    const isAdmin = role && (role.toLowerCase() === 'admin');
+    const isClubPro = role && (role.toLowerCase() === 'club pro' || role.toLowerCase() === 'clubpro');
+    if (!isAdmin && !isClubPro) {
+      return res.status(403).json({ error: 'Only club pros or admins can access this resource' });
+    }
+
+    const { rows } = await pool.query(`
+      SELECT 
+        u.member_id,
+        u.first_name,
+        u.last_name,
+        u.club,
+        t.id as tournament_id,
+        t.name as tournament_name,
+        t.status as tournament_status,
+        t.start_date,
+        t.end_date,
+        CASE 
+          WHEN t.status = 'completed' THEN 'completed'
+          WHEN t.status = 'active' THEN 'active'
+          WHEN t.status = 'registration' THEN 'registered'
+          ELSE 'registered'
+        END as participation_status
+      FROM users u
+      LEFT JOIN participation p ON u.member_id = p.user_member_id
+      LEFT JOIN tournaments t ON p.tournament_id = t.id
+      WHERE u.club = $1 
+        AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      ORDER BY u.first_name, u.last_name, t.start_date DESC
+    `, [club]);
+
+    // Group by player
+    const playerData = {};
+    rows.forEach(row => {
+      if (!playerData[row.member_id]) {
+        playerData[row.member_id] = {
+          member_id: row.member_id,
+          first_name: row.first_name,
+          last_name: row.last_name,
+          club: row.club,
+          tournaments: []
+        };
+      }
+      
+      if (row.tournament_id) {
+        playerData[row.member_id].tournaments.push({
+          tournament_id: row.tournament_id,
+          tournament_name: row.tournament_name,
+          tournament_status: row.tournament_status,
+          start_date: row.start_date,
+          end_date: row.end_date,
+          participation_status: row.participation_status
+        });
+      }
+    });
+
+    res.json({ club, players: Object.values(playerData) });
+  } catch (error) {
+    console.error('Error fetching club pro player tournaments:', error);
+    res.status(500).json({ error: 'Failed to fetch player tournament data' });
+  }
+});
+
 // Get user's course records
 app.get('/api/user-course-records/:userId', authenticateToken, async (req, res) => {
   try {
     const { userId } = req.params;
     
     // Only allow users to view their own records or admins to view any
-    if (req.user.member_id !== parseInt(userId) && req.user.role !== 'admin') {
+    if (req.user.member_id !== parseInt(userId) && req.user.role?.toLowerCase() !== 'admin') {
       return res.status(403).json({ error: 'Unauthorized' });
     }
     
@@ -6140,6 +6311,96 @@ app.get('/api/users/:id/combined-stats', authenticateToken, async (req, res) => 
   } catch (error) {
     console.error('Error fetching user combined stats:', error);
     res.status(500).json({ error: 'Failed to fetch user combined statistics' });
+  }
+});
+
+// Get user's recent simulator rounds with handicap counting info
+app.get('/api/users/:id/recent-simulator-rounds', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Only allow users to view their own rounds or admins to view any
+    if (req.user.member_id !== parseInt(id) && req.user.role?.toLowerCase() !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    
+    // Get recent simulator rounds (last 20) with handicap counting information
+    // First, get the last 20 rounds to determine which are actually used in handicap calculation
+    const { rows: allRounds } = await pool.query(`
+      SELECT 
+        s.id,
+        s.date_played,
+        s.course_name,
+        s.total_strokes,
+        s.differential,
+        s.round_type,
+        s.handicap,
+        s.tournament_id
+      FROM scorecards s
+      WHERE s.user_id = $1 
+        AND (s.round_type = 'sim' OR s.round_type IS NULL)
+      ORDER BY s.date_played DESC
+      LIMIT 20
+    `, [id]);
+
+    // Calculate which rounds are actually used in handicap calculation
+    // Filter rounds with valid differentials and sort by date (newest first)
+    const validRounds = allRounds
+      .filter(round => round.differential !== null)
+      .sort((a, b) => new Date(b.date_played).getTime() - new Date(a.date_played).getTime());
+
+    let roundsToUse = [];
+    
+    // USGA Handicap System 2020+ rules (matching Profile.tsx logic)
+    if (validRounds.length >= 20) {
+      // Use best 8 out of last 20
+      roundsToUse = validRounds.slice(0, 20).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 8);
+    } else if (validRounds.length >= 15) {
+      // Use best 7 out of last 15
+      roundsToUse = validRounds.slice(0, 15).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 7);
+    } else if (validRounds.length >= 10) {
+      // Use best 6 out of last 10
+      roundsToUse = validRounds.slice(0, 10).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 6);
+    } else if (validRounds.length >= 5) {
+      // Use best 5 out of last 5
+      roundsToUse = validRounds.slice(0, 5).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 5);
+    } else if (validRounds.length >= 3) {
+      // Use best 3 out of last 3
+      roundsToUse = validRounds.slice(0, 3).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 3);
+    } else if (validRounds.length >= 1) {
+      // Use best 1 out of last 1
+      roundsToUse = validRounds.slice(0, 1).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 1);
+    }
+
+    const usedRoundIds = new Set(roundsToUse.map(round => round.id));
+
+    // Add handicap status to each round
+    const roundsWithStatus = allRounds.map(round => {
+      let handicapStatus, handicapStatusColor;
+
+      if (round.differential === null) {
+        handicapStatus = 'No (No Differential)';
+        handicapStatusColor = 'text-gray-500';
+      } else if (usedRoundIds.has(round.id)) {
+        handicapStatus = 'Yes (Used in Handicap)';
+        handicapStatusColor = 'text-green-600';
+      } else {
+        handicapStatus = 'No (Not Used)';
+        handicapStatusColor = 'text-yellow-500';
+      }
+
+      return {
+        ...round,
+        handicap_status: handicapStatus,
+        handicap_status_color: handicapStatusColor
+      };
+    });
+
+    res.json(roundsWithStatus);
+    
+  } catch (error) {
+    console.error('Error fetching recent simulator rounds:', error);
+    res.status(500).json({ error: 'Failed to fetch recent simulator rounds' });
   }
 });
 
@@ -7129,9 +7390,7 @@ app.put('/api/simulator-courses/:id/teebox-data', authenticateToken, async (req,
   }
 });
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+// NOTE: server start moved to the bottom to avoid duplicate listeners
 
 // Get course records and player statistics for leaderboard
 app.get('/api/leaderboard-stats', async (req, res) => {
@@ -7181,7 +7440,7 @@ app.get('/api/leaderboard-stats', async (req, res) => {
         AND date_played >= DATE_TRUNC('month', CURRENT_DATE)
         GROUP BY user_id
       ) recent_activity ON u.member_id = recent_activity.user_id
-      WHERE u.role IN ('Member', 'Admin', 'Club Pro')
+      WHERE u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
       ORDER BY sim_stats.total_sim_rounds DESC NULLS LAST, u.last_name, u.first_name
     `);
 
@@ -7249,7 +7508,7 @@ app.get('/api/leaderboard-stats', async (req, res) => {
       FROM users u
       LEFT JOIN matches m ON (u.member_id = m.player1_id OR u.member_id = m.player2_id)
       LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL)
-      WHERE u.role IN ('Member', 'Admin', 'Club Pro')
+      WHERE u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
     `);
 
     res.json({
@@ -7547,7 +7806,7 @@ app.get('/api/global-leaderboard', async (req, res) => {
         AND s.total_strokes IS NOT NULL 
         AND s.total_strokes > 0
       LEFT JOIN course_records cr ON u.member_id = cr.user_id AND cr.is_current = true
-      WHERE u.role IN ('Member', 'Admin', 'Club Pro')
+      WHERE u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
     `);
 
     // Count courses with no records
@@ -7557,10 +7816,10 @@ app.get('/api/global-leaderboard', async (req, res) => {
         SELECT DISTINCT s.course_id
         FROM scorecards s
         JOIN users u ON s.user_id = u.member_id
-        WHERE (s.round_type = 'sim' OR s.round_type IS NULL)
-        AND s.total_strokes IS NOT NULL 
-        AND s.total_strokes > 0
-        AND u.role IN ('Member', 'Admin', 'Club Pro')
+      WHERE (s.round_type = 'sim' OR s.round_type IS NULL)
+      AND s.total_strokes IS NOT NULL 
+      AND s.total_strokes > 0
+      AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
         AND s.course_id NOT IN (
           SELECT DISTINCT course_id FROM course_records WHERE is_current = true
         )
@@ -7687,7 +7946,7 @@ app.get('/api/clubs', async (req, res) => {
       SELECT DISTINCT club 
       FROM users 
       WHERE club IS NOT NULL AND club != '' 
-      AND role IN ('Member', 'Admin', 'Club Pro')
+      AND role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
       ORDER BY club
     `);
     
@@ -7834,7 +8093,7 @@ app.get('/api/club-leaderboard/:club', async (req, res) => {
       FROM users u
       LEFT JOIN user_profiles up ON u.member_id = up.user_id
       LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL)
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
       GROUP BY u.member_id, u.first_name, u.last_name, u.sim_handicap, u.grass_handicap, up.total_matches, up.wins, up.losses, up.ties, up.total_points, up.win_rate
       ORDER BY up.total_points DESC NULLS LAST, up.win_rate DESC NULLS LAST
     `, [club]);
@@ -7871,21 +8130,21 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
     const { rows: playerCount } = await pool.query(`
       SELECT COUNT(DISTINCT u.member_id) as total_players
       FROM users u
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
     `, [club]);
 
     const { rows: roundsCount } = await pool.query(`
       SELECT COUNT(s.id) as total_rounds
       FROM users u
       LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${dateFilter}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
     `, [club]);
 
     const { rows: recordsCount } = await pool.query(`
       SELECT COUNT(DISTINCT cr.course_id) as total_records
       FROM users u
       LEFT JOIN course_records cr ON u.member_id = cr.user_id AND cr.is_current = true ${timeFrame === 'monthly' ? "AND cr.date_played >= CURRENT_DATE - INTERVAL '30 days'" : ""}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
     `, [club]);
 
 
@@ -7905,7 +8164,7 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
         COUNT(DISTINCT cr.course_id) as record_count
       FROM users u
       LEFT JOIN course_records cr ON u.member_id = cr.user_id AND cr.is_current = true ${monthlyRecordsFilter}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
       GROUP BY u.member_id, u.first_name, u.last_name
       HAVING COUNT(DISTINCT cr.course_id) > 0
       ORDER BY record_count DESC
@@ -7918,7 +8177,7 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
         COUNT(DISTINCT cr.course_id) as record_count
       FROM users u
       LEFT JOIN course_records cr ON u.member_id = cr.user_id AND cr.is_current = true ${allTimeRecordsFilter}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
       GROUP BY u.member_id, u.first_name, u.last_name
       HAVING COUNT(DISTINCT cr.course_id) > 0
       ORDER BY record_count DESC
@@ -7932,7 +8191,7 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
         COUNT(s.id) as rounds_count
       FROM users u
       LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${monthlyDateFilter}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
       GROUP BY u.member_id, u.first_name, u.last_name
       HAVING COUNT(s.id) > 0
       ORDER BY rounds_count DESC
@@ -7945,7 +8204,7 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
         COUNT(s.id) as rounds_count
       FROM users u
       LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${allTimeDateFilter}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
       GROUP BY u.member_id, u.first_name, u.last_name
       HAVING COUNT(s.id) > 0
       ORDER BY rounds_count DESC
@@ -7960,7 +8219,7 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
         COUNT(s.id) as rounds_count
       FROM users u
       LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${monthlyDateFilter}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
       GROUP BY u.member_id, u.first_name, u.last_name
       HAVING COUNT(s.id) > 0
       ORDER BY avg_score ASC
@@ -7974,7 +8233,7 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
         COUNT(s.id) as rounds_count
       FROM users u
       LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${allTimeDateFilter}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
       GROUP BY u.member_id, u.first_name, u.last_name
       HAVING COUNT(s.id) > 0
       ORDER BY avg_score ASC
@@ -10087,7 +10346,7 @@ app.get('/api/tournaments/:id/admin/scorecards', authenticateToken, async (req, 
     
     const user = userResult.rows[0];
     const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role?.toLowerCase() === 'admin';
     
     if (!isAdmin && !isSuperAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -10157,7 +10416,7 @@ app.put('/api/tournaments/:id/admin/scorecards/:scorecardId', authenticateToken,
     
     const user = userResult.rows[0];
     const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role?.toLowerCase() === 'admin';
     
     if (!isAdmin && !isSuperAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -10244,7 +10503,7 @@ app.delete('/api/tournaments/:id/admin/scorecards/:scorecardId', authenticateTok
     
     const user = userResult.rows[0];
     const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role?.toLowerCase() === 'admin';
     
     if (!isAdmin && !isSuperAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -10294,7 +10553,7 @@ app.get('/api/tournaments/:id/admin/strokeplay-scorecards', authenticateToken, a
     
     const user = userResult.rows[0];
     const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role?.toLowerCase() === 'admin';
     
     if (!isAdmin && !isSuperAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -10335,7 +10594,7 @@ app.put('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', authent
     
     const user = userResult.rows[0];
     const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role?.toLowerCase() === 'admin';
     
     if (!isAdmin && !isSuperAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -10399,7 +10658,7 @@ app.delete('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', auth
     
     const user = userResult.rows[0];
     const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role?.toLowerCase() === 'admin';
     
     if (!isAdmin && !isSuperAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -10450,7 +10709,7 @@ app.post('/api/admin/scorecards', authenticateToken, async (req, res) => {
     
     const user = userResult.rows[0];
     const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role?.toLowerCase() === 'admin';
     
     if (!isAdmin && !isSuperAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -10557,7 +10816,7 @@ app.post('/api/tournaments/:id/admin/rounds/bulk', authenticateToken, async (req
     
     const user = userResult.rows[0];
     const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role?.toLowerCase() === 'admin';
     
     if (!isAdmin && !isSuperAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -10687,7 +10946,7 @@ app.get('/api/tournaments/:id/admin/matchplay-matches', authenticateToken, async
     
     const user = userResult.rows[0];
     const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role?.toLowerCase() === 'admin';
     
     if (!isAdmin && !isSuperAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -10731,7 +10990,7 @@ app.put('/api/tournaments/:id/admin/matchplay-matches/:matchId', authenticateTok
     
     const user = userResult.rows[0];
     const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role?.toLowerCase() === 'admin';
     
     if (!isAdmin && !isSuperAdmin) {
       return res.status(403).json({ error: 'Admin access required' });

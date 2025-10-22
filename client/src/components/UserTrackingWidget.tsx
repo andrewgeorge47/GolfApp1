@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Users, UserCheck, Calendar, TrendingUp, BarChart3, Filter, Clock, Edit3, Save, X, UserPlus, Trash2, Plus } from 'lucide-react';
+import { Users, UserCheck, Calendar, TrendingUp, BarChart3, Filter, Clock, Edit3, Save, X, UserPlus, Trash2, Plus, Eye } from 'lucide-react';
 import { getUserTrackingStats, getUserTrackingDetails, updateUser, deleteUser, type UserTrackingStats, type UserTrackingDetails } from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../AuthContext';
+import { useNavigate } from 'react-router-dom';
 import AddUserModal from './AddUserModal';
 import AdminRoundAdder from './AdminRoundAdder';
 
@@ -12,6 +13,7 @@ interface UserTrackingWidgetProps {
 
 const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' }) => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState<UserTrackingStats | null>(null);
   const [details, setDetails] = useState<UserTrackingDetails[]>([]);
   const [loading, setLoading] = useState(true);
@@ -587,6 +589,14 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
                           </td>
                           <td className="border border-neutral-300 px-3 py-3 text-neutral-600">
                             <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => navigate(`/admin/users/${user.member_id}`)}
+                                className="px-3 py-1 bg-green-600 text-white hover:bg-green-700 transition-colors rounded text-xs font-medium shadow-sm flex items-center"
+                                title="View Profile"
+                              >
+                                <Eye className="w-3 h-3 mr-1" />
+                                Profile
+                              </button>
                               <button
                                 onClick={() => handleEditRole(user.member_id, user.role)}
                                 className="px-3 py-1 bg-blue-600 text-white hover:bg-blue-700 transition-colors rounded text-xs font-medium shadow-sm"

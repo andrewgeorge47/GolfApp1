@@ -104,3 +104,5 @@ ORDER BY t.id, ccp.club_group, ccp.tiebreaker_points DESC;
 
 -- Clean up
 DROP TABLE temp_tiebreaker_recalc;
+
+

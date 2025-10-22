@@ -242,6 +242,18 @@ export interface UserCourseRecord {
   days_standing: number;
 }
 
+export interface RecentSimulatorRound {
+  id: number;
+  date_played: string;
+  course_name: string;
+  total_strokes: number;
+  differential: number | null;
+  round_type: string | null;
+  handicap: number | null;
+  handicap_status: string;
+  handicap_status_color: string;
+}
+
 export interface LeaderboardStats {
   players: LeaderboardPlayer[];
   courseRecords: CourseRecord[];
@@ -281,6 +293,8 @@ export const getUserGrassStats = (id: number) => api.get<SimStats>(`/users/${id}
 export const getUserCombinedStats = (id: number) => api.get<SimStats>(`/users/${id}/combined-stats`);
 
 export const getUserCourseRecords = (userId: number) => api.get(`/user-course-records/${userId}`);
+
+export const getUserRecentSimulatorRounds = (userId: number) => api.get(`/users/${userId}/recent-simulator-rounds`);
 
 // Profile photo upload
 export const uploadProfilePhoto = (file: File) => {
@@ -985,5 +999,48 @@ export const updateAdminMatchplayMatch = (tournamentId: number, matchId: number,
 }) => {
   return api.put(`/tournaments/${tournamentId}/admin/matchplay-matches/${matchId}`, data);
 };
+
+// ==========================================================================
+// Club Pro API
+// ==========================================================================
+
+export interface ClubProHandicapEntry {
+  member_id: number;
+  first_name: string;
+  last_name: string;
+  club: string;
+  sim_handicap?: number;
+  grass_handicap?: number;
+  total_rounds: string | number;
+  sim_rounds: string | number;
+  grass_rounds: string | number;
+  best_differential: string | number | null;
+  avg_differential: string | number | null;
+}
+
+export const getClubProHandicaps = () => {
+  return api.get<{ club: string; players: ClubProHandicapEntry[] }>(`/club-pro/handicaps`);
+};
+
+export const getClubProWeeklyMatches = (tournamentId: number, weekStartDate?: string) => {
+  const qs = weekStartDate ? `?week_start_date=${normalizeYMD(weekStartDate)}` : '';
+  return api.get<{ club: string; matches: WeeklyMatch[] }>(`/club-pro/tournaments/${tournamentId}/weekly-matches${qs}`);
+};
+
+export const getClubProPlayerTournaments = () => 
+  api.get<{ club: string; players: Array<{
+    member_id: number;
+    first_name: string;
+    last_name: string;
+    club: string;
+    tournaments: Array<{
+      tournament_id: number;
+      tournament_name: string;
+      tournament_status: string;
+      start_date?: string;
+      end_date?: string;
+      participation_status: string;
+    }>;
+  }> }>('/club-pro/player-tournaments');
 
 export default api; 

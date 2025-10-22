@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { HashRouter as Router, Routes, Route, Link, Navigate, useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Users, Trophy, Medal, Settings, BarChart3, Plus, User, Menu, X, MapPin, Award, LogIn, Calendar, Target, TrendingUp } from 'lucide-react';
+import { HashRouter as Router, Routes, Route, Link, useParams, useLocation, useNavigate } from 'react-router-dom';
+import { Home, Users, Trophy, Medal, BarChart3, User, Menu, X, MapPin, LogIn, Calendar, Target, TrendingUp } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Leaderboard from './components/Leaderboard';
 import Scoring from './components/Scoring';
@@ -10,10 +10,12 @@ import TournamentManagement from './components/TournamentManagement';
 import Profile from './components/Profile';
 import SimulatorCourses from './components/SimulatorCourses';
 import UserTrackingPage from './components/UserTrackingPage';
+import AdminUserProfile from './components/AdminUserProfile';
 import AvailableTournaments from './components/AvailableTournaments';
 import NewWeeklyScoring from './components/NewWeeklyScoring';
 import NewWeeklyLeaderboard from './components/NewWeeklyLeaderboard';
 import { AuthProvider, useAuth } from './AuthContext';
+import ClubProDashboard from './components/ClubProDashboard';
 import Login from './components/Login';
 import PasswordSetup from './components/PasswordSetup';
 import ClaimAccount from './components/ClaimAccount';
@@ -117,6 +119,39 @@ function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
   }
   
   console.log('AdminProtectedRoute: Rendering admin content for', location.pathname);
+  return <>{children}</>;
+}
+
+function ClubProProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  console.log('ClubProProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'role=', user?.role, 'pathname=', location.pathname);
+
+  useEffect(() => {
+    if (!loading) {
+      if (!user) {
+        navigate('/login');
+      } else if (!user.role || (user.role.toLowerCase() !== 'club pro' && user.role.toLowerCase() !== 'admin' && user.role.toLowerCase() !== 'clubpro')) {
+        navigate('/');
+      }
+    }
+  }, [loading, user, navigate]);
+
+  if (loading) {
+    return <div className="p-4 text-center">Loading...</div>;
+  }
+
+  if (!user) {
+    return <div className="p-4 text-center">Redirecting to login...</div>;
+  }
+
+  const roleLc = (user.role || '').toLowerCase();
+  if (roleLc !== 'club pro' && roleLc !== 'admin' && roleLc !== 'clubpro') {
+    return <div className="p-4 text-center">Redirecting...</div>;
+  }
+
   return <>{children}</>;
 }
 
@@ -350,6 +385,11 @@ function AppContent() {
             <ProtectedRoute><AvailableTournamentsWrapper /></ProtectedRoute>
           </main>
         } />
+        <Route path="/club-pro" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ClubProProtectedRoute><ClubProDashboard /></ClubProProtectedRoute>
+          </main>
+        } />
         <Route path="/scoring" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <Scoring />
@@ -383,6 +423,11 @@ function AppContent() {
         <Route path="/user-tracking" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <AdminProtectedRoute><UserTrackingPage /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/users/:userId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><AdminUserProfile /></AdminProtectedRoute>
           </main>
         } />
         <Route path="/login" element={

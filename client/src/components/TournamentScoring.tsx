@@ -231,7 +231,6 @@ const TournamentScoring: React.FC = () => {
               teams={tournamentTeams}
               tournamentSettings={tournamentSettings}
               courseId={tournament.course_id}
-              tournament={tournament}
             />
           )}
         </div>

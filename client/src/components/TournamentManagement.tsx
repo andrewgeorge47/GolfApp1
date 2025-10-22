@@ -1716,7 +1716,6 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                           tournamentMatches={tournamentMatches}
                           tournamentCourse={selectedTournament.course}
                           tournamentCourseId={selectedTournament.course_id}
-                          tournament={selectedTournament}
                           onDataRefresh={() => {
                             // Refresh tournament data
                             if (selectedTournament) {
