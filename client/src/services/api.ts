@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { environment } from '../config/environment';
+import type { Role, Permission, RoleCreateRequest, RoleUpdateRequest, AuditLogEntry } from '../types/permissions';
 
 // Normalize a date-like input to 'YYYY-MM-DD' string
 const normalizeYMD = (d?: string) => {
@@ -1049,8 +1050,6 @@ export const getClubProPlayerTournaments = (club?: string) => {
 // ============================================================================
 // PERMISSION MANAGEMENT API
 // ============================================================================
-
-import type { Role, Permission, RoleCreateRequest, RoleUpdateRequest, AuditLogEntry } from '../types/permissions';
 
 // Get all roles
 export const getRoles = () => {
