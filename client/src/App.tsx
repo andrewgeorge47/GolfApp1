@@ -21,6 +21,8 @@ import Login from './components/Login';
 import PasswordSetup from './components/PasswordSetup';
 import ClaimAccount from './components/ClaimAccount';
 import ResetPassword from './components/ResetPassword';
+import BookingPage from './components/BookingPage';
+import BookingSettingsAdmin from './components/BookingSettingsAdmin';
 import ViewAsModeIndicator from './components/ViewAsModeIndicator';
 import { isClubPro, isAdminOrClubPro } from './utils/roleUtils';
 
@@ -464,6 +466,16 @@ function AppContent() {
         <Route path="/password-setup" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <ProtectedRoute><PasswordSetup /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/simulator-booking" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><BookingPage /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/booking-settings" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><BookingSettingsAdmin /></AdminProtectedRoute>
           </main>
         } />
       </Routes>

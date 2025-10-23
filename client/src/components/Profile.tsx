@@ -1465,9 +1465,22 @@ const Profile: React.FC = () => {
         </div>
       )}
 
-
-
-
+      {user?.role?.toLowerCase() === 'admin' && (
+        <div className="mt-4 flex flex-col sm:flex-row gap-2">
+          <button
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium"
+            onClick={() => navigate('/simulator-booking')}
+          >
+            Manage Simulator Bookings
+          </button>
+          <button
+            className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 font-medium"
+            onClick={() => navigate('/booking-settings')}
+          >
+            Booking Settings
+          </button>
+        </div>
+      )}
 
       {/* Track Round Modal */}
       <TrackRoundModal
