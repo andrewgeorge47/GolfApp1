@@ -12278,6 +12278,883 @@ app.get('/api/leagues/:leagueId/schedule/week/:weekNumber', async (req, res) => 
   }
 });
 
+// --------------------------------------------
+// Matchup Generation & Management
+// --------------------------------------------
+
+// POST /api/leagues/:id/matchups/generate - Generate round-robin matchups (Admin only)
+app.post('/api/leagues/:leagueId/matchups/generate', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { leagueId } = req.params;
+
+    // Get league details
+    const league = await pool.query('SELECT * FROM leagues WHERE id = $1', [leagueId]);
+    if (league.rows.length === 0) {
+      return res.status(404).json({ error: 'League not found' });
+    }
+
+    // Get all divisions
+    const divisions = await pool.query(
+      'SELECT * FROM league_divisions WHERE league_id = $1 ORDER BY division_order',
+      [leagueId]
+    );
+
+    if (divisions.rows.length === 0) {
+      return res.status(400).json({ error: 'No divisions found. Create divisions first.' });
+    }
+
+    // Get schedule
+    const schedule = await pool.query(
+      'SELECT * FROM league_schedule WHERE league_id = $1 ORDER BY week_number',
+      [leagueId]
+    );
+
+    if (schedule.rows.length === 0) {
+      return res.status(400).json({ error: 'No schedule found. Generate schedule first.' });
+    }
+
+    // Clear existing matchups
+    await pool.query('DELETE FROM league_matchups WHERE league_id = $1', [leagueId]);
+
+    let totalMatchups = 0;
+
+    // Generate matchups for each division
+    for (const division of divisions.rows) {
+      // Get teams in this division
+      const teams = await pool.query(
+        'SELECT id FROM tournament_teams WHERE league_id = $1 AND division_id = $2 ORDER BY id',
+        [leagueId, division.id]
+      );
+
+      if (teams.rows.length < 2) {
+        console.log(`Skipping division ${division.division_name} - not enough teams`);
+        continue;
+      }
+
+      const teamIds = teams.rows.map(t => t.id);
+      const numTeams = teamIds.length;
+      const numWeeks = schedule.rows.length;
+
+      // Generate round-robin schedule
+      const matchups = generateRoundRobinSchedule(teamIds, numWeeks);
+
+      // Insert matchups into database
+      for (let weekIndex = 0; weekIndex < matchups.length; weekIndex++) {
+        const weekMatchups = matchups[weekIndex];
+        const scheduleWeek = schedule.rows[weekIndex];
+
+        for (const matchup of weekMatchups) {
+          await pool.query(
+            `INSERT INTO league_matchups
+            (league_id, schedule_id, week_number, division_id, team1_id, team2_id, status)
+            VALUES ($1, $2, $3, $4, $5, $6, 'scheduled')`,
+            [leagueId, scheduleWeek.id, scheduleWeek.week_number, division.id, matchup.team1, matchup.team2]
+          );
+          totalMatchups++;
+        }
+      }
+    }
+
+    res.status(201).json({
+      message: `Generated ${totalMatchups} matchups across ${divisions.rows.length} divisions`,
+      matchupsCreated: totalMatchups
+    });
+  } catch (err) {
+    console.error('Error generating matchups:', err);
+    res.status(500).json({ error: 'Failed to generate matchups' });
+  }
+});
+
+// Helper function: Generate round-robin schedule
+function generateRoundRobinSchedule(teamIds, numWeeks) {
+  const teams = [...teamIds];
+  const n = teams.length;
+  const schedule = [];
+
+  // If odd number of teams, add a "bye" (null)
+  if (n % 2 !== 0) {
+    teams.push(null);
+  }
+
+  const totalTeams = teams.length;
+  const roundsNeeded = totalTeams - 1;
+
+  for (let week = 0; week < numWeeks; week++) {
+    const weekMatches = [];
+    const round = week % roundsNeeded;
+
+    // Rotate teams (except first team stays fixed)
+    const rotatedTeams = [teams[0]];
+    for (let i = 1; i < totalTeams; i++) {
+      rotatedTeams.push(teams[((i - round - 1 + roundsNeeded) % roundsNeeded) + 1]);
+    }
+
+    // Pair teams
+    for (let i = 0; i < totalTeams / 2; i++) {
+      const team1 = rotatedTeams[i];
+      const team2 = rotatedTeams[totalTeams - 1 - i];
+
+      // Skip if either team is a "bye"
+      if (team1 !== null && team2 !== null) {
+        weekMatches.push({ team1, team2 });
+      }
+    }
+
+    schedule.push(weekMatches);
+  }
+
+  return schedule;
+}
+
+// GET /api/leagues/:id/matchups - Get all matchups
+app.get('/api/leagues/:leagueId/matchups', async (req, res) => {
+  try {
+    const { leagueId } = req.params;
+    const { week_number, division_id, status } = req.query;
+
+    let query = `
+      SELECT lm.*,
+        ls.week_start_date, ls.week_end_date,
+        ld.division_name,
+        t1.name as team1_name, t1.captain_id as team1_captain_id,
+        t2.name as team2_name, t2.captain_id as team2_captain_id,
+        u1.first_name || ' ' || u1.last_name as team1_captain_name,
+        u2.first_name || ' ' || u2.last_name as team2_captain_name,
+        sc.name as course_name
+      FROM league_matchups lm
+      LEFT JOIN league_schedule ls ON lm.schedule_id = ls.id
+      LEFT JOIN league_divisions ld ON lm.division_id = ld.id
+      LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
+      LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
+      LEFT JOIN users u1 ON t1.captain_id = u1.member_id
+      LEFT JOIN users u2 ON t2.captain_id = u2.member_id
+      LEFT JOIN simulator_courses_combined sc ON lm.course_id = sc.id
+      WHERE lm.league_id = $1
+    `;
+
+    const params = [leagueId];
+    let paramCount = 2;
+
+    if (week_number) {
+      query += ` AND lm.week_number = $${paramCount++}`;
+      params.push(week_number);
+    }
+
+    if (division_id) {
+      query += ` AND lm.division_id = $${paramCount++}`;
+      params.push(division_id);
+    }
+
+    if (status) {
+      query += ` AND lm.status = $${paramCount++}`;
+      params.push(status);
+    }
+
+    query += ` ORDER BY lm.week_number, ld.division_order, lm.id`;
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching matchups:', err);
+    res.status(500).json({ error: 'Failed to fetch matchups' });
+  }
+});
+
+// GET /api/leagues/:id/matchups/week/:weekNumber - Get matchups for a specific week
+app.get('/api/leagues/:leagueId/matchups/week/:weekNumber', async (req, res) => {
+  try {
+    const { leagueId, weekNumber } = req.params;
+
+    const result = await pool.query(
+      `SELECT lm.*,
+        ls.week_start_date, ls.week_end_date,
+        ld.division_name,
+        t1.name as team1_name, t1.captain_id as team1_captain_id,
+        t2.name as team2_name, t2.captain_id as team2_captain_id,
+        u1.first_name || ' ' || u1.last_name as team1_captain_name,
+        u2.first_name || ' ' || u2.last_name as team2_captain_name
+      FROM league_matchups lm
+      LEFT JOIN league_schedule ls ON lm.schedule_id = ls.id
+      LEFT JOIN league_divisions ld ON lm.division_id = ld.id
+      LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
+      LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
+      LEFT JOIN users u1 ON t1.captain_id = u1.member_id
+      LEFT JOIN users u2 ON t2.captain_id = u2.member_id
+      WHERE lm.league_id = $1 AND lm.week_number = $2
+      ORDER BY ld.division_order, lm.id`,
+      [leagueId, weekNumber]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching week matchups:', err);
+    res.status(500).json({ error: 'Failed to fetch week matchups' });
+  }
+});
+
+// GET /api/matchups/:id - Get specific matchup details
+app.get('/api/matchups/:matchupId', async (req, res) => {
+  try {
+    const { matchupId } = req.params;
+
+    const result = await pool.query(
+      `SELECT lm.*,
+        ls.week_start_date, ls.week_end_date, ls.week_number,
+        ld.division_name,
+        t1.name as team1_name, t1.captain_id as team1_captain_id,
+        t2.name as team2_name, t2.captain_id as team2_captain_id,
+        u1.first_name || ' ' || u1.last_name as team1_captain_name,
+        u2.first_name || ' ' || u2.last_name as team2_captain_name,
+        sc.name as course_name, sc.par_values, sc.location
+      FROM league_matchups lm
+      LEFT JOIN league_schedule ls ON lm.schedule_id = ls.id
+      LEFT JOIN league_divisions ld ON lm.division_id = ld.id
+      LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
+      LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
+      LEFT JOIN users u1 ON t1.captain_id = u1.member_id
+      LEFT JOIN users u2 ON t2.captain_id = u2.member_id
+      LEFT JOIN simulator_courses_combined sc ON lm.course_id = sc.id
+      WHERE lm.id = $1`,
+      [matchupId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Matchup not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error fetching matchup:', err);
+    res.status(500).json({ error: 'Failed to fetch matchup' });
+  }
+});
+
+// PUT /api/matchups/:id - Update matchup (Admin only)
+app.put('/api/matchups/:matchupId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { matchupId } = req.params;
+    const { course_id, course_name, course_rating, course_slope, course_par, hole_indexes, match_date, status } = req.body;
+
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (course_id !== undefined) {
+      updates.push(`course_id = $${paramCount++}`);
+      values.push(course_id);
+    }
+    if (course_name !== undefined) {
+      updates.push(`course_name = $${paramCount++}`);
+      values.push(course_name);
+    }
+    if (course_rating !== undefined) {
+      updates.push(`course_rating = $${paramCount++}`);
+      values.push(course_rating);
+    }
+    if (course_slope !== undefined) {
+      updates.push(`course_slope = $${paramCount++}`);
+      values.push(course_slope);
+    }
+    if (course_par !== undefined) {
+      updates.push(`course_par = $${paramCount++}`);
+      values.push(course_par);
+    }
+    if (hole_indexes !== undefined) {
+      updates.push(`hole_indexes = $${paramCount++}`);
+      values.push(JSON.stringify(hole_indexes));
+    }
+    if (match_date !== undefined) {
+      updates.push(`match_date = $${paramCount++}`);
+      values.push(match_date);
+    }
+    if (status !== undefined) {
+      updates.push(`status = $${paramCount++}`);
+      values.push(status);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updates.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(matchupId);
+
+    const result = await pool.query(
+      `UPDATE league_matchups SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Matchup not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating matchup:', err);
+    res.status(500).json({ error: 'Failed to update matchup' });
+  }
+});
+
+// DELETE /api/matchups/:id - Delete matchup (Admin only)
+app.delete('/api/matchups/:matchupId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { matchupId } = req.params;
+
+    const result = await pool.query('DELETE FROM league_matchups WHERE id = $1 RETURNING *', [matchupId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Matchup not found' });
+    }
+
+    res.json({ message: 'Matchup deleted successfully', matchup: result.rows[0] });
+  } catch (err) {
+    console.error('Error deleting matchup:', err);
+    res.status(500).json({ error: 'Failed to delete matchup' });
+  }
+});
+
+// --------------------------------------------
+// Availability Tracking
+// --------------------------------------------
+
+// POST /api/teams/:teamId/availability - Submit availability (Player)
+app.post('/api/teams/:teamId/availability', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { league_id, week_number, is_available, availability_notes } = req.body;
+    const userId = req.user.member_id;
+
+    if (!league_id || !week_number) {
+      return res.status(400).json({ error: 'league_id and week_number are required' });
+    }
+
+    // Check if user is a member of this team
+    const memberCheck = await pool.query(
+      'SELECT * FROM team_members WHERE team_id = $1 AND user_member_id = $2',
+      [teamId, userId]
+    );
+
+    if (memberCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'You are not a member of this team' });
+    }
+
+    // Upsert availability
+    const result = await pool.query(
+      `INSERT INTO team_member_availability
+        (team_id, user_id, league_id, week_number, is_available, availability_notes)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (team_id, user_id, league_id, week_number)
+       DO UPDATE SET
+         is_available = EXCLUDED.is_available,
+         availability_notes = EXCLUDED.availability_notes,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [teamId, userId, league_id, week_number, is_available !== false, availability_notes]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error submitting availability:', err);
+    res.status(500).json({ error: 'Failed to submit availability' });
+  }
+});
+
+// GET /api/teams/:teamId/availability/week/:weekNumber - Get team availability for a week
+app.get('/api/teams/:teamId/availability/week/:weekNumber', authenticateToken, async (req, res) => {
+  try {
+    const { teamId, weekNumber } = req.params;
+    const { league_id } = req.query;
+
+    if (!league_id) {
+      return res.status(400).json({ error: 'league_id query parameter is required' });
+    }
+
+    // Get all team members with their availability
+    const result = await pool.query(
+      `SELECT
+        tm.user_member_id,
+        u.first_name,
+        u.last_name,
+        u.email_address,
+        u.handicap,
+        tm.is_captain,
+        tma.is_available,
+        tma.availability_notes,
+        tma.submitted_at,
+        tma.updated_at
+      FROM team_members tm
+      JOIN users u ON tm.user_member_id = u.member_id
+      LEFT JOIN team_member_availability tma ON
+        tm.team_id = tma.team_id AND
+        tm.user_member_id = tma.user_id AND
+        tma.league_id = $2 AND
+        tma.week_number = $3
+      WHERE tm.team_id = $1
+      ORDER BY tm.is_captain DESC, u.last_name, u.first_name`,
+      [teamId, league_id, weekNumber]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching team availability:', err);
+    res.status(500).json({ error: 'Failed to fetch team availability' });
+  }
+});
+
+// GET /api/availability/:availabilityId - Get specific availability record
+app.get('/api/availability/:availabilityId', authenticateToken, async (req, res) => {
+  try {
+    const { availabilityId } = req.params;
+
+    const result = await pool.query('SELECT * FROM team_member_availability WHERE id = $1', [availabilityId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Availability record not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error fetching availability:', err);
+    res.status(500).json({ error: 'Failed to fetch availability' });
+  }
+});
+
+// PUT /api/availability/:availabilityId - Update availability
+app.put('/api/availability/:availabilityId', authenticateToken, async (req, res) => {
+  try {
+    const { availabilityId } = req.params;
+    const { is_available, availability_notes } = req.body;
+
+    // Check ownership
+    const availability = await pool.query(
+      'SELECT * FROM team_member_availability WHERE id = $1',
+      [availabilityId]
+    );
+
+    if (availability.rows.length === 0) {
+      return res.status(404).json({ error: 'Availability record not found' });
+    }
+
+    if (availability.rows[0].user_id !== req.user.member_id) {
+      return res.status(403).json({ error: 'You can only update your own availability' });
+    }
+
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (is_available !== undefined) {
+      updates.push(`is_available = $${paramCount++}`);
+      values.push(is_available);
+    }
+    if (availability_notes !== undefined) {
+      updates.push(`availability_notes = $${paramCount++}`);
+      values.push(availability_notes);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updates.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(availabilityId);
+
+    const result = await pool.query(
+      `UPDATE team_member_availability SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`,
+      values
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating availability:', err);
+    res.status(500).json({ error: 'Failed to update availability' });
+  }
+});
+
+// --------------------------------------------
+// Lineup Management
+// --------------------------------------------
+
+// POST /api/matchups/:matchupId/lineup - Submit lineup for a matchup (Captain or Admin)
+app.post('/api/matchups/:matchupId/lineup', authenticateToken, async (req, res) => {
+  try {
+    const { matchupId } = req.params;
+    const {
+      team_id,
+      player1_id,
+      player2_id,
+      player3_id,
+      player1_holes = [1, 2, 3],
+      player2_holes = [4, 5, 6],
+      player3_holes = [7, 8, 9]
+    } = req.body;
+
+    if (!team_id || !player1_id || !player2_id || !player3_id) {
+      return res.status(400).json({ error: 'team_id and all three player IDs are required' });
+    }
+
+    // Get matchup details
+    const matchup = await pool.query('SELECT * FROM league_matchups WHERE id = $1', [matchupId]);
+    if (matchup.rows.length === 0) {
+      return res.status(404).json({ error: 'Matchup not found' });
+    }
+
+    const matchupData = matchup.rows[0];
+
+    // Verify user is captain of this team or admin
+    const team = await pool.query('SELECT * FROM tournament_teams WHERE id = $1', [team_id]);
+    if (team.rows.length === 0) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    const isAdmin = req.user.role === 'Admin';
+    const isCaptain = team.rows[0].captain_id === req.user.member_id;
+
+    if (!isAdmin && !isCaptain) {
+      return res.status(403).json({ error: 'Only team captain or admin can submit lineup' });
+    }
+
+    // Verify team is in this matchup
+    if (team_id !== matchupData.team1_id && team_id !== matchupData.team2_id) {
+      return res.status(400).json({ error: 'Team is not part of this matchup' });
+    }
+
+    // Verify all players are members of the team
+    const playerIds = [player1_id, player2_id, player3_id];
+    for (const playerId of playerIds) {
+      const memberCheck = await pool.query(
+        'SELECT * FROM team_members WHERE team_id = $1 AND user_member_id = $2',
+        [team_id, playerId]
+      );
+      if (memberCheck.rows.length === 0) {
+        return res.status(400).json({ error: `Player ${playerId} is not a member of this team` });
+      }
+    }
+
+    // Get player handicaps
+    const players = await pool.query(
+      'SELECT member_id, handicap FROM users WHERE member_id = ANY($1)',
+      [playerIds]
+    );
+
+    const playerMap = {};
+    players.rows.forEach(p => {
+      playerMap[p.member_id] = p.handicap || 0;
+    });
+
+    const player1_handicap = playerMap[player1_id];
+    const player2_handicap = playerMap[player2_id];
+    const player3_handicap = playerMap[player3_id];
+    const team_handicap = ((player1_handicap + player2_handicap + player3_handicap) / 3).toFixed(2);
+
+    // Calculate team course handicap if course info available
+    let team_course_handicap = null;
+    if (matchupData.course_slope && matchupData.course_rating) {
+      team_course_handicap = Math.round((team_handicap * matchupData.course_slope) / 113);
+    }
+
+    // Upsert lineup
+    const result = await pool.query(
+      `INSERT INTO weekly_lineups
+        (matchup_id, team_id, league_id, week_number,
+         player1_id, player2_id, player3_id,
+         player1_holes, player2_holes, player3_holes,
+         player1_handicap, player2_handicap, player3_handicap,
+         team_handicap, team_course_handicap,
+         submitted_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+       ON CONFLICT (team_id, league_id, week_number)
+       DO UPDATE SET
+         matchup_id = EXCLUDED.matchup_id,
+         player1_id = EXCLUDED.player1_id,
+         player2_id = EXCLUDED.player2_id,
+         player3_id = EXCLUDED.player3_id,
+         player1_holes = EXCLUDED.player1_holes,
+         player2_holes = EXCLUDED.player2_holes,
+         player3_holes = EXCLUDED.player3_holes,
+         player1_handicap = EXCLUDED.player1_handicap,
+         player2_handicap = EXCLUDED.player2_handicap,
+         player3_handicap = EXCLUDED.player3_handicap,
+         team_handicap = EXCLUDED.team_handicap,
+         team_course_handicap = EXCLUDED.team_course_handicap,
+         submitted_by = EXCLUDED.submitted_by,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [
+        matchupId, team_id, matchupData.league_id, matchupData.week_number,
+        player1_id, player2_id, player3_id,
+        player1_holes, player2_holes, player3_holes,
+        player1_handicap, player2_handicap, player3_handicap,
+        team_handicap, team_course_handicap,
+        req.user.member_id
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error submitting lineup:', err);
+    res.status(500).json({ error: 'Failed to submit lineup' });
+  }
+});
+
+// GET /api/matchups/:matchupId/lineups - Get lineups for a matchup
+app.get('/api/matchups/:matchupId/lineups', async (req, res) => {
+  try {
+    const { matchupId } = req.params;
+
+    const result = await pool.query(
+      `SELECT wl.*,
+        tt.name as team_name,
+        u1.first_name || ' ' || u1.last_name as player1_name,
+        u2.first_name || ' ' || u2.last_name as player2_name,
+        u3.first_name || ' ' || u3.last_name as player3_name,
+        sub.first_name || ' ' || sub.last_name as submitted_by_name
+      FROM weekly_lineups wl
+      LEFT JOIN tournament_teams tt ON wl.team_id = tt.id
+      LEFT JOIN users u1 ON wl.player1_id = u1.member_id
+      LEFT JOIN users u2 ON wl.player2_id = u2.member_id
+      LEFT JOIN users u3 ON wl.player3_id = u3.member_id
+      LEFT JOIN users sub ON wl.submitted_by = sub.member_id
+      WHERE wl.matchup_id = $1`,
+      [matchupId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching lineups:', err);
+    res.status(500).json({ error: 'Failed to fetch lineups' });
+  }
+});
+
+// GET /api/teams/:teamId/lineups - Get all lineups for a team
+app.get('/api/teams/:teamId/lineups', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { league_id } = req.query;
+
+    let query = `
+      SELECT wl.*,
+        lm.week_number, lm.status as matchup_status,
+        t1.name as opponent_name
+      FROM weekly_lineups wl
+      LEFT JOIN league_matchups lm ON wl.matchup_id = lm.id
+      LEFT JOIN tournament_teams t1 ON
+        CASE
+          WHEN lm.team1_id = wl.team_id THEN lm.team2_id
+          ELSE lm.team1_id
+        END = t1.id
+      WHERE wl.team_id = $1
+    `;
+
+    const params = [teamId];
+
+    if (league_id) {
+      query += ` AND wl.league_id = $2`;
+      params.push(league_id);
+    }
+
+    query += ` ORDER BY wl.week_number DESC`;
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching team lineups:', err);
+    res.status(500).json({ error: 'Failed to fetch team lineups' });
+  }
+});
+
+// POST /api/lineups/:lineupId/lock - Lock lineup (Captain or Admin)
+app.post('/api/lineups/:lineupId/lock', authenticateToken, async (req, res) => {
+  try {
+    const { lineupId } = req.params;
+
+    // Get lineup details
+    const lineup = await pool.query('SELECT * FROM weekly_lineups WHERE id = $1', [lineupId]);
+    if (lineup.rows.length === 0) {
+      return res.status(404).json({ error: 'Lineup not found' });
+    }
+
+    const lineupData = lineup.rows[0];
+
+    // Check if user is captain or admin
+    const team = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [lineupData.team_id]);
+    const isAdmin = req.user.role === 'Admin';
+    const isCaptain = team.rows[0].captain_id === req.user.member_id;
+
+    if (!isAdmin && !isCaptain) {
+      return res.status(403).json({ error: 'Only team captain or admin can lock lineup' });
+    }
+
+    // Lock the lineup
+    const result = await pool.query(
+      `UPDATE weekly_lineups
+       SET locked = true, locked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING *`,
+      [lineupId]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error locking lineup:', err);
+    res.status(500).json({ error: 'Failed to lock lineup' });
+  }
+});
+
+// PUT /api/lineups/:lineupId - Update lineup (Captain or Admin, only if not locked)
+app.put('/api/lineups/:lineupId', authenticateToken, async (req, res) => {
+  try {
+    const { lineupId } = req.params;
+    const {
+      player1_id,
+      player2_id,
+      player3_id,
+      player1_holes,
+      player2_holes,
+      player3_holes
+    } = req.body;
+
+    // Get lineup details
+    const lineup = await pool.query('SELECT * FROM weekly_lineups WHERE id = $1', [lineupId]);
+    if (lineup.rows.length === 0) {
+      return res.status(404).json({ error: 'Lineup not found' });
+    }
+
+    const lineupData = lineup.rows[0];
+
+    // Check if locked
+    if (lineupData.locked) {
+      return res.status(400).json({ error: 'Cannot update locked lineup' });
+    }
+
+    // Check if user is captain or admin
+    const team = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [lineupData.team_id]);
+    const isAdmin = req.user.role === 'Admin';
+    const isCaptain = team.rows[0].captain_id === req.user.member_id;
+
+    if (!isAdmin && !isCaptain) {
+      return res.status(403).json({ error: 'Only team captain or admin can update lineup' });
+    }
+
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (player1_id !== undefined) {
+      updates.push(`player1_id = $${paramCount++}`);
+      values.push(player1_id);
+    }
+    if (player2_id !== undefined) {
+      updates.push(`player2_id = $${paramCount++}`);
+      values.push(player2_id);
+    }
+    if (player3_id !== undefined) {
+      updates.push(`player3_id = $${paramCount++}`);
+      values.push(player3_id);
+    }
+    if (player1_holes !== undefined) {
+      updates.push(`player1_holes = $${paramCount++}`);
+      values.push(player1_holes);
+    }
+    if (player2_holes !== undefined) {
+      updates.push(`player2_holes = $${paramCount++}`);
+      values.push(player2_holes);
+    }
+    if (player3_holes !== undefined) {
+      updates.push(`player3_holes = $${paramCount++}`);
+      values.push(player3_holes);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updates.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(lineupId);
+
+    const result = await pool.query(
+      `UPDATE weekly_lineups SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`,
+      values
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating lineup:', err);
+    res.status(500).json({ error: 'Failed to update lineup' });
+  }
+});
+
+// --------------------------------------------
+// Captain Dashboard Helpers
+// --------------------------------------------
+
+// GET /api/captain/team/:teamId/dashboard - Captain dashboard overview
+app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { league_id } = req.query;
+
+    // Verify user is captain
+    const team = await pool.query('SELECT * FROM tournament_teams WHERE id = $1', [teamId]);
+    if (team.rows.length === 0) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    const isAdmin = req.user.role === 'Admin';
+    const isCaptain = team.rows[0].captain_id === req.user.member_id;
+
+    if (!isAdmin && !isCaptain) {
+      return res.status(403).json({ error: 'Only team captain or admin can view dashboard' });
+    }
+
+    // Get team roster
+    const roster = await pool.query(
+      `SELECT tm.*, u.first_name, u.last_name, u.email_address, u.handicap
+       FROM team_members tm
+       JOIN users u ON tm.user_member_id = u.member_id
+       WHERE tm.team_id = $1
+       ORDER BY tm.is_captain DESC, u.last_name`,
+      [teamId]
+    );
+
+    // Get upcoming matches
+    const upcomingMatches = await pool.query(
+      `SELECT lm.*, ls.week_start_date, ls.week_end_date,
+        CASE
+          WHEN lm.team1_id = $1 THEN t2.name
+          ELSE t1.name
+        END as opponent_name
+       FROM league_matchups lm
+       JOIN league_schedule ls ON lm.schedule_id = ls.id
+       LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
+       LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
+       WHERE (lm.team1_id = $1 OR lm.team2_id = $1)
+         AND lm.league_id = $2
+         AND lm.status IN ('scheduled', 'lineup_submitted')
+       ORDER BY lm.week_number
+       LIMIT 5`,
+      [teamId, league_id]
+    );
+
+    // Get team standings
+    const standings = await pool.query(
+      `SELECT * FROM team_standings
+       WHERE team_id = $1 AND league_id = $2`,
+      [teamId, league_id]
+    );
+
+    res.json({
+      team: team.rows[0],
+      roster: roster.rows,
+      upcomingMatches: upcomingMatches.rows,
+      standings: standings.rows[0] || null
+    });
+  } catch (err) {
+    console.error('Error fetching captain dashboard:', err);
+    res.status(500).json({ error: 'Failed to fetch captain dashboard' });
+  }
+});
+
 // Start the server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
