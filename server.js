@@ -8552,13 +8552,21 @@ app.get('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) =>
         r.is_system_role,
         r.is_active,
         r.created_at,
-        COUNT(rp.permission_id) as permission_count,
-        COUNT(u.member_id) as user_count
+        COALESCE(perm_count.count, 0) as permission_count,
+        COALESCE(user_count.count, 0) as user_count
       FROM roles r
-      LEFT JOIN role_permissions rp ON r.id = rp.role_id
-      LEFT JOIN users u ON u.role_id = r.id
+      LEFT JOIN (
+        SELECT role_id, COUNT(DISTINCT permission_id) as count
+        FROM role_permissions
+        GROUP BY role_id
+      ) perm_count ON r.id = perm_count.role_id
+      LEFT JOIN (
+        SELECT role_id, COUNT(DISTINCT member_id) as count
+        FROM users
+        GROUP BY role_id
+      ) user_count ON r.id = user_count.role_id
       WHERE r.is_active = TRUE
-      GROUP BY r.id, r.role_name, r.role_key, r.description, r.is_system_role, r.is_active, r.created_at
+      GROUP BY r.id, r.role_name, r.role_key, r.description, r.is_system_role, r.is_active, r.created_at, perm_count.count, user_count.count
       ORDER BY
         CASE r.role_key
           WHEN 'admin' THEN 1
