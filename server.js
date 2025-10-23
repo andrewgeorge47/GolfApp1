@@ -11630,6 +11630,654 @@ app.get('/api/tournaments/:id', async (req, res) => {
   }
 });
 
+// ============================================
+// LEAGUE MANAGEMENT API ENDPOINTS
+// ============================================
+
+// --------------------------------------------
+// League CRUD Operations
+// --------------------------------------------
+
+// POST /api/leagues - Create a new league (Admin only)
+app.post('/api/leagues', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const {
+      name,
+      season,
+      description,
+      start_date,
+      end_date,
+      teams_per_division = 4,
+      divisions_count = 2,
+      weeks_per_season,
+      playoff_format = 'top_per_division',
+      points_for_win = 1.0,
+      points_for_tie = 0.5,
+      points_for_loss = 0.0,
+      format = 'hybrid',
+      individual_holes = 9,
+      alternate_shot_holes = 9,
+      active_players_per_week = 3,
+      roster_size_min = 4,
+      roster_size_max = 5
+    } = req.body;
+
+    // Validation
+    if (!name || !start_date || !end_date) {
+      return res.status(400).json({ error: 'name, start_date, and end_date are required' });
+    }
+
+    // Insert league
+    const result = await pool.query(
+      `INSERT INTO leagues (
+        name, season, description, start_date, end_date,
+        teams_per_division, divisions_count, weeks_per_season, playoff_format,
+        points_for_win, points_for_tie, points_for_loss,
+        format, individual_holes, alternate_shot_holes,
+        active_players_per_week, roster_size_min, roster_size_max,
+        created_by, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'draft')
+      RETURNING *`,
+      [
+        name, season, description, start_date, end_date,
+        teams_per_division, divisions_count, weeks_per_season, playoff_format,
+        points_for_win, points_for_tie, points_for_loss,
+        format, individual_holes, alternate_shot_holes,
+        active_players_per_week, roster_size_min, roster_size_max,
+        req.user.member_id
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error creating league:', err);
+    res.status(500).json({ error: 'Failed to create league' });
+  }
+});
+
+// GET /api/leagues - List all leagues
+app.get('/api/leagues', async (req, res) => {
+  try {
+    const { status } = req.query;
+
+    let query = `
+      SELECT l.*,
+        u.first_name || ' ' || u.last_name AS created_by_name,
+        COUNT(DISTINCT tt.id) AS team_count,
+        COUNT(DISTINCT ld.id) AS division_count
+      FROM leagues l
+      LEFT JOIN users u ON l.created_by = u.member_id
+      LEFT JOIN tournament_teams tt ON l.id = tt.league_id
+      LEFT JOIN league_divisions ld ON l.id = ld.id
+    `;
+
+    const params = [];
+    if (status) {
+      query += ` WHERE l.status = $1`;
+      params.push(status);
+    }
+
+    query += ` GROUP BY l.id, u.first_name, u.last_name ORDER BY l.created_at DESC`;
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching leagues:', err);
+    res.status(500).json({ error: 'Failed to fetch leagues' });
+  }
+});
+
+// GET /api/leagues/:id - Get specific league details
+app.get('/api/leagues/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `SELECT l.*,
+        u.first_name || ' ' || u.last_name AS created_by_name,
+        COUNT(DISTINCT tt.id) AS team_count,
+        COUNT(DISTINCT ld.id) AS division_count,
+        COUNT(DISTINCT ls.id) AS weeks_scheduled
+      FROM leagues l
+      LEFT JOIN users u ON l.created_by = u.member_id
+      LEFT JOIN tournament_teams tt ON l.id = tt.league_id
+      LEFT JOIN league_divisions ld ON l.id = ld.league_id
+      LEFT JOIN league_schedule ls ON l.id = ls.league_id
+      WHERE l.id = $1
+      GROUP BY l.id, u.first_name, u.last_name`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'League not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error fetching league:', err);
+    res.status(500).json({ error: 'Failed to fetch league' });
+  }
+});
+
+// PUT /api/leagues/:id - Update league (Admin only)
+app.put('/api/leagues/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      season,
+      description,
+      start_date,
+      end_date,
+      status,
+      teams_per_division,
+      divisions_count,
+      weeks_per_season,
+      playoff_format,
+      points_for_win,
+      points_for_tie,
+      points_for_loss
+    } = req.body;
+
+    // Build dynamic update query
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (name !== undefined) {
+      updates.push(`name = $${paramCount++}`);
+      values.push(name);
+    }
+    if (season !== undefined) {
+      updates.push(`season = $${paramCount++}`);
+      values.push(season);
+    }
+    if (description !== undefined) {
+      updates.push(`description = $${paramCount++}`);
+      values.push(description);
+    }
+    if (start_date !== undefined) {
+      updates.push(`start_date = $${paramCount++}`);
+      values.push(start_date);
+    }
+    if (end_date !== undefined) {
+      updates.push(`end_date = $${paramCount++}`);
+      values.push(end_date);
+    }
+    if (status !== undefined) {
+      updates.push(`status = $${paramCount++}`);
+      values.push(status);
+    }
+    if (teams_per_division !== undefined) {
+      updates.push(`teams_per_division = $${paramCount++}`);
+      values.push(teams_per_division);
+    }
+    if (divisions_count !== undefined) {
+      updates.push(`divisions_count = $${paramCount++}`);
+      values.push(divisions_count);
+    }
+    if (weeks_per_season !== undefined) {
+      updates.push(`weeks_per_season = $${paramCount++}`);
+      values.push(weeks_per_season);
+    }
+    if (playoff_format !== undefined) {
+      updates.push(`playoff_format = $${paramCount++}`);
+      values.push(playoff_format);
+    }
+    if (points_for_win !== undefined) {
+      updates.push(`points_for_win = $${paramCount++}`);
+      values.push(points_for_win);
+    }
+    if (points_for_tie !== undefined) {
+      updates.push(`points_for_tie = $${paramCount++}`);
+      values.push(points_for_tie);
+    }
+    if (points_for_loss !== undefined) {
+      updates.push(`points_for_loss = $${paramCount++}`);
+      values.push(points_for_loss);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updates.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(id);
+
+    const result = await pool.query(
+      `UPDATE leagues SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'League not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating league:', err);
+    res.status(500).json({ error: 'Failed to update league' });
+  }
+});
+
+// DELETE /api/leagues/:id - Delete league (Admin only)
+app.delete('/api/leagues/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query('DELETE FROM leagues WHERE id = $1 RETURNING *', [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'League not found' });
+    }
+
+    res.json({ message: 'League deleted successfully', league: result.rows[0] });
+  } catch (err) {
+    console.error('Error deleting league:', err);
+    res.status(500).json({ error: 'Failed to delete league' });
+  }
+});
+
+// --------------------------------------------
+// Division Management
+// --------------------------------------------
+
+// POST /api/leagues/:id/divisions - Create division (Admin only)
+app.post('/api/leagues/:leagueId/divisions', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { leagueId } = req.params;
+    const { division_name, division_order = 1 } = req.body;
+
+    if (!division_name) {
+      return res.status(400).json({ error: 'division_name is required' });
+    }
+
+    // Check if league exists
+    const leagueCheck = await pool.query('SELECT id FROM leagues WHERE id = $1', [leagueId]);
+    if (leagueCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'League not found' });
+    }
+
+    // Insert division
+    const result = await pool.query(
+      `INSERT INTO league_divisions (league_id, division_name, division_order)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [leagueId, division_name, division_order]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') { // Unique constraint violation
+      return res.status(409).json({ error: 'Division name already exists in this league' });
+    }
+    console.error('Error creating division:', err);
+    res.status(500).json({ error: 'Failed to create division' });
+  }
+});
+
+// GET /api/leagues/:id/divisions - List divisions
+app.get('/api/leagues/:leagueId/divisions', async (req, res) => {
+  try {
+    const { leagueId } = req.params;
+
+    const result = await pool.query(
+      `SELECT ld.*,
+        COUNT(DISTINCT tt.id) AS team_count
+      FROM league_divisions ld
+      LEFT JOIN tournament_teams tt ON ld.id = tt.division_id
+      WHERE ld.league_id = $1
+      GROUP BY ld.id
+      ORDER BY ld.division_order, ld.division_name`,
+      [leagueId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching divisions:', err);
+    res.status(500).json({ error: 'Failed to fetch divisions' });
+  }
+});
+
+// PUT /api/leagues/:leagueId/divisions/:divisionId - Update division (Admin only)
+app.put('/api/leagues/:leagueId/divisions/:divisionId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { leagueId, divisionId } = req.params;
+    const { division_name, division_order } = req.body;
+
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (division_name !== undefined) {
+      updates.push(`division_name = $${paramCount++}`);
+      values.push(division_name);
+    }
+    if (division_order !== undefined) {
+      updates.push(`division_order = $${paramCount++}`);
+      values.push(division_order);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    values.push(divisionId, leagueId);
+
+    const result = await pool.query(
+      `UPDATE league_divisions SET ${updates.join(', ')}
+       WHERE id = $${paramCount} AND league_id = $${paramCount + 1}
+       RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Division not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating division:', err);
+    res.status(500).json({ error: 'Failed to update division' });
+  }
+});
+
+// DELETE /api/leagues/:leagueId/divisions/:divisionId - Delete division (Admin only)
+app.delete('/api/leagues/:leagueId/divisions/:divisionId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { leagueId, divisionId } = req.params;
+
+    // Check if division has teams
+    const teamCheck = await pool.query(
+      'SELECT COUNT(*) FROM tournament_teams WHERE division_id = $1',
+      [divisionId]
+    );
+
+    if (parseInt(teamCheck.rows[0].count) > 0) {
+      return res.status(400).json({
+        error: 'Cannot delete division with teams. Please reassign or remove teams first.'
+      });
+    }
+
+    const result = await pool.query(
+      'DELETE FROM league_divisions WHERE id = $1 AND league_id = $2 RETURNING *',
+      [divisionId, leagueId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Division not found' });
+    }
+
+    res.json({ message: 'Division deleted successfully', division: result.rows[0] });
+  } catch (err) {
+    console.error('Error deleting division:', err);
+    res.status(500).json({ error: 'Failed to delete division' });
+  }
+});
+
+// --------------------------------------------
+// League Team Management (extends existing team endpoints)
+// --------------------------------------------
+
+// GET /api/leagues/:id/teams - Get all teams in a league
+app.get('/api/leagues/:leagueId/teams', async (req, res) => {
+  try {
+    const { leagueId } = req.params;
+
+    const result = await pool.query(
+      `SELECT
+        tt.*,
+        ld.division_name,
+        u.first_name || ' ' || u.last_name AS captain_name,
+        u.email_address AS captain_email,
+        ts.wins, ts.losses, ts.ties, ts.total_points,
+        ts.aggregate_net_total, ts.playoff_qualified
+      FROM tournament_teams tt
+      LEFT JOIN league_divisions ld ON tt.division_id = ld.id
+      LEFT JOIN users u ON tt.captain_id = u.member_id
+      LEFT JOIN team_standings ts ON tt.id = ts.team_id AND ts.league_id = $1
+      WHERE tt.league_id = $1
+      ORDER BY ld.division_order, tt.league_points DESC, tt.aggregate_net_score ASC`,
+      [leagueId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching league teams:', err);
+    res.status(500).json({ error: 'Failed to fetch league teams' });
+  }
+});
+
+// POST /api/leagues/:id/teams - Create team in league (Admin or Captain)
+app.post('/api/leagues/:leagueId/teams', authenticateToken, async (req, res) => {
+  try {
+    const { leagueId } = req.params;
+    const { name, captain_id, division_id, color = '#3B82F6' } = req.body;
+
+    if (!name || !captain_id) {
+      return res.status(400).json({ error: 'name and captain_id are required' });
+    }
+
+    // Check if league exists
+    const leagueCheck = await pool.query('SELECT id FROM leagues WHERE id = $1', [leagueId]);
+    if (leagueCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'League not found' });
+    }
+
+    // Check if division exists (if provided)
+    if (division_id) {
+      const divisionCheck = await pool.query(
+        'SELECT id FROM league_divisions WHERE id = $1 AND league_id = $2',
+        [division_id, leagueId]
+      );
+      if (divisionCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Division not found in this league' });
+      }
+    }
+
+    // Note: We'll need to create a tournament entry for backward compatibility
+    // For now, just create the team record
+    const result = await pool.query(
+      `INSERT INTO tournament_teams (name, captain_id, league_id, division_id, color, player_count, tournament_id)
+       VALUES ($1, $2, $3, $4, $5, 1, 0)
+       RETURNING *`,
+      [name, captain_id, leagueId, division_id, color]
+    );
+
+    const team = result.rows[0];
+
+    // Add captain as team member
+    await pool.query(
+      `INSERT INTO team_members (team_id, user_member_id, is_captain, tournament_id)
+       VALUES ($1, $2, true, 0)`,
+      [team.id, captain_id]
+    );
+
+    // Create initial team standings record
+    await pool.query(
+      `INSERT INTO team_standings (team_id, league_id, division_id, tournament_id)
+       VALUES ($1, $2, $3, 0)`,
+      [team.id, leagueId, division_id]
+    );
+
+    res.status(201).json(team);
+  } catch (err) {
+    console.error('Error creating team:', err);
+    res.status(500).json({ error: 'Failed to create team' });
+  }
+});
+
+// PUT /api/leagues/:leagueId/teams/:teamId - Update team
+app.put('/api/leagues/:leagueId/teams/:teamId', authenticateToken, async (req, res) => {
+  try {
+    const { leagueId, teamId } = req.params;
+    const { name, division_id, captain_id, color } = req.body;
+
+    // Check if user is admin or team captain
+    const team = await pool.query(
+      'SELECT * FROM tournament_teams WHERE id = $1 AND league_id = $2',
+      [teamId, leagueId]
+    );
+
+    if (team.rows.length === 0) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    const isAdmin = req.user.role === 'Admin';
+    const isCaptain = team.rows[0].captain_id === req.user.member_id;
+
+    if (!isAdmin && !isCaptain) {
+      return res.status(403).json({ error: 'Only team captain or admin can update team' });
+    }
+
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (name !== undefined) {
+      updates.push(`name = $${paramCount++}`);
+      values.push(name);
+    }
+    if (division_id !== undefined) {
+      updates.push(`division_id = $${paramCount++}`);
+      values.push(division_id);
+    }
+    if (captain_id !== undefined && isAdmin) { // Only admin can change captain
+      updates.push(`captain_id = $${paramCount++}`);
+      values.push(captain_id);
+    }
+    if (color !== undefined) {
+      updates.push(`color = $${paramCount++}`);
+      values.push(color);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updates.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(teamId, leagueId);
+
+    const result = await pool.query(
+      `UPDATE tournament_teams SET ${updates.join(', ')}
+       WHERE id = $${paramCount} AND league_id = $${paramCount + 1}
+       RETURNING *`,
+      values
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating team:', err);
+    res.status(500).json({ error: 'Failed to update team' });
+  }
+});
+
+// --------------------------------------------
+// Schedule Generation
+// --------------------------------------------
+
+// POST /api/leagues/:id/schedule/generate - Generate weekly schedule (Admin only)
+app.post('/api/leagues/:leagueId/schedule/generate', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { leagueId } = req.params;
+    const { weeks, start_date } = req.body;
+
+    if (!weeks || !start_date) {
+      return res.status(400).json({ error: 'weeks and start_date are required' });
+    }
+
+    // Get league details
+    const league = await pool.query('SELECT * FROM leagues WHERE id = $1', [leagueId]);
+    if (league.rows.length === 0) {
+      return res.status(404).json({ error: 'League not found' });
+    }
+
+    // Clear existing schedule
+    await pool.query('DELETE FROM league_schedule WHERE league_id = $1', [leagueId]);
+
+    // Generate weekly schedule
+    const scheduleEntries = [];
+    let currentDate = new Date(start_date);
+
+    for (let week = 1; week <= weeks; week++) {
+      const weekStart = new Date(currentDate);
+      const weekEnd = new Date(currentDate);
+      weekEnd.setDate(weekEnd.getDate() + 6); // 7-day weeks
+
+      const result = await pool.query(
+        `INSERT INTO league_schedule (league_id, week_number, week_start_date, week_end_date, status)
+         VALUES ($1, $2, $3, $4, 'scheduled')
+         RETURNING *`,
+        [leagueId, week, weekStart.toISOString().split('T')[0], weekEnd.toISOString().split('T')[0]]
+      );
+
+      scheduleEntries.push(result.rows[0]);
+
+      // Move to next week
+      currentDate.setDate(currentDate.getDate() + 7);
+    }
+
+    // Update league with weeks count
+    await pool.query(
+      'UPDATE leagues SET weeks_per_season = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [weeks, leagueId]
+    );
+
+    res.status(201).json({
+      message: `Generated ${weeks} weeks of schedule`,
+      schedule: scheduleEntries
+    });
+  } catch (err) {
+    console.error('Error generating schedule:', err);
+    res.status(500).json({ error: 'Failed to generate schedule' });
+  }
+});
+
+// GET /api/leagues/:id/schedule - Get full league schedule
+app.get('/api/leagues/:leagueId/schedule', async (req, res) => {
+  try {
+    const { leagueId } = req.params;
+
+    const result = await pool.query(
+      `SELECT ls.*,
+        COUNT(DISTINCT lm.id) AS matchup_count
+      FROM league_schedule ls
+      LEFT JOIN league_matchups lm ON ls.id = lm.schedule_id
+      WHERE ls.league_id = $1
+      GROUP BY ls.id
+      ORDER BY ls.week_number`,
+      [leagueId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching schedule:', err);
+    res.status(500).json({ error: 'Failed to fetch schedule' });
+  }
+});
+
+// GET /api/leagues/:id/schedule/week/:weekNumber - Get specific week
+app.get('/api/leagues/:leagueId/schedule/week/:weekNumber', async (req, res) => {
+  try {
+    const { leagueId, weekNumber } = req.params;
+
+    const result = await pool.query(
+      `SELECT * FROM league_schedule
+       WHERE league_id = $1 AND week_number = $2`,
+      [leagueId, weekNumber]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Week not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error fetching week:', err);
+    res.status(500).json({ error: 'Failed to fetch week' });
+  }
+});
+
 // Start the server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
