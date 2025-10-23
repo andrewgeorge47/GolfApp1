@@ -652,7 +652,7 @@ const BookingPage: React.FC = () => {
                   defaultView={calendarView === 'day' ? 'day' : 'week'}
                   view={calendarView === 'day' ? 'day' : 'week'}
                   date={calendarDate}
-                  onNavigate={date => setCalendarDate(date)}
+                  onNavigate={(date: Date) => setCalendarDate(date)}
                   min={new Date(0, 0, 0, parseInt(bookingSettings.opening_time.split(':')[0]), parseInt(bookingSettings.opening_time.split(':')[1]), 0)}
                   max={new Date(0, 0, 0, parseInt(bookingSettings.closing_time.split(':')[0]), parseInt(bookingSettings.closing_time.split(':')[1]), 0)}
                   toolbar={true}
