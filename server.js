@@ -5455,6 +5455,21 @@ async function requireAdminForBooking(req, res, next) {
   }
 }
 
+// Middleware to restrict to admin users only (general purpose)
+async function requireAdmin(req, res, next) {
+  try {
+    const userId = req.user?.member_id || req.user?.user_id;
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+    const { rows } = await pool.query('SELECT role FROM users WHERE member_id = $1', [userId]);
+    if (!rows[0] || rows[0].role?.toLowerCase() !== 'admin') {
+      return res.status(403).json({ error: 'Access restricted to administrators only' });
+    }
+    next();
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to check admin access' });
+  }
+}
+
 // Get bookings (all or for a specific date)
 app.get('/api/simulator-bookings', authenticateToken, requireAdminForBooking, async (req, res) => {
   const { date } = req.query;
