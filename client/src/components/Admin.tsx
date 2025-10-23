@@ -9,6 +9,7 @@ import {
   registerUserForTournament,
   unregisterUserFromTournament,
   getTournamentCheckIns,
+  getTournamentScores,
   checkInUser,
   checkOutUser,
   getTournamentStats,
@@ -16,7 +17,8 @@ import {
   generateTournamentMatches,
   updateTournamentMatch,
   getUsers,
-  updateTournamentRegistration
+  updateTournamentRegistration,
+  getSimulatorCourses
 } from '../services/api';
 import type { User } from '../services/api';
 import { toast } from 'react-toastify';
@@ -25,6 +27,7 @@ import TournamentList from './TournamentList';
 import TournamentDetails from './TournamentDetails';
 import ParticipantsTable from './ParticipantsTable';
 import MatchesTable from './MatchesTable';
+import ChampionshipAdminDashboard from './ChampionshipAdminDashboard';
 
 import api from '../services/api';
 import { useAuth } from '../AuthContext';
@@ -81,7 +84,11 @@ const Admin: React.FC = () => {
     rules: '',
     notes: '',
     type: 'tournament',
-    club_restriction: 'open' // 'open', 'club_specific', or specific club name
+    club_restriction: 'open', // 'open', 'club_specific', or specific club name
+    // Registration form settings
+    has_registration_form: false,
+    registration_form_template: '',
+    registration_form_data: null
   });
 
   // Form validation state
@@ -90,108 +97,6 @@ const Admin: React.FC = () => {
 
   // Check if current user is super admin (Andrew George)
   const isSuperAdmin = currentUser?.first_name === 'Andrew' && currentUser?.last_name === 'George';
-
-  // Tournament templates
-  const tournamentTemplates = [
-    {
-      id: 'championship',
-      name: 'Championship Tournament',
-      icon: '🏆',
-      description: 'Major championship with stroke play format',
-      settings: {
-        tournament_format: 'stroke_play',
-        min_participants: '8',
-        max_participants: '32',
-        entry_fee: '50',
-        status: 'draft',
-        rules: 'Standard stroke play rules apply. Lowest total score wins. Ties will be decided by scorecard playoff.',
-        notes: 'Championship format - individual stroke play'
-      }
-    },
-    {
-      id: 'match_play',
-      name: 'Match Play Championship',
-      icon: '⚔️',
-      description: 'Head-to-head match play tournament',
-      settings: {
-        tournament_format: 'match_play',
-        min_participants: '4',
-        max_participants: '16',
-        entry_fee: '25',
-        status: 'draft',
-        rules: 'Match play format. Win holes to win matches. Ties result in halved holes.',
-        notes: 'Match play format - head-to-head competition'
-      }
-    },
-    {
-      id: 'league',
-      name: 'Season League',
-      icon: '📅',
-      description: 'Ongoing league with multiple rounds',
-      settings: {
-        type: 'league',
-        tournament_format: 'match_play',
-        min_participants: '8',
-        max_participants: '24',
-        entry_fee: '100',
-        status: 'draft',
-        rules: 'League format with multiple rounds. Points awarded for wins, ties, and losses.',
-        notes: 'League format - ongoing competition'
-      }
-    },
-    {
-      id: 'scramble',
-      name: 'Scramble Tournament',
-      icon: '🎉',
-      description: 'Team scramble format tournament',
-      settings: {
-        tournament_format: 'scramble',
-        min_participants: '4',
-        max_participants: '20',
-        entry_fee: '10',
-        status: 'draft',
-        rules: 'Scramble format. Teams of 4 players. All players hit, best shot is selected. Team captain submits final score.',
-        notes: 'Scramble format - team competition with 4 players per team'
-      }
-    },
-    {
-      id: 'best_ball',
-      name: 'Best Ball Tournament',
-      icon: '🎯',
-      description: 'Best ball format tournament',
-      settings: {
-        tournament_format: 'best_ball',
-        min_participants: '4',
-        max_participants: '16',
-        entry_fee: '15',
-        status: 'draft',
-        rules: 'Best ball format. Teams of 2 players. Each player plays their own ball, best score on each hole counts.',
-        notes: 'Best ball format - team competition with 2 players per team'
-      }
-    },
-    {
-      id: 'stableford',
-      name: 'Stableford Tournament',
-      icon: '📊',
-      description: 'Stableford scoring tournament',
-      settings: {
-        tournament_format: 'stableford',
-        min_participants: '4',
-        max_participants: '20',
-        entry_fee: '20',
-        status: 'draft',
-        rules: 'Stableford scoring. Points awarded based on score relative to par. Highest total points wins.',
-        notes: 'Stableford format - points-based scoring'
-      }
-    },
-    {
-      id: 'custom',
-      name: 'Custom Tournament',
-      icon: '⚙️',
-      description: 'Start from scratch with custom settings',
-      settings: {}
-    }
-  ];
 
   // Tournament state
   const [tournaments, setTournaments] = useState<any[]>([]);
@@ -202,6 +107,8 @@ const Admin: React.FC = () => {
   // Tournament management state
   const [tournamentParticipants, setTournamentParticipants] = useState<any[]>([]);
   const [tournamentCheckIns, setTournamentCheckIns] = useState<any[]>([]);
+  const [tournamentScores, setTournamentScores] = useState<any[]>([]);
+  const [tournamentPayouts, setTournamentPayouts] = useState<any[]>([]);
   const [tournamentStats, setTournamentStats] = useState<any>(null);
   const [showRegistrationModal, setShowRegistrationModal] = useState(false);
   const [showCheckInModal, setShowCheckInModal] = useState(false);
@@ -219,7 +126,7 @@ const Admin: React.FC = () => {
   // Add state for multi-select registration
   const [selectedRegistrationUserIds, setSelectedRegistrationUserIds] = useState<number[]>([]);
 
-  // Add state for multi-select check-in
+  // Add state for multi-select payment tracking
   const [selectedCheckInUserIds, setSelectedCheckInUserIds] = useState<number[]>([]);
 
   // Add tab state
@@ -231,6 +138,8 @@ const Admin: React.FC = () => {
 
   // Add state for club filter
   const [registrationClubFilter, setRegistrationClubFilter] = useState<string | null>(null);
+
+
 
   useEffect(() => {
     const fetchData = async () => {
@@ -254,8 +163,8 @@ const Admin: React.FC = () => {
   useEffect(() => {
     const fetchSimulatorCourses = async () => {
       try {
-        const response = await api.get('/simulator-courses?limit=1000');
-        setSimulatorCourses(response.data.courses);
+        const response = await getSimulatorCourses(undefined, undefined, 10000);
+        setSimulatorCourses(response.data.courses || []);
       } catch (error) {
         console.error('Error fetching simulator courses:', error);
       }
@@ -313,17 +222,19 @@ const Admin: React.FC = () => {
     if (selectedTournament) {
       const loadTournamentData = async () => {
         try {
-          const [participantsRes, checkInsRes, statsRes, matchesRes] = await Promise.all([
+          const [participantsRes, checkInsRes, statsRes, matchesRes, scoresRes] = await Promise.all([
             getTournamentParticipants(selectedTournament.id),
             getTournamentCheckIns(selectedTournament.id),
             getTournamentStats(selectedTournament.id),
-            getTournamentMatches(selectedTournament.id)
+            getTournamentMatches(selectedTournament.id),
+            getTournamentScores(selectedTournament.id)
           ]);
           
           setTournamentParticipants(participantsRes.data);
           setTournamentCheckIns(checkInsRes.data);
           setTournamentStats(statsRes.data);
           setTournamentMatches(matchesRes.data);
+          setTournamentScores(scoresRes.data || []);
         } catch (error) {
           console.error('Error loading tournament data:', error);
         }
@@ -398,13 +309,7 @@ const Admin: React.FC = () => {
   };
 
   // Template selection handler
-  const handleTemplateSelect = (template: any) => {
-    setTournamentForm(prev => ({
-      ...prev,
-      ...template.settings
-    }));
-    toast.success(`Applied ${template.name} template`);
-  };
+
 
   const handleTournamentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -434,6 +339,9 @@ const Admin: React.FC = () => {
         notes: tournamentForm.notes,
         type: tournamentForm.type,
         club_restriction: tournamentForm.club_restriction,
+        has_registration_form: tournamentForm.has_registration_form,
+        registration_form_template: tournamentForm.registration_form_template,
+        registration_form_data: tournamentForm.registration_form_data,
         created_by: currentUser?.member_id
       };
       
@@ -458,7 +366,10 @@ const Admin: React.FC = () => {
         rules: '',
         notes: '', 
         type: 'tournament',
-        club_restriction: 'open'
+        club_restriction: 'open',
+        has_registration_form: false,
+        registration_form_template: '',
+        registration_form_data: null
       });
       setFormErrors({});
       setSelectedCourse(null);
@@ -564,7 +475,7 @@ const Admin: React.FC = () => {
     }
   };
 
-  // Tournament check-in functions
+  // Tournament payment tracking functions
   const handleCheckInUsers = async (userIds: number[]) => {
     if (!selectedTournament) return;
     try {
@@ -607,6 +518,8 @@ const Admin: React.FC = () => {
       alert(error.response?.data?.error || 'Error checking out user');
     }
   };
+
+
 
   // Get available users for registration (not already registered)
   const getAvailableUsers = () => {
@@ -735,7 +648,7 @@ const Admin: React.FC = () => {
       return (
         user.first_name.toLowerCase().includes(searchLower) ||
         user.last_name.toLowerCase().includes(searchLower) ||
-        user.email.toLowerCase().includes(searchLower) ||
+        user.email_address.toLowerCase().includes(searchLower) ||
         user.club.toLowerCase().includes(searchLower)
       );
     });
@@ -764,12 +677,12 @@ const Admin: React.FC = () => {
     return filtered;
   }
 
-  // Helper to determine if check-in functionality should be shown
+  // Helper to determine if payment tracking functionality should be shown
   const shouldShowCheckIn = () => {
     if (!selectedTournament) return false;
     
-    // Show check-in for in-person tournaments or if explicitly enabled
-    // For simulator tournaments, check-in might not be needed
+    // Show payment tracking for tournaments with entry fees or if explicitly enabled
+    // For simulator tournaments, payment tracking might not be needed
     const isInPerson = selectedTournament.location && selectedTournament.location.toLowerCase().includes('club');
     const isSimulator = selectedTournament.course && selectedTournament.course.toLowerCase().includes('simulator');
     
@@ -995,7 +908,7 @@ const Admin: React.FC = () => {
                       className={`py-2 px-4 font-medium ${activeTab === 'checkin' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
                       onClick={() => setActiveTab('checkin')}
                     >
-                      Check-in
+                      Players
                     </button>
                       )}
                     <button
@@ -1070,6 +983,8 @@ const Admin: React.FC = () => {
                                 onClick={() => {
                                   const availableUsers = getAvailableUsers();
                                   if (availableUsers.length > 0) {
+                                    const confirmMessage = `Register all ${availableUsers.length} available user(s)?`;
+                                    if (!window.confirm(confirmMessage)) return;
                                     handleRegisterUsers(availableUsers.map(u => u.member_id));
                                   }
                                 }}
@@ -1079,6 +994,7 @@ const Admin: React.FC = () => {
                                 <UserPlus className="w-4 h-4 mr-2" />
                                 Register All Available
                               </button>
+
                             </div>
 
                             {/* Search and Filter */}
@@ -1225,7 +1141,7 @@ const Admin: React.FC = () => {
                                       {user.first_name} {user.last_name}
                                     </td>
                                       <td className="border border-neutral-300 px-4 py-3 text-neutral-600">
-                                        {user.email}
+                                        {user.email_address}
                                       </td>
                                       <td className="border border-neutral-300 px-4 py-3">
                                         <span className="px-2 py-1 bg-neutral-100 text-neutral-700 text-sm rounded">
@@ -1276,7 +1192,7 @@ const Admin: React.FC = () => {
                           {/* Check-in Overview */}
                           <div className="bg-white rounded-xl p-6 border border-neutral-200">
                             <div className="flex items-center justify-between mb-4">
-                              <h4 className="text-lg font-semibold text-brand-black">Check-in Management</h4>
+                              <h4 className="text-lg font-semibold text-brand-black">Payment Management</h4>
                               <div className="flex items-center space-x-2">
                                 <span className="text-sm text-neutral-600">
                                   {tournamentCheckIns.filter(c => c.status === 'checked_in').length} checked in
@@ -1302,7 +1218,7 @@ const Admin: React.FC = () => {
                                     </h3>
                                     <div className="mt-2 text-sm text-blue-700">
                                       <p>
-                                        This appears to be a simulator tournament. Check-in functionality is typically used for in-person events where players need to physically check in at the venue.
+                                        This appears to be a simulator tournament. Payment tracking functionality is typically used for tournaments where entry fees need to be collected.
                                       </p>
                                     </div>
                                   </div>
@@ -1331,7 +1247,7 @@ const Admin: React.FC = () => {
                                     <div className="text-2xl font-bold text-yellow-600">
                                       {tournamentParticipants.length - tournamentCheckIns.filter(c => c.status === 'checked_in').length}
                                     </div>
-                                    <div className="text-sm text-yellow-700">Pending Check-in</div>
+                                    <div className="text-sm text-yellow-700">Pending Payment</div>
                                   </div>
                                 </div>
                               </div>
@@ -1364,7 +1280,7 @@ const Admin: React.FC = () => {
                             {/* Check-in Progress Bar */}
                             <div className="mb-6">
                               <div className="flex justify-between text-sm text-neutral-600 mb-2">
-                                <span>Check-in Progress</span>
+                                <span>Payment Progress</span>
                                 <span>
                                   {tournamentParticipants.length > 0 
                                     ? Math.round((tournamentCheckIns.filter(c => c.status === 'checked_in').length / tournamentParticipants.length) * 100)
@@ -1401,7 +1317,7 @@ const Admin: React.FC = () => {
                                 ).length === 0}
                               >
                                 <CheckCircle className="w-4 h-4 mr-2" />
-                                Check In All Pending
+                                Mark All as Paid
                       </button>
                               
                               <button
@@ -1415,7 +1331,7 @@ const Admin: React.FC = () => {
                                 disabled={tournamentCheckIns.filter(c => c.status === 'checked_in').length === 0}
                               >
                                 <Clock className="w-4 h-4 mr-2" />
-                                Check Out All
+                                Mark All as Unpaid
                               </button>
                             </div>
 
@@ -1425,11 +1341,10 @@ const Admin: React.FC = () => {
                                 <thead className="bg-neutral-50">
                                   <tr>
                                     <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Name</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Email</th>
                                     <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Club</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Status</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Check-in Time</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Actions</th>
+                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Payment Status</th>
+                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Score Submitted</th>
+                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Payout</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -1437,14 +1352,13 @@ const Admin: React.FC = () => {
                                     const checkIn = tournamentCheckIns.find(c => c.user_member_id === participant.user_member_id);
                                     const isCheckedIn = checkIn && checkIn.status === 'checked_in';
                                     const isCheckedOut = checkIn && checkIn.status === 'checked_out';
+                                    const hasScore = tournamentScores.find(s => s.user_id === participant.user_member_id);
+                                    const payout = tournamentPayouts.find(p => p.user_member_id === participant.user_member_id);
                                     
                                     return (
                                       <tr key={participant.user_member_id} className="hover:bg-neutral-50">
                                         <td className="border border-neutral-300 px-4 py-3 font-medium">
                                           {participant.first_name} {participant.last_name}
-                                        </td>
-                                        <td className="border border-neutral-300 px-4 py-3 text-neutral-600">
-                                          {participant.email}
                                         </td>
                                         <td className="border border-neutral-300 px-4 py-3">
                                           <span className="px-2 py-1 bg-neutral-100 text-neutral-700 text-sm rounded">
@@ -1452,15 +1366,50 @@ const Admin: React.FC = () => {
                                           </span>
                                         </td>
                                         <td className="border border-neutral-300 px-4 py-3">
-                                          {isCheckedIn ? (
+                                          <div className="flex items-center space-x-2">
+                                            {isCheckedIn ? (
+                                              <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                <CheckCircle className="w-3 h-3 inline mr-1" />
+                                                Paid
+                                              </span>
+                                            ) : isCheckedOut ? (
+                                              <span className="px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                                <Clock className="w-3 h-3 inline mr-1" />
+                                                Unpaid
+                                              </span>
+                                            ) : (
+                                              <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                                <Clock className="w-3 h-3 inline mr-1" />
+                                                Unpaid
+                                              </span>
+                                            )}
+                                            <div className="flex space-x-1">
+                                              {!isCheckedIn && (
+                                                <button
+                                                  onClick={() => handleCheckInUsers([participant.user_member_id])}
+                                                  className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+                                                  title="Mark as Paid"
+                                                >
+                                                  ✓
+                                                </button>
+                                              )}
+                                              {isCheckedIn && (
+                                                <button
+                                                  onClick={() => handleCheckOutUser(participant.user_member_id)}
+                                                  className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                                                  title="Mark as Unpaid"
+                                                >
+                                                  ✗
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </td>
+                                        <td className="border border-neutral-300 px-4 py-3">
+                                          {hasScore ? (
                                             <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                               <CheckCircle className="w-3 h-3 inline mr-1" />
-                                              Checked In
-                                            </span>
-                                          ) : isCheckedOut ? (
-                                            <span className="px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                              <Clock className="w-3 h-3 inline mr-1" />
-                                              Checked Out
+                                              Submitted
                                             </span>
                                           ) : (
                                             <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
@@ -1469,43 +1418,18 @@ const Admin: React.FC = () => {
                                             </span>
                                           )}
                                         </td>
-                                        <td className="border border-neutral-300 px-4 py-3 text-neutral-600 text-sm">
-                                          {checkIn ? (
-                                            <div>
-                                              <div>{new Date(checkIn.created_at).toLocaleDateString()}</div>
-                                              <div className="text-xs text-neutral-500">
-                                                {new Date(checkIn.created_at).toLocaleTimeString()}
-                                              </div>
-                                            </div>
-                                          ) : (
-                                            'Not checked in'
-                                          )}
-                                        </td>
                                         <td className="border border-neutral-300 px-4 py-3">
-                                          <div className="flex space-x-2">
-                                            {!isCheckedIn && (
-                                              <button
-                                                onClick={() => handleCheckInUsers([participant.user_member_id])}
-                                                className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
-                                              >
-                                                Check In
-                                              </button>
-                                            )}
-                                            {isCheckedIn && (
-                                              <button
-                                                onClick={() => handleCheckOutUser(participant.user_member_id)}
-                                                className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
-                                              >
-                                                Check Out
-                                              </button>
-                                            )}
-                                            <button
-                                              onClick={() => handleUnregisterUser(participant.user_member_id)}
-                                              className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
-                                            >
-                                              Remove
-                                            </button>
-                                          </div>
+                                          {payout ? (
+                                            <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                              <CheckCircle className="w-3 h-3 inline mr-1" />
+                                              ${payout.amount}
+                                            </span>
+                                          ) : (
+                                            <span className="px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                              <Clock className="w-3 h-3 inline mr-1" />
+                                              TBD
+                                            </span>
+                                          )}
                                         </td>
                                       </tr>
                                     );
@@ -1951,36 +1875,6 @@ const Admin: React.FC = () => {
             </div>
 
             <form onSubmit={handleTournamentSubmit} className="space-y-6">
-              {/* Template Selection Section */}
-              <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-xl p-6 border border-blue-200">
-                <div className="flex items-center mb-4">
-                  <Trophy className="w-5 h-5 text-brand-neon-green mr-2" />
-                  <h4 className="text-lg font-semibold text-brand-black">Choose a Template (Optional)</h4>
-                </div>
-                <p className="text-sm text-neutral-600 mb-4">
-                  Select a template to pre-fill common tournament settings, or start with a custom tournament.
-                </p>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {tournamentTemplates.map(template => (
-                    <button
-                      key={template.id}
-                      type="button"
-                      onClick={() => handleTemplateSelect(template)}
-                      className="p-4 bg-white rounded-lg border border-neutral-200 hover:border-brand-neon-green hover:shadow-md transition-all text-left group"
-                    >
-                      <div className="flex items-center mb-2">
-                        <span className="text-2xl mr-2">{template.icon}</span>
-                        <h5 className="font-medium text-brand-black group-hover:text-brand-neon-green transition-colors">
-                          {template.name}
-                        </h5>
-                      </div>
-                      <p className="text-sm text-neutral-600">{template.description}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               {/* Basic Information Section */}
               <div className="bg-neutral-50 rounded-xl p-6">
                 <div className="flex items-center mb-4">
@@ -2626,7 +2520,7 @@ const Admin: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-2xl max-h-96 overflow-y-auto">
             <h3 className="text-xl font-bold text-brand-black mb-4">
-              Check In Players for {selectedTournament.name}
+              Mark Players as Paid for {selectedTournament.name}
             </h3>
             <div className="space-y-4">
               <div className="overflow-x-auto">
@@ -2679,7 +2573,7 @@ const Admin: React.FC = () => {
               </div>
               {getRegisteredNotCheckedIn().length === 0 && (
                 <p className="text-center text-neutral-600 py-4">
-                  All registered players are already checked in.
+                  All registered players are already marked as paid.
                 </p>
               )}
               <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-4 pt-4">
@@ -2694,7 +2588,7 @@ const Admin: React.FC = () => {
                   className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
                   disabled={selectedCheckInUserIds.length === 0}
                 >
-                  Check In Selected
+                  Mark Selected as Paid
                 </button>
               </div>
             </div>
@@ -2707,7 +2601,7 @@ const Admin: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md">
             <h3 className="text-xl font-bold text-brand-black mb-4">
-              Check In {selectedUserForCheckIn.first_name} {selectedUserForCheckIn.last_name}
+              Mark {selectedUserForCheckIn.first_name} {selectedUserForCheckIn.last_name} as Paid
             </h3>
             <div className="space-y-4">
               <div>
@@ -2717,7 +2611,7 @@ const Admin: React.FC = () => {
                   onChange={(e) => setCheckInNotes(e.target.value)}
                   className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
                   rows={3}
-                  placeholder="Any special notes for this check-in..."
+                  placeholder="Any special notes for this payment..."
                 />
               </div>
               <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-4 pt-4">
@@ -2734,7 +2628,7 @@ const Admin: React.FC = () => {
                   onClick={() => handleCheckInUsers(selectedCheckInUserIds)}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
                 >
-                  Check In
+                  Mark as Paid
                 </button>
               </div>
             </div>

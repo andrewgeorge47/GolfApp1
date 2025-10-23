@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
-import { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser, getUserTournaments } from '../services/api';
-import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign, MessageSquare } from 'lucide-react';
+import api, { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser, getUserTournaments } from '../services/api';
+import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign, MessageSquare, Eye, CheckCircle, Info, AlertTriangle } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
 import ScoreCard from './ScoreCard';
 import StrokePlayScoreCard from './StrokePlayScoreCard';
+import ViewAsMode from './ViewAsMode';
 
 const Profile: React.FC = () => {
   const { user, token, logout, refreshUser } = useAuth();
@@ -19,6 +20,7 @@ const Profile: React.FC = () => {
   const [combinedStats, setCombinedStats] = useState<SimStats | null>(null);
   const [courseRecords, setCourseRecords] = useState<UserCourseRecord[]>([]);
   const [userTournaments, setUserTournaments] = useState<any[]>([]);
+  const [showAllTournaments, setShowAllTournaments] = useState(false);
   const [statsTab, setStatsTab] = useState<'overview' | 'sim' | 'records'>('overview');
   const [formData, setFormData] = useState({
     first_name: user?.first_name || '',
@@ -78,6 +80,9 @@ const Profile: React.FC = () => {
         setCourseRecords(courseRecordsResponse.data);
         setUserTournaments(userTournamentsResponse.data);
         
+        // Debug: Log tournament data to verify has_submitted_score is included
+        console.log('User tournaments with score submission status:', userTournamentsResponse.data);
+        
         // After updating stats, we need to refresh the user data to get updated handicaps
         // This will be handled by the parent component or context
       } catch (err) {
@@ -98,14 +103,23 @@ const Profile: React.FC = () => {
 
     try {
       setLoading(true);
-      await updateUser(user.member_id, formData);
-      setIsEditing(false);
-      setError(null);
+      
+      // Test API connection first
+      try {
+        const testResponse = await api.get('/health');
+        console.log('API health check:', testResponse.status);
+      } catch (err) {
+        console.error('API health check failed:', err);
+      }
+
+      // Update user
+      const updatedUser = await updateUser(user.member_id, formData);
       // Refresh user data
-      window.location.reload();
+      await refreshUser();
+      setIsEditing(false);
     } catch (err) {
-      setError('Failed to update profile');
-      console.error('Error updating profile:', err);
+      setError('Failed to save profile changes');
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -164,11 +178,11 @@ const Profile: React.FC = () => {
     try {
       console.log('ScoreCard data received:', scoreCardData); // Debug log
       
-      // Test API connection first
-      try {
-        const testResponse = await fetch('http://localhost:3001/api/health');
-        console.log('API health check:', testResponse.status);
-      } catch (err) {
+              // Test API connection first
+        try {
+          const testResponse = await api.get('/health');
+          console.log('API health check:', testResponse.status);
+        } catch (err) {
         console.error('API health check failed:', err);
       }
       
@@ -290,6 +304,46 @@ const Profile: React.FC = () => {
 
   const triggerPhotoUpload = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleViewLeaderboard = (tournamentId: number) => {
+    navigate(`/leaderboard/tournament/${tournamentId}`);
+  };
+
+  const handleSubmitScore = (tournamentId: number) => {
+    // Navigate to the tournament scoring page for this tournament
+    navigate(`/tournament-scoring?tournament=${tournamentId}`);
+  };
+
+  // Helper function to determine if a tournament is eligible for score submission
+  const isTournamentEligibleForScore = (tournament: any) => {
+    return (tournament.status === 'open' || tournament.status === 'active') && !tournament.has_submitted_score;
+  };
+
+  // Helper function to sort tournaments with those needing scores first
+  const getSortedTournaments = (tournaments: any[]) => {
+    return [...tournaments].sort((a, b) => {
+      const aNeedsScore = isTournamentEligibleForScore(a);
+      const bNeedsScore = isTournamentEligibleForScore(b);
+      
+      // If one needs score and the other doesn't, prioritize the one that needs score
+      if (aNeedsScore && !bNeedsScore) return -1;
+      if (!aNeedsScore && bNeedsScore) return 1;
+      
+      // If both need scores or both don't need scores, sort by start date (newest first)
+      if (a.start_date && b.start_date) {
+        return new Date(b.start_date).getTime() - new Date(a.start_date).getTime();
+      }
+      
+      // If no start dates, maintain original order
+      return 0;
+    });
+  };
+
+  // Get tournaments to display (limited to 3 initially, or all if showAllTournaments is true)
+  const getDisplayedTournaments = () => {
+    const sortedTournaments = getSortedTournaments(userTournaments);
+    return showAllTournaments ? sortedTournaments : sortedTournaments.slice(0, 3);
   };
 
   // Function to determine which rounds are used for handicap calculation
@@ -504,32 +558,32 @@ const Profile: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto relative pb-16 sm:pb-6">
       {/* Golf Passport Header */}
-      <div className="bg-gradient-to-br from-brand-dark-green to-brand-muted-green rounded-2xl shadow-xl p-6 mb-8 text-white">
+      <div className="bg-gradient-to-br from-brand-dark-green to-brand-muted-green rounded-2xl shadow-xl p-4 sm:p-6 mb-6 sm:mb-8 text-white">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center space-x-6 mb-6 lg:mb-0">
+          <div className="flex flex-col sm:flex-row sm:items-center space-y-4 sm:space-y-0 sm:space-x-6 mb-6 lg:mb-0">
             <div className="relative">
-              <div className="bg-white/20 backdrop-blur-sm rounded-full w-20 h-20 flex items-center justify-center">
+              <div className="bg-white/20 backdrop-blur-sm rounded-full w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center">
                 {user?.profile_photo_url ? (
                   <img 
                     src={user.profile_photo_url} 
                     alt="Profile" 
-                    className="w-20 h-20 rounded-full object-cover"
+                    className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover"
                   />
                 ) : (
-                  <UserIcon className="w-12 h-12 text-white" />
+                  <UserIcon className="w-8 h-8 sm:w-12 sm:h-12 text-white" />
                 )}
               </div>
               {isEditing && (
                 <button
                   onClick={triggerPhotoUpload}
                   disabled={uploadingPhoto}
-                  className="absolute -bottom-1 -right-1 bg-brand-neon-green text-brand-black rounded-full p-2 hover:bg-green-400 transition-colors disabled:opacity-50"
+                  className="absolute -bottom-1 -right-1 bg-brand-neon-green text-brand-black rounded-full p-1.5 sm:p-2 hover:bg-green-400 transition-colors disabled:opacity-50"
                   title="Upload profile photo"
                 >
                   {uploadingPhoto ? (
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-black"></div>
+                    <div className="animate-spin rounded-full h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-brand-black"></div>
                   ) : (
-                    <Camera className="w-4 h-4" />
+                    <Camera className="w-3 h-3 sm:w-4 sm:h-4" />
                   )}
                 </button>
               )}
@@ -542,31 +596,37 @@ const Profile: React.FC = () => {
               className="hidden"
             />
             <div>
-              <div className="flex items-center space-x-3 mb-2">
-                <h1 className="text-3xl lg:text-4xl font-bold flex items-center">
+              <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-3 mb-2">
+                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold flex items-center">
                   {user?.first_name} {user?.last_name}
                   {!isEditing && (
                     <button
                       onClick={() => setIsEditing(true)}
-                      className="ml-3 flex items-center justify-center p-2 bg-white/10 backdrop-blur-sm text-white rounded-full hover:bg-white/20 transition-all duration-200 border border-white/20 hover:border-white/30 shadow-lg hover:shadow-xl"
+                      className="ml-2 sm:ml-3 flex items-center justify-center p-1.5 sm:p-2 bg-white/10 backdrop-blur-sm text-white rounded-full hover:bg-white/20 transition-all duration-200 border border-white/20 hover:border-white/30 shadow-lg hover:shadow-xl"
                       title="Edit Profile"
                     >
-                      <Edit3 className="w-5 h-5" />
+                      <Edit3 className="w-4 h-4 sm:w-5 sm:h-5" />
                     </button>
                   )}
+                  {user?.role?.toLowerCase() === 'admin' && !isEditing && (
+                    <div className="ml-2 sm:ml-3">
+                      <ViewAsMode />
+                    </div>
+                  )}
                 </h1>
-                <div className="bg-white/20 backdrop-blur-sm rounded-full px-3 py-1 text-sm font-medium">
+                <div className="bg-white/20 backdrop-blur-sm rounded-full px-2 sm:px-3 py-1 text-xs sm:text-sm font-medium">
                   {user?.role?.toLowerCase() === 'admin' ? 'Admin' : 
+                   user?.role?.toLowerCase() === 'club pro' ? 'Club Pro' :
                    user?.role?.toLowerCase() === 'ambassador' ? 'Ambassador' : 'Member'}
                 </div>
               </div>
-              <div className="flex items-center space-x-4 text-white/90">
+              <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-4 text-white/90 text-sm sm:text-base">
                 <span className="flex items-center">
-                  <MapPin className="w-4 h-4 mr-2" />
+                  <MapPin className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
                   {user?.club || 'No club specified'}
                 </span>
                 <span className="flex items-center">
-                  <Clock className="w-4 h-4 mr-2" />
+                  <Clock className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
                   Member since {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}
                 </span>
               </div>
@@ -579,15 +639,15 @@ const Profile: React.FC = () => {
 
         {/* Handicap Information in Hero */}
         {user?.sim_handicap !== null && user?.sim_handicap !== undefined && (
-          <div className="mt-6 pt-6 border-t border-white/20">
-            <div className="flex flex-wrap gap-4 items-center">
-              <div className="bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20 flex items-center space-x-3">
+          <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-white/20">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:gap-4 items-start sm:items-center">
+              <div className="bg-white/10 backdrop-blur-sm rounded-full px-3 sm:px-4 py-2 border border-white/20 flex items-center space-x-2 sm:space-x-3">
                 <div className="bg-blue-500/20 rounded-full p-1">
-                  <TrendingUp className="w-4 h-4 text-blue-300" />
+                  <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4 text-blue-300" />
                 </div>
                 <div>
-                  <span className="text-sm font-medium text-white">NN Handicap</span>
-                  <span className="text-lg font-bold text-blue-300 ml-2">
+                  <span className="text-xs sm:text-sm font-medium text-white">NN Handicap</span>
+                  <span className="text-base sm:text-lg font-bold text-blue-300 ml-1 sm:ml-2">
                     <AnimatedHandicapNumber
                       value={parseFloat(user.sim_handicap)}
                       isAnimating={simHandicapAnimating}
@@ -599,51 +659,63 @@ const Profile: React.FC = () => {
                     />
                   </span>
                 </div>
-                <div className="text-xs text-white/60 ml-2">
+                <div className="text-xs text-white/60 ml-1 sm:ml-2">
                   App Tracked
                 </div>
               </div>
               {user?.role?.toLowerCase() === 'admin' && (
-                <div className="flex flex-col sm:flex-row gap-2">
+                <div className="flex flex-col gap-2 w-full sm:w-auto">
                   <button
                     onClick={() => navigate('/user-tracking')}
-                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-4 py-2 border border-brand-neon-green/40 flex items-center space-x-2 shadow-sm transition-colors font-medium"
-                    style={{ minWidth: 'fit-content' }}
+                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-3 sm:px-4 py-2 border border-brand-neon-green/40 flex items-center justify-center space-x-2 shadow-sm transition-colors font-medium text-sm sm:text-base"
                   >
-                    <BarChart3 className="w-4 h-4" />
-                    <span>User Tracking Dashboard</span>
+                    <BarChart3 className="w-3 h-3 sm:w-4 sm:h-4" />
+                    <span className="hidden sm:inline">User Tracking Dashboard</span>
+                    <span className="sm:hidden">User Tracking</span>
                   </button>
                   <button
                     onClick={() => navigate('/tournament-management')}
-                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-4 py-2 border border-brand-neon-green/40 flex items-center space-x-2 shadow-sm transition-colors font-medium"
-                    style={{ minWidth: 'fit-content' }}
+                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-3 sm:px-4 py-2 border border-brand-neon-green/40 flex items-center justify-center space-x-2 shadow-sm transition-colors font-medium text-sm sm:text-base"
                   >
-                    <Settings className="w-4 h-4" />
-                    <span>Tournament Management</span>
+                    <Settings className="w-3 h-3 sm:w-4 sm:h-4" />
+                    <span className="hidden sm:inline">Tournament Management</span>
+                    <span className="sm:hidden">Tournaments</span>
                   </button>
                   <a
                     href="https://docs.google.com/forms/d/e/1FAIpQLSdgJYkNMW4RzG8wZFVt8zS1sfe_m8Ejtvg23OSUUggOVtQOSw/viewform"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-4 py-2 border border-brand-neon-green/40 flex items-center space-x-2 shadow-sm transition-colors font-medium"
-                    style={{ minWidth: 'fit-content' }}
+                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-3 sm:px-4 py-2 border border-brand-neon-green/40 flex items-center justify-center space-x-2 shadow-sm transition-colors font-medium text-sm sm:text-base"
                   >
-                    <MessageSquare className="w-4 h-4" />
-                    <span>Platform Feedback</span>
+                    <MessageSquare className="w-3 h-3 sm:w-4 sm:h-4" />
+                    <span className="hidden sm:inline">Platform Feedback</span>
+                    <span className="sm:hidden">Feedback</span>
                   </a>
                 </div>
               )}
+              {(user?.role?.toLowerCase() === 'club pro' || user?.role?.toLowerCase() === 'admin') && (
+                <div className="flex flex-col gap-2 w-full sm:w-auto">
+                  <button
+                    onClick={() => navigate('/club-pro')}
+                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-3 sm:px-4 py-2 border border-brand-neon-green/40 flex items-center justify-center space-x-2 shadow-sm transition-colors font-medium text-sm sm:text-base"
+                  >
+                    <BarChart3 className="w-3 h-3 sm:w-4 sm:h-4" />
+                    <span className="hidden sm:inline">Club Pro Dashboard</span>
+                    <span className="sm:hidden">Club Dashboard</span>
+                  </button>
+                </div>
+              )}
               {user?.role?.toLowerCase() === 'ambassador' && (
-                <div className="flex flex-col sm:flex-row gap-2">
+                <div className="flex flex-col gap-2 w-full sm:w-auto">
                   <a
                     href="https://docs.google.com/forms/d/e/1FAIpQLSdgJYkNMW4RzG8wZFVt8zS1sfe_m8Ejtvg23OSUUggOVtQOSw/viewform"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-4 py-2 border border-brand-neon-green/40 flex items-center space-x-2 shadow-sm transition-colors font-medium"
-                    style={{ minWidth: 'fit-content' }}
+                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-3 sm:px-4 py-2 border border-brand-neon-green/40 flex items-center justify-center space-x-2 shadow-sm transition-colors font-medium text-sm sm:text-base"
                   >
-                    <MessageSquare className="w-4 h-4" />
-                    <span>Platform Feedback</span>
+                    <MessageSquare className="w-3 h-3 sm:w-4 sm:h-4" />
+                    <span className="hidden sm:inline">Platform Feedback</span>
+                    <span className="sm:hidden">Feedback</span>
                   </a>
                 </div>
               )}
@@ -653,51 +725,51 @@ const Profile: React.FC = () => {
 
         {/* Profile Form - Inline in hero when editing */}
         {isEditing && (
-          <div className="mt-6 pt-6 border-t border-white/20">
+          <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-white/20">
             {error && (
-              <div className="bg-red-500/20 border border-red-400/50 text-white px-4 py-3 rounded mb-4">
+              <div className="bg-red-500/20 border border-red-400/50 text-white px-3 sm:px-4 py-2 sm:py-3 rounded mb-3 sm:mb-4 text-sm sm:text-base">
                 {error}
               </div>
             )}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               <div>
-                <label className="block text-sm font-medium text-white/90 mb-2">
+                <label className="block text-xs sm:text-sm font-medium text-white/90 mb-1 sm:mb-2">
                   First Name
                 </label>
                 <input
                   type="text"
                   value={formData.first_name}
                   onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50 text-white placeholder-white/50"
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50 text-white placeholder-white/50 text-sm sm:text-base"
                   placeholder="First Name"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-white/90 mb-2">
+                <label className="block text-xs sm:text-sm font-medium text-white/90 mb-1 sm:mb-2">
                   Last Name
                 </label>
                 <input
                   type="text"
                   value={formData.last_name}
                   onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50 text-white placeholder-white/50"
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50 text-white placeholder-white/50 text-sm sm:text-base"
                   placeholder="Last Name"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-white/90 mb-2">
+                <label className="block text-xs sm:text-sm font-medium text-white/90 mb-1 sm:mb-2">
                   Email
                 </label>
                 <input
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50 text-white placeholder-white/50"
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50 text-white placeholder-white/50 text-sm sm:text-base"
                   placeholder="Email"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-white/90 mb-2">
+                <label className="block text-xs sm:text-sm font-medium text-white/90 mb-1 sm:mb-2">
                   Club
                 </label>
                 <input
@@ -1239,28 +1311,43 @@ const Profile: React.FC = () => {
       )}
 
       {/* My Tournaments */}
-      {userTournaments.length > 0 && (
+      {user && (
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
             <h2 className="text-2xl font-bold text-brand-black flex items-center">
               <Trophy className="w-6 h-6 mr-3" />
               My Tournaments
             </h2>
             <Link
               to="/tournaments"
-              className="flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors"
+              className="flex items-center justify-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors w-full sm:w-auto"
             >
               <Award className="w-4 h-4 mr-2" />
               Browse All Tournaments
             </Link>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {userTournaments.map((tournament) => (
-              <div key={tournament.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-brand-neon-green transition-all group">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold text-brand-black group-hover:text-brand-neon-green transition-colors">
-                    {tournament.name}
-                  </h3>
+          
+          {/* Tournament Summary */}
+          {userTournaments.length > 0 && (
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center text-sm text-blue-800">
+                <Info className="w-4 h-4 mr-2" />
+                <span>
+                  {userTournaments.filter(t => isTournamentEligibleForScore(t)).length} tournament(s) open for score submission
+                </span>
+              </div>
+            </div>
+          )}
+          
+          {userTournaments.length > 0 ? (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {getDisplayedTournaments().map((tournament) => (
+                <div key={tournament.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-brand-neon-green transition-all group">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold text-brand-black group-hover:text-brand-neon-green transition-colors">
+                      {tournament.name}
+                    </h3>
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                     tournament.status === 'active' ? 'bg-green-100 text-green-800' :
                     tournament.status === 'open' ? 'bg-blue-100 text-blue-800' :
@@ -1268,45 +1355,132 @@ const Profile: React.FC = () => {
                     tournament.status === 'cancelled' ? 'bg-red-100 text-red-800' :
                     'bg-yellow-100 text-yellow-800'
                   }`}>
-                    {tournament.status || 'draft'}
+                    {tournament.status === 'active' ? 'Active' :
+                     tournament.status === 'open' ? 'Open' :
+                     tournament.status === 'completed' ? 'Completed' :
+                     tournament.status === 'cancelled' ? 'Cancelled' :
+                     tournament.status || 'Draft'}
                   </span>
+                  </div>
+                  <div className="text-sm text-neutral-600 mb-2">
+                    {tournament.tournament_format || 'match_play'} • {tournament.type || 'tournament'}
+                  </div>
+                  {tournament.start_date && (
+                    <div className="text-xs text-neutral-500 mb-2">
+                      <Calendar className="inline w-4 h-4 mr-1" />
+                      {new Date(tournament.start_date).toLocaleDateString()}
+                    </div>
+                  )}
+                  {tournament.location && (
+                    <div className="text-xs text-neutral-500 mb-2">
+                      <MapPin className="inline w-4 h-4 mr-1" />
+                      {tournament.location}
+                    </div>
+                  )}
+                  {tournament.entry_fee && tournament.entry_fee > 0 && (
+                    <div className="text-xs text-neutral-500 mb-2">
+                      <DollarSign className="inline w-4 h-4 mr-1" />
+                      ${tournament.entry_fee} entry fee
+                    </div>
+                  )}
+                  <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
+                    {/* Only show Submit Score button if tournament is open/active and user hasn't submitted */}
+                    {isTournamentEligibleForScore(tournament) ? (
+                      <button
+                        onClick={() => handleSubmitScore(tournament.id)}
+                        className="flex items-center justify-center w-full px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors text-sm"
+                      >
+                        <Trophy className="w-4 h-4 mr-2" />
+                        {tournament.type === 'club_championship' ? 'My Matches' : 'Submit Score'}
+                      </button>
+                    ) : tournament.has_submitted_score ? (
+                      <div className="flex flex-col items-center justify-center w-full px-3 py-2 bg-green-50 text-green-700 rounded-lg text-sm border border-green-200">
+                        <div className="flex items-center font-medium">
+                          <Circle className="w-4 h-4 mr-2" />
+                          Score Submitted
+                        </div>
+                        {tournament.last_score_date && (
+                          <div className="text-xs text-green-600 mt-1">
+                            {new Date(tournament.last_score_date).toLocaleDateString()}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center w-full px-3 py-2 bg-gray-100 text-gray-600 rounded-lg font-medium text-sm">
+                        <Clock className="w-4 h-4 mr-2" />
+                        Tournament Closed
+                      </div>
+                    )}
+                    <button
+                      onClick={() => handleViewLeaderboard(tournament.id)}
+                      className="flex items-center justify-center w-full px-3 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors text-sm"
+                    >
+                      <Eye className="w-4 h-4 mr-2" />
+                      View Leaderboard
+                    </button>
+                  </div>
                 </div>
-                <div className="text-sm text-neutral-600 mb-2">
-                  {tournament.tournament_format || 'match_play'} • {tournament.type || 'tournament'}
-                </div>
-                {tournament.start_date && (
-                  <div className="text-xs text-neutral-500 mb-2">
-                    <Calendar className="inline w-4 h-4 mr-1" />
-                    {new Date(tournament.start_date).toLocaleDateString()}
-                  </div>
-                )}
-                {tournament.location && (
-                  <div className="text-xs text-neutral-500 mb-2">
-                    <MapPin className="inline w-4 h-4 mr-1" />
-                    {tournament.location}
-                  </div>
-                )}
-                {tournament.entry_fee && tournament.entry_fee > 0 && (
-                  <div className="text-xs text-neutral-500 mb-2">
-                    <DollarSign className="inline w-4 h-4 mr-1" />
-                    ${tournament.entry_fee} entry fee
-                  </div>
-                )}
+              ))}
               </div>
-            ))}
-          </div>
+              
+              {/* Load More Button */}
+              {userTournaments.length > 3 && !showAllTournaments && (
+                <div className="mt-6 text-center">
+                  <button
+                    onClick={() => setShowAllTournaments(true)}
+                    className="inline-flex items-center px-6 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+                  >
+                    <Trophy className="w-4 h-4 mr-2" />
+                    Load More Tournaments ({userTournaments.length - 3} more)
+                  </button>
+                </div>
+              )}
+              
+              {/* Show Less Button */}
+              {showAllTournaments && userTournaments.length > 3 && (
+                <div className="mt-6 text-center">
+                  <button
+                    onClick={() => setShowAllTournaments(false)}
+                    className="inline-flex items-center px-6 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+                  >
+                    Show Less
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-center py-8">
+              <Trophy className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-xl font-medium text-gray-900 mb-2">No Tournaments Yet</h3>
+              <p className="text-gray-600 mb-6">You haven't registered for any tournaments yet. Browse available tournaments to get started!</p>
+              <Link
+                to="/tournaments"
+                className="inline-flex items-center px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors"
+              >
+                <Award className="w-4 h-4 mr-2" />
+                Browse Tournaments
+              </Link>
+            </div>
+          )}
         </div>
       )}
 
-      {(user?.club === 'No. 5' || user?.club === 'No. 5') && (
-        <button
-          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium"
-          onClick={() => navigate('/simulator-booking')}
-        >
-          Book Simulator Bay
-        </button>
+      {user?.role?.toLowerCase() === 'admin' && (
+        <div className="mt-4 flex flex-col sm:flex-row gap-2">
+          <button
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium"
+            onClick={() => navigate('/simulator-booking')}
+          >
+            Manage Simulator Bookings
+          </button>
+          <button
+            className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 font-medium"
+            onClick={() => navigate('/booking-settings')}
+          >
+            Booking Settings
+          </button>
+        </div>
       )}
-
 
       {/* Track Round Modal */}
       <TrackRoundModal

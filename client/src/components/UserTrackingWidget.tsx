@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Users, UserCheck, Calendar, TrendingUp, BarChart3, Filter, Clock, Edit3, Save, X } from 'lucide-react';
-import { getUserTrackingStats, getUserTrackingDetails, updateUser, type UserTrackingStats, type UserTrackingDetails } from '../services/api';
+import { Users, UserCheck, Calendar, TrendingUp, BarChart3, Filter, Clock, Edit3, Save, X, UserPlus, Trash2, Plus, Eye } from 'lucide-react';
+import { getUserTrackingStats, getUserTrackingDetails, updateUser, deleteUser, type UserTrackingStats, type UserTrackingDetails } from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../AuthContext';
+import { useNavigate } from 'react-router-dom';
+import AddUserModal from './AddUserModal';
+import AdminRoundAdder from './AdminRoundAdder';
+import { isAdmin, getAvailableRoles, getRoleBadgeColor, UserRole } from '../utils/roleUtils';
 
 interface UserTrackingWidgetProps {
   className?: string;
@@ -10,6 +14,7 @@ interface UserTrackingWidgetProps {
 
 const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' }) => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState<UserTrackingStats | null>(null);
   const [details, setDetails] = useState<UserTrackingDetails[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,23 +27,23 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [editingRole, setEditingRole] = useState<string>('');
   const [updatingRole, setUpdatingRole] = useState<number | null>(null);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showAdminRoundAdder, setShowAdminRoundAdder] = useState(false);
 
-  // Available roles for editing
-  const availableRoles = ['Member', 'Admin', 'Club Pro', 'Ambassador'];
+  // Available roles for editing (using centralized role utilities)
+  const availableRoles = getAvailableRoles().map(r => r.value);
 
   useEffect(() => {
     console.log('Current user:', user);
     console.log('User role:', user?.role);
     console.log('User object keys:', user ? Object.keys(user) : 'No user');
-    
-    // Check if user is loaded and has admin privileges
+
+    // Check if user is loaded and has admin privileges (using centralized role check)
     if (user) {
-      // Check for both possible role formats
-      const isAdmin = user.role === 'admin' || user.role === 'super_admin' || 
-                     user.role === 'Admin' || user.role === 'Super Admin';
-      console.log('Is admin?', isAdmin);
-      
-      if (isAdmin) {
+      const userIsAdmin = isAdmin(user);
+      console.log('Is admin?', userIsAdmin);
+
+      if (userIsAdmin) {
         fetchStats();
       } else {
         console.log('User does not have admin privileges. Role:', user.role);
@@ -114,9 +119,9 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
       await updateUser(userId, {
         first_name: user.first_name,
         last_name: user.last_name,
-        email: user.email_address,
+        email_address: user.email_address,
         club: user.club,
-        role: editingRole
+        role: editingRole as UserRole
       });
       toast.success(`Role updated successfully for ${userName}`);
       
@@ -144,18 +149,49 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
     setEditingRole('');
   };
 
-  const getRoleBadgeColor = (role: string) => {
-    switch (role.toLowerCase()) {
-      case 'admin':
-        return 'bg-red-100 text-red-800';
-      case 'ambassador':
-        return 'bg-purple-100 text-purple-800';
-      case 'club pro':
-        return 'bg-blue-100 text-blue-800';
-      default:
-        return 'bg-neutral-100 text-neutral-700';
+  // Handle user creation
+  const handleUserAdded = async () => {
+    try {
+      // Refresh stats and details
+      await fetchStats();
+      if (showDetails) {
+        await fetchDetails();
+      }
+      toast.success('User added successfully!');
+    } catch (error: any) {
+      toast.error('Error refreshing data after user creation');
     }
   };
+
+  // Handle user deactivation
+  const handleDeactivateUser = async (userId: number, userName: string) => {
+    if (!window.confirm(`Are you sure you want to deactivate ${userName}? They will no longer be able to log in, but their data will be preserved.`)) {
+      return;
+    }
+
+    try {
+      await updateUser(userId, {
+        first_name: userName.split(' ')[0],
+        last_name: userName.split(' ')[1] || '',
+        email_address: '', // Keep existing email
+        club: '', // Keep existing club
+        role: 'Deactivated'
+      });
+      toast.success('User deactivated successfully!');
+      // Refresh stats and details
+      await fetchStats();
+      if (showDetails) {
+        await fetchDetails();
+      }
+    } catch (error: any) {
+      console.error('Error deactivating user:', error);
+      const errorMessage = error.response?.data?.error || 'Failed to deactivate user';
+      toast.error(errorMessage);
+    }
+  };
+
+  // Role badge color is now handled by centralized utility
+  // const getRoleBadgeColor is imported from roleUtils
 
 
   const formatDate = (dateString: string) => {
@@ -194,15 +230,15 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
     );
   }
 
-  if (user.role !== 'admin' && user.role !== 'super_admin' && 
-      user.role !== 'Admin' && user.role !== 'Super Admin') {
+  // Check admin access using centralized role check
+  if (!isAdmin(user)) {
     return (
       <div className={`bg-white rounded-xl p-6 border border-neutral-200 ${className}`}>
         <div className="text-center">
           <Users className="w-12 h-12 text-neutral-400 mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-neutral-600 mb-2">Access Denied</h3>
           <p className="text-neutral-500">
-            You need admin privileges to view user tracking statistics. 
+            You need admin privileges to view user tracking statistics.
             <br />
             Current role: {user.role || 'No role assigned'}
           </p>
@@ -213,8 +249,26 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
 
   return (
     <div className={`bg-white rounded-xl p-6 border border-neutral-200 ${className}`}>
-      <div className="flex items-center justify-end mb-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">User Management</h2>
+          <p className="text-sm text-gray-600">Track and manage user accounts across all clubs</p>
+        </div>
         <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setShowAddUserModal(true)}
+            className="px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center"
+          >
+            <UserPlus className="w-4 h-4 mr-2" />
+            Add New User
+          </button>
+          <button
+            onClick={() => setShowAdminRoundAdder(true)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Rounds
+          </button>
           <button
             onClick={handleViewDetails}
             className="px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center"
@@ -425,14 +479,15 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
               </div>
             ) : (
               <div className="overflow-x-auto border border-neutral-300 rounded-lg">
-                <table className="w-full min-w-[900px] border-collapse">
+                <table className="w-full min-w-[1000px] border-collapse">
                   <thead className="bg-neutral-100">
                     <tr>
-                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[40%]">Name</th>
-                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[12%]">Club</th>
-                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[18%]">Role</th>
-                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[12%]">Claimed</th>
-                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[18%]">Actions</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[30%]">Name</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[10%]">Club</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-center font-medium text-sm w-[8%]">Scorecards</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[15%]">Role</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[10%]">Claimed</th>
+                      <th className="border border-neutral-300 px-3 py-3 text-left font-medium text-sm w-[27%]">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -455,6 +510,20 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
                             <span className="px-2 py-1 bg-neutral-100 text-neutral-700 text-xs rounded font-medium">
                               {user.club}
                             </span>
+                          </td>
+                          <td className="border border-neutral-300 px-3 py-3 text-center">
+                            <div className="flex flex-col items-center">
+                              <span className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+                                {user.total_rounds || 0}
+                              </span>
+                              {(user.sim_rounds > 0 || user.grass_rounds > 0) && (
+                                <div className="text-xs text-neutral-500 mt-1">
+                                  {user.sim_rounds > 0 && `${user.sim_rounds} sim`}
+                                  {user.sim_rounds > 0 && user.grass_rounds > 0 && ' • '}
+                                  {user.grass_rounds > 0 && `${user.grass_rounds} grass`}
+                                </div>
+                              )}
+                            </div>
                           </td>
                           <td className="border border-neutral-300 px-3 py-3 text-neutral-600">
                             {editingUserId === user.member_id ? (
@@ -506,13 +575,30 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
                             </span>
                           </td>
                           <td className="border border-neutral-300 px-3 py-3 text-neutral-600">
-                            <button
-                              onClick={() => handleEditRole(user.member_id, user.role)}
-                              className="px-3 py-1 bg-blue-600 text-white hover:bg-blue-700 transition-colors rounded text-xs font-medium shadow-sm"
-                              title="Edit Role"
-                            >
-                              Edit
-                            </button>
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => navigate(`/admin/users/${user.member_id}`)}
+                                className="px-3 py-1 bg-green-600 text-white hover:bg-green-700 transition-colors rounded text-xs font-medium shadow-sm flex items-center"
+                                title="View Profile"
+                              >
+                                <Eye className="w-3 h-3 mr-1" />
+                                Profile
+                              </button>
+                              <button
+                                onClick={() => handleEditRole(user.member_id, user.role)}
+                                className="px-3 py-1 bg-blue-600 text-white hover:bg-blue-700 transition-colors rounded text-xs font-medium shadow-sm"
+                                title="Edit Role"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleDeactivateUser(user.member_id, `${user.first_name} ${user.last_name}`)}
+                                className="px-3 py-1 bg-red-600 text-white hover:bg-red-700 transition-colors rounded text-xs font-medium shadow-sm"
+                                title="Deactivate User"
+                              >
+                                Deactivate
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -521,6 +607,39 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
                 </table>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Add User Modal */}
+      <AddUserModal
+        isOpen={showAddUserModal}
+        onClose={() => setShowAddUserModal(false)}
+        onUserAdded={handleUserAdded}
+      />
+
+      {/* Admin Round Adder Modal */}
+      {showAdminRoundAdder && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-semibold text-gray-900">Add Rounds for Users</h3>
+                <button
+                  onClick={() => setShowAdminRoundAdder(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <AdminRoundAdder
+                onRoundsAdded={() => {
+                  setShowAdminRoundAdder(false);
+                  fetchStats(); // Refresh stats after adding rounds
+                  toast.success('Scorecard added successfully');
+                }}
+              />
+            </div>
           </div>
         </div>
       )}

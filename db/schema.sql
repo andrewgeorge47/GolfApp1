@@ -69,6 +69,48 @@ TABLESPACE pg_default;
 ALTER TABLE IF EXISTS public.participation
     OWNER to golfos_user;
 
+-- Table: public.registration_form_responses
+
+-- DROP TABLE IF EXISTS public.registration_form_responses;
+
+CREATE TABLE IF NOT EXISTS public.registration_form_responses
+(
+    id integer NOT NULL DEFAULT nextval('registration_form_responses_id_seq'::regclass),
+    tournament_id integer NOT NULL,
+    user_member_id integer NOT NULL,
+    form_data jsonb NOT NULL,
+    submitted_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT registration_form_responses_pkey PRIMARY KEY (id),
+    CONSTRAINT registration_form_responses_tournament_id_user_member_id_key UNIQUE (tournament_id, user_member_id),
+    CONSTRAINT registration_form_responses_tournament_id_fkey FOREIGN KEY (tournament_id)
+        REFERENCES public.tournaments (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE,
+    CONSTRAINT registration_form_responses_user_member_id_fkey FOREIGN KEY (user_member_id)
+        REFERENCES public.users (member_id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE
+)
+
+TABLESPACE pg_default;
+
+ALTER TABLE IF EXISTS public.registration_form_responses
+    OWNER to golfos_user;
+
+-- Create sequence for registration_form_responses if it doesn't exist
+CREATE SEQUENCE IF NOT EXISTS registration_form_responses_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER TABLE IF EXISTS public.registration_form_responses ALTER COLUMN id SET DEFAULT nextval('registration_form_responses_id_seq'::regclass);
+
+-- Add index for registration form responses queries
+CREATE INDEX IF NOT EXISTS idx_registration_form_responses_tournament_id ON registration_form_responses(tournament_id);
+CREATE INDEX IF NOT EXISTS idx_registration_form_responses_user_member_id ON registration_form_responses(user_member_id);
+
 -- Table: public.tournaments
 
 -- DROP TABLE IF EXISTS public.tournaments;
@@ -147,7 +189,8 @@ CREATE TABLE IF NOT EXISTS public.users
     email_address character varying(255) COLLATE pg_catalog."default",
     club character varying(100) COLLATE pg_catalog."default",
     role character varying(50) COLLATE pg_catalog."default",
-    CONSTRAINT users_pkey PRIMARY KEY (member_id)
+    CONSTRAINT users_pkey PRIMARY KEY (member_id),
+    CONSTRAINT valid_role_check CHECK (role IN ('Member', 'Admin', 'Club Pro', 'Ambassador', 'Deactivated'))
 )
 
 TABLESPACE pg_default;

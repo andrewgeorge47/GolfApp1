@@ -8,3 +8,7 @@ dist/
 .DS_Store
 NN_Handicaps.csv
 add_password.js 
+# secrets
+gcs-keyfile.json
+gsc-keyfile.json
+client/.env.local

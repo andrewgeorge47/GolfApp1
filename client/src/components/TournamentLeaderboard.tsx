@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Medal, Award, Crown } from 'lucide-react';
-import { getTeamScores, getSimulatorCourses } from '../services/api';
+import { Trophy, Medal, Award, Crown, Eye, ChevronRight, Share2, Users } from 'lucide-react';
+import { getTeamScores, getSimulatorCourse, getTournamentParticipants } from '../services/api';
+import DetailedScorecard from './DetailedScorecard';
 
 interface TeamScore {
   id: number;
@@ -23,12 +24,27 @@ interface TeamScore {
   }>;
 }
 
+interface TournamentParticipant {
+  user_member_id: number;
+  first_name: string;
+  last_name: string;
+  email_address: string;
+  club: string;
+  role: string;
+}
+
 interface TournamentLeaderboardProps {
   tournamentId: number;
   tournamentFormat: string;
   onRefresh?: () => void;
   courseId?: number;
   tournamentSettings?: any;
+  tournamentInfo?: {
+    name: string;
+    description?: string;
+    start_date?: string;
+    course_name?: string;
+  };
 }
 
 const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
@@ -36,11 +52,15 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
   tournamentFormat,
   onRefresh,
   courseId,
-  tournamentSettings
+  tournamentSettings,
+  tournamentInfo
 }) => {
   const [teamScores, setTeamScores] = useState<TeamScore[]>([]);
+  const [participants, setParticipants] = useState<TournamentParticipant[]>([]);
   const [loading, setLoading] = useState(false);
   const [courseData, setCourseData] = useState<any>(null);
+  const [selectedTeamScore, setSelectedTeamScore] = useState<TeamScore | null>(null);
+  const [showDetailedScorecard, setShowDetailedScorecard] = useState(false);
 
   const fetchTeamScores = async () => {
     try {
@@ -54,18 +74,41 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
     }
   };
 
+  const fetchParticipants = async () => {
+    try {
+      const response = await getTournamentParticipants(tournamentId);
+      setParticipants(response.data || []);
+    } catch (error) {
+      console.error('Error fetching tournament participants:', error);
+    }
+  };
+
   const fetchCourseData = async () => {
     if (!courseId) return;
     
     try {
-      const response = await getSimulatorCourses('', '', 1000);
-      const course = response.data.courses?.find((c: any) => c.id === courseId);
-      if (course) {
-        setCourseData(course);
+      const response = await getSimulatorCourse(courseId);
+      if (response.data) {
+        setCourseData(response.data);
       }
     } catch (error) {
       console.error('Error fetching course data:', error);
     }
+  };
+
+  // Get participants who haven't submitted scores
+  const getParticipantsWithoutScores = () => {
+    const submittedUserIds = new Set<number>();
+    
+    // Collect all user IDs from submitted scores
+    teamScores.forEach(score => {
+      score.players.forEach(player => {
+        submittedUserIds.add(player.user_member_id);
+      });
+    });
+    
+    // Return participants who haven't submitted scores
+    return participants.filter(participant => !submittedUserIds.has(participant.user_member_id));
   };
 
   const calculateRelativeScore = (totalScore: number) => {
@@ -104,6 +147,7 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
 
   useEffect(() => {
     fetchTeamScores();
+    fetchParticipants();
   }, [tournamentId]);
 
   useEffect(() => {
@@ -126,14 +170,30 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
   const formatDate = (dateString: string) => {
     if (!dateString) return 'Unknown';
     try {
-      const cleanDate = dateString.replace(/\.\d+$/, '');
-      return new Date(cleanDate).toLocaleString();
+      const clean = typeof dateString === 'string' ? dateString.split('T')[0] : dateString;
+      return new Date(clean).toLocaleDateString();
     } catch (error) {
       return 'Invalid Date';
     }
   };
 
+  const formatTournamentFormat = (format?: string) => {
+    if (!format) return 'Unknown';
+    return format.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  };
+
+  const handleTeamClick = (teamScore: TeamScore) => {
+    setSelectedTeamScore(teamScore);
+    setShowDetailedScorecard(true);
+  };
+
+  const handleCloseDetailedScorecard = () => {
+    setShowDetailedScorecard(false);
+    setSelectedTeamScore(null);
+  };
+
   const sortedScores = [...teamScores].sort((a, b) => a.total_score - b.total_score);
+  const participantsWithoutScores = getParticipantsWithoutScores();
 
   if (loading) {
     return (
@@ -143,97 +203,298 @@ const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
     );
   }
 
-  if (teamScores.length === 0) {
-    return (
-      <div className="text-center py-8">
-        <div className="w-16 h-16 mx-auto mb-4 bg-neutral-100 rounded-full flex items-center justify-center">
-          <Trophy className="w-8 h-8 text-neutral-400" />
-        </div>
-        <h3 className="text-lg font-medium text-neutral-900 mb-2">No scores submitted yet</h3>
-        <p className="text-neutral-600">
-          Team captains need to submit their scores to see the leaderboard.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <Trophy className="w-6 h-6 text-brand-neon-green" />
-          <h3 className="text-xl font-bold text-brand-black">Tournament Leaderboard</h3>
+      <div className="bg-white rounded-xl border border-neutral-200 p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <Trophy className="w-6 h-6 text-brand-neon-green" />
+            <h3 className="text-xl font-bold text-brand-black">Team Leaderboard</h3>
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => {
+                fetchTeamScores();
+                fetchParticipants();
+              }}
+              className="px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors"
+            >
+              Refresh
+            </button>
+            <button
+              onClick={() => {
+                const shareUrl = `${window.location.origin}/#/leaderboard/tournament/${tournamentId}`;
+                if (navigator.share) {
+                  navigator.share({
+                    title: `${tournamentInfo?.name || 'Tournament'} Leaderboard`,
+                    text: `Check out the leaderboard for ${tournamentInfo?.name || 'this tournament'}!`,
+                    url: shareUrl
+                  }).catch(() => {
+                    navigator.clipboard.writeText(shareUrl);
+                  });
+                } else {
+                  navigator.clipboard.writeText(shareUrl);
+                }
+              }}
+              className="px-4 py-2 bg-neutral-100 text-neutral-700 rounded-lg font-medium hover:bg-neutral-200 transition-colors"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+          </div>
         </div>
-        <button
-          onClick={fetchTeamScores}
-          className="px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors"
-        >
-          Refresh
-        </button>
+        {tournamentInfo && (
+          <div className="mt-2 text-neutral-600">
+            <p className="font-medium">{tournamentInfo.name}</p>
+            {tournamentInfo.course_name && (
+              <p className="text-sm">{tournamentInfo.course_name}</p>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Leaderboard Table */}
-      <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-neutral-50 border-b border-neutral-200">
-              <tr>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-neutral-600">Position</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-neutral-600">Team</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-neutral-600">Players</th>
-                <th className="px-6 py-4 text-center text-sm font-semibold text-neutral-600">Score</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-200">
-              {sortedScores.map((score, index) => (
-                <tr key={score.id} className="hover:bg-neutral-50 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center space-x-2">
-                      {getPositionIcon(index + 1)}
-                      <span className="text-sm font-medium text-neutral-600">
-                        {index + 1}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-semibold text-brand-black">{score.team_name}</span>
-                      {index === 0 && <Crown className="w-4 h-4 text-yellow-500" />}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="space-y-1">
-                      {score.players?.map((player, playerIndex) => (
-                        <div key={player.user_member_id} className="flex items-center space-x-2">
-                          <span className="text-sm text-neutral-900">
-                            {player.first_name} {player.last_name}
-                          </span>
-                          {player.is_captain && <Crown className="w-3 h-3 text-yellow-500" />}
-                          <span className="text-xs text-neutral-500">({player.club})</span>
-                        </div>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-center align-middle">
-                    {(() => {
-                      const scoreData = calculateRelativeScore(score.total_score);
-                      return (
-                        <span className="flex items-center justify-center gap-2 text-2xl">
-                          <span className={`font-bold ${scoreData.color}`}>{scoreData.relative}</span>
-                          <span className="text-neutral-600 ml-2">{scoreData.total}</span>
+      {/* Submitted Scores Section */}
+      {teamScores.length > 0 && (
+        <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-neutral-200">
+            <h4 className="text-lg font-semibold text-neutral-900">Submitted Scores</h4>
+          </div>
+          
+          {/* Desktop Table */}
+          <div className="hidden lg:block overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-neutral-50">
+                <tr>
+                  <th className="px-6 py-4 text-left font-medium text-neutral-600">Position</th>
+                  <th className="px-6 py-4 text-left font-medium text-neutral-600">Team</th>
+                  <th className="px-6 py-4 text-left font-medium text-neutral-600">Players</th>
+                  <th className="px-6 py-4 text-center font-medium text-neutral-600">Total Score</th>
+                  <th className="px-6 py-4 text-center font-medium text-neutral-600">To Par</th>
+                  <th className="px-6 py-4 text-center font-medium text-neutral-600">Submitted</th>
+                  <th className="px-6 py-4 text-center font-medium text-neutral-600">Details</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-200">
+                {sortedScores.map((score, index) => (
+                  <tr key={score.id} className="hover:bg-neutral-50 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center space-x-2">
+                        {getPositionIcon(index + 1)}
+                        <span className="text-sm font-medium text-neutral-600">
+                          {index + 1}
                         </span>
-                      );
-                    })()}
-                  </td>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-semibold text-brand-black">{score.team_name}</span>
+                        {index === 0 && <Crown className="w-4 h-4 text-yellow-500" />}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="space-y-1">
+                        {score.players?.map((player, playerIndex) => (
+                          <div key={player.user_member_id} className="flex items-center space-x-2">
+                            <span className="text-sm text-neutral-900">
+                              {player.first_name} {player.last_name}
+                            </span>
+                            {player.is_captain && <Crown className="w-3 h-3 text-yellow-500" />}
+                            <span className="text-xs text-neutral-500">({player.club})</span>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-2xl font-bold text-brand-neon-green">
+                        {score.total_score}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      {(() => {
+                        const scoreData = calculateRelativeScore(score.total_score);
+                        return (
+                          <span className={`text-lg font-semibold ${scoreData.color}`}>
+                            {scoreData.relative}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-sm text-neutral-600">
+                        {formatDate(score.submitted_at)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <div className="flex items-center justify-center space-x-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTeamClick(score);
+                          }}
+                          className="text-brand-neon-green hover:text-green-400 transition-colors"
+                          title="View detailed scorecard"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <ChevronRight className="w-4 h-4 text-neutral-400" />
+                      </div>
+                    </td>
                   </tr>
-              ))}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Table */}
+          <div className="lg:hidden">
+            <table className="w-full">
+              <thead className="bg-neutral-50 border-b border-neutral-200">
+                <tr>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-neutral-600">Pos</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-neutral-600">Team</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-neutral-600">Score</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-200">
+                {sortedScores.map((score, index) => (
+                  <tr key={score.id} className="hover:bg-neutral-50 transition-colors cursor-pointer" onClick={() => handleTeamClick(score)}>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center space-x-2">
+                        {getPositionIcon(index + 1)}
+                        <span className="text-sm font-medium text-neutral-600">
+                          {index + 1}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-semibold text-brand-black text-sm">{score.team_name}</span>
+                        {index === 0 && <Crown className="w-3 h-3 text-yellow-500" />}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <div className="flex items-center justify-center space-x-2">
+                        {(() => {
+                          const scoreData = calculateRelativeScore(score.total_score);
+                          return (
+                            <span className="flex items-center justify-center gap-1 text-lg">
+                              <span className={`font-bold ${scoreData.color}`}>{scoreData.relative}</span>
+                              <span className="text-neutral-600 text-sm">{scoreData.total}</span>
+                            </span>
+                          );
+                        })()}
+                        <ChevronRight className="w-4 h-4 text-neutral-400" />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
+      {/* No Scores Submitted Message */}
+      {teamScores.length === 0 && (
+        <div className="bg-white rounded-xl border border-neutral-200 p-6">
+          <div className="text-center py-8">
+            <div className="w-16 h-16 mx-auto mb-4 bg-neutral-100 rounded-full flex items-center justify-center">
+              <Trophy className="w-8 h-8 text-neutral-400" />
+            </div>
+            <h3 className="text-lg font-medium text-neutral-900 mb-2">No scores submitted yet</h3>
+            <p className="text-neutral-600">
+              Team captains need to submit their scores to see the leaderboard.
+            </p>
+          </div>
+        </div>
+      )}
 
+      {/* Registered Participants Section */}
+      {participantsWithoutScores.length > 0 && (
+        <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-neutral-200">
+            <div className="flex items-center space-x-2">
+              <Users className="w-5 h-5 text-neutral-600" />
+              <h4 className="text-lg font-semibold text-neutral-900">Registered Participants</h4>
+              <span className="text-sm text-neutral-500">({participantsWithoutScores.length} waiting to submit scores)</span>
+            </div>
+          </div>
+          
+          {/* Desktop Table */}
+          <div className="hidden lg:block overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-neutral-50">
+                <tr>
+                  <th className="px-6 py-4 text-left font-medium text-neutral-600">Name</th>
+                  <th className="px-6 py-4 text-left font-medium text-neutral-600">Club</th>
+                  <th className="px-6 py-4 text-center font-medium text-neutral-600">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-200">
+                {participantsWithoutScores.map((participant) => (
+                  <tr key={participant.user_member_id} className="hover:bg-neutral-50 transition-colors">
+                    <td className="px-6 py-4">
+                      <span className="font-medium text-neutral-900">
+                        {participant.first_name} {participant.last_name}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-sm text-neutral-600">{participant.club}</span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                        Waiting to Submit
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Table */}
+          <div className="lg:hidden">
+            <table className="w-full">
+              <thead className="bg-neutral-50 border-b border-neutral-200">
+                <tr>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-neutral-600">Name</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-neutral-600">Club</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold text-neutral-600">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-200">
+                {participantsWithoutScores.map((participant) => (
+                  <tr key={participant.user_member_id} className="hover:bg-neutral-50 transition-colors">
+                    <td className="px-3 py-3">
+                      <span className="font-medium text-neutral-900 text-sm">
+                        {participant.first_name} {participant.last_name}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className="text-xs text-neutral-600">{participant.club}</span>
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                        Waiting
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Detailed Scorecard Modal */}
+      {showDetailedScorecard && selectedTeamScore && (
+        <DetailedScorecard
+          teamScore={selectedTeamScore}
+          courseData={courseData}
+          tournamentSettings={tournamentSettings}
+          onClose={handleCloseDetailedScorecard}
+        />
+      )}
     </div>
   );
 };

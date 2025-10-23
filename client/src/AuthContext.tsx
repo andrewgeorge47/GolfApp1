@@ -1,5 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { login as apiLogin, getCurrentUser } from './services/api';
+import { isAdmin as checkIsAdmin } from './utils/roleUtils';
+
+interface ViewAsMode {
+  isActive: boolean;
+  originalUser: any;
+  viewAsRole: string;
+  viewAsClub: string;
+}
 
 interface AuthContextType {
   user: any;
@@ -8,14 +16,34 @@ interface AuthContextType {
   logout: () => void;
   loading: boolean;
   refreshUser: () => Promise<void>;
+  // View-as mode functionality
+  viewAsMode: ViewAsMode;
+  enterViewAsMode: (role: string, club: string) => void;
+  exitViewAsMode: () => void;
+  isAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<any>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
+  const [token, setToken] = useState<string | null>(() => {
+    const storedToken = localStorage.getItem('token');
+    return storedToken;
+  });
   const [loading, setLoading] = useState(true);
+  
+  // View-as mode state
+  const [viewAsMode, setViewAsMode] = useState<ViewAsMode>({
+    isActive: false,
+    originalUser: null,
+    viewAsRole: '',
+    viewAsClub: ''
+  });
+  
+  // Helper to check if current user is admin (uses centralized role checking)
+  // Note: This checks the ORIGINAL user's role, not the view-as role
+  const isAdmin = checkIsAdmin(user);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -23,14 +51,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         try {
           const res = await getCurrentUser(token);
           setUser(res.data.user);
-        } catch {
+        } catch (error) {
+          console.error('AuthContext: Token validation failed:', error);
           setUser(null);
           setToken(null);
           localStorage.removeItem('token');
         }
+      } else {
+        setUser(null);
       }
+      
       setLoading(false);
     };
+
     fetchUser();
   }, [token]);
 
@@ -41,6 +74,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setToken(res.data.token);
       localStorage.setItem('token', res.data.token);
       setUser(res.data.user);
+    } catch (error) {
+      console.error('AuthContext: Login failed:', error);
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -58,13 +94,61 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const res = await getCurrentUser(token);
         setUser(res.data.user);
       } catch (error) {
-        console.error('Error refreshing user data:', error);
+        console.error('AuthContext: Error refreshing user data:', error);
+        // Don't logout on refresh failure, just log the error
       }
     }
   };
 
+  // View-as mode functions
+  const enterViewAsMode = (role: string, club: string) => {
+    if (!isAdmin) {
+      console.error('Only admins can enter view-as mode');
+      return;
+    }
+    
+    const originalUser = user;
+    const viewAsUser = {
+      ...originalUser,
+      role: role,
+      club: club
+    };
+    
+    setViewAsMode({
+      isActive: true,
+      originalUser: originalUser,
+      viewAsRole: role,
+      viewAsClub: club
+    });
+    
+    setUser(viewAsUser);
+  };
+
+  const exitViewAsMode = () => {
+    if (viewAsMode.isActive && viewAsMode.originalUser) {
+      setUser(viewAsMode.originalUser);
+      setViewAsMode({
+        isActive: false,
+        originalUser: null,
+        viewAsRole: '',
+        viewAsClub: ''
+      });
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, loading, refreshUser }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      token, 
+      login, 
+      logout, 
+      loading, 
+      refreshUser,
+      viewAsMode,
+      enterViewAsMode,
+      exitViewAsMode,
+      isAdmin
+    }}>
       {children}
     </AuthContext.Provider>
   );

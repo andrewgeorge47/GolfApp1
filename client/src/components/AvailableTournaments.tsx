@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Calendar, MapPin, Users, DollarSign, UserPlus, Clock, Search } from 'lucide-react';
-import { getAvailableTournaments, registerUserForTournament, getUserTournaments } from '../services/api';
+import { Trophy, Calendar, MapPin, Users, DollarSign, UserPlus, Clock, Search, Eye, ChevronDown, ChevronUp, FileText, Info, Share2 } from 'lucide-react';
+import { getAvailableTournaments, registerUserForTournament, registerUserForTournamentWithForm, unregisterUserFromTournament, getUserTournaments, submitPayment, getPaymentStatus, getUserCheckInStatuses } from '../services/api';
 import { useAuth } from '../AuthContext';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
+import TournamentModal from './TournamentModal';
 
 interface Tournament {
   id: number;
@@ -23,6 +25,12 @@ interface Tournament {
   notes?: string;
   type: string;
   club_restriction?: string;
+  has_registration_form?: boolean;
+  registration_form_template?: string;
+  registration_form_data?: any;
+  payment_organizer?: 'jeff' | 'adam' | 'other';
+  payment_organizer_name?: string;
+  payment_venmo_url?: string;
   created_by?: number;
   created_at?: string;
   updated_at?: string;
@@ -30,11 +38,17 @@ interface Tournament {
 
 const AvailableTournaments: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [availableTournaments, setAvailableTournaments] = useState<Tournament[]>([]);
   const [userTournaments, setUserTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterFormat, setFilterFormat] = useState<string>('all');
+  
+  // Modal state
+  const [selectedTournamentId, setSelectedTournamentId] = useState<number | null>(null);
+  const [showModal, setShowModal] = useState(false);
 
   // Get user's registered tournament IDs for comparison
   const userTournamentIds = new Set(userTournaments.map(t => t.id));
@@ -43,13 +57,27 @@ const AvailableTournaments: React.FC = () => {
     const fetchTournaments = async () => {
       setLoading(true);
       try {
-        const [availableRes, userRes] = await Promise.all([
+        const [availableRes, userRes, checkInStatusesRes] = await Promise.all([
           getAvailableTournaments(),
-          getUserTournaments(user?.member_id || 0)
+          getUserTournaments(user?.member_id || 0),
+          getUserCheckInStatuses(user?.member_id || 0)
         ]);
         
         setAvailableTournaments(availableRes.data);
         setUserTournaments(userRes.data);
+        
+        // Handle direct tournament link
+        const tournamentId = searchParams.get('tournament');
+        if (tournamentId) {
+          const tournament = availableRes.data.find((t: Tournament) => t.id === parseInt(tournamentId));
+          if (tournament) {
+            // Open the modal for the specific tournament
+            setSelectedTournamentId(parseInt(tournamentId));
+            setShowModal(true);
+            // Clear the URL parameter
+            setSearchParams({});
+          }
+        }
       } catch (err) {
         console.error('Error fetching tournaments:', err);
         toast.error('Failed to load tournaments');
@@ -58,135 +86,154 @@ const AvailableTournaments: React.FC = () => {
       }
     };
 
-    if (user?.member_id) {
-      fetchTournaments();
-    }
-  }, [user?.member_id]);
+    fetchTournaments();
+  }, [user?.member_id, searchParams, setSearchParams]);
 
-  const handleRegister = async (tournamentId: number) => {
-    if (!user?.member_id) {
-      toast.error('You must be logged in to register for tournaments');
-      return;
-    }
+  const handleTournamentClick = (tournamentId: number) => {
+    setSelectedTournamentId(tournamentId);
+    setShowModal(true);
+  };
 
-    try {
-      await registerUserForTournament(tournamentId, user.member_id);
-      toast.success('Successfully registered for tournament!');
-      
-      // Refresh user tournaments
-      const userRes = await getUserTournaments(user.member_id);
-      setUserTournaments(userRes.data);
-    } catch (error: any) {
-      console.error('Error registering for tournament:', error);
-      toast.error(error.response?.data?.error || 'Failed to register for tournament');
+  const handleCloseModal = () => {
+    setShowModal(false);
+    setSelectedTournamentId(null);
+  };
+
+  const handleModalClose = () => {
+    handleCloseModal();
+    // Refresh tournament data when modal closes
+    const fetchTournaments = async () => {
+      try {
+        const [availableRes, userRes] = await Promise.all([
+          getAvailableTournaments(),
+          getUserTournaments(user?.member_id || 0)
+        ]);
+        setAvailableTournaments(availableRes.data);
+        setUserTournaments(userRes.data);
+      } catch (err) {
+        console.error('Error refreshing tournaments:', err);
+      }
+    };
+    fetchTournaments();
+  };
+
+  const filteredTournaments = availableTournaments.filter(tournament => {
+    const matchesSearch = tournament.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         tournament.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         tournament.location?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         tournament.course?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesFormat = filterFormat === 'all' || tournament.tournament_format === filterFormat;
+    
+    return matchesSearch && matchesFormat;
+  });
+
+  const getStatusColor = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case 'active':
+      case 'open':
+        return 'text-green-600';
+      case 'draft':
+        return 'text-gray-600';
+      case 'closed':
+        return 'text-red-600';
+      default:
+        return 'text-gray-600';
     }
+  };
+
+  const getFormatDisplayName = (format: string) => {
+    switch (format) {
+      case 'match_play':
+        return 'Match Play';
+      case 'stroke_play':
+        return 'Stroke Play';
+      case 'team_match_play':
+        return 'Team Match Play';
+      case 'team_stroke_play':
+        return 'Team Stroke Play';
+      default:
+        return format?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Unknown';
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    if (!dateString) return 'TBD';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
   };
 
   const isUserRegistered = (tournamentId: number) => {
     return userTournamentIds.has(tournamentId);
   };
 
-  const filteredTournaments = availableTournaments.filter(tournament => {
-    // Only show tournaments with registration open
-    if (!tournament.registration_open) {
-      return false;
-    }
-
-    // Search filter
-    const matchesSearch = !searchTerm || 
-      tournament.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tournament.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tournament.location?.toLowerCase().includes(searchTerm.toLowerCase());
-
-    // Format filter
-    const matchesFormat = filterFormat === 'all' || tournament.tournament_format === filterFormat;
-
-    return matchesSearch && matchesFormat;
-  });
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return 'bg-green-100 text-green-800';
-      case 'open': return 'bg-blue-100 text-blue-800';
-      case 'completed': return 'bg-gray-100 text-gray-800';
-      case 'cancelled': return 'bg-red-100 text-red-800';
-      default: return 'bg-yellow-100 text-yellow-800';
-    }
-  };
-
-  const getFormatDisplayName = (format: string) => {
-    switch (format) {
-      case 'match_play': return 'Match Play';
-      case 'par3_match_play': return '3 Hole Matchplay';
-      case 'stroke_play': return 'Stroke Play';
-      case 'scramble': return 'Scramble';
-      case 'best_ball': return 'Best Ball';
-      case 'stableford': return 'Stableford';
-      default: return format;
-    }
-  };
-
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-neon-green"></div>
+      <div className="text-center py-8">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-neon-green mx-auto"></div>
+        <p className="mt-4 text-gray-600">Loading tournaments...</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-      <div className="flex items-center justify-between mb-6">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-brand-black flex items-center">
-            <Trophy className="w-6 h-6 mr-3" />
-            Available Tournaments
-          </h2>
-          <p className="text-sm text-neutral-600 mt-1">
-            Register for tournaments that are open for participation
-          </p>
+          <h1 className="text-3xl font-bold text-gray-900">Available Tournaments</h1>
+          <p className="mt-1 text-white">Register for upcoming tournaments and events</p>
         </div>
+        
+        {!user && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-blue-800 text-sm">
+              <Info className="w-4 h-4 inline mr-1" />
+              Please log in to register for tournaments
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Search and Filter */}
-      <div className="mb-6 flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col sm:flex-row gap-4">
         <div className="flex-1">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-neutral-400 w-4 h-4" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
               placeholder="Search tournaments..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
             />
           </div>
         </div>
+        
         <div className="sm:w-48">
           <select
             value={filterFormat}
             onChange={(e) => setFilterFormat(e.target.value)}
-            className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
           >
             <option value="all">All Formats</option>
             <option value="match_play">Match Play</option>
-            <option value="par3_match_play">3 Hole Matchplay</option>
             <option value="stroke_play">Stroke Play</option>
-            <option value="scramble">Scramble</option>
-            <option value="best_ball">Best Ball</option>
-            <option value="stableford">Stableford</option>
+            <option value="team_match_play">Team Match Play</option>
+            <option value="team_stroke_play">Team Stroke Play</option>
           </select>
         </div>
       </div>
 
       {/* Tournaments Grid */}
       {filteredTournaments.length === 0 ? (
-        <div className="text-center py-12 text-neutral-600">
-          <Trophy className="w-12 h-12 mx-auto mb-2 text-neutral-400" />
-          <p className="text-lg font-medium mb-2">
-            {searchTerm || filterFormat !== 'all' ? 'No tournaments match your search' : 'No tournaments available'}
-          </p>
-          <p className="text-sm text-neutral-500">
+        <div className="text-center py-12">
+          <Trophy className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No tournaments found</h3>
+          <p className="text-gray-600">
             {searchTerm || filterFormat !== 'all' 
               ? 'Try adjusting your search or filter criteria'
               : 'Check back later for new tournaments'
@@ -194,92 +241,106 @@ const AvailableTournaments: React.FC = () => {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredTournaments.map((tournament) => (
-            <div key={tournament.id} className="p-4 bg-white border border-neutral-200 rounded-lg shadow-sm hover:border-brand-neon-green transition-all group">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold text-brand-black group-hover:text-brand-neon-green transition-colors">
-                  {tournament.name}
-                </h3>
-                <div className="flex items-center space-x-2">
-                  {tournament.registration_open && (
-                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      Registration Open
-                    </span>
-                  )}
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(tournament.status || 'draft')}`}>
-                    {tournament.status || 'draft'}
-                  </span>
-                </div>
-              </div>
-              
-              {tournament.description && (
-                <p className="text-sm text-neutral-600 mb-2 line-clamp-2">
-                  {tournament.description}
-                </p>
-              )}
-              
-              <div className="text-sm text-neutral-600 mb-2">
-                {getFormatDisplayName(tournament.tournament_format || 'match_play')} • {tournament.type || 'tournament'}
-              </div>
-              
-              {tournament.start_date && (
-                <div className="text-xs text-neutral-500 mb-2">
-                  <Calendar className="inline w-4 h-4 mr-1" />
-                  {new Date(tournament.start_date).toLocaleDateString()}
-                  {tournament.end_date && tournament.end_date !== tournament.start_date && (
-                    <> - {new Date(tournament.end_date).toLocaleDateString()}</>
-                  )}
-                </div>
-              )}
-              
-              {tournament.location && (
-                <div className="text-xs text-neutral-500 mb-2">
-                  <MapPin className="inline w-4 h-4 mr-1" />
-                  {tournament.location}
-                </div>
-              )}
-              
-              {tournament.entry_fee && tournament.entry_fee > 0 && (
-                <div className="text-xs text-neutral-500 mb-2">
-                  <DollarSign className="inline w-4 h-4 mr-1" />
-                  ${tournament.entry_fee} entry fee
-                </div>
-              )}
-              
-              {tournament.registration_deadline && (
-                <div className="text-xs text-neutral-500 mb-2">
-                  <Clock className="inline w-4 h-4 mr-1" />
-                  Registration deadline: {new Date(tournament.registration_deadline).toLocaleDateString()}
-                </div>
-              )}
-              
-              {tournament.max_participants && (
-                <div className="text-xs text-neutral-500 mb-3">
-                  <Users className="inline w-4 h-4 mr-1" />
-                  Max {tournament.max_participants} participants
-                </div>
-              )}
-              
-              <div className="mt-4">
-                {isUserRegistered(tournament.id) ? (
-                  <div className="flex items-center justify-center px-3 py-2 bg-green-100 text-green-800 rounded-lg text-sm font-medium">
-                    <UserPlus className="w-4 h-4 mr-2" />
-                    Registered
+            <div
+              key={tournament.id}
+              className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer border border-gray-200"
+              onClick={() => handleTournamentClick(tournament.id)}
+            >
+              <div className="p-6">
+                {/* Header */}
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-1">{tournament.name}</h3>
+                    <div className="flex items-center space-x-2">
+                      {tournament.status && (
+                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(tournament.status)}`}>
+                          {tournament.status}
+                        </span>
+                      )}
+                      <span className="text-sm text-gray-500">
+                        {getFormatDisplayName(tournament.tournament_format || '')}
+                      </span>
+                    </div>
                   </div>
-                ) : (
-                  <button
-                    onClick={() => handleRegister(tournament.id)}
-                    className="w-full flex items-center justify-center px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors"
-                  >
-                    <UserPlus className="w-4 h-4 mr-2" />
-                    Register
-                  </button>
+                  <Trophy className="w-6 h-6 text-brand-neon-green flex-shrink-0" />
+                </div>
+
+                {/* Details */}
+                <div className="space-y-3 mb-4">
+                  <div className="flex items-center text-sm text-gray-600">
+                    <Calendar className="w-4 h-4 mr-2" />
+                    <span>{formatDate(tournament.start_date || '')}</span>
+                  </div>
+                  
+                  {tournament.location && (
+                    <div className="flex items-center text-sm text-gray-600">
+                      <MapPin className="w-4 h-4 mr-2" />
+                      <span>{tournament.location}</span>
+                    </div>
+                  )}
+                  
+                  {tournament.course && (
+                    <div className="flex items-center text-sm text-gray-600">
+                      <MapPin className="w-4 h-4 mr-2" />
+                      <span>{tournament.course}</span>
+                    </div>
+                  )}
+                  
+                  {tournament.entry_fee && tournament.entry_fee > 0 && (
+                    <div className="flex items-center text-sm text-gray-600">
+                      <DollarSign className="w-4 h-4 mr-2" />
+                      <span>${tournament.entry_fee} entry fee</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Description */}
+                {tournament.description && (
+                  <p className="text-sm text-gray-600 mb-4 line-clamp-2">
+                    {tournament.description}
+                  </p>
                 )}
+
+                {/* Registration Status */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    {isUserRegistered(tournament.id) ? (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        <UserPlus className="w-3 h-3 mr-1" />
+                        Registered
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                        <Users className="w-3 h-3 mr-1" />
+                        Available
+                      </span>
+                    )}
+                  </div>
+                  
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleTournamentClick(tournament.id);
+                    }}
+                    className="text-brand-neon-green hover:text-brand-dark-green text-sm font-medium"
+                  >
+                    View Details →
+                  </button>
+                </div>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {/* Tournament Modal */}
+      {showModal && selectedTournamentId && (
+        <TournamentModal
+          tournamentId={selectedTournamentId}
+          onClose={handleModalClose}
+        />
       )}
     </div>
   );

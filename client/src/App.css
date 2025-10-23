@@ -63,6 +63,89 @@
   .space-y-6 > * + * {
     margin-top: 1.25rem;
   }
+
+  /* Mobile-specific improvements */
+  .mobile-touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Better mobile navigation */
+  .mobile-nav-item {
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+  }
+
+  /* Mobile card improvements */
+  .mobile-card {
+    margin: 0.5rem;
+    padding: 1rem;
+  }
+
+  /* Mobile button improvements */
+  .mobile-button {
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    border-radius: 0.5rem;
+  }
+
+  /* Mobile form improvements */
+  .mobile-input {
+    padding: 0.75rem;
+    font-size: 1rem;
+    border-radius: 0.5rem;
+  }
+
+  /* Mobile table improvements */
+  .mobile-table {
+    font-size: 0.875rem;
+  }
+
+  .mobile-table th,
+  .mobile-table td {
+    padding: 0.5rem 0.25rem;
+  }
+
+  /* Mobile modal improvements */
+  .mobile-modal {
+    margin: 1rem;
+    border-radius: 1rem;
+  }
+
+  /* Mobile spacing improvements */
+  .mobile-spacing {
+    margin: 0.5rem;
+    padding: 0.75rem;
+  }
+
+  /* Mobile text improvements */
+  .mobile-text-sm {
+    font-size: 0.875rem;
+  }
+
+  .mobile-text-base {
+    font-size: 1rem;
+  }
+
+  .mobile-text-lg {
+    font-size: 1.125rem;
+  }
+
+  /* Mobile icon improvements */
+  .mobile-icon-sm {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .mobile-icon-base {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .mobile-icon-lg {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
 }
 
 /* Prevent horizontal scroll on mobile */
@@ -74,6 +157,14 @@ html, body {
 button:focus, input:focus, select:focus, textarea:focus {
   outline: 2px solid #77dd3c;
   outline-offset: 2px;
+}
+
+/* Mobile-specific focus improvements */
+@media (max-width: 640px) {
+  button:focus, input:focus, select:focus, textarea:focus {
+    outline: 3px solid #77dd3c;
+    outline-offset: 3px;
+  }
 }
 
 /* SimulatorCourses specific styles */
@@ -198,6 +289,179 @@ button:focus, input:focus, select:focus, textarea:focus {
   transition: left 0.5s;
 }
 
-.btn-hover-effect:hover::before {
-  left: 100%;
+/* Mobile-specific button improvements */
+@media (max-width: 640px) {
+  .btn-hover-effect::before {
+    display: none;
+  }
+}
+
+/* Mobile navigation improvements */
+@media (max-width: 640px) {
+  .mobile-nav {
+    padding: 0.5rem;
+  }
+  
+  .mobile-nav-item {
+    margin: 0.25rem 0;
+    border-radius: 0.5rem;
+  }
+}
+
+/* Mobile table improvements */
+@media (max-width: 640px) {
+  .mobile-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .mobile-table {
+    min-width: 100%;
+    border-collapse: collapse;
+  }
+  
+  .mobile-table th,
+  .mobile-table td {
+    white-space: nowrap;
+    padding: 0.5rem 0.25rem;
+  }
+}
+
+/* Mobile form improvements */
+@media (max-width: 640px) {
+  .mobile-form {
+    padding: 1rem;
+  }
+  
+  .mobile-form-group {
+    margin-bottom: 1rem;
+  }
+  
+  .mobile-form-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+  }
+  
+  .mobile-form-input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    font-size: 1rem;
+  }
+}
+
+/* Mobile card improvements */
+@media (max-width: 640px) {
+  .mobile-card {
+    margin: 0.5rem;
+    padding: 1rem;
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  }
+}
+
+/* Mobile modal improvements */
+@media (max-width: 640px) {
+  .mobile-modal {
+    margin: 1rem;
+    max-width: calc(100vw - 2rem);
+    max-height: calc(100vh - 2rem);
+    border-radius: 1rem;
+  }
+  
+  .mobile-modal-content {
+    padding: 1rem;
+  }
+}
+
+/* Mobile button improvements */
+@media (max-width: 640px) {
+  .mobile-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    font-weight: 500;
+    border-radius: 0.5rem;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-height: 44px;
+  }
+  
+  .mobile-button-primary {
+    background-color: #77dd3c;
+    color: #1a1a1a;
+  }
+  
+  .mobile-button-secondary {
+    background-color: #f3f4f6;
+    color: #374151;
+    border: 1px solid #d1d5db;
+  }
+}
+
+/* Mobile text improvements */
+@media (max-width: 640px) {
+  .mobile-text-xs {
+    font-size: 0.75rem;
+  }
+  
+  .mobile-text-sm {
+    font-size: 0.875rem;
+  }
+  
+  .mobile-text-base {
+    font-size: 1rem;
+  }
+  
+  .mobile-text-lg {
+    font-size: 1.125rem;
+  }
+  
+  .mobile-text-xl {
+    font-size: 1.25rem;
+  }
+  
+  .mobile-text-2xl {
+    font-size: 1.5rem;
+  }
+}
+
+/* Mobile spacing improvements */
+@media (max-width: 640px) {
+  .mobile-p-1 {
+    padding: 0.25rem;
+  }
+  
+  .mobile-p-2 {
+    padding: 0.5rem;
+  }
+  
+  .mobile-p-3 {
+    padding: 0.75rem;
+  }
+  
+  .mobile-p-4 {
+    padding: 1rem;
+  }
+  
+  .mobile-m-1 {
+    margin: 0.25rem;
+  }
+  
+  .mobile-m-2 {
+    margin: 0.5rem;
+  }
+  
+  .mobile-m-3 {
+    margin: 0.75rem;
+  }
+  
+  .mobile-m-4 {
+    margin: 1rem;
+  }
 }

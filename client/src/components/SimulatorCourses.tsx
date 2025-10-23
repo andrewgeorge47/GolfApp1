@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
 import api from '../services/api';
+import CourseEditModal from './CourseEditModal';
+import { canEditCourses as checkCanEditCourses } from '../utils/roleUtils';
 
 interface CombinedCourse {
   id: number;
@@ -12,6 +14,8 @@ interface CombinedCourse {
   designer?: string;
   elevation?: number;
   course_types: string[];
+  par_values?: number[];
+  hole_indexes?: number[];
 }
 
 interface SimulatorStats {
@@ -37,12 +41,15 @@ const SimulatorCourses: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCourses, setTotalCourses] = useState(0);
+  const [statsLoading, setStatsLoading] = useState(true);
   const [servers, setServers] = useState<string[]>([]);
   const [designers, setDesigners] = useState<string[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const coursesPerPage = 24;
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedCourse, setSelectedCourse] = useState<CombinedCourse | null>(null);
 
   const courseTypes = [
     { key: 'par3', label: 'Par 3', icon: '🏌️' },
@@ -76,10 +83,30 @@ const SimulatorCourses: React.FC = () => {
 
   const fetchStats = async () => {
     try {
+      setStatsLoading(true);
       const response = await api.get('/simulator-courses/stats');
+      console.log('Stats response:', response.data);
       setStats(response.data);
     } catch (error) {
       console.error('Error fetching stats:', error);
+      // Fallback: try to get total courses from the main courses API
+      try {
+        const coursesResponse = await api.get('/simulator-courses?limit=1');
+        if (coursesResponse.data && coursesResponse.data.total) {
+          setStats({
+            total_courses: coursesResponse.data.total,
+            gspro_courses: 0,
+            trackman_courses: 0,
+            shared_courses: 0,
+            unique_gspro: 0,
+            unique_trackman: 0
+          });
+        }
+      } catch (fallbackError) {
+        console.error('Fallback stats fetch also failed:', fallbackError);
+      }
+    } finally {
+      setStatsLoading(false);
     }
   };
 
@@ -138,6 +165,21 @@ const SimulatorCourses: React.FC = () => {
     setCurrentPage(1);
   };
 
+  const handleEditCourse = (course: CombinedCourse) => {
+    setSelectedCourse(course);
+    setShowEditModal(true);
+  };
+
+  const handleCloseEditModal = () => {
+    setShowEditModal(false);
+    setSelectedCourse(null);
+  };
+
+  // Helper function to check if user has edit permissions (using centralized role check)
+  const canEditCourses = () => {
+    return checkCanEditCourses(user);
+  };
+
   const shouldShowGsproFilters = () => {
     return selectedPlatform === 'all' || selectedPlatform === 'gspro' || selectedPlatform === 'both';
   };
@@ -175,83 +217,98 @@ const SimulatorCourses: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 py-4 sm:py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="mb-8 text-center">
-          <h1 className="text-4xl font-bold text-gray-900 mb-3">Simulator Courses</h1>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Explore {stats?.total_courses || 0} golf courses available on GSPro and Trackman simulators
+        <div className="mb-6 sm:mb-8 text-center">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3">Simulator Courses</h1>
+          <p className="text-base sm:text-lg text-gray-600 max-w-2xl mx-auto px-4">
+            {statsLoading ? (
+              'Loading course statistics...'
+            ) : stats ? (
+              `Explore ${stats.total_courses.toLocaleString()} golf courses available on GSPro and Trackman simulators`
+            ) : (
+              'Course statistics unavailable'
+            )}
           </p>
         </div>
 
         {/* Stats Cards */}
-        {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        {statsLoading ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="p-3 sm:p-6 rounded-xl bg-white shadow-md animate-pulse">
+                <div className="h-8 bg-gray-200 rounded mb-2"></div>
+                <div className="h-4 bg-gray-200 rounded"></div>
+              </div>
+            ))}
+          </div>
+        ) : stats ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
             <div 
-              className={`relative p-6 rounded-xl cursor-pointer stats-card ${
+              className={`relative p-3 sm:p-6 rounded-xl cursor-pointer stats-card ${
                 selectedPlatform === 'all' 
                   ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg active' 
                   : 'bg-white text-gray-700 shadow-md hover:shadow-lg'
               }`}
               onClick={() => setSelectedPlatform('all')}
             >
-              <div className="text-3xl font-bold">{stats.total_courses.toLocaleString()}</div>
-              <div className="text-sm opacity-90">All Courses</div>
+              <div className="text-lg sm:text-2xl md:text-3xl font-bold">{stats.total_courses.toLocaleString()}</div>
+              <div className="text-xs sm:text-sm opacity-90">All Courses</div>
               {selectedPlatform === 'all' && (
                 <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full"></div>
               )}
             </div>
             <div 
-              className={`relative p-6 rounded-xl cursor-pointer stats-card ${
+              className={`relative p-3 sm:p-6 rounded-xl cursor-pointer stats-card ${
                 selectedPlatform === 'gspro' 
                   ? 'bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg active' 
                   : 'bg-white text-gray-700 shadow-md hover:shadow-lg'
               }`}
               onClick={() => setSelectedPlatform('gspro')}
             >
-              <div className="text-3xl font-bold">{stats.gspro_courses.toLocaleString()}</div>
-              <div className="text-sm opacity-90">GSPro</div>
+              <div className="text-lg sm:text-2xl md:text-3xl font-bold">{stats.gspro_courses.toLocaleString()}</div>
+              <div className="text-xs sm:text-sm opacity-90">GSPro</div>
               {selectedPlatform === 'gspro' && (
                 <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full"></div>
               )}
             </div>
             <div 
-              className={`relative p-6 rounded-xl cursor-pointer stats-card ${
+              className={`relative p-3 sm:p-6 rounded-xl cursor-pointer stats-card ${
                 selectedPlatform === 'trackman' 
                   ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg active' 
                   : 'bg-white text-gray-700 shadow-md hover:shadow-lg'
               }`}
               onClick={() => setSelectedPlatform('trackman')}
             >
-              <div className="text-3xl font-bold">{stats.trackman_courses.toLocaleString()}</div>
-              <div className="text-sm opacity-90">Trackman</div>
+              <div className="text-lg sm:text-2xl md:text-3xl font-bold">{stats.trackman_courses.toLocaleString()}</div>
+              <div className="text-xs sm:text-sm opacity-90">Trackman</div>
               {selectedPlatform === 'trackman' && (
                 <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full"></div>
               )}
             </div>
             <div 
-              className={`relative p-6 rounded-xl cursor-pointer stats-card ${
+              className={`relative p-3 sm:p-6 rounded-xl cursor-pointer stats-card ${
                 selectedPlatform === 'both' 
                   ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg active' 
                   : 'bg-white text-gray-700 shadow-md hover:shadow-lg'
               }`}
               onClick={() => setSelectedPlatform('both')}
             >
-              <div className="text-3xl font-bold">{stats.shared_courses.toLocaleString()}</div>
-              <div className="text-sm opacity-90">Both</div>
+              <div className="text-lg sm:text-2xl md:text-3xl font-bold">{stats.shared_courses.toLocaleString()}</div>
+              <div className="text-xs sm:text-sm opacity-90">Both</div>
               {selectedPlatform === 'both' && (
                 <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full"></div>
               )}
             </div>
           </div>
-        )}
+        ) : null}
 
         {/* Search and Filters */}
-        <div className="bg-white rounded-xl shadow-lg mb-8 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-lg mb-6 sm:mb-8 overflow-hidden">
           {/* Search Bar */}
-          <div className="p-6 border-b border-gray-100">
-            <div className="flex items-center space-x-4">
+          <div className="p-4 sm:p-6 border-b border-gray-100">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
               <div className="flex-1 relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -266,39 +323,42 @@ const SimulatorCourses: React.FC = () => {
                   className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent focus-ring"
                 />
               </div>
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className={`px-4 py-3 rounded-lg font-medium transition-colors focus-ring btn-hover-effect ${
-                  showFilters 
-                    ? 'bg-green-100 text-green-700 border border-green-200' 
-                    : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
-                }`}
-              >
-                <div className="flex items-center space-x-2">
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                  </svg>
-                  <span>Filters</span>
-                  {getActiveFiltersCount() > 0 && (
-                    <span className="bg-red-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px]">
-                      {getActiveFiltersCount()}
-                    </span>
-                  )}
-                </div>
-              </button>
-              <button
-                onClick={clearFilters}
-                className="px-4 py-3 text-gray-600 bg-gray-100 border border-gray-200 rounded-lg hover:bg-gray-200 transition-colors focus-ring btn-hover-effect"
-              >
-                Clear
-              </button>
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setShowFilters(!showFilters)}
+                  className={`flex-1 sm:flex-none px-3 sm:px-4 py-3 rounded-lg font-medium transition-colors focus-ring btn-hover-effect ${
+                    showFilters 
+                      ? 'bg-green-100 text-green-700 border border-green-200' 
+                      : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-center space-x-2">
+                    <svg className="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                    </svg>
+                    <span className="hidden sm:inline">Filters</span>
+                    <span className="sm:hidden">Filter</span>
+                    {getActiveFiltersCount() > 0 && (
+                      <span className="bg-red-500 text-white text-xs rounded-full px-1.5 sm:px-2 py-0.5 sm:py-1 min-w-[16px] sm:min-w-[20px]">
+                        {getActiveFiltersCount()}
+                      </span>
+                    )}
+                  </div>
+                </button>
+                <button
+                  onClick={clearFilters}
+                  className="px-3 sm:px-4 py-3 text-gray-600 bg-gray-100 border border-gray-200 rounded-lg hover:bg-gray-200 transition-colors focus-ring btn-hover-effect"
+                >
+                  Clear
+                </button>
+              </div>
             </div>
           </div>
 
           {/* Advanced Filters */}
           {showFilters && (
-            <div className="p-6 bg-gray-50">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="p-4 sm:p-6 bg-gray-50">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 {/* Server Filter */}
                 {shouldShowGsproFilters() && (
                   <div>
@@ -371,12 +431,12 @@ const SimulatorCourses: React.FC = () => {
           )}
 
           {/* Results Summary */}
-          <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 bg-gray-50 border-t border-gray-100">
             <div className="flex justify-between items-center">
-              <div className="text-sm text-gray-600">
+              <div className="text-xs sm:text-sm text-gray-600">
                 {searchLoading ? (
                   <div className="flex items-center space-x-2">
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-green-500 border-t-transparent"></div>
+                    <div className="animate-spin rounded-full h-3 w-3 sm:h-4 sm:w-4 border-2 border-green-500 border-t-transparent"></div>
                     <span>Searching...</span>
                   </div>
                 ) : (
@@ -392,10 +452,10 @@ const SimulatorCourses: React.FC = () => {
 
         {/* Courses Grid */}
         {searchLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
             {Array.from({ length: 8 }, (_, i) => (
               <div key={i} className="bg-white rounded-xl shadow-md overflow-hidden animate-pulse skeleton-pulse">
-                <div className="p-6">
+                <div className="p-4 sm:p-6">
                   <div className="h-6 bg-gray-200 rounded mb-4"></div>
                   <div className="space-y-2">
                     <div className="h-4 bg-gray-200 rounded"></div>
@@ -485,6 +545,21 @@ const SimulatorCourses: React.FC = () => {
                       </div>
                     </div>
                   )}
+
+                  {/* Edit Button - Only show for Club Pro, Admin, and Ambassadors */}
+                  {canEditCourses() && (
+                    <div className="mt-4 pt-4 border-t border-gray-100">
+                      <button
+                        onClick={() => handleEditCourse(course)}
+                        className="w-full flex items-center justify-center px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
+                      >
+                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        Edit Course
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -551,6 +626,13 @@ const SimulatorCourses: React.FC = () => {
             </button>
           </div>
         )}
+
+        {/* Course Edit Modal */}
+        <CourseEditModal
+          isOpen={showEditModal}
+          onClose={handleCloseEditModal}
+          course={selectedCourse}
+        />
       </div>
     </div>
   );

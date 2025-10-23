@@ -1,7 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Users, Settings, Plus, Search, MapPin } from 'lucide-react';
-import { createTournament, updateTournament, getSimulatorCourses } from '../services/api';
+import { createTournament, updateTournament, getSimulatorCourses, getAllClubs } from '../services/api';
 import { toast } from 'react-toastify';
+import LeagueSettings from './LeagueSettings';
+
+interface RegistrationFormQuestion {
+  id: string;
+  question: string;
+  type: 'radio' | 'checkbox' | 'text';
+  required: boolean;
+  options?: string[];
+  placeholder?: string;
+  conditional?: {
+    dependsOn: string;
+    showWhen: string;
+  };
+}
+
+interface RegistrationFormTemplate {
+  questions: RegistrationFormQuestion[];
+}
 
 interface TournamentFormProps {
   mode: 'create' | 'edit';
@@ -9,6 +27,37 @@ interface TournamentFormProps {
   onSuccess: () => void;
   onCancel: () => void;
   currentUser?: any;
+}
+
+interface LeagueConfig {
+  // Basic league info
+  name: string;
+  description: string;
+  
+  // Season configuration
+  season_start_date: string;
+  season_end_date: string;
+  auto_progression: boolean;
+  
+  // Scoring configuration
+  min_matches_per_week: number;
+  max_matches_per_week: number;
+  live_match_bonus: number;
+  tie_break_rules: string;
+  
+  // Participant management
+  max_participants: number;
+  min_participants: number;
+  registration_open: boolean;
+  
+  // Week configuration
+  week_start_day: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+  scoring_deadline_hours: number;
+  
+  // Advanced settings
+  playoff_enabled: boolean;
+  playoff_weeks: number;
+  drop_worst_weeks: number;
 }
 
 const TournamentForm: React.FC<TournamentFormProps> = ({
@@ -24,6 +73,7 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     const date = new Date(dateString);
     return date.toISOString().split('T')[0];
   };
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [tournamentForm, setTournamentForm] = useState({
     name: tournament?.name || '',
@@ -40,12 +90,21 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     location: tournament?.location || '',
     course: tournament?.course || '',
     course_id: tournament?.course_id || '',
+    // Platform-specific course selections
+    gspro_course: tournament?.gspro_course || '',
+    gspro_course_id: tournament?.gspro_course_id || '',
+    trackman_course: tournament?.trackman_course || '',
+    trackman_course_id: tournament?.trackman_course_id || '',
     rules: tournament?.rules || '',
     notes: tournament?.notes || '',
     type: tournament?.type || 'tournament',
     club_restriction: tournament?.club_restriction || 'open',
     team_size: tournament?.team_size?.toString() || '4',
     hole_configuration: tournament?.hole_configuration?.toString() || '18',
+    // Payment settings
+    payment_organizer: tournament?.payment_organizer || '',
+    payment_organizer_name: tournament?.payment_organizer_name || '',
+    payment_venmo_url: tournament?.payment_venmo_url || '',
     // Simulator settings
     tee: tournament?.tee || 'Red',
     pins: tournament?.pins || 'Friday',
@@ -56,7 +115,23 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     game_play: tournament?.game_play || 'Force Realistic',
     firmness: tournament?.firmness || 'Normal',
     wind: tournament?.wind || 'None',
-    handicap_enabled: tournament?.handicap_enabled || false
+    handicap_enabled: tournament?.handicap_enabled || false,
+    // Registration form settings
+    has_registration_form: tournament?.has_registration_form || false,
+    registration_form_template: tournament?.registration_form_template || '',
+    registration_form_data: tournament?.registration_form_data || null,
+    // NEW: Championship settings
+    tournament_series: tournament?.tournament_series || 'regular',
+    is_club_championship: tournament?.is_club_championship || false,
+    is_national_tournament: tournament?.is_national_tournament || false,
+    championship_round: tournament?.championship_round || 1,
+    championship_club: tournament?.championship_club || '',
+    parent_tournament_id: tournament?.parent_tournament_id || '',
+    championship_type: tournament?.championship_type || 'single_club',
+    participating_clubs: tournament?.participating_clubs || '',
+    min_club_participants: tournament?.min_club_participants || '4',
+    auto_group_clubs: tournament?.auto_group_clubs || false,
+    auto_seed_champions: tournament?.auto_seed_champions || false
   });
 
   // Course selector state
@@ -66,13 +141,109 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
   const [filteredCourses, setFilteredCourses] = useState<any[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
   const [courseLoading, setCourseLoading] = useState(false);
+  
+  // Platform-specific course selection state
+  const [gsproCourses, setGsproCourses] = useState<any[]>([]);
+  const [trackmanCourses, setTrackmanCourses] = useState<any[]>([]);
+  const [gsproSearchTerm, setGsproSearchTerm] = useState('');
+  const [trackmanSearchTerm, setTrackmanSearchTerm] = useState('');
+  const [showGsproDropdown, setShowGsproDropdown] = useState(false);
+  const [showTrackmanDropdown, setShowTrackmanDropdown] = useState(false);
+  const [filteredGsproCourses, setFilteredGsproCourses] = useState<any[]>([]);
+  const [filteredTrackmanCourses, setFilteredTrackmanCourses] = useState<any[]>([]);
+  const [selectedGsproCourse, setSelectedGsproCourse] = useState<any>(null);
+  const [selectedTrackmanCourse, setSelectedTrackmanCourse] = useState<any>(null);
+  const [gsproLoading, setGsproLoading] = useState(false);
+  const [trackmanLoading, setTrackmanLoading] = useState(false);
+
+  // Club selection state
+  const [clubs, setClubs] = useState<string[]>([]);
+  const [selectedClubs, setSelectedClubs] = useState<string[]>([]);
+  const [clubSearchTerm, setClubSearchTerm] = useState('');
+  const [showClubDropdown, setShowClubDropdown] = useState(false);
+  const [filteredClubs, setFilteredClubs] = useState<string[]>([]);
+
+  // League configuration state
+  const [leagueConfig, setLeagueConfig] = useState<LeagueConfig>({
+    name: tournament?.league_config?.name || 'Weekly Golf League',
+    description: tournament?.league_config?.description || '',
+    season_start_date: tournament?.league_config?.season_start_date || '',
+    season_end_date: tournament?.league_config?.season_end_date || '',
+    auto_progression: tournament?.league_config?.auto_progression || false,
+    min_matches_per_week: tournament?.league_config?.min_matches_per_week || 3,
+    max_matches_per_week: tournament?.league_config?.max_matches_per_week || 5,
+    live_match_bonus: tournament?.league_config?.live_match_bonus || 1,
+    tie_break_rules: tournament?.league_config?.tie_break_rules || 'total_points',
+    max_participants: tournament?.league_config?.max_participants || 50,
+    min_participants: tournament?.league_config?.min_participants || 8,
+    registration_open: tournament?.league_config?.registration_open || true,
+    week_start_day: tournament?.league_config?.week_start_day || 'monday',
+    scoring_deadline_hours: tournament?.league_config?.scoring_deadline_hours || 72,
+    playoff_enabled: tournament?.league_config?.playoff_enabled || false,
+    playoff_weeks: tournament?.league_config?.playoff_weeks || 2,
+    drop_worst_weeks: tournament?.league_config?.drop_worst_weeks || 0
+  });
+
+  // Registration form templates
+  const registrationFormTemplates = {
+    live_rounds: {
+      name: 'Live Rounds',
+      description: 'Ask participants about their participation in live rounds and night availability',
+      questions: [
+        {
+          id: 'participation_type',
+          type: 'radio',
+          question: 'Are you planning to participate in Live rounds this week or will you be playing solo?',
+          options: ['Live', 'Solo'],
+          required: true
+        },
+        {
+          id: 'night_availability',
+          type: 'checkbox',
+          question: 'Choose which of the following nights absolutely work for you THIS week.',
+          options: [
+            'Wednesday (7-10)',
+            'Thursday (7-10)',
+            'Friday (7-10)',
+            'Saturday (7-10)'
+          ],
+          required: true,
+          conditional: {
+            dependsOn: 'participation_type',
+            showWhen: 'Live'
+          }
+        }
+      ]
+    },
+    night_availability: {
+      name: 'Night Availability',
+      description: 'Simple night availability selection',
+      questions: [
+        {
+          id: 'available_nights',
+          type: 'checkbox',
+          question: 'Which nights are you available this week?',
+          options: [
+            'Monday (7-10)',
+            'Tuesday (7-10)',
+            'Wednesday (7-10)',
+            'Thursday (7-10)',
+            'Friday (7-10)',
+            'Saturday (7-10)',
+            'Sunday (7-10)'
+          ],
+          required: true
+        }
+      ]
+    }
+  };
 
   // Load simulator courses
   useEffect(() => {
     const fetchSimulatorCourses = async () => {
       try {
         setCourseLoading(true);
-        const response = await getSimulatorCourses('', '', 1000);
+        const response = await getSimulatorCourses(undefined, undefined, 10000);
         setSimulatorCourses(response.data.courses || []);
       } catch (error) {
         console.error('Error fetching simulator courses:', error);
@@ -81,7 +252,44 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
       }
     };
 
+    const fetchClubs = async () => {
+      try {
+        const response = await getAllClubs();
+        setClubs(response.data || []);
+        setFilteredClubs(response.data || []);
+      } catch (error) {
+        console.error('Error fetching clubs:', error);
+        toast.error('Failed to load clubs');
+      }
+    };
+
     fetchSimulatorCourses();
+    fetchClubs();
+  }, []);
+
+  // Load platform-specific courses
+  useEffect(() => {
+    const fetchPlatformCourses = async () => {
+      try {
+        // Fetch GSPro courses
+        setGsproLoading(true);
+        const gsproResponse = await getSimulatorCourses(undefined, 'gspro', 10000);
+        setGsproCourses(gsproResponse.data.courses || []);
+        setGsproLoading(false);
+
+        // Fetch Trackman courses
+        setTrackmanLoading(true);
+        const trackmanResponse = await getSimulatorCourses(undefined, 'trackman', 10000);
+        setTrackmanCourses(trackmanResponse.data.courses || []);
+        setTrackmanLoading(false);
+      } catch (error) {
+        console.error('Error fetching platform courses:', error);
+        setGsproLoading(false);
+        setTrackmanLoading(false);
+      }
+    };
+
+    fetchPlatformCourses();
   }, []);
 
   // Initialize course selection when editing
@@ -94,6 +302,36 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
       }
     }
   }, [mode, tournament, simulatorCourses]);
+
+  // Initialize GSPro course selection when editing
+  useEffect(() => {
+    if (mode === 'edit' && tournament?.gspro_course_id && gsproCourses.length > 0) {
+      console.log('Initializing GSPro course:', { tournament: tournament.gspro_course_id, gsproCourses: gsproCourses.length });
+      const existingGsproCourse = gsproCourses.find(course => course.id === tournament.gspro_course_id);
+      if (existingGsproCourse) {
+        console.log('Found GSPro course:', existingGsproCourse);
+        setSelectedGsproCourse(existingGsproCourse);
+        setGsproSearchTerm(existingGsproCourse.name);
+      } else {
+        console.log('GSPro course not found in available courses');
+      }
+    }
+  }, [mode, tournament, gsproCourses]);
+
+  // Initialize Trackman course selection when editing
+  useEffect(() => {
+    if (mode === 'edit' && tournament?.trackman_course_id && trackmanCourses.length > 0) {
+      console.log('Initializing Trackman course:', { tournament: tournament.trackman_course_id, trackmanCourses: trackmanCourses.length });
+      const existingTrackmanCourse = trackmanCourses.find(course => course.id === tournament.trackman_course_id);
+      if (existingTrackmanCourse) {
+        console.log('Found Trackman course:', existingTrackmanCourse);
+        setSelectedTrackmanCourse(existingTrackmanCourse);
+        setTrackmanSearchTerm(existingTrackmanCourse.name);
+      } else {
+        console.log('Trackman course not found in available courses');
+      }
+    }
+  }, [mode, tournament, trackmanCourses]);
 
   // Filter courses based on search term
   useEffect(() => {
@@ -109,6 +347,46 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     }
   }, [courseSearchTerm, simulatorCourses]);
 
+  // Filter GSPro courses based on search term
+  useEffect(() => {
+    if (gsproSearchTerm.trim()) {
+      const filtered = gsproCourses.filter(course =>
+        course.name.toLowerCase().includes(gsproSearchTerm.toLowerCase()) ||
+        (course.location && course.location.toLowerCase().includes(gsproSearchTerm.toLowerCase())) ||
+        (course.designer && course.designer.toLowerCase().includes(gsproSearchTerm.toLowerCase()))
+      ).slice(0, 10);
+      setFilteredGsproCourses(filtered);
+    } else {
+      setFilteredGsproCourses([]);
+    }
+  }, [gsproSearchTerm, gsproCourses]);
+
+  // Filter Trackman courses based on search term
+  useEffect(() => {
+    if (trackmanSearchTerm.trim()) {
+      const filtered = trackmanCourses.filter(course =>
+        course.name.toLowerCase().includes(trackmanSearchTerm.toLowerCase()) ||
+        (course.location && course.location.toLowerCase().includes(trackmanSearchTerm.toLowerCase())) ||
+        (course.designer && course.designer.toLowerCase().includes(trackmanSearchTerm.toLowerCase()))
+      ).slice(0, 10);
+      setFilteredTrackmanCourses(filtered);
+    } else {
+      setFilteredTrackmanCourses([]);
+    }
+  }, [trackmanSearchTerm, trackmanCourses]);
+
+  // Filter clubs based on search term
+  useEffect(() => {
+    if (clubSearchTerm.trim()) {
+      const filtered = clubs.filter(club =>
+        club.toLowerCase().includes(clubSearchTerm.toLowerCase())
+      );
+      setFilteredClubs(filtered);
+    } else {
+      setFilteredClubs(clubs);
+    }
+  }, [clubSearchTerm, clubs]);
+
   // Handle clicking outside course dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -116,151 +394,36 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
       if (!target.closest('.course-dropdown-container')) {
         setShowCourseDropdown(false);
       }
+      if (!target.closest('.gspro-dropdown-container')) {
+        setShowGsproDropdown(false);
+      }
+      if (!target.closest('.trackman-dropdown-container')) {
+        setShowTrackmanDropdown(false);
+      }
+      if (!target.closest('.club-dropdown-container')) {
+        setShowClubDropdown(false);
+      }
     };
 
-    if (showCourseDropdown) {
+    if (showCourseDropdown || showGsproDropdown || showTrackmanDropdown || showClubDropdown) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [showCourseDropdown]);
+  }, [showCourseDropdown, showGsproDropdown, showTrackmanDropdown, showClubDropdown]);
 
-  // Tournament templates
-  const tournamentTemplates = [
-    {
-      id: 'championship',
-      name: 'Championship Tournament',
-      icon: '🏆',
-      description: 'Major championship with stroke play format',
-      settings: {
-        tournament_format: 'stroke_play',
-        min_participants: '8',
-        max_participants: '32',
-        entry_fee: '50',
-        status: 'draft',
-        hole_count: '18',
-        rules: 'Standard stroke play rules apply. Lowest total score wins. Ties will be decided by scorecard playoff.',
-        notes: 'Championship format - individual stroke play'
-      }
-    },
-    {
-      id: 'match_play',
-      name: 'Match Play Championship',
-      icon: '⚔️',
-      description: 'Head-to-head match play tournament',
-      settings: {
-        tournament_format: 'match_play',
-        min_participants: '4',
-        max_participants: '16',
-        entry_fee: '25',
-        status: 'draft',
-        hole_count: '18',
-        rules: 'Match play format. Win holes to win matches. Ties result in halved holes.',
-        notes: 'Match play format - head-to-head competition'
-      }
-    },
-    {
-      id: 'par3_match_play',
-      name: '3 Hole Matchplay',
-      icon: '🏌️',
-      description: '3-hole course match play with 4-player groups',
-      settings: {
-        tournament_format: 'par3_match_play',
-        min_participants: '4',
-        max_participants: '20',
-        entry_fee: '15',
-        status: 'draft',
-        hole_configuration: '3',
-        rules: '3-hole match play format. Players grouped into 4-player groups. Each player plays 3 matches against their group members.',
-        notes: '3-hole match play - 4-player groups with 3 matches each'
-      }
-    },
-    {
-      id: 'league',
-      name: 'Season League',
-      icon: '📅',
-      description: 'Ongoing league with multiple rounds',
-      settings: {
-        type: 'league',
-        tournament_format: 'match_play',
-        min_participants: '8',
-        max_participants: '24',
-        entry_fee: '100',
-        status: 'draft',
-        hole_count: '18',
-        rules: 'League format with multiple rounds. Points awarded for wins, ties, and losses.',
-        notes: 'League format - ongoing competition'
-      }
-    },
-    {
-      id: 'scramble',
-      name: 'Scramble Tournament',
-      icon: '🎉',
-      description: 'Team scramble format tournament',
-      settings: {
-        tournament_format: 'scramble',
-        min_participants: '4',
-        max_participants: '20',
-        entry_fee: '10',
-        status: 'draft',
-        team_size: '4',
-        hole_count: '18',
-        rules: 'Scramble format. Teams of 4 players. All players hit, best shot is selected. Team captain submits final score.',
-        notes: 'Scramble format - team competition with 4 players per team'
-      }
-    },
-    {
-      id: 'best_ball',
-      name: 'Best Ball Tournament',
-      icon: '🎯',
-      description: 'Best ball format tournament',
-      settings: {
-        tournament_format: 'best_ball',
-        min_participants: '4',
-        max_participants: '16',
-        entry_fee: '15',
-        status: 'draft',
-        team_size: '2',
-        hole_count: '18',
-        rules: 'Best ball format. Teams of 2 players. Each player plays their own ball, best score on each hole counts.',
-        notes: 'Best ball format - team competition with 2 players per team'
-      }
-    },
-    {
-      id: 'stableford',
-      name: 'Stableford Tournament',
-      icon: '📊',
-      description: 'Stableford scoring tournament',
-      settings: {
-        tournament_format: 'stableford',
-        min_participants: '4',
-        max_participants: '20',
-        entry_fee: '20',
-        status: 'draft',
-        hole_count: '18',
-        rules: 'Stableford scoring. Points awarded based on score relative to par. Highest total points wins.',
-        notes: 'Stableford format - points-based scoring'
-      }
-    },
-    {
-      id: 'custom',
-      name: 'Custom Tournament',
-      icon: '⚙️',
-      description: 'Start from scratch with custom settings',
-      settings: {}
+  // Initialize selected clubs from form data
+  useEffect(() => {
+    if (tournamentForm.participating_clubs) {
+      const clubsArray = tournamentForm.participating_clubs
+        .split(',')
+        .map((club: string) => club.trim())
+        .filter((club: string) => club.length > 0);
+      setSelectedClubs(clubsArray);
     }
-  ];
-
-  // Template selection handler
-  const handleTemplateSelect = (template: any) => {
-    setTournamentForm(prev => ({
-      ...prev,
-      ...template.settings
-    }));
-    toast.success(`Applied ${template.name} template`);
-  };
+  }, [tournamentForm.participating_clubs]);
 
   // Course selection handlers
   const handleCourseSelect = (course: any) => {
@@ -272,6 +435,27 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     }));
     setCourseSearchTerm(course.name);
     setShowCourseDropdown(false);
+  };
+
+  // Club selection handlers
+  const handleClubToggle = (club: string) => {
+    setSelectedClubs((prev: string[]) => {
+      const newSelection = prev.includes(club) 
+        ? prev.filter((c: string) => c !== club)
+        : [...prev, club];
+      
+      setTournamentForm(prev => ({
+        ...prev,
+        participating_clubs: newSelection.join(', ')
+      }));
+      
+      return newSelection;
+    });
+  };
+
+  const handleClubSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setClubSearchTerm(e.target.value);
+    setShowClubDropdown(true);
   };
 
   const handleCourseSearchChange = (value: string) => {
@@ -290,15 +474,92 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     setShowCourseDropdown(false);
   };
 
+  // GSPro course selection handlers
+  const handleGsproCourseSelect = (course: any) => {
+    setSelectedGsproCourse(course);
+    setTournamentForm(prev => ({
+      ...prev,
+      gspro_course: course.name,
+      gspro_course_id: course.id.toString()
+    }));
+    setGsproSearchTerm(course.name);
+    setShowGsproDropdown(false);
+  };
+
+  const handleGsproCourseSearchChange = (value: string) => {
+    setGsproSearchTerm(value);
+    setShowGsproDropdown(true);
+    if (!value.trim()) {
+      setSelectedGsproCourse(null);
+      setTournamentForm(prev => ({ ...prev, gspro_course: '', gspro_course_id: '' }));
+    }
+  };
+
+  const clearGsproCourseSelection = () => {
+    setSelectedGsproCourse(null);
+    setGsproSearchTerm('');
+    setTournamentForm(prev => ({ ...prev, gspro_course: '', gspro_course_id: '' }));
+    setShowGsproDropdown(false);
+  };
+
+  // Trackman course selection handlers
+  const handleTrackmanCourseSelect = (course: any) => {
+    setSelectedTrackmanCourse(course);
+    setTournamentForm(prev => ({
+      ...prev,
+      trackman_course: course.name,
+      trackman_course_id: course.id.toString()
+    }));
+    setTrackmanSearchTerm(course.name);
+    setShowTrackmanDropdown(false);
+  };
+
+  const handleTrackmanCourseSearchChange = (value: string) => {
+    setTrackmanSearchTerm(value);
+    setShowTrackmanDropdown(true);
+    if (!value.trim()) {
+      setSelectedTrackmanCourse(null);
+      setTournamentForm(prev => ({ ...prev, trackman_course: '', trackman_course_id: '' }));
+    }
+  };
+
+  const clearTrackmanCourseSelection = () => {
+    setSelectedTrackmanCourse(null);
+    setTrackmanSearchTerm('');
+    setTournamentForm(prev => ({ ...prev, trackman_course: '', trackman_course_id: '' }));
+    setShowTrackmanDropdown(false);
+  };
+
+  // Handle registration form template selection
+  const handleRegistrationTemplateSelect = (templateKey: string) => {
+    const template = registrationFormTemplates[templateKey as keyof typeof registrationFormTemplates];
+    if (template) {
+      setTournamentForm(prev => ({
+        ...prev,
+        registration_form_template: templateKey,
+        registration_form_data: template
+      }));
+      toast.success(`Applied ${template.name} template`);
+    }
+  };
+
+  // Handle championship type changes
+  const handleChampionshipTypeChange = (type: string) => {
+    setTournamentForm(prev => ({
+      ...prev,
+      type,
+      tournament_series: type === 'club_championship' ? 'club_championship' : 
+                       type === 'national_championship' ? 'national_championship' : 'regular',
+      is_club_championship: type === 'club_championship',
+      is_national_tournament: type === 'national_championship',
+      tournament_format: type === 'club_championship' ? 'match_play' : 
+                        type === 'national_championship' ? 'match_play' : prev.tournament_format
+    }));
+  };
+
   // Form submission handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Validate required fields
-    if (!selectedCourse) {
-      toast.error('Please select a course for the tournament');
-      return;
-    }
     
     setIsSubmitting(true);
     
@@ -315,14 +576,23 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
         status: tournamentForm.status,
         registration_open: tournamentForm.registration_open,
         entry_fee: parseFloat(tournamentForm.entry_fee),
-        course: selectedCourse ? selectedCourse.name : tournamentForm.course,
+        course: selectedCourse ? selectedCourse.name : tournamentForm.course || undefined,
         course_id: tournamentForm.course_id ? parseInt(tournamentForm.course_id) : undefined,
+        // Platform-specific course selections
+        gspro_course: selectedGsproCourse ? selectedGsproCourse.name : tournamentForm.gspro_course || undefined,
+        gspro_course_id: tournamentForm.gspro_course_id ? parseInt(tournamentForm.gspro_course_id) : undefined,
+        trackman_course: selectedTrackmanCourse ? selectedTrackmanCourse.name : tournamentForm.trackman_course || undefined,
+        trackman_course_id: tournamentForm.trackman_course_id ? parseInt(tournamentForm.trackman_course_id) : undefined,
         rules: tournamentForm.rules,
         notes: tournamentForm.notes,
         type: tournamentForm.type,
         club_restriction: tournamentForm.club_restriction,
         team_size: tournamentForm.team_size ? parseInt(tournamentForm.team_size) : undefined,
         hole_configuration: tournamentForm.hole_configuration,
+        // Payment settings
+        payment_organizer: tournamentForm.payment_organizer || undefined,
+        payment_organizer_name: tournamentForm.payment_organizer_name || undefined,
+        payment_venmo_url: tournamentForm.payment_venmo_url || undefined,
         // Simulator settings
         tee: tournamentForm.tee,
         pins: tournamentForm.pins,
@@ -334,6 +604,24 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
         firmness: tournamentForm.firmness,
         wind: tournamentForm.wind,
         handicap_enabled: tournamentForm.handicap_enabled,
+        // Registration form settings
+        has_registration_form: tournamentForm.has_registration_form,
+        registration_form_template: tournamentForm.registration_form_template,
+        registration_form_data: tournamentForm.registration_form_data,
+        // NEW: Championship settings
+        tournament_series: tournamentForm.tournament_series,
+        is_club_championship: tournamentForm.is_club_championship,
+        is_national_tournament: tournamentForm.is_national_tournament,
+        championship_round: tournamentForm.championship_round,
+        championship_club: tournamentForm.championship_club || undefined,
+        parent_tournament_id: tournamentForm.parent_tournament_id ? parseInt(tournamentForm.parent_tournament_id) : undefined,
+        championship_type: tournamentForm.championship_type,
+        participating_clubs: tournamentForm.participating_clubs || undefined,
+        min_club_participants: tournamentForm.min_club_participants ? parseInt(tournamentForm.min_club_participants) : undefined,
+        auto_group_clubs: tournamentForm.auto_group_clubs,
+        auto_seed_champions: tournamentForm.auto_seed_champions,
+        // League configuration
+        league_config: tournamentForm.type === 'league' ? leagueConfig : undefined,
         created_by: currentUser?.member_id
       };
       
@@ -375,37 +663,6 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Template Selection Section - Only show for create mode */}
-          {mode === 'create' && (
-            <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-xl p-6 border border-blue-200">
-              <div className="flex items-center mb-4">
-                <Trophy className="w-5 h-5 text-brand-neon-green mr-2" />
-                <h4 className="text-lg font-semibold text-brand-black">Choose a Template (Optional)</h4>
-              </div>
-              <p className="text-sm text-neutral-600 mb-4">
-                Select a template to pre-fill common tournament settings, or start with a custom tournament.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {tournamentTemplates.map(template => (
-                  <button
-                    key={template.id}
-                    type="button"
-                    onClick={() => handleTemplateSelect(template)}
-                    className="p-4 bg-white rounded-lg border border-neutral-200 hover:border-brand-neon-green hover:shadow-md transition-all text-left group"
-                  >
-                    <div className="flex items-center mb-2">
-                      <span className="text-2xl mr-2">{template.icon}</span>
-                      <h5 className="font-medium text-brand-black group-hover:text-brand-neon-green transition-colors">
-                        {template.name}
-                      </h5>
-                    </div>
-                    <p className="text-sm text-neutral-600">{template.description}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Basic Information Section */}
           <div className="bg-neutral-50 rounded-xl p-6">
             <div className="flex items-center mb-4">
@@ -430,11 +687,13 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
                 <label className="block text-sm font-medium text-neutral-600 mb-1">Type</label>
                 <select
                   value={tournamentForm.type || 'tournament'}
-                  onChange={e => setTournamentForm({ ...tournamentForm, type: e.target.value })}
+                  onChange={e => handleChampionshipTypeChange(e.target.value)}
                   className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
                 >
-                  <option value="tournament">Tournament</option>
+                  <option value="tournament">Regular Tournament</option>
                   <option value="league">League</option>
+                  <option value="club_championship">Club Championship</option>
+                  <option value="national_championship">National Championship</option>
                 </select>
               </div>
               <div>
@@ -469,6 +728,175 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
               </div>
             </div>
           </div>
+
+          {/* NEW: Championship Configuration Section */}
+          {(tournamentForm.type === 'club_championship' || tournamentForm.type === 'national_championship') && (
+            <div className="bg-blue-50 rounded-xl p-6">
+              <div className="flex items-center mb-4">
+                <Trophy className="w-5 h-5 text-blue-600 mr-2" />
+                <h4 className="text-lg font-semibold text-blue-900">Championship Configuration</h4>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {tournamentForm.type === 'club_championship' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-1">Championship Type</label>
+                      <select
+                        value={tournamentForm.championship_type || 'single_club'}
+                        onChange={e => setTournamentForm({ ...tournamentForm, championship_type: e.target.value })}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                      >
+                        <option value="single_club">Single Club Championship</option>
+                        <option value="multi_club">Multi-Club Championship (Combined)</option>
+                        <option value="regional">Regional Championship</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-1">Participating Clubs</label>
+                      <div className="relative club-dropdown-container">
+                        <input
+                          type="text"
+                          value={clubSearchTerm}
+                          onChange={handleClubSearchChange}
+                          onFocus={() => setShowClubDropdown(true)}
+                          className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                          placeholder="Search and select clubs..."
+                        />
+                        {showClubDropdown && (
+                          <div className="absolute z-10 w-full mt-1 bg-white border border-neutral-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                            {filteredClubs.length > 0 ? (
+                              filteredClubs.map((club) => (
+                                <div
+                                  key={club}
+                                  className="px-3 py-2 hover:bg-neutral-50 cursor-pointer flex items-center"
+                                  onClick={() => handleClubToggle(club)}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedClubs.includes(club)}
+                                    onChange={() => handleClubToggle(club)}
+                                    className="mr-2"
+                                  />
+                                  <span className="text-sm">{club}</span>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="px-3 py-2 text-neutral-500 text-sm">
+                                No clubs found
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {selectedClubs.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {selectedClubs.map((club) => (
+                            <span
+                              key={club}
+                              className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-brand-neon-green text-brand-black"
+                            >
+                              {club}
+                              <button
+                                type="button"
+                                onClick={() => handleClubToggle(club)}
+                                className="ml-1 hover:text-red-600"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-1">Minimum Participants per Club</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={tournamentForm.min_club_participants || '4'}
+                        onChange={e => setTournamentForm({ ...tournamentForm, min_club_participants: e.target.value })}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-1">Auto-Group Small Clubs</label>
+                      <div className="flex items-center mt-2">
+                        <input
+                          type="checkbox"
+                          id="auto_group_clubs"
+                          checked={tournamentForm.auto_group_clubs || false}
+                          onChange={e => setTournamentForm({ ...tournamentForm, auto_group_clubs: e.target.checked })}
+                          className="w-4 h-4 text-brand-neon-green border-neutral-300 rounded focus:ring-brand-neon-green focus:ring-2"
+                        />
+                        <label htmlFor="auto_group_clubs" className="ml-2 text-sm text-neutral-600">
+                          Automatically combine small clubs
+                        </label>
+                      </div>
+                    </div>
+                  </>
+                )}
+                {tournamentForm.type === 'national_championship' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-1">Parent Championship ID</label>
+                      <input
+                        type="number"
+                        value={tournamentForm.parent_tournament_id}
+                        onChange={e => setTournamentForm({ ...tournamentForm, parent_tournament_id: e.target.value })}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                        placeholder="ID of the main championship tournament"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-1">Auto-Seed from Club Champions</label>
+                      <div className="flex items-center mt-2">
+                        <input
+                          type="checkbox"
+                          id="auto_seed_champions"
+                          checked={tournamentForm.auto_seed_champions || false}
+                          onChange={e => setTournamentForm({ ...tournamentForm, auto_seed_champions: e.target.checked })}
+                          className="w-4 h-4 text-brand-neon-green border-neutral-300 rounded focus:ring-brand-neon-green focus:ring-2"
+                        />
+                        <label htmlFor="auto_seed_champions" className="ml-2 text-sm text-neutral-600">
+                          Automatically seed club champions
+                        </label>
+                      </div>
+                    </div>
+                  </>
+                )}
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Championship Round</label>
+                  <select
+                    value={tournamentForm.championship_round}
+                    onChange={e => setTournamentForm({ ...tournamentForm, championship_round: parseInt(e.target.value) })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  >
+                    <option value={1}>Round 1</option>
+                    <option value={2}>Round 2</option>
+                    <option value={3}>Round 3</option>
+                    <option value={4}>Round 4</option>
+                    <option value={5}>Round 5</option>
+                  </select>
+                </div>
+              </div>
+              <div className="mt-4 p-3 bg-blue-100 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  {tournamentForm.type === 'club_championship' 
+                    ? 'Club Championship: 3 match play matches per club group. Players are grouped by club, with small clubs combined automatically. Winner advances to National Championship.'
+                    : 'National Championship: Single-elimination tournament for club champions. Automatically seeded from completed club championships.'
+                  }
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* League Configuration Section */}
+          <LeagueSettings
+            tournamentId={tournament?.id}
+            isLeague={tournamentForm.type === 'league'}
+            onSettingsChange={setLeagueConfig}
+            initialSettings={leagueConfig}
+          />
 
           {/* Dates Section */}
           <div className="bg-neutral-50 rounded-xl p-6">
@@ -548,6 +976,52 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
               </div>
             </div>
             
+            {/* Payment Organizer - Only show if entry fee > 0 */}
+            {parseFloat(tournamentForm.entry_fee) > 0 && (
+              <div className="mt-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-600 mb-1">Payment Organizer</label>
+                  <select
+                    value={tournamentForm.payment_organizer}
+                    onChange={e => setTournamentForm({ ...tournamentForm, payment_organizer: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  >
+                    <option value="">Select payment organizer...</option>
+                    <option value="jeff">Jeff Testa (Neighborhood National)</option>
+                    <option value="adam">Adam Christopher (No. 10)</option>
+                    <option value="other">Other (Custom)</option>
+                  </select>
+                </div>
+                
+                {tournamentForm.payment_organizer === 'other' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-1">Organizer Name *</label>
+                      <input
+                        type="text"
+                        value={tournamentForm.payment_organizer_name}
+                        onChange={e => setTournamentForm({ ...tournamentForm, payment_organizer_name: e.target.value })}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                        placeholder="Enter organizer name"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-1">Venmo URL *</label>
+                      <input
+                        type="url"
+                        value={tournamentForm.payment_venmo_url}
+                        onChange={e => setTournamentForm({ ...tournamentForm, payment_venmo_url: e.target.value })}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                        placeholder="https://venmo.com/u/..."
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            
             {/* Team Size Field - Only show for team formats */}
             {(tournamentForm.tournament_format === 'scramble' || tournamentForm.tournament_format === 'best_ball') && (
               <div className="mt-4">
@@ -581,122 +1055,238 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
             </div>
             <div>
               <label className="block text-sm font-medium text-neutral-600 mb-1">Hole Count</label>
-                              <select
-                  value={tournamentForm.hole_configuration}
-                  onChange={e => setTournamentForm({ ...tournamentForm, hole_configuration: e.target.value })}
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                >
-                  <option value="3">3 Holes</option>
-                  <option value="9">9 Holes (Any)</option>
-                  <option value="9_front">9 Holes Front</option>
-                  <option value="9_back">9 Holes Back</option>
-                  <option value="18">18 Holes</option>
-                </select>
+              <select
+                value={tournamentForm.hole_configuration}
+                onChange={e => setTournamentForm({ ...tournamentForm, hole_configuration: e.target.value })}
+                className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+              >
+                <option value="3">3 Holes</option>
+                <option value="9">9 Holes (Any)</option>
+                <option value="9_front">9 Holes Front</option>
+                <option value="9_back">9 Holes Back</option>
+                <option value="18">18 Holes</option>
+              </select>
             </div>
             
-            {/* Course Selector */}
+            {/* Platform-Specific Course Selectors */}
             <div className="mt-4">
-              <label className="block text-sm font-medium text-neutral-600 mb-1">Course *</label>
-              <div className="relative course-dropdown-container">
-                <div className="flex items-center space-x-2">
-                  <div className="flex-1 relative">
-                    <input
-                      type="text"
-                      value={courseSearchTerm}
-                      onChange={e => handleCourseSearchChange(e.target.value)}
-                      onFocus={() => setShowCourseDropdown(true)}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent pr-10 ${
-                        !selectedCourse ? 'border-red-300 focus:border-red-500' : 'border-neutral-300'
-                      }`}
-                      placeholder="Search for a course (required)..."
-                    />
-                    {courseLoading && (
-                      <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-neon-green"></div>
+              <label className="block text-sm font-medium text-neutral-600 mb-3">Course Selection</label>
+              
+              {/* GSPro Course Selector */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-neutral-600 mb-1">
+                  GSPro Course <span className="text-xs text-neutral-400">(Optional)</span>
+                </label>
+                <div className="relative gspro-dropdown-container">
+                  <div className="flex items-center space-x-2">
+                    <div className="flex-1 relative">
+                      <input
+                        type="text"
+                        value={gsproSearchTerm}
+                        onChange={e => handleGsproCourseSearchChange(e.target.value)}
+                        onFocus={() => setShowGsproDropdown(true)}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-10"
+                        placeholder="Search for a GSPro course..."
+                      />
+                      {gsproLoading && (
+                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                        </div>
+                      )}
+                      {!gsproLoading && gsproSearchTerm && (
+                        <button
+                          onClick={clearGsproCourseSelection}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* GSPro Course Dropdown */}
+                  {showGsproDropdown && (filteredGsproCourses.length > 0 || gsproSearchTerm) && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-neutral-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      {filteredGsproCourses.length > 0 ? (
+                        filteredGsproCourses.map(course => (
+                          <button
+                            key={course.id}
+                            onClick={() => handleGsproCourseSelect(course)}
+                            className="w-full px-4 py-3 text-left hover:bg-blue-50 border-b border-neutral-100 last:border-b-0"
+                          >
+                            <div className="font-medium text-brand-black">{course.name}</div>
+                            <div className="text-sm text-neutral-600 flex items-center">
+                              <MapPin className="w-3 h-3 mr-1" />
+                              {course.location || 'Unknown location'}
+                              {course.designer && (
+                                <span className="ml-2">• {course.designer}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center mt-1">
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                GSPro
+                              </span>
+                            </div>
+                          </button>
+                        ))
+                      ) : gsproSearchTerm ? (
+                        <div className="px-4 py-3 text-neutral-500">
+                          No GSPro courses found matching "{gsproSearchTerm}"
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+                
+                {/* Selected GSPro Course Display */}
+                {selectedGsproCourse && (
+                  <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-blue-800">{selectedGsproCourse.name}</div>
+                        <div className="text-sm text-blue-600">
+                          {selectedGsproCourse.location && (
+                            <span className="flex items-center">
+                              <MapPin className="w-3 h-3 mr-1" />
+                              {selectedGsproCourse.location}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    )}
-                    {!courseLoading && courseSearchTerm && (
                       <button
-                        onClick={clearCourseSelection}
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
+                        onClick={clearGsproCourseSelection}
+                        className="text-blue-600 hover:text-blue-800"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
-                    )}
+                    </div>
                   </div>
+                )}
+              </div>
+
+              {/* Trackman Course Selector */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-neutral-600 mb-1">
+                  Trackman Course <span className="text-xs text-neutral-400">(Optional)</span>
+                </label>
+                <div className="relative trackman-dropdown-container">
+                  <div className="flex items-center space-x-2">
+                    <div className="flex-1 relative">
+                      <input
+                        type="text"
+                        value={trackmanSearchTerm}
+                        onChange={e => handleTrackmanCourseSearchChange(e.target.value)}
+                        onFocus={() => setShowTrackmanDropdown(true)}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-10"
+                        placeholder="Search for a Trackman course..."
+                      />
+                      {trackmanLoading && (
+                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-500"></div>
+                        </div>
+                      )}
+                      {!trackmanLoading && trackmanSearchTerm && (
+                        <button
+                          onClick={clearTrackmanCourseSelection}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Trackman Course Dropdown */}
+                  {showTrackmanDropdown && (filteredTrackmanCourses.length > 0 || trackmanSearchTerm) && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-neutral-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      {filteredTrackmanCourses.length > 0 ? (
+                        filteredTrackmanCourses.map(course => (
+                          <button
+                            key={course.id}
+                            onClick={() => handleTrackmanCourseSelect(course)}
+                            className="w-full px-4 py-3 text-left hover:bg-purple-50 border-b border-neutral-100 last:border-b-0"
+                          >
+                            <div className="font-medium text-brand-black">{course.name}</div>
+                            <div className="text-sm text-neutral-600 flex items-center">
+                              <MapPin className="w-3 h-3 mr-1" />
+                              {course.location || 'Unknown location'}
+                              {course.designer && (
+                                <span className="ml-2">• {course.designer}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center mt-1">
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                Trackman
+                              </span>
+                            </div>
+                          </button>
+                        ))
+                      ) : trackmanSearchTerm ? (
+                        <div className="px-4 py-3 text-neutral-500">
+                          No Trackman courses found matching "{trackmanSearchTerm}"
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
                 
-                {/* Course Dropdown */}
-                {showCourseDropdown && (filteredCourses.length > 0 || courseSearchTerm) && (
-                  <div className="absolute z-50 w-full mt-1 bg-white border border-neutral-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    {filteredCourses.length > 0 ? (
-                      filteredCourses.map(course => (
-                        <button
-                          key={course.id}
-                          onClick={() => handleCourseSelect(course)}
-                          className="w-full px-4 py-3 text-left hover:bg-neutral-50 border-b border-neutral-100 last:border-b-0"
-                        >
-                          <div className="font-medium text-brand-black">{course.name}</div>
-                          <div className="text-sm text-neutral-600 flex items-center">
-                            <MapPin className="w-3 h-3 mr-1" />
-                            {course.location || 'Unknown location'}
-                            {course.designer && (
-                              <span className="ml-2">• {course.designer}</span>
-                            )}
-                          </div>
-                          <div className="flex items-center mt-1">
-                            {course.platforms?.map((platform: string) => (
-                              <span
-                                key={platform}
-                                className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium mr-1 ${
-                                  platform === 'GSPro' 
-                                    ? 'bg-blue-100 text-blue-800' 
-                                    : 'bg-purple-100 text-purple-800'
-                                }`}
-                              >
-                                {platform}
-                              </span>
-                            ))}
-                          </div>
-                        </button>
-                      ))
-                    ) : courseSearchTerm ? (
-                      <div className="px-4 py-3 text-neutral-500">
-                        No courses found matching "{courseSearchTerm}"
+                {/* Selected Trackman Course Display */}
+                {selectedTrackmanCourse && (
+                  <div className="mt-2 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-purple-800">{selectedTrackmanCourse.name}</div>
+                        <div className="text-sm text-purple-600">
+                          {selectedTrackmanCourse.location && (
+                            <span className="flex items-center">
+                              <MapPin className="w-3 h-3 mr-1" />
+                              {selectedTrackmanCourse.location}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    ) : null}
+                      <button
+                        onClick={clearTrackmanCourseSelection}
+                        className="text-purple-600 hover:text-purple-800"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
               
-              {/* Selected Course Display */}
-              {selectedCourse && (
-                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-green-800">{selectedCourse.name}</div>
-                      <div className="text-sm text-green-600">
-                        {selectedCourse.location && (
-                          <span className="flex items-center">
-                            <MapPin className="w-3 h-3 mr-1" />
-                            {selectedCourse.location}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <button
-                      onClick={clearCourseSelection}
-                      className="text-green-600 hover:text-green-800"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
+              {/* Course Selection Note */}
+              <p className="text-xs text-neutral-500 mt-2">
+                You can select courses for both platforms, one platform, or neither. This allows players to choose their preferred simulator platform.
+              </p>
+              
+              {/* Course Assignment Rules */}
+              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="text-sm font-medium text-blue-800 mb-2">Course Assignment Rules</h4>
+                <div className="text-xs text-blue-700 space-y-1">
+                  <div className="flex items-center">
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 mr-2">
+                      📊 Trackman
+                    </span>
+                    <span>Club No. 8 members will automatically use the Trackman course</span>
+                  </div>
+                  <div className="flex items-center">
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mr-2">
+                      🎯 GSPro
+                    </span>
+                    <span>All other clubs will automatically use the GSPro course</span>
                   </div>
                 </div>
-              )}
+              </div>
             </div>
           </div>
 
@@ -849,6 +1439,80 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
             </div>
           </div>
 
+          {/* Registration Form Settings Section */}
+          <div className="bg-neutral-50 rounded-xl p-6">
+            <div className="flex items-center mb-4">
+              <Users className="w-5 h-5 text-brand-neon-green mr-2" />
+              <h4 className="text-lg font-semibold text-brand-black">Registration Form</h4>
+            </div>
+            <div className="flex items-center space-x-4 mb-4">
+              <label className="block text-sm font-medium text-neutral-600">
+                Enable Registration Form
+              </label>
+              <input
+                type="checkbox"
+                id="has_registration_form"
+                checked={tournamentForm.has_registration_form}
+                onChange={e => setTournamentForm({ ...tournamentForm, has_registration_form: e.target.checked })}
+                className="w-4 h-4 text-brand-neon-green border-neutral-300 rounded focus:ring-brand-neon-green focus:ring-2"
+              />
+            </div>
+
+            {tournamentForm.has_registration_form && (
+              <>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-600 mb-2">
+                      Registration Form Template
+                    </label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {Object.entries(registrationFormTemplates).map(([key, template]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => handleRegistrationTemplateSelect(key)}
+                          className={`p-4 rounded-lg border transition-all text-left ${
+                            tournamentForm.registration_form_template === key
+                              ? 'border-brand-neon-green bg-green-50'
+                              : 'border-neutral-200 hover:border-brand-neon-green'
+                          }`}
+                        >
+                          <h5 className="font-medium text-brand-black mb-1">{template.name}</h5>
+                          <p className="text-sm text-neutral-600">{template.description}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {tournamentForm.registration_form_template && (
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-600 mb-2">
+                        Selected Template Preview
+                      </label>
+                      <div className="bg-neutral-100 p-4 rounded-lg">
+                        <h6 className="font-medium text-brand-black mb-2">
+                          {registrationFormTemplates[tournamentForm.registration_form_template as keyof typeof registrationFormTemplates]?.name}
+                        </h6>
+                        {registrationFormTemplates[tournamentForm.registration_form_template as keyof typeof registrationFormTemplates]?.questions.map((question, index) => (
+                          <div key={index} className="mb-3">
+                            <p className="text-sm font-medium text-neutral-700 mb-1">{question.question}</p>
+                            <div className="ml-4">
+                              {question.options.map((option, optIndex) => (
+                                <div key={optIndex} className="text-xs text-neutral-600">
+                                  • {option}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
           {/* Additional Information Section */}
           <div className="bg-neutral-50 rounded-xl p-6">
             <div className="flex items-center mb-4">
@@ -894,14 +1558,14 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
             <button
               type="button"
               onClick={onCancel}
-              className="px-6 py-3 border border-neutral-300 rounded-lg text-neutral-600 hover:bg-neutral-50 transition-colors"
+              className="w-full sm:w-auto px-4 sm:px-6 py-3 border border-neutral-300 rounded-lg text-neutral-600 hover:bg-neutral-50 transition-colors text-sm sm:text-base"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center"
+              className="w-full sm:w-auto px-4 sm:px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center text-sm sm:text-base"
             >
               {isSubmitting ? (
                 <>
@@ -919,4 +1583,4 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
   );
 };
 
-export default TournamentForm; 
+export default TournamentForm;

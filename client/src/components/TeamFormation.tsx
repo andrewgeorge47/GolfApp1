@@ -9,13 +9,13 @@ interface Player {
   last_name: string;
   club: string;
   email: string;
+  is_captain?: boolean; // Add is_captain for team player rendering
 }
 
 interface LocalTeam {
   id: string;
   name: string;
-  captain: Player;
-  players: Player[];
+  players: Player[]; // Now includes captain with is_captain: true
   maxPlayers: number;
 }
 
@@ -104,14 +104,7 @@ const TeamFormation: React.FC<TeamFormationProps> = ({
         const transformedTeams: LocalTeam[] = response.data.map((team: any) => ({
           id: team.id.toString(),
           name: team.name,
-          captain: {
-            user_member_id: team.captain_id,
-            first_name: team.captain_first_name,
-            last_name: team.captain_last_name,
-            club: team.captain_club,
-            email: ''
-          },
-          players: team.players || [],
+          players: team.players || [], // Use only players array
           maxPlayers: 4
         }));
         setTeams(transformedTeams);
@@ -128,17 +121,17 @@ const TeamFormation: React.FC<TeamFormationProps> = ({
 
   // Get available players (not assigned to any team)
   const getAvailablePlayers = () => {
-    const assignedPlayerIds = teams.flatMap(team => 
-      [team.captain.user_member_id, ...team.players.map(p => p.user_member_id)]
+    const assignedPlayerIds = teams.flatMap(team =>
+      team.players.map(p => p.user_member_id)
     );
-    return tournamentParticipants.filter(player => 
+    return tournamentParticipants.filter(player =>
       !assignedPlayerIds.includes(player.user_member_id)
     );
   };
 
   // Get players assigned to a specific team
   const getTeamPlayers = (team: LocalTeam) => {
-    return [team.captain, ...team.players];
+    return team.players;
   };
 
   const handleCreateTeam = async () => {
@@ -169,13 +162,6 @@ const TeamFormation: React.FC<TeamFormationProps> = ({
       const transformedTeams: LocalTeam[] = teamsResponse.data.map((team: any) => ({
         id: team.id.toString(),
         name: team.name,
-        captain: {
-          user_member_id: team.captain_id,
-          first_name: team.captain_first_name,
-          last_name: team.captain_last_name,
-          club: team.captain_club,
-          email: ''
-        },
         players: team.players || [],
         maxPlayers: 4
       }));
@@ -195,8 +181,8 @@ const TeamFormation: React.FC<TeamFormationProps> = ({
     setEditingTeam(team);
     setTeamForm({
       name: team.name,
-      captainId: team.captain.user_member_id.toString(),
-      selectedPlayers: team.players.map((p: Player) => p.user_member_id)
+      captainId: (team.players.find(p => p.is_captain)?.user_member_id.toString() || ''),
+      selectedPlayers: team.players.filter(p => !p.is_captain).map((p: Player) => p.user_member_id)
     });
     setShowCreateTeamModal(true);
   };
@@ -229,13 +215,6 @@ const TeamFormation: React.FC<TeamFormationProps> = ({
       const transformedTeams: LocalTeam[] = teamsResponse.data.map((team: any) => ({
         id: team.id.toString(),
         name: team.name,
-        captain: {
-          user_member_id: team.captain_id,
-          first_name: team.captain_first_name,
-          last_name: team.captain_last_name,
-          club: team.captain_club,
-          email: ''
-        },
         players: team.players || [],
         maxPlayers: 4
       }));
@@ -334,10 +313,10 @@ const TeamFormation: React.FC<TeamFormationProps> = ({
                   </div>
                   
                   <div className="space-y-1">
-                    {[team.captain, ...team.players].map((player, idx) => (
+                    {team.players.map((player) => (
                       <div key={player.user_member_id} className="text-sm text-neutral-700 flex items-center">
                         {player.first_name} {player.last_name}
-                        {player.user_member_id === team.captain.user_member_id && <Crown className="w-4 h-4 text-yellow-600 ml-1" />}
+                        {player.is_captain && <Crown className="w-4 h-4 text-yellow-600 ml-1" />}
                       </div>
                     ))}
                   </div>

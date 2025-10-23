@@ -5389,9 +5389,10 @@ app.get('/api/admin/user-tracking-details', authenticateToken, async (req, res) 
 });
 
 // --- Simulator Bay Booking ---
-// Create table if not exists
+// Create tables if not exists
 (async () => {
   try {
+    // Create simulator_bookings table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS simulator_bookings (
         id SERIAL PRIMARY KEY,
@@ -5399,32 +5400,63 @@ app.get('/api/admin/user-tracking-details', authenticateToken, async (req, res) 
         date DATE NOT NULL,
         start_time TIME NOT NULL,
         end_time TIME NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        type VARCHAR(10) DEFAULT 'solo',
+        participants INTEGER[] DEFAULT '{}',
+        bay INTEGER DEFAULT 1
       )
     `);
     console.log('simulator_bookings table ready.');
+
+    // Create club_booking_settings table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS club_booking_settings (
+        id SERIAL PRIMARY KEY,
+        club_name VARCHAR(100) UNIQUE NOT NULL,
+        number_of_bays INTEGER DEFAULT 4,
+        opening_time TIME DEFAULT '07:00',
+        closing_time TIME DEFAULT '22:00',
+        days_of_operation VARCHAR(50) DEFAULT 'Mon,Tue,Wed,Thu,Fri,Sat,Sun',
+        booking_duration_options VARCHAR(100) DEFAULT '30,60,90,120',
+        max_advance_booking_days INTEGER DEFAULT 30,
+        min_booking_duration INTEGER DEFAULT 30,
+        max_booking_duration INTEGER DEFAULT 240,
+        enabled BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('club_booking_settings table ready.');
+
+    // Insert default settings for No. 5 club if not exists
+    await pool.query(`
+      INSERT INTO club_booking_settings (club_name, number_of_bays, opening_time, closing_time)
+      VALUES ('No. 5', 4, '07:00', '22:00')
+      ON CONFLICT (club_name) DO NOTHING
+    `);
+    console.log('Default booking settings for No. 5 created.');
   } catch (err) {
-    console.error('Error creating simulator_bookings table:', err);
+    console.error('Error creating booking tables:', err);
   }
 })();
 
-// Middleware to restrict to No5 club users
-async function requireNo5User(req, res, next) {
+// Middleware to restrict to admin users only
+async function requireAdminForBooking(req, res, next) {
   try {
     const userId = req.user?.member_id || req.user?.user_id;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
-    const { rows } = await pool.query('SELECT club FROM users WHERE member_id = $1', [userId]);
-    if (!rows[0] || !['No5', 'No. 5'].includes(rows[0].club)) {
-      return res.status(403).json({ error: 'Access restricted to No5 club members' });
+    const { rows } = await pool.query('SELECT role FROM users WHERE member_id = $1', [userId]);
+    if (!rows[0] || rows[0].role?.toLowerCase() !== 'admin') {
+      return res.status(403).json({ error: 'Access restricted to administrators only' });
     }
     next();
   } catch (err) {
-    res.status(500).json({ error: 'Failed to check club access' });
+    res.status(500).json({ error: 'Failed to check admin access' });
   }
 }
 
 // Get bookings (all or for a specific date)
-app.get('/api/simulator-bookings', authenticateToken, requireNo5User, async (req, res) => {
+app.get('/api/simulator-bookings', authenticateToken, requireAdminForBooking, async (req, res) => {
   const { date } = req.query;
   try {
     let query = 'SELECT b.*, u.first_name, u.last_name FROM simulator_bookings b JOIN users u ON b.user_id = u.member_id';
@@ -5445,7 +5477,7 @@ app.get('/api/simulator-bookings', authenticateToken, requireNo5User, async (req
 });
 
 // Create a booking
-app.post('/api/simulator-bookings', authenticateToken, requireNo5User, async (req, res) => {
+app.post('/api/simulator-bookings', authenticateToken, requireAdminForBooking, async (req, res) => {
   const userId = req.user?.member_id || req.user?.user_id;
   const { date, start_time, end_time, type, bay } = req.body;
   if (!date || !start_time || !end_time) return res.status(400).json({ error: 'Missing fields' });
@@ -5469,7 +5501,7 @@ app.post('/api/simulator-bookings', authenticateToken, requireNo5User, async (re
 });
 
 // Delete a booking (only by owner)
-app.delete('/api/simulator-bookings/:id', authenticateToken, requireNo5User, async (req, res) => {
+app.delete('/api/simulator-bookings/:id', authenticateToken, requireAdminForBooking, async (req, res) => {
   const userId = req.user?.member_id || req.user?.user_id;
   const { id } = req.params;
   try {
@@ -5484,7 +5516,7 @@ app.delete('/api/simulator-bookings/:id', authenticateToken, requireNo5User, asy
 });
 
 // Reschedule a booking (only by owner)
-app.put('/api/simulator-bookings/:id', authenticateToken, requireNo5User, async (req, res) => {
+app.put('/api/simulator-bookings/:id', authenticateToken, requireAdminForBooking, async (req, res) => {
   const userId = req.user?.member_id || req.user?.user_id;
   const { id } = req.params;
   const { date, start_time, end_time, type, bay } = req.body;
@@ -5512,7 +5544,7 @@ app.put('/api/simulator-bookings/:id', authenticateToken, requireNo5User, async 
 });
 
 // Join a social booking
-app.post('/api/simulator-bookings/:id/join', authenticateToken, requireNo5User, async (req, res) => {
+app.post('/api/simulator-bookings/:id/join', authenticateToken, requireAdminForBooking, async (req, res) => {
   const userId = req.user?.member_id || req.user?.user_id;
   const { id } = req.params;
   try {
@@ -5544,4 +5576,161 @@ app.post('/api/simulator-bookings/:id/join', authenticateToken, requireNo5User, 
     // Ignore if already exists
   }
 })();
+
+// --- Club Booking Settings API ---
+
+// Get all club booking settings
+app.get('/api/club-booking-settings', authenticateToken, requireAdminForBooking, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM club_booking_settings ORDER BY club_name');
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching club booking settings:', err);
+    res.status(500).json({ error: 'Failed to fetch club booking settings' });
+  }
+});
+
+// Get booking settings for a specific club
+app.get('/api/club-booking-settings/:clubName', authenticateToken, requireAdminForBooking, async (req, res) => {
+  const { clubName } = req.params;
+  try {
+    const { rows } = await pool.query('SELECT * FROM club_booking_settings WHERE club_name = $1', [clubName]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Club booking settings not found' });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching club booking settings:', err);
+    res.status(500).json({ error: 'Failed to fetch club booking settings' });
+  }
+});
+
+// Create new club booking settings
+app.post('/api/club-booking-settings', authenticateToken, requireAdminForBooking, async (req, res) => {
+  const {
+    club_name,
+    number_of_bays,
+    opening_time,
+    closing_time,
+    days_of_operation,
+    booking_duration_options,
+    max_advance_booking_days,
+    min_booking_duration,
+    max_booking_duration,
+    enabled
+  } = req.body;
+
+  if (!club_name) {
+    return res.status(400).json({ error: 'Club name is required' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO club_booking_settings
+       (club_name, number_of_bays, opening_time, closing_time, days_of_operation,
+        booking_duration_options, max_advance_booking_days, min_booking_duration,
+        max_booking_duration, enabled, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
+       RETURNING *`,
+      [
+        club_name,
+        number_of_bays || 4,
+        opening_time || '07:00',
+        closing_time || '22:00',
+        days_of_operation || 'Mon,Tue,Wed,Thu,Fri,Sat,Sun',
+        booking_duration_options || '30,60,90,120',
+        max_advance_booking_days || 30,
+        min_booking_duration || 30,
+        max_booking_duration || 240,
+        enabled !== undefined ? enabled : true
+      ]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('Error creating club booking settings:', err);
+    if (err.code === '23505') { // Unique violation
+      return res.status(409).json({ error: 'Settings for this club already exist' });
+    }
+    res.status(500).json({ error: 'Failed to create club booking settings' });
+  }
+});
+
+// Update club booking settings
+app.put('/api/club-booking-settings/:id', authenticateToken, requireAdminForBooking, async (req, res) => {
+  const { id } = req.params;
+  const {
+    club_name,
+    number_of_bays,
+    opening_time,
+    closing_time,
+    days_of_operation,
+    booking_duration_options,
+    max_advance_booking_days,
+    min_booking_duration,
+    max_booking_duration,
+    enabled
+  } = req.body;
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE club_booking_settings
+       SET club_name = COALESCE($1, club_name),
+           number_of_bays = COALESCE($2, number_of_bays),
+           opening_time = COALESCE($3, opening_time),
+           closing_time = COALESCE($4, closing_time),
+           days_of_operation = COALESCE($5, days_of_operation),
+           booking_duration_options = COALESCE($6, booking_duration_options),
+           max_advance_booking_days = COALESCE($7, max_advance_booking_days),
+           min_booking_duration = COALESCE($8, min_booking_duration),
+           max_booking_duration = COALESCE($9, max_booking_duration),
+           enabled = COALESCE($10, enabled),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $11
+       RETURNING *`,
+      [
+        club_name,
+        number_of_bays,
+        opening_time,
+        closing_time,
+        days_of_operation,
+        booking_duration_options,
+        max_advance_booking_days,
+        min_booking_duration,
+        max_booking_duration,
+        enabled,
+        id
+      ]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Club booking settings not found' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating club booking settings:', err);
+    if (err.code === '23505') { // Unique violation
+      return res.status(409).json({ error: 'Settings with this club name already exist' });
+    }
+    res.status(500).json({ error: 'Failed to update club booking settings' });
+  }
+});
+
+// Delete club booking settings
+app.delete('/api/club-booking-settings/:id', authenticateToken, requireAdminForBooking, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { rows } = await pool.query('DELETE FROM club_booking_settings WHERE id = $1 RETURNING *', [id]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Club booking settings not found' });
+    }
+
+    res.json({ message: 'Club booking settings deleted successfully', deleted: rows[0] });
+  } catch (err) {
+    console.error('Error deleting club booking settings:', err);
+    res.status(500).json({ error: 'Failed to delete club booking settings' });
+  }
+});
 

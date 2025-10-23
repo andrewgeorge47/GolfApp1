@@ -5,11 +5,17 @@ import {
   getTournamentParticipants,
   getTournamentMatches,
   getTournamentCheckIns,
+  getTournamentScores,
   getTeams,
   deleteTournament,
   checkInUser,
   checkOutUser,
-  updateTournamentMatch
+  updateTournamentMatch,
+  unregisterUserFromTournament,
+  forceCalculateMatches,
+  forceUpdateLeaderboard,
+  cleanupDuplicateMatches,
+  fixTournamentWeekDate
 } from '../services/api';
 import TournamentForm from './TournamentForm';
 import { toast } from 'react-toastify';
@@ -18,7 +24,16 @@ import MatchGenerator from './MatchGenerator';
 import ScoreSubmission from './ScoreSubmission';
 import TeamFormation from './TeamFormation';
 import TournamentLeaderboard from './TournamentLeaderboard';
+import StrokeplayScoring from './StrokeplayScoring';
+import StrokeplayLeaderboard from './StrokeplayLeaderboard';
+import NewWeeklyScoring from './NewWeeklyScoring';
+import ParticipantsTable from './ParticipantsTable';
 import { useAuth } from '../AuthContext';
+import NewWeeklyLeaderboard from './NewWeeklyLeaderboard';
+import AdminScorecardEditor from './AdminScorecardEditor';
+import AdminStrokeplayScorecardEditor from './AdminStrokeplayScorecardEditor';
+import AdminMatchplayEditor from './AdminMatchplayEditor';
+import ChampionshipAdminDashboard from './ChampionshipAdminDashboard';
 
 interface TournamentManagementProps {
   // Add any props if needed
@@ -32,8 +47,10 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
   const [tournamentMatches, setTournamentMatches] = useState<any[]>([]);
   const [tournamentCheckIns, setTournamentCheckIns] = useState<any[]>([]);
   const [tournamentTeams, setTournamentTeams] = useState<any[]>([]);
+  const [tournamentScores, setTournamentScores] = useState<any[]>([]);
+  const [tournamentPayouts, setTournamentPayouts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'registration' | 'checkin' | 'teams' | 'matches' | 'scoring' | 'leaderboard'>('registration');
+  const [activeTab, setActiveTab] = useState<'registration' | 'checkin' | 'teams' | 'matches' | 'scoring' | 'leaderboard' | 'championship'>('registration');
 
   // Tournament form state
   const [showTournamentForm, setShowTournamentForm] = useState(false);
@@ -50,14 +67,23 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
     winner: null as number | null
   });
 
+  // Admin action state
+  const [isAdminActionLoading, setIsAdminActionLoading] = useState(false);
+  const [adminActionMessage, setAdminActionMessage] = useState<{
+    type: 'success' | 'error' | 'info';
+    message: string;
+  } | null>(null);
+  const [adminWeekOverride, setAdminWeekOverride] = useState<string>('');
+  const [adminScorecardWeek, setAdminScorecardWeek] = useState<string>('');
+
   // Helper function to determine if tournament requires matches
   const requiresMatches = (tournamentFormat: string) => {
     return tournamentFormat === 'match_play' || tournamentFormat === 'par3_match_play';
   };
 
-  // Helper function to determine if tournament requires check-in
+  // Helper function to determine if tournament requires payment tracking
   const requiresCheckIn = (tournamentFormat: string) => {
-    // For now, require check-in for all formats, but this could be configurable
+    // For now, require payment tracking for all formats, but this could be configurable
     return true;
   };
 
@@ -178,14 +204,16 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
     if (selectedTournament) {
       const loadTournamentData = async () => {
         try {
-          const [participantsResponse, matchesResponse, checkInsResponse] = await Promise.all([
+          const [participantsResponse, matchesResponse, checkInsResponse, scoresResponse] = await Promise.all([
             getTournamentParticipants(selectedTournament.id),
             getTournamentMatches(selectedTournament.id),
-            getTournamentCheckIns(selectedTournament.id)
+            getTournamentCheckIns(selectedTournament.id),
+            getTournamentScores(selectedTournament.id)
           ]);
           setTournamentParticipants(participantsResponse.data);
           setTournamentMatches(matchesResponse.data);
           setTournamentCheckIns(checkInsResponse.data);
+          setTournamentScores(scoresResponse.data || []);
           
           // Load teams if tournament is scramble format
           if (selectedTournament.tournament_format === 'scramble') {
@@ -226,6 +254,42 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
       }
     }
   }, [selectedTournament]);
+
+  // On mount, check for hash and auto-select tournament
+  useEffect(() => {
+    if (tournaments.length > 0 && !selectedTournament) {
+      const hash = window.location.hash;
+      if (hash.startsWith('#/tournament-management')) {
+        const urlParams = new URLSearchParams(hash.split('?')[1] || '');
+        const tournamentId = urlParams.get('tournament');
+        if (tournamentId) {
+          const id = parseInt(tournamentId);
+          const found = tournaments.find(t => t.id === id);
+          if (found) setSelectedTournament(found);
+        }
+      }
+    }
+    // eslint-disable-next-line
+  }, [tournaments]);
+
+  // When a tournament is selected, update the hash
+  const handleSelectTournament = (tournament: any) => {
+    setSelectedTournament(tournament);
+    window.location.hash = `/tournament-management?tournament=${tournament.id}`;
+    
+    // Auto-switch to championship tab for championship tournaments
+    if (tournament.type === 'club_championship' || tournament.type === 'national_championship') {
+      setActiveTab('championship');
+    } else {
+      setActiveTab('registration'); // Default to registration for regular tournaments
+    }
+  };
+
+  // When returning to the list, clear the hash
+  const handleBackToList = () => {
+    setSelectedTournament(null);
+    window.location.hash = '/tournament-management';
+  };
 
   const handleUserRegistered = () => {
     // Refresh participants data
@@ -316,28 +380,159 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
       await Promise.all(
         userIds.map(userId => checkInUser(selectedTournament!.id, userId))
       );
-      toast.success(`Successfully checked in ${userIds.length} user(s)`);
-      // Refresh check-ins data
+      toast.success(`Successfully marked ${userIds.length} user(s) as paid`);
+      // Refresh payment tracking data
       if (selectedTournament) {
         getTournamentCheckIns(selectedTournament.id).then(response => setTournamentCheckIns(response.data));
       }
     } catch (error) {
-      console.error('Error checking in users:', error);
-      toast.error('Failed to check in users');
+              console.error('Error marking users as paid:', error);
+              toast.error('Failed to mark users as paid');
     }
   };
 
   const handleCheckOutUser = async (userId: number) => {
     try {
       await checkOutUser(selectedTournament!.id, userId);
-      toast.success('User checked out successfully');
-      // Refresh check-ins data
+      toast.success('User marked as unpaid successfully');
+      // Refresh payment tracking data
       if (selectedTournament) {
         getTournamentCheckIns(selectedTournament.id).then(response => setTournamentCheckIns(response.data));
       }
     } catch (error) {
-      console.error('Error checking out user:', error);
-      toast.error('Failed to check out user');
+      console.error('Error marking user as unpaid:', error);
+      toast.error('Failed to mark user as unpaid');
+    }
+  };
+
+  const handleUnregisterUser = async (userId: number) => {
+    if (!window.confirm('Are you sure you want to unregister this user from the tournament?')) return;
+    
+    try {
+      await unregisterUserFromTournament(selectedTournament!.id, userId);
+      toast.success('User unregistered successfully');
+      // Refresh participants data
+      if (selectedTournament) {
+        getTournamentParticipants(selectedTournament.id).then(response => setTournamentParticipants(response.data));
+      }
+    } catch (error) {
+      console.error('Error unregistering user:', error);
+      toast.error('Failed to unregister user');
+    }
+  };
+
+  // Admin action handlers
+  const handleForceCalculateMatches = async () => {
+    if (!selectedTournament) return;
+    
+    setIsAdminActionLoading(true);
+    setAdminActionMessage(null);
+    
+    try {
+      const response = await forceCalculateMatches(selectedTournament.id, adminWeekOverride || undefined);
+      setAdminActionMessage({
+        type: 'success',
+        message: response.data.message || 'Matches calculated successfully!'
+      });
+      toast.success('Matches calculated successfully!');
+      
+      // Refresh matches data
+      getTournamentMatches(selectedTournament.id).then(response => setTournamentMatches(response.data));
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.error || 'Failed to calculate matches';
+      setAdminActionMessage({
+        type: 'error',
+        message: errorMessage
+      });
+      toast.error(errorMessage);
+    } finally {
+      setIsAdminActionLoading(false);
+    }
+  };
+
+  const handleForceUpdateLeaderboard = async () => {
+    if (!selectedTournament) return;
+    
+    setIsAdminActionLoading(true);
+    setAdminActionMessage(null);
+    
+    try {
+      const response = await forceUpdateLeaderboard(selectedTournament.id, adminWeekOverride || undefined);
+      setAdminActionMessage({
+        type: 'success',
+        message: response.data.message || 'Leaderboard updated successfully!'
+      });
+      toast.success('Leaderboard updated successfully!');
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.error || 'Failed to update leaderboard';
+      setAdminActionMessage({
+        type: 'error',
+        message: errorMessage
+      });
+      toast.error(errorMessage);
+    } finally {
+      setIsAdminActionLoading(false);
+    }
+  };
+
+  const handleCleanupDuplicates = async () => {
+    if (!selectedTournament) return;
+    
+    if (!window.confirm('Are you sure you want to cleanup duplicate matches? This action cannot be undone.')) return;
+    
+    setIsAdminActionLoading(true);
+    setAdminActionMessage(null);
+    
+    try {
+      const response = await cleanupDuplicateMatches(selectedTournament.id);
+      setAdminActionMessage({
+        type: 'success',
+        message: response.data.message || 'Duplicate matches cleaned up successfully!'
+      });
+      toast.success('Duplicate matches cleaned up successfully!');
+      
+      // Refresh matches data
+      getTournamentMatches(selectedTournament.id).then(response => setTournamentMatches(response.data));
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.error || 'Failed to cleanup duplicate matches';
+      setAdminActionMessage({
+        type: 'error',
+        message: errorMessage
+      });
+      toast.error(errorMessage);
+    } finally {
+      setIsAdminActionLoading(false);
+    }
+  };
+
+  const handleFixWeekDate = async () => {
+    if (!selectedTournament) return;
+    
+    if (!window.confirm('Are you sure you want to fix the tournament week start date? This will update the tournament configuration.')) return;
+    
+    setIsAdminActionLoading(true);
+    setAdminActionMessage(null);
+    
+    try {
+      const response = await fixTournamentWeekDate(selectedTournament.id);
+      setAdminActionMessage({
+        type: 'success',
+        message: response.data.message || 'Tournament week date fixed successfully!'
+      });
+      toast.success('Tournament week date fixed successfully!');
+      
+      // Refresh tournament data to show updated week_start_date
+      const updatedTournament = { ...selectedTournament, week_start_date: response.data.current };
+      setSelectedTournament(updatedTournament);
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.error || 'Failed to fix tournament week date';
+      setAdminActionMessage({
+        type: 'error',
+        message: errorMessage
+      });
+      toast.error(errorMessage);
+    } finally {
+      setIsAdminActionLoading(false);
     }
   };
 
@@ -463,15 +658,15 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
             <div className="space-y-6">
               {/* Tournament Overview Grid */}
               {!selectedTournament && (
-                <div className="bg-white rounded-xl p-6 border border-neutral-200">
-                  <div className="flex items-center justify-between mb-4">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
                     <h4 className="text-lg font-semibold text-brand-black">All Tournaments</h4>
                     <button
                       onClick={() => setShowTournamentForm(true)}
-                      className="flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors"
+                      className="flex items-center justify-center w-10 h-10 sm:w-auto sm:h-auto sm:px-4 sm:py-2 bg-brand-neon-green text-brand-black rounded-full sm:rounded-lg font-medium hover:bg-green-400 transition-colors text-sm sm:text-base"
                     >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Create Tournament
+                      <Plus className="w-5 h-5 sm:w-4 sm:h-4 sm:mr-2" />
+                      <span className="hidden sm:inline">Create Tournament</span>
                     </button>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -483,7 +678,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                         <div className="flex items-center justify-between mb-2">
                           <h5 
                             className="font-medium text-brand-black group-hover:text-brand-neon-green transition-colors cursor-pointer"
-                            onClick={() => setSelectedTournament(tournament)}
+                            onClick={() => handleSelectTournament(tournament)}
                           >
                             {tournament.name}
                           </h5>
@@ -521,14 +716,14 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                         </div>
                         <div 
                           className="text-sm text-neutral-600 mb-2 cursor-pointer"
-                          onClick={() => setSelectedTournament(tournament)}
+                          onClick={() => handleSelectTournament(tournament)}
                         >
                           {tournament.tournament_format || 'match_play'} • {tournament.type || 'tournament'}
                         </div>
                         {tournament.start_date && (
                           <div 
                             className="text-xs text-neutral-500 cursor-pointer"
-                            onClick={() => setSelectedTournament(tournament)}
+                            onClick={() => handleSelectTournament(tournament)}
                           >
                             {new Date(tournament.start_date).toLocaleDateString()}
                           </div>
@@ -554,7 +749,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center space-x-4">
                         <button
-                          onClick={() => setSelectedTournament(null)}
+                          onClick={handleBackToList}
                           className="flex items-center px-3 py-1 text-neutral-600 hover:text-neutral-800 transition-colors"
                         >
                           <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -580,6 +775,160 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                         </span>
                       </div>
                     </div>
+                    
+                    {/* Admin Controls */}
+                    {(currentUser?.role === 'admin' || isSuperAdmin) && (
+                      <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <h4 className="text-lg font-semibold text-yellow-800 mb-3 flex items-center">
+                          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                          Admin Controls
+                        </h4>
+                        
+                        {/* Week Override Input - Only for weekly scoring tournaments */}
+                        {(selectedTournament.tournament_format === 'par3_match_play' || 
+                          selectedTournament.tournament_format === 'weekly') && (
+                          <div className="mb-3">
+                            <label className="block text-sm font-medium text-yellow-800 mb-1">
+                              Week Override (YYYY-MM-DD, optional):
+                            </label>
+                            <div className="flex space-x-2">
+                              <input
+                                type="date"
+                                value={adminWeekOverride || ''}
+                                onChange={(e) => setAdminWeekOverride(e.target.value)}
+                                className="flex-1 px-3 py-2 border border-yellow-300 rounded-md text-sm focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                                placeholder="Leave empty for current week"
+                              />
+                              {adminWeekOverride && (
+                                <button
+                                  onClick={() => setAdminWeekOverride('')}
+                                  className="px-3 py-2 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors"
+                                  title="Clear week override"
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+                            <p className="text-xs text-yellow-700 mt-1">
+                              Use this to force calculations for a specific week
+                            </p>
+                            {adminWeekOverride && (
+                              <div className="mt-2 p-2 bg-yellow-100 border border-yellow-300 rounded text-xs text-yellow-800">
+                                <strong>Active Override:</strong> Will calculate for week starting {adminWeekOverride}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Admin Scorecard Week Selector */}
+                        <div className="mb-3">
+                          <label className="block text-sm font-medium text-yellow-800 mb-1">
+                            Scorecard Editor Week (YYYY-MM-DD, optional):
+                          </label>
+                          <div className="flex space-x-2">
+                            <input
+                              type="date"
+                              value={adminScorecardWeek || ''}
+                              onChange={(e) => setAdminScorecardWeek(e.target.value)}
+                              className="flex-1 px-3 py-2 border border-yellow-300 rounded-md text-sm focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                              placeholder="Leave empty for current week"
+                            />
+                            {adminScorecardWeek && (
+                              <button
+                                onClick={() => setAdminScorecardWeek('')}
+                                className="px-3 py-2 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors"
+                                title="Clear scorecard week"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-xs text-yellow-700 mt-1">
+                            Use this to view and edit scorecards from a specific week
+                          </p>
+                          {adminScorecardWeek && (
+                            <div className="mt-2 p-2 bg-yellow-100 border border-yellow-300 rounded text-xs text-yellow-800">
+                              <strong>Active Week:</strong> Will show scorecards from week starting {adminScorecardWeek}
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                          {/* Force Calculate Matches - Only for weekly scoring tournaments */}
+                          {(selectedTournament.tournament_format === 'par3_match_play' || 
+                            selectedTournament.tournament_format === 'weekly') && (
+                            <button
+                              onClick={() => handleForceCalculateMatches()}
+                              disabled={isAdminActionLoading}
+                              className="px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+                              title="Force recalculation of all matches for this tournament"
+                            >
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                              Force Calculate Matches
+                            </button>
+                          )}
+                          
+                          {/* Force Update Leaderboard - Available for all tournaments */}
+                          <button
+                            onClick={() => handleForceUpdateLeaderboard()}
+                            disabled={isAdminActionLoading}
+                            className="px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+                            title="Force update of the tournament leaderboard"
+                          >
+                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                            Force Update Leaderboard
+                          </button>
+                          
+                          {/* Cleanup Duplicates - Only for weekly scoring tournaments */}
+                          {(selectedTournament.tournament_format === 'par3_match_play' || 
+                            selectedTournament.tournament_format === 'weekly') && (
+                            <button
+                              onClick={() => handleCleanupDuplicates()}
+                              disabled={isAdminActionLoading}
+                              className="px-3 py-2 bg-orange-600 text-white text-sm rounded hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+                              title="Remove duplicate matches that may have been created"
+                            >
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                              Cleanup Duplicates
+                            </button>
+                          )}
+                          
+                          {/* Fix Week Date - Only for weekly scoring tournaments */}
+                          {(selectedTournament.tournament_format === 'par3_match_play' || 
+                            selectedTournament.tournament_format === 'weekly') && (
+                            <button
+                              onClick={() => handleFixWeekDate()}
+                              disabled={isAdminActionLoading}
+                              className="px-3 py-2 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+                              title="Fix incorrect tournament week start date"
+                            >
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              </svg>
+                              Fix Week Date
+                            </button>
+                          )}
+                        </div>
+                        {adminActionMessage && (
+                          <div className={`mt-3 p-2 rounded text-sm ${
+                            adminActionMessage.type === 'success' ? 'bg-green-100 text-green-800' :
+                            adminActionMessage.type === 'error' ? 'bg-red-100 text-red-800' :
+                            'bg-blue-100 text-blue-800'
+                          }`}>
+                            {adminActionMessage.message}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     
                     {/* Tournament Settings Display */}
                     <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-xl p-4">
@@ -656,8 +1005,8 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                           className={`py-2 px-4 font-medium ${activeTab === 'checkin' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
                           onClick={() => setActiveTab('checkin')}
                         >
-                          <CheckCircle className="w-4 h-4 mr-2 inline" />
-                          Check-in
+                          <Users className="w-4 h-4 mr-2 inline" />
+                          Players
                         </button>
                       )}
                       {requiresTeamFormation(selectedTournament.tournament_format || 'match_play') && (
@@ -669,7 +1018,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                           Teams
                         </button>
                       )}
-                      {requiresMatches(selectedTournament.tournament_format || 'match_play') && (
+                      {requiresMatches(selectedTournament.tournament_format || 'match_play') && !(selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship') && (
                         <button
                           className={`py-2 px-4 font-medium ${activeTab === 'matches' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
                           onClick={() => setActiveTab('matches')}
@@ -678,20 +1027,33 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                           Matches
                         </button>
                       )}
-                      <button
-                        className={`py-2 px-4 font-medium ${activeTab === 'scoring' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
-                        onClick={() => setActiveTab('scoring')}
-                      >
-                        <BarChart3 className="w-4 h-4 mr-2 inline" />
-                        Scoring
-                      </button>
-                      <button
-                        className={`py-2 px-4 font-medium ${activeTab === 'leaderboard' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
-                        onClick={() => setActiveTab('leaderboard')}
-                      >
-                        <Trophy className="w-4 h-4 mr-2 inline" />
-                        Leaderboard
-                      </button>
+                      {!(selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship') && (
+                        <button
+                          className={`py-2 px-4 font-medium ${activeTab === 'scoring' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
+                          onClick={() => setActiveTab('scoring')}
+                        >
+                          <BarChart3 className="w-4 h-4 mr-2 inline" />
+                          Scoring
+                        </button>
+                      )}
+                      {!(selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship') && (
+                        <button
+                          className={`py-2 px-4 font-medium ${activeTab === 'leaderboard' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
+                          onClick={() => setActiveTab('leaderboard')}
+                        >
+                          <Trophy className="w-4 h-4 mr-2 inline" />
+                          Leaderboard
+                        </button>
+                      )}
+                      {(selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship') && (
+                        <button
+                          className={`py-2 px-4 font-medium ${activeTab === 'championship' ? 'border-b-2 border-brand-neon-green text-brand-black' : 'text-neutral-600 hover:text-brand-black'}`}
+                          onClick={() => setActiveTab('championship')}
+                        >
+                          <Award className="w-4 h-4 mr-2 inline" />
+                          Championship Management
+                        </button>
+                      )}
                     </div>
 
                     {/* Tab Content */}
@@ -720,115 +1082,19 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                       )}
                       
                       {activeTab === 'checkin' && requiresCheckIn(selectedTournament.tournament_format || 'match_play') && (
-                        <div className="space-y-6">
-                          <div className="bg-white rounded-xl p-6 border border-neutral-200">
-                            <div className="flex items-center justify-between mb-4">
-                              <h4 className="text-lg font-semibold text-brand-black">Check-in Management</h4>
-                              <div className="flex items-center space-x-2">
-                                <span className="text-sm text-neutral-600">
-                                  {tournamentCheckIns.filter(c => c.status === 'checked_in').length} checked in
-                                </span>
-                                <span className="text-sm text-neutral-600">
-                                  / {tournamentParticipants.length} registered
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Quick Actions */}
-                            <div className="flex flex-wrap gap-3 mb-6">
-                              <button
-                                onClick={() => {
-                                  const notCheckedIn = tournamentParticipants.filter(p => 
-                                    !tournamentCheckIns.find(c => c.user_member_id === p.user_member_id && c.status === 'checked_in')
-                                  );
-                                  if (notCheckedIn.length > 0) {
-                                    handleCheckInUsers(notCheckedIn.map(p => p.user_member_id));
-                                  }
-                                }}
-                                className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center"
-                                disabled={tournamentParticipants.filter(p => 
-                                  !tournamentCheckIns.find(c => c.user_member_id === p.user_member_id && c.status === 'checked_in')
-                                ).length === 0}
-                              >
-                                <CheckCircle className="w-4 h-4 mr-2" />
-                                Check In All Pending
-                              </button>
-                            </div>
-
-                            {/* Participants Table */}
-                            <div className="overflow-x-auto">
-                              <table className="w-full border-collapse border border-neutral-300 rounded-lg">
-                                <thead className="bg-neutral-50">
-                                  <tr>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Name</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Email</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Club</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Status</th>
-                                    <th className="border border-neutral-300 px-4 py-3 text-left font-medium">Actions</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {tournamentParticipants.map(participant => {
-                                    const checkIn = tournamentCheckIns.find(c => c.user_member_id === participant.user_member_id);
-                                    const isCheckedIn = checkIn && checkIn.status === 'checked_in';
-                                    
-                                    return (
-                                      <tr key={participant.user_member_id} className="hover:bg-neutral-50">
-                                        <td className="border border-neutral-300 px-4 py-3 font-medium">
-                                          {participant.first_name} {participant.last_name}
-                                        </td>
-                                        <td className="border border-neutral-300 px-4 py-3 text-neutral-600">
-                                          {participant.email}
-                                        </td>
-                                        <td className="border border-neutral-300 px-4 py-3">
-                                          <span className="px-2 py-1 bg-neutral-100 text-neutral-700 text-sm rounded">
-                                            {participant.club}
-                                          </span>
-                                        </td>
-                                        <td className="border border-neutral-300 px-4 py-3">
-                                          {isCheckedIn ? (
-                                            <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                              <CheckCircle className="w-3 h-3 inline mr-1" />
-                                              Checked In
-                                            </span>
-                                          ) : (
-                                            <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                              <Clock className="w-3 h-3 inline mr-1" />
-                                              Pending
-                                            </span>
-                                          )}
-                                        </td>
-                                        <td className="border border-neutral-300 px-4 py-3">
-                                          <div className="flex space-x-2">
-                                            {!isCheckedIn && (
-                                              <button
-                                                onClick={() => handleCheckInUsers([participant.user_member_id])}
-                                                className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
-                                              >
-                                                Check In
-                                              </button>
-                                            )}
-                                            {isCheckedIn && (
-                                              <button
-                                                onClick={() => handleCheckOutUser(participant.user_member_id)}
-                                                className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
-                                              >
-                                                Check Out
-                                              </button>
-                                            )}
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        </div>
+                        <ParticipantsTable
+                          participants={tournamentParticipants}
+                          checkIns={tournamentCheckIns}
+                          scores={tournamentScores}
+                          payouts={tournamentPayouts}
+                          tournamentId={selectedTournament.id}
+                          onCheckIn={handleCheckInUsers}
+                          onCheckOut={handleCheckOutUser}
+                          onUnregister={handleUnregisterUser}
+                        />
                       )}
                       
-                      {activeTab === 'matches' && requiresMatches(selectedTournament.tournament_format || 'match_play') && (
+                      {activeTab === 'matches' && requiresMatches(selectedTournament.tournament_format || 'match_play') && !(selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship') && (
                         <MatchGenerator
                           tournamentId={selectedTournament.id}
                           tournamentMatches={tournamentMatches}
@@ -839,7 +1105,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                         />
                       )}
                       
-                      {activeTab === 'scoring' && (
+                      {activeTab === 'scoring' && !(selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship') && (
                         <div className="space-y-6">
                           {/* Custom Matchplay Scoring for 3-hole tournaments */}
                           {selectedTournament.tournament_format === 'match_play' && 
@@ -994,9 +1260,42 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                             </div>
                           )}
 
+                          {/* Strokeplay Scoring */}
+                          {selectedTournament.tournament_format === 'stroke_play' && (
+                            <StrokeplayScoring
+                              tournamentId={selectedTournament.id}
+                              tournamentFormat={selectedTournament.tournament_format}
+                              tournamentSettings={getFormatSpecificSettings(selectedTournament)}
+                              onScoreSubmitted={handleScoreSubmitted}
+                              courseId={selectedTournament.course_id}
+                            />
+                          )}
+
+                          {/* Admin Strokeplay Scorecard Editor - Only show for admin users */}
+                          {selectedTournament.tournament_format === 'stroke_play' && (currentUser?.role === 'admin' || isSuperAdmin) && (
+                            <div className="mt-8">
+                              <div className="border-t border-neutral-200 pt-6">
+                                <AdminStrokeplayScorecardEditor
+                                  tournamentId={selectedTournament.id}
+                                  tournamentName={selectedTournament.name}
+                                  onScorecardUpdated={handleScoreSubmitted}
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Par3 Match Play Scoring */}
+                          {selectedTournament.tournament_format === 'par3_match_play' && (
+                            <NewWeeklyScoring
+                              tournamentId={selectedTournament.id}
+                              tournamentName={selectedTournament.name}
+                              onScoreSubmitted={handleScoreSubmitted}
+                            />
+                          )}
+
                           {/* Standard ScoreSubmission for other formats */}
                           {(!selectedTournament.tournament_format || 
-                            selectedTournament.tournament_format !== 'match_play' || 
+                            (selectedTournament.tournament_format !== 'match_play' && selectedTournament.tournament_format !== 'stroke_play' && selectedTournament.tournament_format !== 'par3_match_play') || 
                             selectedTournament.hole_configuration !== '3') && (
                             <ScoreSubmission
                               tournamentId={selectedTournament.id}
@@ -1009,10 +1308,39 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                               courseId={selectedTournament.course_id}
                             />
                           )}
+
+                          {/* Admin Scorecard Editor - Only show for admin users */}
+                          {(currentUser?.role === 'admin' || isSuperAdmin) && (
+                            <div className="mt-8">
+                              <div className="border-t border-neutral-200 pt-6">
+                                <AdminScorecardEditor
+                                  tournamentId={selectedTournament.id}
+                                  tournamentName={selectedTournament.name}
+                                  weekStartDate={adminScorecardWeek || selectedTournament.week_start_date}
+                                  onScorecardUpdated={handleScoreSubmitted}
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Admin Matchplay Editor - Only show for admin users in matchplay tournaments */}
+                          {(currentUser?.role === 'admin' || isSuperAdmin) && 
+                           selectedTournament.tournament_format === 'match_play' && 
+                           selectedTournament.hole_configuration !== '3' && (
+                            <div className="mt-8">
+                              <div className="border-t border-neutral-200 pt-6">
+                                <AdminMatchplayEditor
+                                  tournamentId={selectedTournament.id}
+                                  tournamentName={selectedTournament.name}
+                                  onMatchUpdated={handleScoreSubmitted}
+                                />
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                       
-                      {activeTab === 'leaderboard' && (
+                      {activeTab === 'leaderboard' && !(selectedTournament.type === 'club_championship' || selectedTournament.type === 'national_championship') && (
                         <div className="space-y-6">
                           {/* Custom Matchplay Leaderboard for 3-hole tournaments */}
                           {selectedTournament.tournament_format === 'match_play' && 
@@ -1208,15 +1536,27 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                                       {completedMatches.slice(-6).reverse().map(match => {
                                         // Parse holes data if available
                                         let holes = [];
-                                        if (match.scores && match.scores.holes) {
-                                          if (typeof match.scores.holes === 'string') {
-                                            try {
-                                              holes = JSON.parse(match.scores.holes);
-                                            } catch (e) {
-                                              console.error('Error parsing holes data:', e);
+                                        if (match.scores) {
+                                          // Debug: Log the scores structure
+                                          console.log('Match scores structure:', match.scores);
+                                          
+                                          if (match.scores.holes) {
+                                            if (typeof match.scores.holes === 'string') {
+                                              try {
+                                                holes = JSON.parse(match.scores.holes);
+                                              } catch (e) {
+                                                console.error('Error parsing holes data:', e);
+                                              }
+                                            } else if (Array.isArray(match.scores.holes)) {
+                                              holes = match.scores.holes;
                                             }
-                                          } else if (Array.isArray(match.scores.holes)) {
-                                            holes = match.scores.holes;
+                                          } else if (match.scores.player1_score && match.scores.player2_score) {
+                                            // If no holes array but we have total scores, create a summary
+                                            holes = [{
+                                              hole: 'Total',
+                                              player1: match.scores.player1_score,
+                                              player2: match.scores.player2_score
+                                            }];
                                           }
                                         }
 
@@ -1232,7 +1572,9 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                                                   </span>
                                                 </div>
                                                 <div className="text-sm text-neutral-500">
-                                                  {new Date(match.updated_at).toLocaleDateString()}
+                                                  {match.updated_at ? new Date(match.updated_at).toLocaleDateString() : 
+                                                   match.created_at ? new Date(match.created_at).toLocaleDateString() : 
+                                                   'Date not available'}
                                                 </div>
                                               </div>
                                               <div className="mt-2 space-y-1">
@@ -1268,21 +1610,23 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                                                       </tr>
                                                     </thead>
                                                     <tbody>
-                                                                                                             {holes.map((hole: any, holeIndex: number) => {
-                                                         const player1Score = hole.player1 || hole.player1_score;
-                                                         const player2Score = hole.player2 || hole.player2_score;
+                                                                                                                                                                   {holes.map((hole: any, holeIndex: number) => {
+                                                        const player1Score = hole.player1 || hole.player1_score || 0;
+                                                        const player2Score = hole.player2 || hole.player2_score || 0;
                                                         const holeWinner = player1Score < player2Score ? match.player1_first_name : 
                                                                          player1Score > player2Score ? match.player2_first_name : 'Tie';
                                                         const scoreDiff = Math.abs(player1Score - player2Score);
                                                         
                                                         return (
                                                           <tr key={holeIndex} className="border-b border-neutral-100">
-                                                            <td className="px-2 py-1 text-center font-medium text-neutral-600">{hole.hole || holeIndex + 1}</td>
+                                                            <td className="px-2 py-1 text-center font-medium text-neutral-600">
+                                                              {hole.hole || holeIndex + 1}
+                                                            </td>
                                                             <td className={`px-2 py-1 text-center ${player1Score < player2Score ? 'text-green-600 font-semibold' : ''}`}>
-                                                              {player1Score}
+                                                              {player1Score || '-'}
                                                             </td>
                                                             <td className={`px-2 py-1 text-center ${player2Score < player1Score ? 'text-green-600 font-semibold' : ''}`}>
-                                                              {player2Score}
+                                                              {player2Score || '-'}
                                                             </td>
                                                             <td className={`px-2 py-1 text-center text-xs ${holeWinner === 'Tie' ? 'text-neutral-500' : 'text-green-600 font-medium'}`}>
                                                               {holeWinner}
@@ -1302,7 +1646,13 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                                             {/* Fallback if no hole data */}
                                             {holes.length === 0 && (
                                               <div className="p-4 bg-white text-sm text-neutral-500">
-                                                Hole-by-hole scores not available
+                                                <div className="flex items-center justify-center space-x-2">
+                                                  <span>📊</span>
+                                                  <span>Hole-by-hole scores not available for this match</span>
+                                                </div>
+                                                <div className="text-xs text-neutral-400 mt-1 text-center">
+                                                  Only total scores are recorded for this match
+                                                </div>
                                               </div>
                                             )}
                                           </div>
@@ -1315,19 +1665,65 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                             </div>
                           )}
 
+                          {/* Par3 Weekly Leaderboard */}
+                          {selectedTournament.tournament_format === 'par3_match_play' && (
+                            <NewWeeklyLeaderboard
+                              tournamentId={selectedTournament.id}
+                              tournamentName={selectedTournament.name}
+                              weekStartDate={selectedTournament.week_start_date}
+                              tournamentStartDate={selectedTournament.start_date}
+                              tournamentEndDate={selectedTournament.end_date}
+                            />
+                          )}
+
                           {/* Standard TournamentLeaderboard for other formats */}
                           {(!selectedTournament.tournament_format || 
                             selectedTournament.tournament_format !== 'match_play' || 
-                            selectedTournament.hole_configuration !== '3') && (
-                            <TournamentLeaderboard
-                              tournamentId={selectedTournament.id}
-                              tournamentFormat={selectedTournament.tournament_format || 'match_play'}
-                              onRefresh={handleScoreSubmitted}
-                              courseId={selectedTournament.course_id}
-                              tournamentSettings={getFormatSpecificSettings(selectedTournament)}
-                            />
-                          )}
-                        </div>
+                            selectedTournament.hole_configuration !== '3') &&
+                             selectedTournament.tournament_format !== 'par3_match_play' && (
+                             selectedTournament.tournament_format === 'stroke_play' ? (
+                               <StrokeplayLeaderboard
+                                 tournamentId={selectedTournament.id}
+                                 tournamentFormat={selectedTournament.tournament_format}
+                                 courseId={selectedTournament.course_id}
+                                 onRefresh={handleScoreSubmitted}
+                                 tournamentInfo={{
+                                   name: selectedTournament.name,
+                                   description: selectedTournament.description,
+                                   start_date: selectedTournament.start_date,
+                                   course_name: selectedTournament.course
+                                 }}
+                                 tournamentSettings={getFormatSpecificSettings(selectedTournament)}
+                               />
+                             ) : (
+                               <TournamentLeaderboard
+                                 tournamentId={selectedTournament.id}
+                                 tournamentFormat={selectedTournament.tournament_format || 'match_play'}
+                                 onRefresh={handleScoreSubmitted}
+                                 courseId={selectedTournament.course_id}
+                                 tournamentSettings={getFormatSpecificSettings(selectedTournament)}
+                               />
+                             )
+                           )}
+                         </div>
+                       )}
+                      
+                      {activeTab === 'championship' && (
+                        <ChampionshipAdminDashboard
+                          tournamentId={selectedTournament.id}
+                          tournamentName={selectedTournament.name}
+                          tournamentParticipants={tournamentParticipants}
+                          tournamentMatches={tournamentMatches}
+                          tournamentCourse={selectedTournament.course}
+                          tournamentCourseId={selectedTournament.course_id}
+                          onDataRefresh={() => {
+                            // Refresh tournament data
+                            if (selectedTournament) {
+                              getTournamentParticipants(selectedTournament.id).then(response => setTournamentParticipants(response.data));
+                              getTournamentMatches(selectedTournament.id).then(response => setTournamentMatches(response.data));
+                            }
+                          }}
+                        />
                       )}
                     </div>
                   </div>

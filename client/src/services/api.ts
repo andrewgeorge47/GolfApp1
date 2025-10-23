@@ -1,9 +1,22 @@
 import axios from 'axios';
+import { environment } from '../config/environment';
+import type { Role, Permission, RoleCreateRequest, RoleUpdateRequest, AuditLogEntry } from '../types/permissions';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+// Normalize a date-like input to 'YYYY-MM-DD' string
+const normalizeYMD = (d?: string) => {
+  if (!d) return '';
+  // If already looks like YYYY-MM-DD, return as-is
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  try {
+    const iso = new Date(d).toISOString();
+    return iso.split('T')[0];
+  } catch {
+    return d.split('T')[0] || '';
+  }
+};
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: environment.apiBaseUrl,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -19,18 +32,23 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
+    console.error('API Request Error:', error);
     return Promise.reject(error);
   }
 );
 
 // Add response interceptor to handle auth errors
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    return response;
+  },
   (error) => {
+    console.error('API Response Error:', error.response?.status, error.config?.url, error.message);
     if (error.response?.status === 401) {
       // Token expired or invalid, redirect to login
       localStorage.removeItem('token');
-      window.location.href = '/login';
+      // Use window.location for hash router compatibility
+      window.location.href = '#/login';
     }
     return Promise.reject(error);
   }
@@ -40,7 +58,7 @@ export interface User {
   member_id: number;
   first_name: string;
   last_name: string;
-  email: string;
+  email_address: string;
   club: string;
   handicap?: number;
   sim_handicap?: number;
@@ -82,6 +100,12 @@ export interface Tournament {
   firmness?: string;
   wind?: string;
   handicap_enabled?: boolean;
+  has_registration_form?: boolean;
+  registration_form_template?: string;
+  registration_form_data?: any;
+  payment_organizer?: 'jeff' | 'adam' | 'other';
+  payment_organizer_name?: string;
+  payment_venmo_url?: string;
   created_by?: number;
   created_at?: string;
   updated_at?: string;
@@ -219,6 +243,18 @@ export interface UserCourseRecord {
   days_standing: number;
 }
 
+export interface RecentSimulatorRound {
+  id: number;
+  date_played: string;
+  course_name: string;
+  total_strokes: number;
+  differential: number | null;
+  round_type: string | null;
+  handicap: number | null;
+  handicap_status: string;
+  handicap_status_color: string;
+}
+
 export interface LeaderboardStats {
   players: LeaderboardPlayer[];
   courseRecords: CourseRecord[];
@@ -259,12 +295,26 @@ export const getUserCombinedStats = (id: number) => api.get<SimStats>(`/users/${
 
 export const getUserCourseRecords = (userId: number) => api.get(`/user-course-records/${userId}`);
 
+export const getUserRecentSimulatorRounds = (userId: number) => api.get(`/users/${userId}/recent-simulator-rounds`);
+
 // Profile photo upload
 export const uploadProfilePhoto = (file: File) => {
   const formData = new FormData();
   formData.append('profilePhoto', file);
   
   return api.post('/users/profile-photo', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+};
+
+// Scorecard photo upload
+export const uploadScorecardPhoto = (file: File) => {
+  const formData = new FormData();
+  formData.append('scorecardPhoto', file);
+  
+  return api.post('/tournaments/scorecard-photo', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
@@ -308,7 +358,23 @@ export const saveScorecard = (scorecardData: {
   teebox?: string;
   course_rating?: number;
   course_slope?: number;
+  tournament_id?: number;
 }) => api.post<Scorecard>('/scorecards', scorecardData);
+
+// Tournament strokeplay score functions
+export const submitTournamentStrokeplayScore = (tournamentId: number, data: {
+  total_score: number;
+  hole_scores?: Array<{ hole: number; score: number }>;
+  notes?: string;
+  scorecard_photo_url?: string;
+  player_id?: number;
+}) => api.post(`/tournaments/${tournamentId}/strokeplay-score`, data);
+
+export const getTournamentStrokeplayScores = (tournamentId: number) => 
+  api.get(`/tournaments/${tournamentId}/strokeplay-scores`);
+
+export const getTournamentScores = (tournamentId: number) => 
+  api.get(`/tournaments/${tournamentId}/scores`);
 
 export const getScorecards = () => api.get<Scorecard[]>('/scorecards');
 export const getScorecard = (id: number) => api.get<Scorecard>(`/scorecards/${id}`);
@@ -494,10 +560,17 @@ export const createTournament = (data: {
   firmness?: string;
   wind?: string;
   handicap_enabled?: boolean;
+  has_registration_form?: boolean;
+  registration_form_template?: string;
+  registration_form_data?: any;
+  payment_organizer?: 'jeff' | 'adam' | 'other';
+  payment_organizer_name?: string;
+  payment_venmo_url?: string;
   created_by?: number;
 }) => api.post('/tournaments', data);
 
 export const getTournaments = () => api.get('/tournaments');
+export const getTournament = (id: number) => api.get(`/tournaments/${id}`);
 export const getUserTournaments = (userId: number) => api.get(`/tournaments/user/${userId}`);
 export const getTournamentsByStatus = (status: string) => api.get(`/tournaments/status/${status}`);
 export const getAvailableTournaments = () => api.get('/tournaments/available');
@@ -532,6 +605,12 @@ export const updateTournament = (id: number, data: {
   firmness?: string;
   wind?: string;
   handicap_enabled?: boolean;
+  has_registration_form?: boolean;
+  registration_form_template?: string;
+  registration_form_data?: any;
+  payment_organizer?: 'jeff' | 'adam' | 'other';
+  payment_organizer_name?: string;
+  payment_venmo_url?: string;
   created_by?: number;
 }) => api.put(`/tournaments/${id}`, data);
 export const deleteTournament = (id: number) => api.delete(`/tournaments/${id}`);
@@ -544,12 +623,28 @@ export const getTournamentFormationStats = (id: number) => api.get(`/tournaments
 // Tournament participants
 export const getTournamentParticipants = (tournamentId: number) => api.get(`/tournaments/${tournamentId}/participants`);
 export const registerUserForTournament = (tournamentId: number, userId: number) => api.post(`/tournaments/${tournamentId}/register`, { user_id: userId });
+export const registerUserForTournamentWithForm = (tournamentId: number, userId: number, formData: any) => 
+  api.post(`/tournaments/${tournamentId}/register-with-form`, { user_id: userId, form_data: formData });
 export const unregisterUserFromTournament = (tournamentId: number, userId: number) => api.delete(`/tournaments/${tournamentId}/unregister/${userId}`);
+export const getTournamentRegistrationResponses = (tournamentId: number) => api.get(`/tournaments/${tournamentId}/registration-responses`);
 
 // Tournament check-ins
 export const getTournamentCheckIns = (tournamentId: number) => api.get(`/tournaments/${tournamentId}/check-ins`);
 export const checkInUser = (tournamentId: number, userId: number, notes?: string) => api.post(`/tournaments/${tournamentId}/check-in`, { user_id: userId, notes });
 export const checkOutUser = (tournamentId: number, userId: number) => api.put(`/tournaments/${tournamentId}/check-out/${userId}`);
+
+// Payment functions
+export const submitPayment = (tournamentId: number, userId: number, paymentData: {
+  payment_method: 'venmo';
+  payment_amount: number;
+  payment_notes?: string;
+}) => api.post(`/tournaments/${tournamentId}/payment`, { user_id: userId, ...paymentData });
+
+export const getPaymentStatus = (tournamentId: number, userId: number) => 
+  api.get(`/tournaments/${tournamentId}/payment-status/${userId}`);
+
+export const getUserCheckInStatuses = (userId: number) => 
+  api.get(`/users/${userId}/check-in-statuses`);
 
 // Tournament statistics
 export const getTournamentStats = (tournamentId: number) => api.get(`/tournaments/${tournamentId}/stats`);
@@ -560,6 +655,8 @@ export const generateTournamentMatches = (tournamentId: number, format: string, 
   api.post(`/tournaments/${tournamentId}/generate-matches`, { format, minMatchesPerPlayer });
 export const updateTournamentMatch = (tournamentId: number, matchId: number, data: any) => 
   api.put(`/tournaments/${tournamentId}/matches/${matchId}`, data);
+export const createTournamentMatch = (tournamentId: number, data: any) => 
+  api.post(`/tournaments/${tournamentId}/matches`, data);
 
 // Team management API functions
 export interface Team {
@@ -635,14 +732,27 @@ export const getSimulatorCourses = (search?: string, platform?: string, limit?: 
   return api.get(`/simulator-courses?${params.toString()}`);
 };
 
+// Get a single simulator course by ID
+export const getSimulatorCourse = (id: number) => {
+  return api.get(`/simulator-courses/${id}`);
+};
+
 export const updateCourseParValues = (courseId: number, parValues: number[]) => 
   api.put(`/simulator-courses/${courseId}/par-values`, { par_values: parValues });
+
+export const updateCourseHoleIndexes = (courseId: number, holeIndexes: number[]) => 
+  api.put(`/simulator-courses/${courseId}/hole-indexes`, { hole_indexes: holeIndexes });
 
 export const updateCourseTeeboxData = (courseId: number, teebox: string, courseRating: number, courseSlope: number) => 
   api.put(`/simulator-courses/${courseId}/teebox-data`, { teebox, course_rating: courseRating, course_slope: courseSlope });
 
 export const getCourseTeeboxData = (courseId: number) => 
   api.get(`/simulator-courses/${courseId}/teebox-data`);
+
+// Get user's appropriate course for a tournament based on their club
+export const getUserCourse = (tournamentId: number, userId: number) => {
+  return api.get(`/tournaments/${tournamentId}/user-course/${userId}`);
+};
 
 // Admin user tracking interfaces
 export interface UserTrackingStats {
@@ -698,5 +808,290 @@ export const getUserTrackingDetails = (params?: {
   endDate?: string;
   club?: string;
 }) => api.get<UserTrackingDetails[]>('/admin/user-tracking-details', { params });
+
+// ============================================================================
+// NEW WEEKLY SCORING SYSTEM INTERFACES AND API FUNCTIONS
+// ============================================================================
+
+export interface WeeklyScorecard {
+  id: number;
+  user_id: number;
+  tournament_id: number;
+  week_start_date: string;
+  hole_scores: number[];
+  total_score: number;
+  is_live: boolean;
+  group_id?: string;
+  submitted_at: string;
+  created_at: string;
+}
+
+export interface WeeklyLeaderboardEntry {
+  user_id: number;
+  first_name: string;
+  last_name: string;
+  club: string;
+  total_hole_points: number | string;
+  total_round_points: number | string;
+  total_score: number | string;
+  matches_played: number | string;
+  matches_won: number | string;
+  matches_tied: number | string;
+  matches_lost: number | string;
+  live_matches_played: number | string;
+}
+
+export interface WeeklyMatch {
+  id: number;
+  tournament_id: number;
+  week_start_date: string;
+  player1_id: number;
+  player2_id: number;
+  player1_first_name: string;
+  player1_last_name: string;
+  player2_first_name: string;
+  player2_last_name: string;
+  hole_points_player1: number | string;
+  hole_points_player2: number | string;
+  round1_points_player1: number | string;
+  round1_points_player2: number | string;
+  round2_points_player1: number | string;
+  round2_points_player2: number | string;
+  round3_points_player1: number | string;
+  round3_points_player2: number | string;
+  match_winner_id: number | null;
+
+  total_points_player1: number | string;
+  total_points_player2: number | string;
+  player1_scores: number[];
+  player2_scores: number[];
+  created_at: string;
+}
+
+// Get available weeks for a tournament
+export const getAvailableWeeks = (tournamentId: number) => {
+  return api.get<string[]>(`/tournaments/${tournamentId}/available-weeks`);
+};
+
+// Weekly Scoring API Functions
+export const submitWeeklyScorecard = (tournamentId: number, data: {
+  hole_scores: number[];
+  is_live?: boolean;
+  group_id?: string;
+  week_start_date?: string;
+}) => {
+  return api.post<WeeklyScorecard>(`/tournaments/${tournamentId}/weekly-scorecard`, data);
+};
+
+export const getWeeklyLeaderboard = (tournamentId: number, weekStartDate?: string) => 
+  api.get<WeeklyLeaderboardEntry[]>(`/tournaments/${tournamentId}/weekly-leaderboard?week_start_date=${normalizeYMD(weekStartDate)}`);
+
+export const getWeeklyMatches = (tournamentId: number, userId: number, weekStartDate?: string) =>
+  api.get<WeeklyMatch[]>(`/tournaments/${tournamentId}/weekly-matches/${userId}?week_start_date=${normalizeYMD(weekStartDate)}`);
+
+export const getWeeklyScorecard = (tournamentId: number, userId: number, weekStartDate?: string) =>
+  api.get<WeeklyScorecard>(`/tournaments/${tournamentId}/weekly-scorecard/${userId}?week_start_date=${normalizeYMD(weekStartDate)}`);
+
+export const getWeeklyFieldStats = (tournamentId: number, weekStartDate?: string) =>
+  api.get(`/tournaments/${tournamentId}/weekly-field-stats?week_start_date=${normalizeYMD(weekStartDate)}`);
+
+export const getCurrentWeeklyScorecard = (tournamentId: number, weekStartDate?: string, fallbackDate?: string) =>
+  api.get<WeeklyScorecard>(`/tournaments/${tournamentId}/weekly-scorecard/current?week_start_date=${normalizeYMD(weekStartDate)}&fallback_date=${normalizeYMD(fallbackDate)}`);
+
+export const getWeeklyScorecards = (tournamentId: number, weekStartDate?: string) =>
+  api.get<WeeklyScorecard[]>(`/tournaments/${tournamentId}/weekly-scorecards?week_start_date=${normalizeYMD(weekStartDate)}`);
+
+export const getWeeklyHolePoints = (tournamentId: number, userId: number, weekStartDate?: string) =>
+  api.get(`/tournaments/${tournamentId}/weekly-hole-points/${userId}?week_start_date=${normalizeYMD(weekStartDate)}`);
+
+// Admin functions for tournament management
+export const forceCalculateMatches = (tournamentId: number, weekStartDate?: string) => {
+  const params = weekStartDate ? `?override_week=${weekStartDate}` : '';
+  return api.post(`/tournaments/${tournamentId}/calculate-matches${params}`);
+};
+
+export const forceUpdateLeaderboard = (tournamentId: number, weekStartDate?: string) => {
+  const params = weekStartDate ? `?override_week=${weekStartDate}` : '';
+  return api.post(`/tournaments/${tournamentId}/update-leaderboard${params}`);
+};
+
+export const cleanupDuplicateMatches = (tournamentId: number) => api.post(`/tournaments/${tournamentId}/cleanup-duplicates`);
+export const fixTournamentWeekDate = (tournamentId: number) => api.post(`/tournaments/${tournamentId}/fix-week-date`);
+
+// Admin scorecard editing functions
+export const getAdminScorecards = (tournamentId: number, weekStartDate?: string) => {
+  const params = weekStartDate ? `?week_start_date=${normalizeYMD(weekStartDate)}` : '';
+  return api.get(`/tournaments/${tournamentId}/admin/scorecards${params}`);
+};
+
+export const updateAdminScorecard = (tournamentId: number, scorecardId: number, data: {
+  hole_scores: number[];
+  total_score: number;
+}) => {
+  return api.put(`/tournaments/${tournamentId}/admin/scorecards/${scorecardId}`, data);
+};
+
+export const deleteAdminScorecard = (tournamentId: number, scorecardId: number) => {
+  return api.delete(`/tournaments/${tournamentId}/admin/scorecards/${scorecardId}`);
+};
+
+// Admin strokeplay scorecard editing functions
+export const getAdminStrokeplayScorecards = (tournamentId: number) => {
+  return api.get(`/tournaments/${tournamentId}/admin/strokeplay-scorecards`);
+};
+
+export const updateAdminStrokeplayScorecard = (tournamentId: number, scorecardId: number, data: {
+  hole_scores: number[];
+  total_score: number;
+}) => {
+  return api.put(`/tournaments/${tournamentId}/admin/strokeplay-scorecards/${scorecardId}`, data);
+};
+
+export const deleteAdminStrokeplayScorecard = (tournamentId: number, scorecardId: number) => {
+  return api.delete(`/tournaments/${tournamentId}/admin/strokeplay-scorecards/${scorecardId}`);
+};
+
+// Admin round management functions
+export const addAdminScorecard = (scorecardData: {
+  user_id: number;
+  hole_scores: number[];
+  total_score?: number;
+  notes?: string;
+  round_type?: string;
+  course_id?: number;
+  course_name?: string;
+  teebox?: string;
+  course_rating?: number;
+  course_slope?: number;
+  handicap?: number;
+  date_played?: string;
+}) => {
+  return api.post('/admin/scorecards', scorecardData);
+};
+
+export const addAdminRoundsBulk = (tournamentId: number, rounds: Array<{
+  user_id: number;
+  week_start_date?: string;
+  hole_scores: number[];
+  total_score?: number;
+  notes?: string;
+  round_type?: string;
+  course_id?: number;
+  course_name?: string;
+  teebox?: string;
+  course_rating?: number;
+  course_slope?: number;
+  handicap?: number;
+  date_played?: string;
+}>) => {
+  return api.post(`/tournaments/${tournamentId}/admin/rounds/bulk`, { rounds });
+};
+
+// Admin matchplay match editing functions
+export const getAdminMatchplayMatches = (tournamentId: number) => {
+  return api.get(`/tournaments/${tournamentId}/admin/matchplay-matches`);
+};
+
+export const updateAdminMatchplayMatch = (tournamentId: number, matchId: number, data: {
+  player1_score: number;
+  player2_score: number;
+  winner_id: number | null;
+  scores?: any;
+}) => {
+  return api.put(`/tournaments/${tournamentId}/admin/matchplay-matches/${matchId}`, data);
+};
+
+// ==========================================================================
+// Club Pro API
+// ==========================================================================
+
+export interface ClubProHandicapEntry {
+  member_id: number;
+  first_name: string;
+  last_name: string;
+  club: string;
+  sim_handicap?: number;
+  grass_handicap?: number;
+  total_rounds: string | number;
+  sim_rounds: string | number;
+  grass_rounds: string | number;
+  best_differential: string | number | null;
+  avg_differential: string | number | null;
+}
+
+export const getClubProHandicaps = (club?: string) => {
+  const params = club ? `?club=${encodeURIComponent(club)}` : '';
+  return api.get<{ club: string; players: ClubProHandicapEntry[] }>(`/club-pro/handicaps${params}`);
+};
+
+export const getClubProWeeklyMatches = (tournamentId: number, weekStartDate?: string) => {
+  const qs = weekStartDate ? `?week_start_date=${normalizeYMD(weekStartDate)}` : '';
+  return api.get<{ club: string; matches: WeeklyMatch[] }>(`/club-pro/tournaments/${tournamentId}/weekly-matches${qs}`);
+};
+
+export const getClubProPlayerTournaments = (club?: string) => {
+  const params = club ? `?club=${encodeURIComponent(club)}` : '';
+  return api.get<{ club: string; players: Array<{
+    member_id: number;
+    first_name: string;
+    last_name: string;
+    club: string;
+    tournaments: Array<{
+      tournament_id: number;
+      tournament_name: string;
+      tournament_status: string;
+      start_date?: string;
+      end_date?: string;
+      participation_status: string;
+    }>;
+  }> }>(`/club-pro/player-tournaments${params}`);
+};
+
+// ============================================================================
+// PERMISSION MANAGEMENT API
+// ============================================================================
+
+// Get all roles
+export const getRoles = () => {
+  return api.get<Role[]>('/admin/roles');
+};
+
+// Get a specific role with its permissions
+export const getRole = (id: number) => {
+  return api.get<Role>(`/admin/roles/${id}`);
+};
+
+// Get all available permissions
+export const getPermissions = () => {
+  return api.get<{ permissions: Permission[]; grouped: { [category: string]: Permission[] } }>('/admin/permissions');
+};
+
+// Create a new role
+export const createRole = (data: RoleCreateRequest) => {
+  return api.post<Role>('/admin/roles', data);
+};
+
+// Update a role
+export const updateRole = (id: number, data: RoleUpdateRequest) => {
+  return api.put<Role>(`/admin/roles/${id}`, data);
+};
+
+// Delete a role
+export const deleteRole = (id: number) => {
+  return api.delete<{ message: string }>(`/admin/roles/${id}`);
+};
+
+// Update role permissions
+export const updateRolePermissions = (id: number, permissions: number[]) => {
+  return api.put<{ role_id: number; role_name: string; permissions: Permission[] }>(
+    `/admin/roles/${id}/permissions`,
+    { permissions }
+  );
+};
+
+// Get permission audit log
+export const getPermissionAuditLog = (limit: number = 50) => {
+  return api.get<AuditLogEntry[]>(`/admin/permission-audit-log?limit=${limit}`);
+};
 
 export default api; 

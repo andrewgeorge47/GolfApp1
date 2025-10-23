@@ -31,6 +31,20 @@ interface CalendarEvent {
   canJoin: boolean;
 }
 
+interface BookingSettings {
+  id: number;
+  club_name: string;
+  number_of_bays: number;
+  opening_time: string;
+  closing_time: string;
+  days_of_operation: string;
+  booking_duration_options: string;
+  max_advance_booking_days: number;
+  min_booking_duration: number;
+  max_booking_duration: number;
+  enabled: boolean;
+}
+
 const locales = {
   'en-US': require('date-fns/locale/en-US'),
 };
@@ -51,7 +65,11 @@ const BookingPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  
+
+  // Booking settings state
+  const [bookingSettings, setBookingSettings] = useState<BookingSettings | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+
   // Dialog states
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<{ start: Date; end: Date } | null>(null);
@@ -160,7 +178,34 @@ const BookingPage: React.FC = () => {
     setEvents(calendarEvents);
   };
 
+  const fetchBookingSettings = async () => {
+    try {
+      setSettingsLoading(true);
+      const response = await api.get('/club-booking-settings/No. 5');
+      setBookingSettings(response.data);
+    } catch (err: any) {
+      console.error('Error fetching booking settings:', err);
+      // Use default settings if not found
+      setBookingSettings({
+        id: 0,
+        club_name: 'No. 5',
+        number_of_bays: 4,
+        opening_time: '07:00',
+        closing_time: '22:00',
+        days_of_operation: 'Mon,Tue,Wed,Thu,Fri,Sat,Sun',
+        booking_duration_options: '30,60,90,120',
+        max_advance_booking_days: 30,
+        min_booking_duration: 30,
+        max_booking_duration: 240,
+        enabled: true,
+      });
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
   useEffect(() => {
+    fetchBookingSettings();
     fetchBookings();
   }, []);
 
@@ -529,34 +574,36 @@ const BookingPage: React.FC = () => {
       )}
 
       {/* Bay Toggle */}
-      <div className="bg-white rounded-2xl shadow-xl p-4 sm:p-6 mb-4 sm:mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Select Simulator Bay</h3>
-            <p className="text-gray-600 text-sm">View bookings for a specific bay</p>
-          </div>
-          <div className="grid grid-cols-2 sm:flex sm:space-x-2 gap-2 sm:gap-0">
-            {[1, 2, 3, 4].map((bay) => (
-              <button
-                key={bay}
-                onClick={() => setActiveBay(bay)}
-                className={`px-3 py-3 sm:px-4 sm:py-2 rounded-lg font-medium transition-all duration-200 text-sm sm:text-base min-h-[44px] ${
-                  activeBay === bay
-                    ? 'bg-brand-dark-green text-white shadow-lg'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Bay {bay}
-              </button>
-            ))}
+      {!settingsLoading && bookingSettings && (
+        <div className="bg-white rounded-2xl shadow-xl p-4 sm:p-6 mb-4 sm:mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Select Simulator Bay</h3>
+              <p className="text-gray-600 text-sm">View bookings for a specific bay</p>
+            </div>
+            <div className="grid grid-cols-2 sm:flex sm:space-x-2 gap-2 sm:gap-0">
+              {Array.from({ length: bookingSettings.number_of_bays }, (_, i) => i + 1).map((bay) => (
+                <button
+                  key={bay}
+                  onClick={() => setActiveBay(bay)}
+                  className={`px-3 py-3 sm:px-4 sm:py-2 rounded-lg font-medium transition-all duration-200 text-sm sm:text-base min-h-[44px] ${
+                    activeBay === bay
+                      ? 'bg-brand-dark-green text-white shadow-lg'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Bay {bay}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
-        {loading ? (
+        {(loading || settingsLoading) ? (
           <div className="flex items-center justify-center h-96">
-            <div className="text-gray-600">Loading bookings...</div>
+            <div className="text-gray-600">Loading...</div>
           </div>
         ) : (
           <>
@@ -587,29 +634,31 @@ const BookingPage: React.FC = () => {
               </div>
             </div>
             <div className="h-[400px] sm:h-[600px]">
-              <Calendar
-                localizer={localizer}
-                events={events}
-                startAccessor="start"
-                endAccessor="end"
-                style={{ height: '100%' }}
-                selectable="ignoreEvents"
-                onSelectSlot={handleSelectSlot}
-                onSelectEvent={handleEventClick}
-                eventPropGetter={eventStyleGetter}
-                components={components}
-                step={30}
-                timeslots={2}
-                views={{ week: true, day: true }}
-                defaultView={calendarView === 'day' ? 'day' : 'week'}
-                view={calendarView === 'day' ? 'day' : 'week'}
-                date={calendarDate}
-                onNavigate={date => setCalendarDate(date)}
-                min={new Date(0, 0, 0, 7, 0, 0)}
-                max={new Date(0, 0, 0, 22, 0, 0)}
-                toolbar={true}
-                popup
-              />
+              {bookingSettings && (
+                <Calendar
+                  localizer={localizer}
+                  events={events}
+                  startAccessor="start"
+                  endAccessor="end"
+                  style={{ height: '100%' }}
+                  selectable="ignoreEvents"
+                  onSelectSlot={handleSelectSlot}
+                  onSelectEvent={handleEventClick}
+                  eventPropGetter={eventStyleGetter}
+                  components={components}
+                  step={30}
+                  timeslots={2}
+                  views={{ week: true, day: true }}
+                  defaultView={calendarView === 'day' ? 'day' : 'week'}
+                  view={calendarView === 'day' ? 'day' : 'week'}
+                  date={calendarDate}
+                  onNavigate={date => setCalendarDate(date)}
+                  min={new Date(0, 0, 0, parseInt(bookingSettings.opening_time.split(':')[0]), parseInt(bookingSettings.opening_time.split(':')[1]), 0)}
+                  max={new Date(0, 0, 0, parseInt(bookingSettings.closing_time.split(':')[0]), parseInt(bookingSettings.closing_time.split(':')[1]), 0)}
+                  toolbar={true}
+                  popup
+                />
+              )}
             </div>
           </>
         )}
@@ -657,10 +706,9 @@ const BookingPage: React.FC = () => {
                     onChange={(e) => setSelectedBay(Number(e.target.value))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green"
                   >
-                    <option value={1}>Bay 1</option>
-                    <option value={2}>Bay 2</option>
-                    <option value={3}>Bay 3</option>
-                    <option value={4}>Bay 4</option>
+                    {bookingSettings && Array.from({ length: bookingSettings.number_of_bays }, (_, i) => i + 1).map((bay) => (
+                      <option key={bay} value={bay}>Bay {bay}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -914,10 +962,9 @@ const BookingPage: React.FC = () => {
                         onChange={(e) => setRescheduleBay(Number(e.target.value))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green"
                       >
-                        <option value={1}>Bay 1</option>
-                        <option value={2}>Bay 2</option>
-                        <option value={3}>Bay 3</option>
-                        <option value={4}>Bay 4</option>
+                        {bookingSettings && Array.from({ length: bookingSettings.number_of_bays }, (_, i) => i + 1).map((bay) => (
+                          <option key={bay} value={bay}>Bay {bay}</option>
+                        ))}
                       </select>
                     </div>
                   </div>

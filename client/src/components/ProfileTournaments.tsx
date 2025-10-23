@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Edit, Trash2, Users, Calendar, Trophy, Search, MapPin, Settings, DollarSign } from 'lucide-react';
-import { getTournaments, createTournament, updateTournament, deleteTournament, updateTournamentRegistration, getSimulatorCourses } from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Edit, Trash2, Users, Calendar, Trophy, Search, MapPin, Settings, DollarSign, BarChart3 } from 'lucide-react';
+import { getTournaments, getUserTournaments, createTournament, updateTournament, deleteTournament, updateTournamentRegistration, getSimulatorCourses } from '../services/api';
 import { useAuth } from '../AuthContext';
 import { toast } from 'react-toastify';
 
@@ -46,111 +47,13 @@ interface TournamentFormErrors {
   course?: string;
 }
 
-const tournamentTemplates = [
-  {
-    id: 'championship',
-    name: 'Championship Tournament',
-    icon: '🏆',
-    description: 'Major championship with stroke play format',
-    settings: {
-      tournament_format: 'stroke_play',
-      min_participants: '8',
-      max_participants: '32',
-      entry_fee: '50',
-      status: 'draft',
-      rules: 'Standard stroke play rules apply. Lowest total score wins. Ties will be decided by scorecard playoff.',
-      notes: 'Championship format - individual stroke play'
-    }
-  },
-  {
-    id: 'match_play',
-    name: 'Match Play Championship',
-    icon: '⚔️',
-    description: 'Head-to-head match play tournament',
-    settings: {
-      tournament_format: 'match_play',
-      min_participants: '4',
-      max_participants: '16',
-      entry_fee: '25',
-      status: 'draft',
-      rules: 'Match play format. Win holes to win matches. Ties result in halved holes.',
-      notes: 'Match play format - head-to-head competition'
-    }
-  },
-  {
-    id: 'league',
-    name: 'Season League',
-    icon: '📅',
-    description: 'Ongoing league with multiple rounds',
-    settings: {
-      type: 'league',
-      tournament_format: 'match_play',
-      min_participants: '8',
-      max_participants: '24',
-      entry_fee: '100',
-      status: 'draft',
-      rules: 'League format with multiple rounds. Points awarded for wins, ties, and losses.',
-      notes: 'League format - ongoing competition'
-    }
-  },
-  {
-    id: 'scramble',
-    name: 'Scramble Tournament',
-    icon: '🎉',
-    description: 'Team scramble format tournament',
-    settings: {
-      tournament_format: 'scramble',
-      min_participants: '4',
-      max_participants: '20',
-      entry_fee: '10',
-      status: 'draft',
-      rules: 'Scramble format. Teams of 4 players. All players hit, best shot is selected. Team captain submits final score.',
-      notes: 'Scramble format - team competition with 4 players per team'
-    }
-  },
-  {
-    id: 'best_ball',
-    name: 'Best Ball Tournament',
-    icon: '🎯',
-    description: 'Best ball format tournament',
-    settings: {
-      tournament_format: 'best_ball',
-      min_participants: '4',
-      max_participants: '16',
-      entry_fee: '15',
-      status: 'draft',
-      rules: 'Best ball format. Teams of 2 players. Each player plays their own ball, best score on each hole counts.',
-      notes: 'Best ball format - team competition with 2 players per team'
-    }
-  },
-  {
-    id: 'stableford',
-    name: 'Stableford Tournament',
-    icon: '📊',
-    description: 'Stableford scoring tournament',
-    settings: {
-      tournament_format: 'stableford',
-      min_participants: '4',
-      max_participants: '20',
-      entry_fee: '20',
-      status: 'draft',
-      rules: 'Stableford scoring. Points awarded based on score relative to par. Highest total points wins.',
-      notes: 'Stableford format - points-based scoring'
-    }
-  },
-  {
-    id: 'custom',
-    name: 'Custom Tournament',
-    icon: '⚙️',
-    description: 'Start from scratch with custom settings',
-    settings: {}
-  }
-];
-
 const ProfileTournaments: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [participatingTournaments, setParticipatingTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'created' | 'participating'>('created');
 
   // Tournament form state
   const [showTournamentForm, setShowTournamentForm] = useState(false);
@@ -171,7 +74,11 @@ const ProfileTournaments: React.FC = () => {
     rules: '',
     notes: '',
     type: 'tournament',
-    club_restriction: 'open'
+    club_restriction: 'open',
+    // Registration form settings
+    has_registration_form: false,
+    registration_form_template: '',
+    registration_form_data: null
   });
   const [formErrors, setFormErrors] = useState<TournamentFormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -184,15 +91,6 @@ const ProfileTournaments: React.FC = () => {
   const [showCourseDropdown, setShowCourseDropdown] = useState(false);
   const [filteredCourses, setFilteredCourses] = useState<SimulatorCourse[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<SimulatorCourse | null>(null);
-
-  // Template selection handler
-  const handleTemplateSelect = (template: any) => {
-    setTournamentForm(prev => ({
-      ...prev,
-      ...template.settings
-    }));
-    toast.success(`Applied ${template.name} template`);
-  };
 
   // Course selection handlers
   const handleCourseSelect = (course: SimulatorCourse) => {
@@ -257,11 +155,16 @@ const ProfileTournaments: React.FC = () => {
     const fetchTournaments = async () => {
       setLoading(true);
       try {
-        const res = await getTournaments();
-        console.log('All tournaments:', res.data);
+        const [allTournamentsRes, participatingRes] = await Promise.all([
+          getTournaments(),
+          getUserTournaments(user?.member_id || 0)
+        ]);
+        
+        console.log('All tournaments:', allTournamentsRes.data);
+        console.log('Participating tournaments:', participatingRes.data);
         console.log('User member_id:', user?.member_id, 'Type:', typeof user?.member_id);
         
-        const myTournaments = res.data.filter((t: Tournament) => {
+        const myTournaments = allTournamentsRes.data.filter((t: Tournament) => {
           console.log('Tournament:', t.name, 'created_by:', t.created_by, 'Type:', typeof t.created_by);
           // Show all tournaments for admins, or tournaments created by this user
           if (user?.role?.toLowerCase() === 'admin') {
@@ -272,9 +175,11 @@ const ProfileTournaments: React.FC = () => {
         
         console.log('My tournaments:', myTournaments);
         setTournaments(myTournaments);
+        setParticipatingTournaments(participatingRes.data);
       } catch (err) {
         console.error('Error fetching tournaments:', err);
         setTournaments([]);
+        setParticipatingTournaments([]);
       } finally {
         setLoading(false);
       }
@@ -286,7 +191,7 @@ const ProfileTournaments: React.FC = () => {
   useEffect(() => {
     const fetchSimulatorCourses = async () => {
       try {
-        const res = await getSimulatorCourses();
+        const res = await getSimulatorCourses(undefined, undefined, 10000);
         console.log('Simulator courses response:', res.data);
         // The API returns { courses: [...], total: number, page: number, totalPages: number }
         setSimulatorCourses(res.data.courses || []);
@@ -356,13 +261,16 @@ const ProfileTournaments: React.FC = () => {
         notes: tournamentForm.notes,
         type: tournamentForm.type,
         club_restriction: tournamentForm.club_restriction,
+        has_registration_form: tournamentForm.has_registration_form,
+        registration_form_template: tournamentForm.registration_form_template,
+        registration_form_data: tournamentForm.registration_form_data,
         created_by: user?.member_id
       };
       await createTournament(tournamentData);
       toast.success('Tournament created successfully!');
       setShowTournamentForm(false);
       setTournamentForm({
-        name: '', description: '', start_date: '', end_date: '', registration_deadline: '', max_participants: '', min_participants: '2', tournament_format: 'match_play', status: 'draft', registration_open: true, entry_fee: '0', location: '', course: '', rules: '', notes: '', type: 'tournament', club_restriction: 'open'
+        name: '', description: '', start_date: '', end_date: '', registration_deadline: '', max_participants: '', min_participants: '2', tournament_format: 'match_play', status: 'draft', registration_open: true, entry_fee: '0', location: '', course: '', rules: '', notes: '', type: 'tournament', club_restriction: 'open', has_registration_form: false, registration_form_template: '', registration_form_data: null
       });
       setFormErrors({});
       setSelectedCourse(null);
@@ -436,6 +344,18 @@ const ProfileTournaments: React.FC = () => {
     }
   };
 
+  // Submit Score Handler
+  const handleSubmitScore = (tournament: Tournament) => {
+    // Navigate to the tournament scoring page for this tournament
+    navigate(`/tournament-scoring?tournament=${tournament.id}`);
+  };
+
+  // View Leaderboard Handler
+  const handleViewLeaderboard = (tournament: Tournament) => {
+    // Navigate to the leaderboard page for this tournament
+    window.location.href = `/leaderboard?tournament=${tournament.id}`;
+  };
+
   // UI
   return (
     <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
@@ -457,28 +377,60 @@ const ProfileTournaments: React.FC = () => {
           Create Tournament
         </button>
       </div>
+      
+      {/* Tab Navigation */}
+      <div className="flex space-x-1 mb-6 bg-neutral-100 p-1 rounded-lg">
+        <button
+          onClick={() => setActiveTab('created')}
+          className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'created'
+              ? 'bg-white text-brand-black shadow-sm'
+              : 'text-neutral-600 hover:text-neutral-800'
+          }`}
+        >
+          Created ({tournaments.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('participating')}
+          className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'participating'
+              ? 'bg-white text-brand-black shadow-sm'
+              : 'text-neutral-600 hover:text-neutral-800'
+          }`}
+        >
+          Participating ({participatingTournaments.length})
+        </button>
+      </div>
       {loading ? (
         <div className="text-center py-12 text-neutral-500">Loading tournaments...</div>
-      ) : tournaments.length === 0 ? (
+      ) : (activeTab === 'created' ? tournaments : participatingTournaments).length === 0 ? (
         <div className="text-center py-12 text-neutral-600">
           <Trophy className="w-12 h-12 mx-auto mb-2 text-neutral-400" />
           <p className="text-lg font-medium mb-2">
-            {user?.role?.toLowerCase() === 'admin' ? 'No Tournaments Found' : 'No Tournaments Created Yet'}
-          </p>
-          <p className="text-sm text-neutral-500 mb-4">
-            {user?.role?.toLowerCase() === 'admin' 
-              ? 'There are no tournaments in the system yet. Create the first tournament to get started!'
-              : 'This section shows tournaments you\'ve created. Create your first tournament to get started!'
+            {activeTab === 'created' 
+              ? (user?.role?.toLowerCase() === 'admin' ? 'No Tournaments Found' : 'No Tournaments Created Yet')
+              : 'No Participating Tournaments'
             }
           </p>
-          <button onClick={() => setShowTournamentForm(true)} className="mt-4 px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center">
-            <Plus className="w-4 h-4 mr-2" />
-            {user?.role?.toLowerCase() === 'admin' ? 'Create Tournament' : 'Create Your First Tournament'}
-          </button>
+          <p className="text-sm text-neutral-500 mb-4">
+            {activeTab === 'created' 
+              ? (user?.role?.toLowerCase() === 'admin' 
+                ? 'There are no tournaments in the system yet. Create the first tournament to get started!'
+                : 'This section shows tournaments you\'ve created. Create your first tournament to get started!'
+              )
+              : 'You haven\'t registered for any tournaments yet. Check the available tournaments to join!'
+            }
+          </p>
+          {activeTab === 'created' && (
+            <button onClick={() => setShowTournamentForm(true)} className="mt-4 px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center">
+              <Plus className="w-4 h-4 mr-2" />
+              {user?.role?.toLowerCase() === 'admin' ? 'Create Tournament' : 'Create Your First Tournament'}
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {tournaments.map(tournament => (
+          {(activeTab === 'created' ? tournaments : participatingTournaments).map(tournament => (
             <div key={tournament.id} className="p-4 bg-white border border-neutral-200 rounded-lg shadow-sm hover:border-brand-neon-green transition-all group">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold text-brand-black group-hover:text-brand-neon-green transition-colors">
@@ -503,18 +455,37 @@ const ProfileTournaments: React.FC = () => {
                   {new Date(tournament.start_date).toLocaleDateString()}
                 </div>
               )}
-              <div className="flex items-center space-x-2 mt-2">
-                <button onClick={() => handleEditTournament(tournament)} className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition-colors flex items-center">
-                  <Edit className="w-4 h-4 mr-1" /> Edit
-                </button>
-                <button onClick={() => handleDeleteTournament(tournament.id)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 transition-colors flex items-center">
-                  <Trash2 className="w-4 h-4 mr-1" /> Delete
-                </button>
-                <button onClick={() => handleToggleRegistration(tournament)} className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                  tournament.registration_open ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}>
-                  {tournament.registration_open ? 'Registration Open' : 'Registration Closed'}
-                </button>
+              <div className="flex items-center space-x-2 mt-2 flex-wrap gap-1">
+                {activeTab === 'created' ? (
+                  <>
+                    <button onClick={() => handleEditTournament(tournament)} className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition-colors flex items-center">
+                      <Edit className="w-4 h-4 mr-1" /> Edit
+                    </button>
+                    <button onClick={() => handleDeleteTournament(tournament.id)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 transition-colors flex items-center">
+                      <Trash2 className="w-4 h-4 mr-1" /> Delete
+                    </button>
+                    <button onClick={() => handleToggleRegistration(tournament)} className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                      tournament.registration_open ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}>
+                      {tournament.registration_open ? 'Registration Open' : 'Registration Closed'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button 
+                      onClick={() => handleSubmitScore(tournament)} 
+                      className="px-3 py-1 bg-brand-neon-green text-brand-black rounded text-xs hover:bg-green-400 transition-colors flex items-center"
+                    >
+                      <Trophy className="w-4 h-4 mr-1" /> {tournament.type === 'club_championship' ? 'My Matches' : 'Submit Score'}
+                    </button>
+                    <button 
+                      onClick={() => handleViewLeaderboard(tournament)} 
+                      className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition-colors flex items-center"
+                    >
+                      <BarChart3 className="w-4 h-4 mr-1" /> Leaderboard
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -537,35 +508,6 @@ const ProfileTournaments: React.FC = () => {
               </button>
             </div>
             <form onSubmit={handleTournamentSubmit} className="space-y-6">
-              {/* Template Selection Section */}
-              <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-xl p-6 border border-blue-200">
-                <div className="flex items-center mb-4">
-                  <Trophy className="w-5 h-5 text-brand-neon-green mr-2" />
-                  <h4 className="text-lg font-semibold text-brand-black">Choose a Template (Optional)</h4>
-                </div>
-                <p className="text-sm text-neutral-600 mb-4">
-                  Select a template to pre-fill common tournament settings, or start with a custom tournament.
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {tournamentTemplates.map(template => (
-                    <button
-                      key={template.id}
-                      type="button"
-                      onClick={() => handleTemplateSelect(template)}
-                      className="p-4 bg-white rounded-lg border border-neutral-200 hover:border-brand-neon-green hover:shadow-md transition-all text-left group"
-                    >
-                      <div className="flex items-center mb-2">
-                        <span className="text-2xl mr-2">{template.icon}</span>
-                        <h5 className="font-medium text-brand-black group-hover:text-brand-neon-green transition-colors">
-                          {template.name}
-                        </h5>
-                      </div>
-                      <p className="text-sm text-neutral-600">{template.description}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               {/* Basic Information Section */}
               <div className="bg-neutral-50 rounded-xl p-6">
                 <div className="flex items-center mb-4">

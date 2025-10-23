@@ -46,16 +46,39 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
   }, []);
 
   const handleRegisterUsers = async (userIds: number[]) => {
+    console.log('Attempting to register users:', userIds);
+    console.log('Tournament ID:', tournamentId);
+    console.log('Current participants:', tournamentParticipants);
+    
     try {
-      await Promise.all(
+      const results = await Promise.allSettled(
         userIds.map(userId => registerUserForTournament(tournamentId, userId))
       );
-      toast.success(`Successfully registered ${userIds.length} user(s)`);
+      
+      console.log('Registration results:', results);
+      
+      const successful = results.filter(result => result.status === 'fulfilled').length;
+      const failed = results.filter(result => result.status === 'rejected').length;
+      
+      if (successful > 0) {
+        toast.success(`Successfully registered ${successful} user(s)`);
+        onUserRegistered();
+      }
+      
+      if (failed > 0) {
+        const errorMessages = results
+          .filter(result => result.status === 'rejected')
+          .map(result => (result as PromiseRejectedResult).reason?.response?.data?.error || 'Unknown error')
+          .filter((msg, index, arr) => arr.indexOf(msg) === index); // Remove duplicates
+        
+        toast.error(`Failed to register ${failed} user(s): ${errorMessages.join(', ')}`);
+      }
+      
       setSelectedRegistrationUserIds([]);
-      onUserRegistered();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error registering users:', error);
-      toast.error('Failed to register users');
+      const errorMessage = error.response?.data?.error || 'Failed to register users';
+      toast.error(errorMessage);
     }
   };
 
@@ -64,9 +87,10 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
       await unregisterUserFromTournament(tournamentId, userId);
       toast.success('User unregistered successfully');
       onUserUnregistered();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error unregistering user:', error);
-      toast.error('Failed to unregister user');
+      const errorMessage = error.response?.data?.error || 'Failed to unregister user';
+      toast.error(errorMessage);
     }
   };
 
@@ -76,11 +100,11 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
   };
 
   const getTotalUsersInClub = (club: string) => {
-    return users.filter(user => user.club === club).length;
+    return users.filter(user => user.club && user.club === club).length;
   };
 
   const getRegisteredUsersInClub = (club: string) => {
-    return tournamentParticipants.filter(p => p.club === club).length;
+    return tournamentParticipants.filter(p => p.club && p.club === club).length;
   };
 
   const getAvailableUsers = () => {
@@ -90,29 +114,47 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
 
   const getAvailableUsersFiltered = () => {
     let availableUsers = getAvailableUsers();
+    
+    // Debug: Log any users with null/undefined club values
+    const usersWithNullClub = availableUsers.filter(user => !user.club);
+    if (usersWithNullClub.length > 0) {
+      console.warn('Users with null/undefined club values:', usersWithNullClub.map(u => ({ id: u.member_id, name: `${u.first_name} ${u.last_name}` })));
+    }
 
     // Apply club filter
     if (registrationClubFilter) {
-      availableUsers = availableUsers.filter(user => user.club === registrationClubFilter);
+      availableUsers = availableUsers.filter(user => user.club && user.club === registrationClubFilter);
     }
 
     // Apply search filter
     if (registrationSearch) {
       const searchLower = registrationSearch.toLowerCase();
-      availableUsers = availableUsers.filter(user =>
-        `${user.first_name} ${user.last_name}`.toLowerCase().includes(searchLower) ||
-        user.email.toLowerCase().includes(searchLower) ||
-        user.club?.toLowerCase().includes(searchLower)
-      );
+      console.log('🔍 Applying search filter:', searchLower);
+      console.log('🔍 Available users before search:', availableUsers.length);
+      
+      availableUsers = availableUsers.filter(user => {
+        try {
+          const nameMatch = `${user.first_name || ''} ${user.last_name || ''}`.toLowerCase().includes(searchLower);
+          const emailMatch = user.email_address && user.email_address.toLowerCase().includes(searchLower);
+          const clubMatch = user.club && user.club.toLowerCase().includes(searchLower);
+          
+          return nameMatch || emailMatch || clubMatch;
+        } catch (error) {
+          console.error('❌ Error filtering user:', user, error);
+          return false;
+        }
+      });
+      
+      console.log('🔍 Available users after search:', availableUsers.length);
     }
 
     // Apply club restrictions
     if (clubRestriction !== 'open') {
       if (clubRestriction === 'club_specific') {
         // This would need to be handled by the parent component
-        availableUsers = availableUsers.filter(user => user.club === currentUserClub);
+        availableUsers = availableUsers.filter(user => user.club && user.club === currentUserClub);
       } else {
-        availableUsers = availableUsers.filter(user => user.club === clubRestriction);
+        availableUsers = availableUsers.filter(user => user.club && user.club === clubRestriction);
       }
     }
 
@@ -177,6 +219,8 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
             onClick={() => {
               const availableUsers = getAvailableUsers();
               if (availableUsers.length > 0) {
+                const confirmMessage = `Register all ${availableUsers.length} available user(s)?`;
+                if (!window.confirm(confirmMessage)) return;
                 handleRegisterUsers(availableUsers.map(u => u.member_id));
               }
             }}
@@ -332,11 +376,11 @@ const UserRegistration: React.FC<UserRegistrationProps> = ({
                     {user.first_name} {user.last_name}
                   </td>
                   <td className="border border-neutral-300 px-4 py-3 text-neutral-600">
-                    {user.email}
+                    {user.email_address}
                   </td>
                   <td className="border border-neutral-300 px-4 py-3">
                     <span className="px-2 py-1 bg-neutral-100 text-neutral-700 text-sm rounded">
-                      {user.club}
+                      {user.club || 'N/A'}
                     </span>
                   </td>
                   <td className="border border-neutral-300 px-4 py-3 text-neutral-600">

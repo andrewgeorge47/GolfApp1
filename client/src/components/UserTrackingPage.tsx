@@ -6,15 +6,15 @@ import { useAuth } from '../AuthContext';
 
 const UserTrackingPage: React.FC = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
 
   React.useEffect(() => {
-    if (!user || user.role?.toLowerCase() !== 'admin') {
+    if (!user || !isAdmin) {
       navigate('/profile', { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, navigate, isAdmin]);
 
-  if (!user || user.role?.toLowerCase() !== 'admin') {
+  if (!user || !isAdmin) {
     return null;
   }
 
