@@ -11,6 +11,7 @@ const fs = require('fs');
 const { Storage } = require('@google-cloud/storage');
 
 const app = express();
+const port = process.env.PORT || 3001;
 
 // PostgreSQL connection pool
 const pool = new Pool({
@@ -43,263 +44,9 @@ function authenticateToken(req, res, next) {
   });
 }
 
-// ========================================
-// Role Utilities - Centralized role checking
-// ========================================
-
-// Valid roles in the system
-const UserRole = {
-  MEMBER: 'Member',
-  ADMIN: 'Admin',
-  CLUB_PRO: 'Club Pro',
-  AMBASSADOR: 'Ambassador',
-  DEACTIVATED: 'Deactivated'
-};
-
-// Normalize role string to canonical format
-function normalizeRole(role) {
-  if (!role) return null;
-
-  const normalized = role.trim().toLowerCase();
-  const roleMap = {
-    'admin': UserRole.ADMIN,
-    'super admin': UserRole.ADMIN,
-    'super_admin': UserRole.ADMIN,
-    'clubpro': UserRole.CLUB_PRO,
-    'club pro': UserRole.CLUB_PRO,
-    'member': UserRole.MEMBER,
-    'ambassador': UserRole.AMBASSADOR,
-    'deactivated': UserRole.DEACTIVATED
-  };
-
-  return roleMap[normalized] || null;
-}
-
-// Check if user has admin privileges
-function isAdmin(user) {
-  if (!user || !user.role) return false;
-  return normalizeRole(user.role) === UserRole.ADMIN;
-}
-
-// Check if user has club pro privileges
-function isClubPro(user) {
-  if (!user || !user.role) return false;
-  return normalizeRole(user.role) === UserRole.CLUB_PRO;
-}
-
-// Check if user has admin or club pro privileges
-function isAdminOrClubPro(user) {
-  return isAdmin(user) || isClubPro(user);
-}
-
-// ========================================
-// Authorization Middleware
-// ========================================
-
-// Middleware to require admin role
-async function requireAdmin(req, res, next) {
-  try {
-    // req.user is already set by authenticateToken
-    const { rows: userRows } = await pool.query(
-      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-
-    if (userRows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-
-    const user = userRows[0];
-
-    if (!isAdmin(user)) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    // Attach full user data to request for use in route handlers
-    req.userDetails = user;
-    next();
-  } catch (error) {
-    console.error('Error in requireAdmin middleware:', error);
-    res.status(500).json({ error: 'Authorization check failed' });
-  }
-}
-
-// Middleware to require club pro or admin role
-async function requireClubProOrAdmin(req, res, next) {
-  try {
-    const { rows: userRows } = await pool.query(
-      'SELECT role, first_name, last_name, club FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-
-    if (userRows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-
-    const user = userRows[0];
-
-    if (!isAdminOrClubPro(user)) {
-      return res.status(403).json({ error: 'Club Pro or Admin access required' });
-    }
-
-    // Attach full user data to request
-    req.userDetails = user;
-    next();
-  } catch (error) {
-    console.error('Error in requireClubProOrAdmin middleware:', error);
-    res.status(500).json({ error: 'Authorization check failed' });
-  }
-}
-
 // Test route
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-// List tournaments (for tournaments page and management)
-app.get('/api/tournaments', async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT * FROM tournaments ORDER BY COALESCE(week_start_date, start_date) DESC NULLS LAST, id DESC`
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('Error listing tournaments:', err);
-    res.status(500).json({ error: 'Failed to list tournaments' });
-  }
-});
-
-// Available tournaments route (consolidated)
-app.get('/api/tournaments/available', async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT * FROM tournaments
-       WHERE (COALESCE(registration_open, false) = true OR status IN ('open','active'))
-       AND (registration_deadline IS NULL OR registration_deadline >= CURRENT_DATE)
-       ORDER BY COALESCE(week_start_date, start_date) DESC NULLS LAST, id DESC`
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching available tournaments:', err);
-    res.status(500).json({ error: 'Failed to fetch available tournaments' });
-  }
-});
-
-// Note: General tournament route moved to end of file to avoid conflicts with specific routes
-
-// Cleanup endpoint for testing data
-app.post('/api/cleanup-weekly-test-data', async (req, res) => {
-  try {
-    console.log('Starting cleanup of weekly test data for tournament 19...');
-    
-    // Delete old weekly leaderboard entries
-    const leaderboardResult = await pool.query(
-      'DELETE FROM weekly_leaderboards WHERE tournament_id = 19 AND week_start_date = $1',
-      ['2025-07-21']
-    );
-    console.log(`Deleted ${leaderboardResult.rowCount} weekly leaderboard entries`);
-    
-    // Delete old weekly matches
-    const matchesResult = await pool.query(
-      'DELETE FROM weekly_matches WHERE tournament_id = 19 AND week_start_date = $1',
-      ['2025-07-21']
-    );
-    console.log(`Deleted ${matchesResult.rowCount} weekly matches`);
-    
-    // Delete old weekly scorecards
-    const scorecardsResult = await pool.query(
-      'DELETE FROM weekly_scorecards WHERE tournament_id = 19 AND week_start_date = $1',
-      ['2025-07-21']
-    );
-    console.log(`Deleted ${scorecardsResult.rowCount} weekly scorecards`);
-    
-    res.json({ 
-      success: true, 
-      message: 'Cleanup completed successfully!',
-      deleted: {
-        leaderboardEntries: leaderboardResult.rowCount,
-        matches: matchesResult.rowCount,
-        scorecards: scorecardsResult.rowCount
-      }
-    });
-    
-  } catch (error) {
-    console.error('Error during cleanup:', error);
-    res.status(500).json({ error: 'Cleanup failed', details: error.message });
-  }
-});
-
-// Cleanup endpoint for current week corrupted data
-app.post('/api/cleanup-current-week-data', async (req, res) => {
-  try {
-    console.log('Starting cleanup of corrupted weekly data for tournament 19, week 2025-08-04...');
-    
-    // Delete corrupted weekly matches for the current week
-    const matchesResult = await pool.query(
-      'DELETE FROM weekly_matches WHERE tournament_id = 19 AND week_start_date = $1',
-      ['2025-08-04']
-    );
-    console.log(`Deleted ${matchesResult.rowCount} corrupted weekly matches`);
-    
-    // Delete weekly leaderboard entries for the current week (will be recalculated)
-    const leaderboardResult = await pool.query(
-      'DELETE FROM weekly_leaderboards WHERE tournament_id = 19 AND week_start_date = $1',
-      ['2025-08-04']
-    );
-    console.log(`Deleted ${leaderboardResult.rowCount} weekly leaderboard entries`);
-    
-    res.json({ 
-      success: true, 
-      message: 'Cleanup completed successfully! The weekly matches and leaderboard will be recalculated automatically.',
-      deleted: {
-        matches: matchesResult.rowCount,
-        leaderboardEntries: leaderboardResult.rowCount
-      }
-    });
-    
-  } catch (error) {
-    console.error('Error during cleanup:', error);
-    res.status(500).json({ error: 'Cleanup failed', details: error.message });
-  }
-});
-
-// Test endpoint to manually trigger calculateWeeklyMatches
-app.post('/api/test-calculate-matches', async (req, res) => {
-  try {
-    console.log('Manually testing calculateWeeklyMatches for tournament 19, week 2025-08-04...');
-    
-    // Clear the cache first
-    const cacheKey = getWeeklyMatchCacheKey(19, '2025-08-04');
-    weeklyMatchCache.delete(cacheKey);
-    console.log('Cleared cache for tournament 19, week 2025-08-04');
-    
-    // Manually call the function
-    await calculateWeeklyMatches(19, '2025-08-04');
-    
-    // Check what was created
-    const matchesResult = await pool.query(
-      'SELECT COUNT(*) as match_count FROM weekly_matches WHERE tournament_id = 19 AND week_start_date = $1',
-      ['2025-08-04']
-    );
-    
-    const sampleMatch = await pool.query(
-      'SELECT * FROM weekly_matches WHERE tournament_id = 19 AND week_start_date = $1 LIMIT 1',
-      ['2025-08-04']
-    );
-    
-    res.json({ 
-      success: true, 
-      message: 'calculateWeeklyMatches executed manually',
-      results: {
-        totalMatches: matchesResult.rows[0]?.match_count || 0,
-        sampleMatch: sampleMatch.rows[0] || null
-      }
-    });
-    
-  } catch (error) {
-    console.error('Error testing calculateWeeklyMatches:', error);
-    res.status(500).json({ error: 'Test failed', details: error.message });
-  }
 });
 
 // Database setup endpoint
@@ -517,95 +264,6 @@ app.get('/api/users', async (req, res) => {
   } catch (err) {
     console.error('Error fetching users:', err);
     res.status(500).json({ error: 'Failed to fetch users' });
-  }
-});
-
-// Create new user (admin only)
-app.post('/api/users', authenticateToken, async (req, res) => {
-  // Check if user is admin
-  if (req.user?.role?.toLowerCase() !== 'admin') {
-    return res.status(403).json({ error: 'Only admins can create users' });
-  }
-  
-  const { member_id, first_name, last_name, email_address, club, role, handicap } = req.body;
-  
-  // Validate required fields
-  if (!member_id || !first_name || !last_name || !email_address || !club) {
-    return res.status(400).json({ error: 'Missing required fields: member_id, first_name, last_name, email_address, club' });
-  }
-  
-  try {
-    // Check if user already exists
-    const existingUser = await pool.query('SELECT member_id FROM users WHERE member_id = $1 OR email_address = $2', [member_id, email_address]);
-    if (existingUser.rows.length > 0) {
-      return res.status(409).json({ error: 'User with this member_id or email already exists' });
-    }
-    
-    // Insert new user
-    const { rows } = await pool.query(
-      `INSERT INTO users (member_id, first_name, last_name, email_address, club, role, handicap) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [member_id, first_name, last_name, email_address, club, role || 'member', handicap || 0]
-    );
-    
-    res.status(201).json(transformUserData(rows[0]));
-  } catch (err) {
-    console.error('Error creating user:', err);
-    res.status(500).json({ error: 'Failed to create user' });
-  }
-});
-
-// Delete user (admin only)
-app.delete('/api/users/:id', authenticateToken, async (req, res) => {
-  // Check if user is admin
-  if (req.user?.role?.toLowerCase() !== 'admin') {
-    return res.status(403).json({ error: 'Only admins can delete users' });
-  }
-  
-  const { id } = req.params;
-  
-  try {
-    // Check if user exists
-    const existingUser = await pool.query('SELECT member_id, first_name, last_name FROM users WHERE member_id = $1', [id]);
-    if (existingUser.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    // Check for dependencies before deleting
-    const dependencies = await pool.query(`
-      SELECT 
-        (SELECT COUNT(*) FROM scorecards WHERE user_id = $1) as scorecards_count,
-        (SELECT COUNT(*) FROM participation WHERE user_member_id = $1) as participation_count,
-        (SELECT COUNT(*) FROM league_participants WHERE user_id = $1) as league_participants_count,
-        (SELECT COUNT(*) FROM registration_form_responses WHERE user_member_id = $1) as registration_responses_count,
-        (SELECT COUNT(*) FROM course_records WHERE user_id = $1) as course_records_count
-    `, [id]);
-    
-    const deps = dependencies.rows[0];
-    const totalDeps = parseInt(deps.scorecards_count) + parseInt(deps.participation_count) + 
-                     parseInt(deps.league_participants_count) + parseInt(deps.registration_responses_count) + 
-                     parseInt(deps.course_records_count);
-    
-    if (totalDeps > 0) {
-      return res.status(400).json({ 
-        error: 'Cannot delete user. User has associated data that must be removed first.',
-        details: {
-          scorecards: parseInt(deps.scorecards_count),
-          tournament_participation: parseInt(deps.participation_count),
-          league_participation: parseInt(deps.league_participants_count),
-          registration_responses: parseInt(deps.registration_responses_count),
-          course_records: parseInt(deps.course_records_count)
-        }
-      });
-    }
-    
-    // Delete the user
-    await pool.query('DELETE FROM users WHERE member_id = $1', [id]);
-    
-    res.json({ message: 'User deleted successfully' });
-  } catch (err) {
-    console.error('Error deleting user:', err);
-    res.status(500).json({ error: 'Failed to delete user' });
   }
 });
 
@@ -931,6 +589,7 @@ app.get('/api/leaderboard', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch leaderboard' });
   }
 });
+
 // Get tournament settings
 app.get('/api/settings', async (req, res) => {
   try {
@@ -1136,12 +795,6 @@ app.post('/api/auth/login', async (req, res) => {
     if (!user || !user.password_hash) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    
-    // Check if user is deactivated
-    if (user.role === 'Deactivated') {
-      return res.status(403).json({ error: 'Account has been deactivated. Please contact an administrator.' });
-    }
-    
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -1304,10 +957,6 @@ app.post('/api/tournaments', async (req, res) => {
     location,
     course,
     course_id,
-    gspro_course,
-    gspro_course_id,
-    trackman_course,
-    trackman_course_id,
     rules,
     notes, 
     type,
@@ -1324,48 +973,31 @@ app.post('/api/tournaments', async (req, res) => {
     firmness,
     wind,
     handicap_enabled,
-    has_registration_form,
-    registration_form_template,
-    registration_form_data,
-    payment_organizer,
-    payment_organizer_name,
-    payment_venmo_url,
     created_by
   } = req.body;
   
   if (!name) return res.status(400).json({ error: 'Name is required' });
   
   try {
-    // Calculate the week start date (Monday) from the tournament start date
-    const weekStartDate = start_date ? getWeekStartFromDate(start_date) : null;
-    
     const { rows } = await pool.query(
       `INSERT INTO tournaments (
         name, description, start_date, end_date, registration_deadline,
         max_participants, min_participants, tournament_format, status,
-        registration_open, entry_fee, location, course, course_id, gspro_course, gspro_course_id, 
-        trackman_course, trackman_course_id, rules, notes, type, 
+        registration_open, entry_fee, location, course, course_id, rules, notes, type, 
         club_restriction, team_size, hole_configuration, tee, pins, putting_gimme, elevation,
-        stimp, mulligan, game_play, firmness, wind, handicap_enabled, has_registration_form,
-        registration_form_template, registration_form_data, payment_organizer, payment_organizer_name,
-        payment_venmo_url, created_by, week_start_date
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42) RETURNING *`,
+        stimp, mulligan, game_play, firmness, wind, handicap_enabled, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31) RETURNING *`,
       [
         name, description, start_date, end_date, registration_deadline,
         max_participants, min_participants || 2, tournament_format || 'match_play', 
         status || 'draft', registration_open !== false, entry_fee || 0,
-        location, course, course_id, gspro_course, gspro_course_id, trackman_course, trackman_course_id,
-        rules, notes, type || 'tournament', 
+        location, course, course_id, rules, notes, type || 'tournament', 
         club_restriction || 'open', team_size, hole_configuration || '18', tee || 'Red',
         pins || 'Friday', putting_gimme || '8', elevation || 'Course', stimp || '11',
         mulligan || 'No', game_play || 'Force Realistic', firmness || 'Normal',
-        wind || 'None', handicap_enabled || false, has_registration_form || false,
-        registration_form_template, registration_form_data, payment_organizer, payment_organizer_name,
-        payment_venmo_url, created_by, weekStartDate
+        wind || 'None', handicap_enabled || false, created_by
       ]
     );
-    
-    console.log('Tournament created with week_start_date:', weekStartDate);
     res.json(rows[0]);
   } catch (err) {
     console.error('Error creating tournament:', err);
@@ -1373,7 +1005,16 @@ app.post('/api/tournaments', async (req, res) => {
   }
 });
 
-// Note: Duplicate endpoint removed - consolidated with the main tournaments endpoint above
+// Get all tournaments
+app.get('/api/tournaments', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM tournaments ORDER BY start_date DESC, id DESC');
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching tournaments:', err);
+    res.status(500).json({ error: 'Failed to fetch tournaments' });
+  }
+});
 
 // Update a tournament
 app.put('/api/tournaments/:id', async (req, res) => {
@@ -1393,10 +1034,6 @@ app.put('/api/tournaments/:id', async (req, res) => {
     location,
     course,
     course_id,
-    gspro_course,
-    gspro_course_id,
-    trackman_course,
-    trackman_course_id,
     rules,
     notes, 
     type,
@@ -1413,42 +1050,27 @@ app.put('/api/tournaments/:id', async (req, res) => {
     firmness,
     wind,
     handicap_enabled,
-    has_registration_form,
-    registration_form_template,
-    registration_form_data,
-    payment_organizer,
-    payment_organizer_name,
-    payment_venmo_url,
     created_by
   } = req.body;
   
   try {
-    // Calculate the week start date (Monday) from the tournament start date
-    const weekStartDate = start_date ? getWeekStartFromDate(start_date) : null;
-    
     const { rows } = await pool.query(
       `UPDATE tournaments SET 
         name = $1, description = $2, start_date = $3, end_date = $4, 
         registration_deadline = $5, max_participants = $6, min_participants = $7,
         tournament_format = $8, status = $9, registration_open = $10,
-        entry_fee = $11, location = $12, course = $13, course_id = $14, 
-        gspro_course = $15, gspro_course_id = $16, trackman_course = $17, trackman_course_id = $18,
-        rules = $19, notes = $20, type = $21, club_restriction = $22, team_size = $23, hole_configuration = $24,
-        tee = $25, pins = $26, putting_gimme = $27, elevation = $28, stimp = $29,
-        mulligan = $30, game_play = $31, firmness = $32, wind = $33, handicap_enabled = $34,
-        has_registration_form = $35, registration_form_template = $36, registration_form_data = $37,
-        payment_organizer = $38, payment_organizer_name = $39, payment_venmo_url = $40,
-        created_by = $41, week_start_date = $42, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $43 RETURNING *`,
+        entry_fee = $11, location = $12, course = $13, course_id = $14, rules = $15,
+        notes = $16, type = $17, club_restriction = $18, team_size = $19, hole_configuration = $20,
+        tee = $21, pins = $22, putting_gimme = $23, elevation = $24, stimp = $25,
+        mulligan = $26, game_play = $27, firmness = $28, wind = $29, handicap_enabled = $30,
+        created_by = $31, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $32 RETURNING *`,
       [
         name, description, start_date, end_date, registration_deadline,
         max_participants, min_participants, tournament_format, status,
-        registration_open, entry_fee, location, course, course_id, 
-        gspro_course, gspro_course_id, trackman_course, trackman_course_id,
-        rules, notes, type, club_restriction, team_size, hole_configuration, tee, pins, putting_gimme, elevation,
-        stimp, mulligan, game_play, firmness, wind, handicap_enabled, has_registration_form,
-        registration_form_template, registration_form_data, payment_organizer, payment_organizer_name,
-        payment_venmo_url, created_by, weekStartDate, id
+        registration_open, entry_fee, location, course, course_id, rules, notes, type,
+        club_restriction, team_size, hole_configuration, tee, pins, putting_gimme, elevation,
+        stimp, mulligan, game_play, firmness, wind, handicap_enabled, created_by, id
       ]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Tournament not found' });
@@ -1477,12 +1099,9 @@ app.get('/api/tournaments/:id/participants', async (req, res) => {
   const { id } = req.params;
   try {
     const { rows } = await pool.query(
-      `SELECT p.*, u.first_name, u.last_name, u.email_address, u.club, u.role,
-              u.handicap, u.sim_handicap, u.grass_handicap,
-              rfr.form_data as registration_form_data
+      `SELECT p.*, u.first_name, u.last_name, u.email_address, u.club, u.role 
        FROM participation p 
        JOIN users u ON p.user_member_id = u.member_id 
-       LEFT JOIN registration_form_responses rfr ON p.tournament_id = rfr.tournament_id AND p.user_member_id = rfr.user_member_id
        WHERE p.tournament_id = $1 
        ORDER BY u.last_name, u.first_name`,
       [id]
@@ -1491,30 +1110,6 @@ app.get('/api/tournaments/:id/participants', async (req, res) => {
   } catch (err) {
     console.error('Error fetching tournament participants:', err);
     res.status(500).json({ error: 'Failed to fetch tournament participants' });
-  }
-});
-
-// Get tournament weekly scorecards
-app.get('/api/tournaments/:id/weekly-scorecards', async (req, res) => {
-  const { id } = req.params;
-  const { override_week } = req.query;
-  
-  try {
-    const period = await resolveTournamentPeriod(id);
-    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
-    
-    const { rows } = await pool.query(
-      `SELECT wsc.*, u.first_name, u.last_name, u.email_address, u.club
-       FROM weekly_scorecards wsc
-       JOIN users u ON wsc.user_id = u.member_id
-       WHERE wsc.tournament_id = $1 AND wsc.week_start_date = $2
-       ORDER BY u.last_name, u.first_name`,
-      [id, weekDate]
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching tournament weekly scorecards:', err);
-    res.status(500).json({ error: 'Failed to fetch tournament weekly scorecards' });
   }
 });
 
@@ -1528,16 +1123,6 @@ app.post('/api/tournaments/:id/register', async (req, res) => {
   }
   
   try {
-    // Check if user exists
-    const userCheck = await pool.query(
-      'SELECT member_id FROM users WHERE member_id = $1',
-      [user_id]
-    );
-    
-    if (userCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
     // Get tournament details to check registration rules
     const tournamentResult = await pool.query(
       'SELECT * FROM tournaments WHERE id = $1',
@@ -1561,17 +1146,8 @@ app.post('/api/tournaments/:id/register', async (req, res) => {
     }
     
     // Check registration deadline
-    if (tournament.registration_deadline) {
-      const deadlineDate = new Date(tournament.registration_deadline);
-      const currentDate = new Date();
-      
-      // Compare dates at day level (ignore time)
-      const deadlineDay = new Date(deadlineDate.getFullYear(), deadlineDate.getMonth(), deadlineDate.getDate());
-      const currentDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
-      
-      if (currentDay > deadlineDay) {
-        return res.status(400).json({ error: 'Registration deadline has passed' });
-      }
+    if (tournament.registration_deadline && new Date(tournament.registration_deadline) < new Date()) {
+      return res.status(400).json({ error: 'Registration deadline has passed' });
     }
     
     // Check if user is already registered
@@ -1613,130 +1189,7 @@ app.post('/api/tournaments/:id/register', async (req, res) => {
     });
   } catch (err) {
     console.error('Error registering user for tournament:', err);
-    console.error('Error code:', err.code);
-    console.error('Error detail:', err.detail);
-    if (err.code === '23505') {
-      res.status(409).json({ error: 'User is already registered for this tournament' });
-    } else {
-      res.status(500).json({ error: 'Failed to register user for tournament' });
-    }
-  }
-});
-// Register user for tournament with form data
-app.post('/api/tournaments/:id/register-with-form', async (req, res) => {
-  const { id } = req.params;
-  const { user_id, form_data } = req.body;
-  
-  if (!user_id) {
-    return res.status(400).json({ error: 'User ID is required' });
-  }
-  
-  try {
-    // Check if user exists
-    const userCheck = await pool.query(
-      'SELECT member_id FROM users WHERE member_id = $1',
-      [user_id]
-    );
-    
-    if (userCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    // Get tournament details to check registration rules
-    const tournamentResult = await pool.query(
-      'SELECT * FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    
-    // Check if tournament has registration form enabled
-    if (!tournament.has_registration_form) {
-      return res.status(400).json({ error: 'Tournament does not require registration form' });
-    }
-    
-    // Check if tournament is accepting registrations
-    if (tournament.status === 'completed' || tournament.status === 'cancelled') {
-      return res.status(400).json({ error: 'Tournament is not accepting registrations' });
-    }
-    
-    // Check if registration is open
-    if (tournament.registration_open === false) {
-      return res.status(400).json({ error: 'Registration is closed for this tournament' });
-    }
-    
-    // Check registration deadline
-    if (tournament.registration_deadline) {
-      const deadlineDate = new Date(tournament.registration_deadline);
-      const currentDate = new Date();
-      
-      // Compare dates at day level (ignore time)
-      const deadlineDay = new Date(deadlineDate.getFullYear(), deadlineDate.getMonth(), deadlineDate.getDate());
-      const currentDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
-      
-      if (currentDay > deadlineDay) {
-        return res.status(400).json({ error: 'Registration deadline has passed' });
-      }
-    }
-    
-    // Check if user is already registered
-    const existingCheck = await pool.query(
-      'SELECT * FROM participation WHERE tournament_id = $1 AND user_member_id = $2',
-      [id, user_id]
-    );
-    
-    if (existingCheck.rows.length > 0) {
-      return res.status(409).json({ error: 'User is already registered for this tournament' });
-    }
-    
-    // Check participant limits
-    if (tournament.max_participants) {
-      const participantCount = await pool.query(
-        'SELECT COUNT(*) as count FROM participation WHERE tournament_id = $1',
-        [id]
-      );
-      
-      if (parseInt(participantCount.rows[0].count) >= tournament.max_participants) {
-        return res.status(400).json({ error: 'Tournament has reached maximum participant limit' });
-      }
-    }
-    
-    // Register user for tournament
-    const { rows } = await pool.query(
-      'INSERT INTO participation (tournament_id, user_member_id) VALUES ($1, $2) RETURNING *',
-      [id, user_id]
-    );
-    
-    // Store registration form data
-    await pool.query(
-      'INSERT INTO registration_form_responses (tournament_id, user_member_id, form_data) VALUES ($1, $2, $3)',
-      [id, user_id, JSON.stringify(form_data)]
-    );
-    
-    // Get user details for response
-    const userResult = await pool.query(
-      'SELECT member_id, first_name, last_name, email_address, club, role FROM users WHERE member_id = $1',
-      [user_id]
-    );
-    
-    res.json({
-      ...rows[0],
-      user: userResult.rows[0],
-      form_data: form_data
-    });
-  } catch (err) {
-    console.error('Error registering user for tournament with form:', err);
-    console.error('Error code:', err.code);
-    console.error('Error detail:', err.detail);
-    if (err.code === '23505') {
-      res.status(409).json({ error: 'User is already registered for this tournament' });
-    } else {
-      res.status(500).json({ error: 'Failed to register user for tournament' });
-    }
+    res.status(500).json({ error: 'Failed to register user for tournament' });
   }
 });
 
@@ -1745,62 +1198,19 @@ app.delete('/api/tournaments/:id/unregister/:userId', async (req, res) => {
   const { id, userId } = req.params;
   
   try {
-    // Start a transaction to ensure both operations succeed or fail together
-    const client = await pool.connect();
+    const { rows } = await pool.query(
+      'DELETE FROM participation WHERE tournament_id = $1 AND user_member_id = $2 RETURNING *',
+      [id, userId]
+    );
     
-    try {
-      await client.query('BEGIN');
-      
-      // Remove user from tournament participation
-      const participationResult = await client.query(
-        'DELETE FROM participation WHERE tournament_id = $1 AND user_member_id = $2 RETURNING *',
-        [id, userId]
-      );
-      
-      if (participationResult.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'Registration not found' });
-      }
-      
-      // Also remove any registration form responses
-      await client.query(
-        'DELETE FROM registration_form_responses WHERE tournament_id = $1 AND user_member_id = $2',
-        [id, userId]
-      );
-      
-      await client.query('COMMIT');
-      
-      res.json({ success: true, message: 'User unregistered successfully and form data removed' });
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Registration not found' });
     }
+    
+    res.json({ success: true, message: 'User unregistered successfully' });
   } catch (err) {
     console.error('Error unregistering user from tournament:', err);
     res.status(500).json({ error: 'Failed to unregister user from tournament' });
-  }
-});
-
-// Get registration form responses for a tournament
-app.get('/api/tournaments/:id/registration-responses', async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    const { rows } = await pool.query(
-      `SELECT rfr.*, u.first_name, u.last_name, u.email_address, u.club
-       FROM registration_form_responses rfr
-       JOIN users u ON rfr.user_member_id = u.member_id
-       WHERE rfr.tournament_id = $1
-       ORDER BY rfr.submitted_at DESC`,
-      [id]
-    );
-    
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching registration form responses:', err);
-    res.status(500).json({ error: 'Failed to fetch registration form responses' });
   }
 });
 
@@ -1870,33 +1280,14 @@ app.post('/api/tournaments/:id/check-in', async (req, res) => {
       [id, user_id]
     );
     
-    let result;
-    
     if (existingCheck.rows.length > 0) {
-      const existingRecord = existingCheck.rows[0];
-      
-      // If user is already checked in, return error
-      if (existingRecord.status === 'checked_in') {
-        return res.status(409).json({ error: 'User is already checked in for this tournament' });
-      }
-      
-      // If user was checked out, re-check them in
-      if (existingRecord.status === 'checked_out') {
-        result = await pool.query(
-          `UPDATE check_ins 
-           SET status = 'checked_in', check_out_time = NULL, notes = $1
-           WHERE tournament_id = $2 AND user_member_id = $3 
-           RETURNING *`,
-          [notes || existingRecord.notes, id, user_id]
-        );
-      }
-    } else {
-      // Create new check-in record
-      result = await pool.query(
-        'INSERT INTO check_ins (tournament_id, user_member_id, notes) VALUES ($1, $2, $3) RETURNING *',
-        [id, user_id, notes || null]
-      );
+      return res.status(409).json({ error: 'User is already checked in for this tournament' });
     }
+    
+    const { rows } = await pool.query(
+      'INSERT INTO check_ins (tournament_id, user_member_id, notes) VALUES ($1, $2, $3) RETURNING *',
+      [id, user_id, notes || null]
+    );
     
     // Get user details for response
     const userResult = await pool.query(
@@ -1905,7 +1296,7 @@ app.post('/api/tournaments/:id/check-in', async (req, res) => {
     );
     
     res.json({
-      ...result.rows[0],
+      ...rows[0],
       user: userResult.rows[0]
     });
   } catch (err) {
@@ -1999,122 +1390,6 @@ app.get('/api/tournaments/:id/stats', async (req, res) => {
     console.log('Tournament matches table ready.');
   } catch (migrationErr) {
     console.log('Migration note:', migrationErr.message);
-  }
-})();
-
-// Create new weekly scoring system tables
-(async () => {
-  try {
-    // Create weekly_scorecards table
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS weekly_scorecards (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(member_id) ON DELETE CASCADE,
-        tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
-        week_start_date DATE NOT NULL,
-        hole_scores JSONB NOT NULL,
-        total_score INTEGER NOT NULL,
-        is_live BOOLEAN DEFAULT false,
-        group_id VARCHAR(50),
-        submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(user_id, tournament_id, week_start_date)
-      )
-    `);
-    console.log('Weekly scorecards table ready.');
-
-    // Create weekly_matches table
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS weekly_matches (
-        id SERIAL PRIMARY KEY,
-        tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
-        week_start_date DATE NOT NULL,
-        player1_id INTEGER REFERENCES users(member_id) ON DELETE CASCADE,
-        player2_id INTEGER REFERENCES users(member_id) ON DELETE CASCADE,
-        player1_scorecard_id INTEGER REFERENCES weekly_scorecards(id) ON DELETE CASCADE,
-        player2_scorecard_id INTEGER REFERENCES weekly_scorecards(id) ON DELETE CASCADE,
-        
-        hole_points_player1 DECIMAL(5,2) DEFAULT 0,
-        hole_points_player2 DECIMAL(5,2) DEFAULT 0,
-        
-        round1_points_player1 DECIMAL(5,2) DEFAULT 0,
-        round1_points_player2 DECIMAL(5,2) DEFAULT 0,
-        round2_points_player1 DECIMAL(5,2) DEFAULT 0,
-        round2_points_player2 DECIMAL(5,2) DEFAULT 0,
-        round3_points_player1 DECIMAL(5,2) DEFAULT 0,
-        round3_points_player2 DECIMAL(5,2) DEFAULT 0,
-        
-        match_winner_id INTEGER REFERENCES users(member_id),
-        match_live_bonus_player1 DECIMAL(5,2) DEFAULT 0,
-        match_live_bonus_player2 DECIMAL(5,2) DEFAULT 0,
-        
-        total_points_player1 DECIMAL(5,2) DEFAULT 0,
-        total_points_player2 DECIMAL(5,2) DEFAULT 0,
-        
-        player1_scores JSONB,
-        player2_scores JSONB,
-        
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(tournament_id, week_start_date, player1_id, player2_id)
-      )
-    `);
-    console.log('Weekly matches table ready.');
-
-    // Add missing columns to weekly_matches table if they don't exist
-    await pool.query(`
-      ALTER TABLE weekly_matches 
-      ADD COLUMN IF NOT EXISTS player1_scores JSONB,
-      ADD COLUMN IF NOT EXISTS player2_scores JSONB
-    `);
-    console.log('Weekly matches table columns updated.');
-
-    // Create weekly_leaderboards table
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS weekly_leaderboards (
-        id SERIAL PRIMARY KEY,
-        tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
-        week_start_date DATE NOT NULL,
-        user_id INTEGER REFERENCES users(member_id) ON DELETE CASCADE,
-        
-        total_hole_points DECIMAL(5,2) DEFAULT 0,
-        total_round_points DECIMAL(5,2) DEFAULT 0,
-        total_match_bonus DECIMAL(5,2) DEFAULT 0,
-        total_score DECIMAL(5,2) DEFAULT 0,
-        
-        matches_played INTEGER DEFAULT 0,
-        matches_won INTEGER DEFAULT 0,
-        matches_tied INTEGER DEFAULT 0,
-        matches_lost INTEGER DEFAULT 0,
-        
-        live_matches_played INTEGER DEFAULT 0,
-        
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(tournament_id, week_start_date, user_id)
-      )
-    `);
-    console.log('Weekly leaderboards table ready.');
-
-    // Add scoring configuration to tournaments table
-    await pool.query(`
-      ALTER TABLE tournaments 
-      ADD COLUMN IF NOT EXISTS scoring_format VARCHAR(50) DEFAULT 'traditional',
-      ADD COLUMN IF NOT EXISTS live_match_bonus_enabled BOOLEAN DEFAULT true,
-      ADD COLUMN IF NOT EXISTS max_live_matches_per_week INTEGER DEFAULT 3
-    `);
-    console.log('Tournament scoring configuration columns added.');
-
-    // Create indexes for performance
-    await pool.query(`
-      CREATE INDEX IF NOT EXISTS idx_weekly_scorecards_tournament_week ON weekly_scorecards(tournament_id, week_start_date);
-      CREATE INDEX IF NOT EXISTS idx_weekly_scorecards_user_week ON weekly_scorecards(user_id, week_start_date);
-      CREATE INDEX IF NOT EXISTS idx_weekly_matches_tournament_week ON weekly_matches(tournament_id, week_start_date);
-      CREATE INDEX IF NOT EXISTS idx_weekly_leaderboards_tournament_week ON weekly_leaderboards(tournament_id, week_start_date);
-    `);
-    console.log('Weekly scoring system indexes created.');
-
-  } catch (migrationErr) {
-    console.log('Weekly scoring system migration note:', migrationErr.message);
   }
 })();
 
@@ -2238,66 +1513,6 @@ app.post('/api/tournaments/:id/generate-matches', async (req, res) => {
   }
 });
 
-// Create tournament match
-app.post('/api/tournaments/:id/matches', async (req, res) => {
-  const { id } = req.params;
-  const { player1_id, player2_id, status = 'pending', scores, winner_id } = req.body;
-  
-  console.log('Creating tournament match - Tournament ID:', id);
-  console.log('Request body:', req.body);
-  console.log('Parsed data:', { player1_id, player2_id, status, scores, winner_id });
-  
-  try {
-    // Validate that the tournament exists
-    const tournamentCheck = await pool.query(
-      'SELECT id FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentCheck.rows.length === 0) {
-      console.log('Tournament not found:', id);
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    console.log('Tournament found, getting next match number...');
-    
-    // Get the next match number for this tournament
-    const matchNumberResult = await pool.query(
-      'SELECT COALESCE(MAX(match_number), 0) + 1 as next_match_number FROM tournament_matches WHERE tournament_id = $1',
-      [id]
-    );
-    const nextMatchNumber = matchNumberResult.rows[0].next_match_number;
-    
-    console.log('Next match number:', nextMatchNumber);
-    console.log('About to insert match with data:', {
-      tournament_id: id,
-      player1_id,
-      player2_id,
-      match_number: nextMatchNumber,
-      status,
-      scores: JSON.stringify(scores),
-      winner_id
-    });
-    
-    // Create the match
-    const { rows } = await pool.query(
-      `INSERT INTO tournament_matches 
-       (tournament_id, player1_id, player2_id, match_number, status, scores, winner_id) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7) 
-       RETURNING *`,
-      [id, player1_id, player2_id, nextMatchNumber, status, scores, winner_id]
-    );
-    
-    console.log('Match created successfully:', rows[0]);
-    res.json(rows[0]);
-  } catch (err) {
-    console.error('Error creating tournament match:', err);
-    console.error('Error details:', err.message);
-    console.error('Error stack:', err.stack);
-    res.status(500).json({ error: 'Failed to create tournament match', details: err.message });
-  }
-});
-
 // Update match result
 app.put('/api/tournaments/:id/matches/:matchId', async (req, res) => {
   const { id, matchId } = req.params;
@@ -2342,78 +1557,8 @@ app.put('/api/tournaments/:id/matches/:matchId', async (req, res) => {
   }
 });
 
-// Clean up old cache entries (older than 1 hour)
-setInterval(() => {
-  const oneHourAgo = Date.now() - (60 * 60 * 1000);
-  for (const [key, value] of weeklyMatchCache.entries()) {
-    if (value.timestamp < oneHourAgo) {
-      weeklyMatchCache.delete(key);
-    }
-  }
-}, 30 * 60 * 1000); // Clean up every 30 minutes
+// ===== TEAM MANAGEMENT ENDPOINTS =====
 
-// Function to clean up duplicate matches
-async function cleanupDuplicateMatches(tournamentId) {
-  try {
-    console.log(`=== CLEANING UP DUPLICATE MATCHES ===`);
-    console.log(`Tournament ID: ${tournamentId}`);
-    
-    // Find duplicate matches (same tournament, week, and player pair)
-    const duplicateResult = await pool.query(
-      `SELECT tournament_id, week_start_date, player1_id, player2_id, COUNT(*) as match_count
-       FROM weekly_matches 
-       WHERE tournament_id = $1
-       GROUP BY tournament_id, week_start_date, player1_id, player2_id
-       HAVING COUNT(*) > 1
-       ORDER BY week_start_date, player1_id, player2_id`,
-      [tournamentId]
-    );
-    
-    if (duplicateResult.rows.length === 0) {
-      console.log('No duplicate matches found');
-      return;
-    }
-    
-    console.log(`Found ${duplicateResult.rows.length} duplicate match groups`);
-    
-    for (const duplicate of duplicateResult.rows) {
-      console.log(`Processing duplicates for tournament ${duplicate.tournament_id}, week ${duplicate.week_start_date}, players ${duplicate.player1_id} vs ${duplicate.player2_id}`);
-      
-      // Get all matches for this group, ordered by creation time
-      const matchesResult = await pool.query(
-        `SELECT id, created_at 
-         FROM weekly_matches 
-         WHERE tournament_id = $1 AND week_start_date = $2 
-         AND player1_id = $3 AND player2_id = $4
-         ORDER BY created_at ASC`,
-        [duplicate.tournament_id, duplicate.week_start_date, duplicate.player1_id, duplicate.player2_id]
-      );
-      
-      const matches = matchesResult.rows;
-      console.log(`Found ${matches.length} matches for this group`);
-      
-      // Keep the first (oldest) match, delete the rest
-      if (matches.length > 1) {
-        const matchesToDelete = matches.slice(1); // All except the first
-        const deleteIds = matchesToDelete.map(m => m.id);
-        
-        console.log(`Keeping match ID ${matches[0].id}, deleting IDs: ${deleteIds.join(', ')}`);
-        
-        const deleteResult = await pool.query(
-          `DELETE FROM weekly_matches WHERE id = ANY($1)`,
-          [deleteIds]
-        );
-        
-        console.log(`Deleted ${deleteResult.rowCount} duplicate matches`);
-      }
-    }
-    
-    console.log(`=== COMPLETED DUPLICATE MATCH CLEANUP ===`);
-    
-  } catch (err) {
-    console.error('Error cleaning up duplicate matches:', err);
-  }
-}
 // Create a new team for a tournament
 app.post('/api/tournaments/:id/teams', async (req, res) => {
   const { id } = req.params;
@@ -2529,45 +1674,43 @@ app.get('/api/tournaments/:id/teams', async (req, res) => {
   const { id } = req.params;
   
   try {
-    // Get teams with captain information and all team members in a single optimized query
-    const { rows } = await pool.query(
-      `WITH teams_data AS (
-        SELECT 
-          tt.*,
-          captain.first_name as captain_first_name,
-          captain.last_name as captain_last_name,
-          captain.club as captain_club
-         FROM tournament_teams tt
-         JOIN users captain ON tt.captain_id = captain.member_id
-         WHERE tt.tournament_id = $1
-       ),
-       team_members_data AS (
-         SELECT 
-           tm.team_id,
-           json_agg(
-             json_build_object(
-               'user_member_id', tm.user_member_id,
-               'first_name', u.first_name,
-               'last_name', u.last_name,
-               'club', u.club,
-               'is_captain', tm.is_captain
-             ) ORDER BY tm.is_captain DESC, u.last_name ASC, u.first_name ASC
-           ) as players
-         FROM team_members tm
-         JOIN users u ON tm.user_member_id = u.member_id
-         WHERE tm.tournament_id = $1
-         GROUP BY tm.team_id
-       )
-       SELECT 
-         td.*,
-         COALESCE(tmd.players, '[]'::json) as players
-       FROM teams_data td
-       LEFT JOIN team_members_data tmd ON td.id = tmd.team_id
-       ORDER BY td.name`,
+    // Get teams with captain information
+    const teamsResult = await pool.query(
+      `SELECT 
+        tt.*,
+        u.first_name as captain_first_name,
+        u.last_name as captain_last_name,
+        u.club as captain_club
+       FROM tournament_teams tt
+       JOIN users u ON tt.captain_id = u.member_id
+       WHERE tt.tournament_id = $1
+       ORDER BY tt.name`,
       [id]
     );
     
-    res.json(rows);
+    // Get team members for each team
+    const teams = await Promise.all(teamsResult.rows.map(async (team) => {
+      const membersResult = await pool.query(
+        `SELECT 
+          tm.user_member_id,
+          u.first_name,
+          u.last_name,
+          u.club,
+          tm.is_captain
+         FROM team_members tm
+         JOIN users u ON tm.user_member_id = u.member_id
+         WHERE tm.team_id = $1 AND tm.is_captain = false
+         ORDER BY u.last_name, u.first_name`,
+        [team.id]
+      );
+      
+      return {
+        ...team,
+        players: membersResult.rows
+      };
+    }));
+    
+    res.json(teams);
   } catch (err) {
     console.error('Error fetching teams:', err);
     res.status(500).json({ error: 'Failed to fetch teams' });
@@ -2637,44 +1780,38 @@ app.put('/api/tournaments/:id/teams/:teamId', async (req, res) => {
       }
     }
     
-    // Get updated team data with all team members in a single optimized query
+    // Get updated team data
     const updatedTeamResult = await pool.query(
-      `WITH team_data AS (
-        SELECT 
-          tt.*,
-          captain.first_name as captain_first_name,
-          captain.last_name as captain_last_name,
-          captain.club as captain_club
-         FROM tournament_teams tt
-         JOIN users captain ON tt.captain_id = captain.member_id
-         WHERE tt.id = $1
-       ),
-       team_members_data AS (
-         SELECT 
-           tm.team_id,
-           json_agg(
-             json_build_object(
-               'user_member_id', tm.user_member_id,
-               'first_name', u.first_name,
-               'last_name', u.last_name,
-               'club', u.club,
-               'is_captain', tm.is_captain
-             ) ORDER BY tm.is_captain DESC, u.last_name ASC, u.first_name ASC
-           ) as players
-         FROM team_members tm
-         JOIN users u ON tm.user_member_id = u.member_id
-         WHERE tm.team_id = $1
-         GROUP BY tm.team_id
-       )
-       SELECT 
-         td.*,
-         COALESCE(tmd.players, '[]'::json) as players
-       FROM team_data td
-       LEFT JOIN team_members_data tmd ON td.id = tmd.team_id`,
+      `SELECT 
+        tt.*,
+        u.first_name as captain_first_name,
+        u.last_name as captain_last_name,
+        u.club as captain_club
+       FROM tournament_teams tt
+       JOIN users u ON tt.captain_id = u.member_id
+       WHERE tt.id = $1`,
       [teamId]
     );
     
-    const updatedTeam = updatedTeamResult.rows[0];
+    // Get updated team members
+    const membersResult = await pool.query(
+      `SELECT 
+        tm.user_member_id,
+        u.first_name,
+        u.last_name,
+        u.club,
+        tm.is_captain
+       FROM team_members tm
+       JOIN users u ON tm.user_member_id = u.member_id
+       WHERE tm.team_id = $1 AND tm.is_captain = false
+       ORDER BY u.last_name, u.first_name`,
+      [teamId]
+    );
+    
+    const updatedTeam = {
+      ...updatedTeamResult.rows[0],
+      players: membersResult.rows
+    };
     
     res.json(updatedTeam);
   } catch (err) {
@@ -2811,51 +1948,49 @@ app.get('/api/tournaments/:id/team-scores', async (req, res) => {
   const { id } = req.params;
   
   try {
-    // Get team scores with all team members in a single optimized query
     const { rows } = await pool.query(
-      `WITH team_scores AS (
-        SELECT 
-          tts.*,
-          tt.name as team_name,
-          captain.first_name as captain_first_name,
-          captain.last_name as captain_last_name,
-          captain.club as captain_club,
-          submitter.first_name as submitted_by_first_name,
-          submitter.last_name as submitted_by_last_name
-         FROM tournament_team_scores tts
-         JOIN tournament_teams tt ON tts.team_id = tt.id
-         JOIN users captain ON tt.captain_id = captain.member_id
-         JOIN users submitter ON tts.submitted_by = submitter.member_id
-         WHERE tts.tournament_id = $1
-       ),
-       team_members_data AS (
-         SELECT 
-           tm.team_id,
-           tm.tournament_id,
-           json_agg(
-             json_build_object(
-               'user_member_id', tm.user_member_id,
-               'first_name', u.first_name,
-               'last_name', u.last_name,
-               'club', u.club,
-               'is_captain', tm.is_captain
-             ) ORDER BY tm.is_captain DESC, u.first_name ASC
-           ) as players
-         FROM team_members tm
-         JOIN users u ON tm.user_member_id = u.member_id
-         WHERE tm.tournament_id = $1
-         GROUP BY tm.team_id, tm.tournament_id
-       )
-       SELECT 
-         ts.*,
-         COALESCE(tmd.players, '[]'::json) as players
-       FROM team_scores ts
-       LEFT JOIN team_members_data tmd ON ts.team_id = tmd.team_id
-       ORDER BY ts.total_score ASC, ts.submitted_at ASC`,
+      `SELECT 
+        tts.*,
+        tt.name as team_name,
+        captain.first_name as captain_first_name,
+        captain.last_name as captain_last_name,
+        captain.club as captain_club,
+        submitter.first_name as submitted_by_first_name,
+        submitter.last_name as submitted_by_last_name
+       FROM tournament_team_scores tts
+       JOIN tournament_teams tt ON tts.team_id = tt.id
+       JOIN users captain ON tt.captain_id = captain.member_id
+       JOIN users submitter ON tts.submitted_by = submitter.member_id
+       WHERE tts.tournament_id = $1
+       ORDER BY tts.total_score ASC, tts.submitted_at ASC`,
       [id]
     );
     
-    res.json(rows);
+    // For each team score, fetch the team members
+    const teamScoresWithPlayers = await Promise.all(
+      rows.map(async (score) => {
+        const teamMembersResult = await pool.query(
+          `SELECT 
+            tm.user_member_id,
+            u.first_name,
+            u.last_name,
+            u.club,
+            tm.is_captain
+           FROM team_members tm
+           JOIN users u ON tm.user_member_id = u.member_id
+           WHERE tm.team_id = $1 AND tm.tournament_id = $2
+           ORDER BY tm.is_captain DESC, u.first_name ASC`,
+          [score.team_id, id]
+        );
+        
+        return {
+          ...score,
+          players: teamMembersResult.rows
+        };
+      })
+    );
+    
+    res.json(teamScoresWithPlayers);
   } catch (err) {
     console.error('Error fetching team scores:', err);
     res.status(500).json({ error: 'Failed to fetch team scores' });
@@ -2868,44 +2003,16 @@ app.get('/api/tournaments/:id/teams/:teamId/score-details', async (req, res) => 
   
   try {
     const { rows } = await pool.query(
-      `WITH team_score AS (
-        SELECT 
-          tts.*,
-          tt.name as team_name,
-          captain.first_name as captain_first_name,
-          captain.last_name as captain_last_name,
-          captain.club as captain_club,
-          submitter.first_name as submitted_by_first_name,
-          submitter.last_name as submitted_by_last_name
-         FROM tournament_team_scores tts
-         JOIN tournament_teams tt ON tts.team_id = tt.id
-         JOIN users captain ON tt.captain_id = captain.member_id
-         JOIN users submitter ON tts.submitted_by = submitter.member_id
-         WHERE tts.tournament_id = $1 AND tts.team_id = $2
-       ),
-       team_members_data AS (
-         SELECT 
-           tm.team_id,
-           tm.tournament_id,
-           json_agg(
-             json_build_object(
-               'user_member_id', tm.user_member_id,
-               'first_name', u.first_name,
-               'last_name', u.last_name,
-               'club', u.club,
-               'is_captain', tm.is_captain
-             ) ORDER BY tm.is_captain DESC, u.first_name ASC
-           ) as players
-         FROM team_members tm
-         JOIN users u ON tm.user_member_id = u.member_id
-         WHERE tm.tournament_id = $1 AND tm.team_id = $2
-         GROUP BY tm.team_id, tm.tournament_id
-       )
-       SELECT 
-         ts.*,
-         COALESCE(tmd.players, '[]'::json) as players
-       FROM team_score ts
-       LEFT JOIN team_members_data tmd ON ts.team_id = tmd.team_id`,
+      `SELECT 
+        tts.*,
+        tt.name as team_name,
+        u.first_name as captain_first_name,
+        u.last_name as captain_last_name,
+        u.club as captain_club
+       FROM tournament_team_scores tts
+       JOIN tournament_teams tt ON tts.team_id = tt.id
+       JOIN users u ON tts.submitted_by = u.member_id
+       WHERE tts.tournament_id = $1 AND tts.team_id = $2`,
       [id, teamId]
     );
     
@@ -3166,8 +2273,8 @@ function generatePar3MatchPlayMatches(players) {
       const schedule = [
         [0, 1], [0, 2], [0, 3],
         [1, 2], [1, 4], [1, 5],
-        [2, 4], [2, 6],
-        [3, 4], [3, 5], [3, 6],
+        [2, 4], [2, 5],
+        [3, 4], [3, 5],
         [4, 5], [3, 0],
       ];
       schedule.forEach(([a, b]) => {
@@ -3191,6 +2298,7 @@ function generatePar3MatchPlayMatches(players) {
   });
   return matches;
 }
+
 // Helper function to update user profiles after match completion
 async function updateUserProfilesAfterMatch(player1Id, player2Id, winnerId, scoringRules) {
   try {
@@ -3203,25 +2311,21 @@ async function updateUserProfilesAfterMatch(player1Id, player2Id, winnerId, scor
     let profile1 = profile1Result.rows[0];
     let profile2 = profile2Result.rows[0];
 
-    // Create profiles if they don't exist using ON CONFLICT DO NOTHING
+    // Create profiles if they don't exist
     if (!profile1) {
       await pool.query(
-        'INSERT INTO user_profiles (user_id, total_matches, wins, losses, ties, total_points, win_rate) VALUES ($1, 0, 0, 0, 0, 0, 0) ON CONFLICT (user_id) DO NOTHING',
+        'INSERT INTO user_profiles (user_id, total_matches, wins, losses, ties, total_points, win_rate) VALUES ($1, 0, 0, 0, 0, 0, 0)',
         [player1Id]
       );
-      // Re-fetch the profile in case it was created by another concurrent operation
-      const updatedProfile1Result = await pool.query('SELECT * FROM user_profiles WHERE user_id = $1', [player1Id]);
-      profile1 = updatedProfile1Result.rows[0] || { total_matches: 0, wins: 0, losses: 0, ties: 0, total_points: 0 };
+      profile1 = { total_matches: 0, wins: 0, losses: 0, ties: 0, total_points: 0 };
     }
 
     if (!profile2) {
       await pool.query(
-        'INSERT INTO user_profiles (user_id, total_matches, wins, losses, ties, total_points, win_rate) VALUES ($1, 0, 0, 0, 0, 0, 0) ON CONFLICT (user_id) DO NOTHING',
+        'INSERT INTO user_profiles (user_id, total_matches, wins, losses, ties, total_points, win_rate) VALUES ($1, 0, 0, 0, 0, 0, 0)',
         [player2Id]
       );
-      // Re-fetch the profile in case it was created by another concurrent operation
-      const updatedProfile2Result = await pool.query('SELECT * FROM user_profiles WHERE user_id = $1', [player2Id]);
-      profile2 = updatedProfile2Result.rows[0] || { total_matches: 0, wins: 0, losses: 0, ties: 0, total_points: 0 };
+      profile2 = { total_matches: 0, wins: 0, losses: 0, ties: 0, total_points: 0 };
     }
 
     // Update player 1 stats
@@ -3352,8 +2456,7 @@ async function updateUserProfilesForExistingMatches() {
         ADD COLUMN IF NOT EXISTS csv_timestamp VARCHAR(50),
         ADD COLUMN IF NOT EXISTS round_type VARCHAR(20) DEFAULT 'sim',
         ADD COLUMN IF NOT EXISTS holes_played INTEGER DEFAULT 18,
-        ADD COLUMN IF NOT EXISTS nine_type VARCHAR(10) DEFAULT NULL,
-        ADD COLUMN IF NOT EXISTS tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE
+        ADD COLUMN IF NOT EXISTS nine_type VARCHAR(10) DEFAULT NULL
       `);
     console.log('Scorecards table migration complete.');
     
@@ -3425,7 +2528,7 @@ async function updateUserProfilesForExistingMatches() {
 
 // Save scorecard
 app.post('/api/scorecards', authenticateToken, async (req, res) => {
-  const { type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, course_name, teebox, tournament_id } = req.body;
+  const { type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, course_name, teebox } = req.body;
   
   console.log('Received scorecard data:', req.body); // Debug log
   console.log('User ID:', req.user.member_id); // Debug log
@@ -3526,11 +2629,10 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
     const parsedHandicap = handicap ? parseFloat(handicap) : 0;
     
     const { rows } = await pool.query(
-      `INSERT INTO scorecards (user_id, tournament_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, differential, course_name, course_id, teebox, holes_played, nine_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING *`,
+      `INSERT INTO scorecards (user_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, differential, course_name, course_id, teebox, holes_played, nine_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
       [
         req.user.member_id,
-        tournament_id || null,
         type,
         player_name,
         date_played,
@@ -3616,198 +2718,6 @@ app.get('/api/scorecards', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Error fetching scorecards:', err);
     res.status(500).json({ error: 'Failed to fetch scorecards' });
-  }
-});
-
-// Get tournament strokeplay scores
-app.get('/api/tournaments/:id/strokeplay-scores', async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    const { rows } = await pool.query(
-      `SELECT s.*, u.first_name, u.last_name, u.club
-       FROM scorecards s
-       JOIN users u ON s.user_id = u.member_id
-       WHERE s.tournament_id = $1 AND s.type = 'stroke_play'
-       ORDER BY s.total_strokes ASC, s.created_at ASC`,
-      [id]
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching tournament strokeplay scores:', err);
-    res.status(500).json({ error: 'Failed to fetch tournament scores' });
-  }
-});
-
-// Get all tournament scores (strokeplay and matchplay)
-app.get('/api/tournaments/:id/scores', async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    // Get strokeplay scores
-    const strokeplayScores = await pool.query(
-      `SELECT s.*, u.first_name, u.last_name, u.club, 'strokeplay' as score_type
-       FROM scorecards s
-       JOIN users u ON s.user_id = u.member_id
-       WHERE s.tournament_id = $1 AND s.type = 'stroke_play'`,
-      [id]
-    );
-    
-    // Get matchplay scores (from matches table)
-    const matchplayScores = await pool.query(
-      `SELECT 
-         m.id,
-         m.tournament_id,
-         m.player1_id as user_id,
-         u1.first_name,
-         u1.last_name,
-         u1.club,
-         'matchplay' as score_type,
-         m.scores,
-         m.winner_id,
-         m.created_at
-       FROM tournament_matches m
-       JOIN users u1 ON m.player1_id = u1.member_id
-       WHERE m.tournament_id = $1 AND m.status = 'completed'
-       UNION ALL
-       SELECT 
-         m.id,
-         m.tournament_id,
-         m.player2_id as user_id,
-         u2.first_name,
-         u2.last_name,
-         u2.club,
-         'matchplay' as score_type,
-         m.scores,
-         m.winner_id,
-         m.created_at
-       FROM tournament_matches m
-       JOIN users u2 ON m.player2_id = u2.member_id
-       WHERE m.tournament_id = $1 AND m.status = 'completed'`,
-      [id]
-    );
-    
-    // Combine and return all scores
-    const allScores = [...strokeplayScores.rows, ...matchplayScores.rows];
-    res.json(allScores);
-  } catch (err) {
-    console.error('Error fetching tournament scores:', err);
-    res.status(500).json({ error: 'Failed to fetch tournament scores' });
-  }
-});
-
-// Submit tournament strokeplay score
-app.post('/api/tournaments/:id/strokeplay-score', authenticateToken, async (req, res) => {
-  const { id } = req.params;
-  const { total_score, hole_scores, notes, scorecard_photo_url, player_id } = req.body;
-  
-  console.log('Submitting tournament strokeplay score:', { tournament_id: id, ...req.body });
-  console.log('User ID:', req.user.member_id);
-  console.log('Request body validation:', { total_score, hole_scores: hole_scores?.length, notes, scorecard_photo_url: !!scorecard_photo_url });
-  
-  try {
-    // Validate required fields
-    if (!total_score || isNaN(parseInt(total_score))) {
-      console.log('Missing or invalid total_score:', total_score);
-      return res.status(400).json({ error: 'total_score is required and must be a valid number' });
-    }
-    
-    // Validate tournament exists and is strokeplay format
-    const tournamentResult = await pool.query(
-      'SELECT * FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      console.log('Tournament not found:', id);
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    console.log('Tournament found:', { id: tournament.id, name: tournament.name, format: tournament.tournament_format });
-    
-    if (!tournament.tournament_format?.includes('stroke_play') && !tournament.tournament_format?.includes('strokeplay')) {
-      console.log('Tournament format validation failed:', tournament.tournament_format);
-      return res.status(400).json({ error: 'This endpoint is only for strokeplay tournaments' });
-    }
-    
-    // Use the specified player_id or fall back to authenticated user
-    const targetPlayerId = player_id || req.user.member_id;
-    
-    // Check if the target player is registered for tournament
-    const participationResult = await pool.query(
-      'SELECT * FROM participation WHERE tournament_id = $1 AND user_member_id = $2',
-      [id, targetPlayerId]
-    );
-    
-    console.log('Player participation check:', { 
-      tournament_id: id, 
-      player_id: targetPlayerId, 
-      is_registered: participationResult.rows.length > 0 
-    });
-    
-    if (participationResult.rows.length === 0) {
-      console.log('Player not registered for tournament');
-      return res.status(403).json({ error: 'The specified player must be registered for this tournament to submit scores' });
-    }
-    
-    // Check if the target player already submitted a score for this tournament
-    const existingScoreResult = await pool.query(
-      'SELECT * FROM scorecards WHERE tournament_id = $1 AND user_id = $2 AND type = $3',
-      [id, targetPlayerId, 'stroke_play']
-    );
-    
-    if (existingScoreResult.rows.length > 0) {
-      return res.status(409).json({ error: 'This player has already submitted a score for this tournament' });
-    }
-    
-    // Get target player's data
-    const userResult = await pool.query(
-      'SELECT first_name, last_name, sim_handicap, grass_handicap FROM users WHERE member_id = $1',
-      [targetPlayerId]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Player not found' });
-    }
-    
-    const user = userResult.rows[0];
-    const handicap = user?.sim_handicap || user?.grass_handicap || 0;
-    
-    // Prepare scores data
-    const scoresData = {
-      hole_scores: hole_scores || [],
-      total_score: total_score,
-      notes: notes,
-      scorecard_photo_url: scorecard_photo_url
-    };
-    
-    // Insert scorecard
-    const { rows } = await pool.query(
-      `INSERT INTO scorecards (
-        user_id, tournament_id, type, player_name, date_played, handicap, 
-        scores, total_strokes, final_score, round_type, holes_played
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-      [
-        targetPlayerId,
-        id,
-        'stroke_play',
-        `${user.first_name || 'Unknown'} ${user.last_name || 'Player'}`,
-        new Date().toISOString().split('T')[0],
-        handicap,
-        JSON.stringify(scoresData),
-        total_score,
-        total_score,
-        'sim',
-        hole_scores?.length || 18
-      ]
-    );
-    
-    console.log('Tournament strokeplay score saved:', rows[0]);
-    res.json(rows[0]);
-  } catch (err) {
-    console.error('Error submitting tournament strokeplay score:', err);
-    res.status(500).json({ error: 'Failed to submit tournament score', details: err.message });
   }
 });
 
@@ -3918,7 +2828,22 @@ app.get('/api/tournaments/status/:status', async (req, res) => {
   }
 });
 
-// Note: Duplicate endpoint removed - consolidated with the main available tournaments endpoint above
+// Get available tournaments (open for registration)
+app.get('/api/tournaments/available', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT * FROM tournaments 
+      WHERE status IN ('open') 
+      AND registration_open = true 
+      AND (registration_deadline IS NULL OR registration_deadline >= CURRENT_DATE)
+      ORDER BY start_date ASC, id DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching available tournaments:', err);
+    res.status(500).json({ error: 'Failed to fetch available tournaments' });
+  }
+});
 
 // Get tournaments that a user is registered for
 app.get('/api/tournaments/user/:userId', async (req, res) => {
@@ -3926,16 +2851,9 @@ app.get('/api/tournaments/user/:userId', async (req, res) => {
   
   try {
     const { rows } = await pool.query(`
-      SELECT 
-        t.*,
-        CASE 
-          WHEN ws.id IS NOT NULL THEN true 
-          ELSE false 
-        END as has_submitted_score,
-        ws.week_start_date as last_score_date
+      SELECT t.*
       FROM tournaments t
       INNER JOIN participation p ON t.id = p.tournament_id
-      LEFT JOIN weekly_scorecards ws ON t.id = ws.tournament_id AND ws.user_id = $1
       WHERE p.user_member_id = $1
       ORDER BY t.start_date ASC, t.id DESC
     `, [userId]);
@@ -3944,1523 +2862,6 @@ app.get('/api/tournaments/user/:userId', async (req, res) => {
   } catch (err) {
     console.error('Error fetching user tournaments:', err);
     res.status(500).json({ error: 'Failed to fetch user tournaments' });
-  }
-});
-
-// =====================================================
-// CLUB CHAMPIONSHIP MANAGEMENT API ENDPOINTS
-// =====================================================
-
-// Get club participant counts for a tournament
-app.get('/api/tournaments/:id/club-participants', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const { rows } = await pool.query(`
-      SELECT 
-        u.club,
-        COUNT(p.user_member_id) as participant_count,
-        ARRAY_AGG(
-          JSON_BUILD_OBJECT(
-            'user_id', u.member_id,
-            'first_name', u.first_name,
-            'last_name', u.last_name,
-            'email', u.email_address
-          )
-        ) as participants
-      FROM participation p
-      JOIN users u ON p.user_member_id = u.member_id
-      WHERE p.tournament_id = $1 AND u.club IS NOT NULL
-      GROUP BY u.club
-      ORDER BY participant_count DESC, u.club
-    `, [id]);
-    
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching club participants:', err);
-    res.status(500).json({ error: 'Failed to fetch club participants' });
-  }
-});
-
-// Auto-group clubs for championship
-app.post('/api/tournaments/:id/auto-group-clubs', async (req, res) => {
-  const { id } = req.params;
-  const { minParticipants = 4 } = req.body;
-  
-  try {
-    // Get tournament details
-    const tournamentResult = await pool.query(
-      'SELECT * FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    
-    // Get club participant counts
-    const clubCountsResult = await pool.query(`
-      SELECT 
-        u.club,
-        COUNT(p.user_member_id) as participant_count,
-        ARRAY_AGG(u.member_id) as user_ids
-      FROM participation p
-      JOIN users u ON p.user_member_id = u.member_id
-      WHERE p.tournament_id = $1 AND u.club IS NOT NULL
-      GROUP BY u.club
-      ORDER BY participant_count ASC
-    `, [id]);
-    
-    const clubCounts = clubCountsResult.rows;
-    console.log(`Found ${clubCounts.length} clubs with participants for tournament ${id}:`, clubCounts.map(c => `${c.club}: ${c.participant_count}`));
-    
-    // Group clubs based on minimum participants
-    const groups = [];
-    let currentGroup = [];
-    let currentGroupCount = 0;
-    let groupNumber = 1;
-    
-    for (const club of clubCounts) {
-      if (parseInt(club.participant_count) >= minParticipants) {
-        // Club has enough participants - create individual group
-        if (currentGroup.length > 0) {
-          groups.push({
-            group_name: `Combined Group ${groupNumber}`,
-            clubs: currentGroup.map(c => c.club),
-            participant_count: currentGroupCount,
-            user_ids: currentGroup.flatMap(c => c.user_ids)
-          });
-          groupNumber++;
-          currentGroup = [];
-          currentGroupCount = 0;
-        }
-        
-        groups.push({
-          group_name: `${club.club} Championship`,
-          clubs: [club.club],
-          participant_count: club.participant_count,
-          user_ids: club.user_ids
-        });
-      } else {
-        // Club needs to be grouped with others
-        currentGroup.push(club);
-        currentGroupCount += parseInt(club.participant_count);
-        
-        if (currentGroupCount >= minParticipants) {
-          groups.push({
-            group_name: `Combined Group ${groupNumber}`,
-            clubs: currentGroup.map(c => c.club),
-            participant_count: currentGroupCount,
-            user_ids: currentGroup.flatMap(c => c.user_ids)
-          });
-          groupNumber++;
-          currentGroup = [];
-          currentGroupCount = 0;
-        }
-      }
-    }
-    
-    // Handle remaining clubs - combine them into one group
-    if (currentGroup.length > 0) {
-      groups.push({
-        group_name: `Combined Group ${groupNumber}`,
-        clubs: currentGroup.map(c => c.club),
-        participant_count: currentGroupCount,
-        user_ids: currentGroup.flatMap(c => c.user_ids)
-      });
-    }
-    
-    // If we still have groups with insufficient participants, combine them
-    const insufficientGroups = groups.filter(g => g.participant_count < minParticipants);
-    if (insufficientGroups.length > 1) {
-      // Remove insufficient groups and create one combined group
-      const validGroups = groups.filter(g => g.participant_count >= minParticipants);
-      const combinedGroup = {
-        group_name: `Combined Group ${groupNumber}`,
-        clubs: insufficientGroups.flatMap(g => g.clubs),
-        participant_count: insufficientGroups.reduce((sum, g) => sum + g.participant_count, 0),
-        user_ids: insufficientGroups.flatMap(g => g.user_ids)
-      };
-      groups.splice(0, groups.length, ...validGroups, combinedGroup);
-    }
-    
-    console.log(`Created ${groups.length} groups:`, groups.map(g => `${g.group_name}: ${g.clubs.join(', ')} (${g.participant_count} participants)`));
-    
-    // Save groups to database
-    for (const group of groups) {
-      await pool.query(`
-        INSERT INTO club_groups (
-          tournament_id, 
-          group_name, 
-          participating_clubs, 
-          min_participants, 
-          participant_count
-        ) VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (tournament_id, group_name) 
-        DO UPDATE SET 
-          participating_clubs = EXCLUDED.participating_clubs,
-          participant_count = EXCLUDED.participant_count
-      `, [
-        id,
-        group.group_name,
-        group.clubs,
-        minParticipants,
-        group.participant_count
-      ]);
-    }
-    
-    res.json({
-      success: true,
-      groups: groups,
-      message: `Created ${groups.length} club groups`
-    });
-    
-  } catch (err) {
-    console.error('Error auto-grouping clubs:', err);
-    res.status(500).json({ error: 'Failed to auto-group clubs' });
-  }
-});
-
-// Create manual club group
-app.post('/api/tournaments/:id/create-club-group', async (req, res) => {
-  const { id } = req.params;
-  const { groupName, participantIds } = req.body;
-  
-  try {
-    // Get participant details
-    const participantResult = await pool.query(`
-      SELECT u.member_id, u.club, u.first_name, u.last_name
-      FROM users u
-      WHERE u.member_id = ANY($1)
-    `, [participantIds]);
-    
-    const participants = participantResult.rows;
-    const clubs = [...new Set(participants.map(p => p.club))];
-    const participantCount = participants.length;
-    
-    // Create the group
-    const result = await pool.query(`
-      INSERT INTO club_groups (
-        tournament_id,
-        group_name,
-        participating_clubs,
-        min_participants,
-        participant_count,
-        user_ids
-      ) VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *
-    `, [id, groupName, clubs, 4, participantCount, participantIds]);
-    
-    res.json({
-      success: true,
-      group: result.rows[0],
-      message: `Created club group "${groupName}"`
-    });
-    
-  } catch (err) {
-    console.error('Error creating club group:', err);
-    res.status(500).json({ error: 'Failed to create club group' });
-  }
-});
-
-// Update club group
-app.put('/api/tournaments/:id/club-groups/:groupId', async (req, res) => {
-  const { id, groupId } = req.params;
-  const { participantIds, groupName } = req.body;
-  
-  try {
-    // Get participant details
-    const participantResult = await pool.query(`
-      SELECT u.member_id, u.club, u.first_name, u.last_name
-      FROM users u
-      WHERE u.member_id = ANY($1)
-    `, [participantIds]);
-    
-    const participants = participantResult.rows;
-    const clubs = [...new Set(participants.map(p => p.club))];
-    const participantCount = participants.length;
-    
-    // Update the group
-    const result = await pool.query(`
-      UPDATE club_groups 
-      SET 
-        group_name = $1,
-        participating_clubs = $2,
-        participant_count = $3,
-        user_ids = $4
-      WHERE id = $5 AND tournament_id = $6
-      RETURNING *
-    `, [groupName, clubs, participantCount, participantIds, groupId, id]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Group not found' });
-    }
-    
-    res.json({
-      success: true,
-      group: result.rows[0],
-      message: `Updated club group`
-    });
-    
-  } catch (err) {
-    console.error('Error updating club group:', err);
-    res.status(500).json({ error: 'Failed to update club group' });
-  }
-});
-
-// Delete club group
-app.delete('/api/tournaments/:id/club-groups/:groupId', async (req, res) => {
-  const { id, groupId } = req.params;
-  
-  try {
-    // Delete associated matches first
-    await pool.query(`
-      DELETE FROM club_championship_matches 
-      WHERE tournament_id = $1 AND club_group IN (
-        SELECT group_name FROM club_groups WHERE id = $2 AND tournament_id = $1
-      )
-    `, [id, groupId]);
-    
-    // Delete the group
-    const result = await pool.query(`
-      DELETE FROM club_groups 
-      WHERE id = $1 AND tournament_id = $2
-      RETURNING *
-    `, [groupId, id]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Group not found' });
-    }
-    
-    res.json({
-      success: true,
-      message: `Deleted club group`
-    });
-    
-  } catch (err) {
-    console.error('Error deleting club group:', err);
-    res.status(500).json({ error: 'Failed to delete club group' });
-  }
-});
-
-// Create individual match
-app.post('/api/tournaments/:id/create-match', async (req, res) => {
-  const { id } = req.params;
-  const { groupId, player1Id, player2Id } = req.body;
-  
-  try {
-    // Get group details
-    const groupResult = await pool.query(`
-      SELECT group_name FROM club_groups WHERE id = $1 AND tournament_id = $2
-    `, [groupId, id]);
-    
-    if (groupResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Group not found' });
-    }
-    
-    const groupName = groupResult.rows[0].group_name;
-    
-    // Get next match number for this group
-    const matchNumberResult = await pool.query(`
-      SELECT COALESCE(MAX(match_number), 0) + 1 as next_match_number
-      FROM club_championship_matches 
-      WHERE tournament_id = $1 AND club_group = $2
-    `, [id, groupName]);
-    
-    const matchNumber = matchNumberResult.rows[0].next_match_number;
-    
-    // Create the match
-    const result = await pool.query(`
-      INSERT INTO club_championship_matches (
-        tournament_id,
-        club_group,
-        player1_id,
-        player2_id,
-        match_number,
-        match_status
-      ) VALUES ($1, $2, $3, $4, $5, 'pending')
-      RETURNING *
-    `, [id, groupName, player1Id, player2Id, matchNumber]);
-    
-    res.json({
-      success: true,
-      match: result.rows[0],
-      message: `Created match ${matchNumber}`
-    });
-    
-  } catch (err) {
-    console.error('Error creating match:', err);
-    res.status(500).json({ error: 'Failed to create match' });
-  }
-});
-
-// Update match result
-app.put('/api/tournaments/:id/matches/:matchId/result', async (req, res) => {
-  const { id, matchId } = req.params;
-  const { 
-    player1_score, 
-    player2_score, 
-    winner_id,
-    player1_hole_scores,
-    player2_hole_scores,
-    player1_net_hole_scores,
-    player2_net_hole_scores,
-    player1_holes_won,
-    player2_holes_won,
-    player1_holes_lost,
-    player2_holes_lost,
-    player1_net_holes,
-    player2_net_holes,
-    course_id,
-    teebox,
-    match_status
-  } = req.body;
-  
-  try {
-    // Build dynamic query based on provided fields
-    let updateFields = [];
-    let values = [];
-    let paramCount = 1;
-
-    if (player1_score !== undefined) {
-      updateFields.push(`player1_score = $${paramCount++}`);
-      values.push(player1_score);
-    }
-    if (player2_score !== undefined) {
-      updateFields.push(`player2_score = $${paramCount++}`);
-      values.push(player2_score);
-    }
-    if (winner_id !== undefined) {
-      updateFields.push(`winner_id = $${paramCount++}`);
-      values.push(winner_id);
-    }
-    if (player1_hole_scores !== undefined) {
-      updateFields.push(`player1_hole_scores = $${paramCount++}`);
-      values.push(player1_hole_scores);
-    }
-    if (player2_hole_scores !== undefined) {
-      updateFields.push(`player2_hole_scores = $${paramCount++}`);
-      values.push(player2_hole_scores);
-    }
-    if (player1_net_hole_scores !== undefined) {
-      updateFields.push(`player1_net_hole_scores = $${paramCount++}`);
-      values.push(player1_net_hole_scores);
-    }
-    if (player2_net_hole_scores !== undefined) {
-      updateFields.push(`player2_net_hole_scores = $${paramCount++}`);
-      values.push(player2_net_hole_scores);
-    }
-    if (player1_holes_won !== undefined) {
-      updateFields.push(`player1_holes_won = $${paramCount++}`);
-      values.push(player1_holes_won);
-    }
-    if (player2_holes_won !== undefined) {
-      updateFields.push(`player2_holes_won = $${paramCount++}`);
-      values.push(player2_holes_won);
-    }
-    if (player1_holes_lost !== undefined) {
-      updateFields.push(`player1_holes_lost = $${paramCount++}`);
-      values.push(player1_holes_lost);
-    }
-    if (player2_holes_lost !== undefined) {
-      updateFields.push(`player2_holes_lost = $${paramCount++}`);
-      values.push(player2_holes_lost);
-    }
-    if (player1_net_holes !== undefined) {
-      updateFields.push(`player1_net_holes = $${paramCount++}`);
-      values.push(player1_net_holes);
-    }
-    if (player2_net_holes !== undefined) {
-      updateFields.push(`player2_net_holes = $${paramCount++}`);
-      values.push(player2_net_holes);
-    }
-    if (course_id !== undefined) {
-      updateFields.push(`course_id = $${paramCount++}`);
-      values.push(course_id);
-    }
-    if (teebox !== undefined) {
-      updateFields.push(`teebox = $${paramCount++}`);
-      values.push(teebox);
-    }
-    if (match_status !== undefined) {
-      updateFields.push(`match_status = $${paramCount++}`);
-      values.push(match_status);
-    }
-
-    if (updateFields.length === 0) {
-      return res.status(400).json({ error: 'No fields to update' });
-    }
-
-    // Add match ID and tournament ID as final parameters
-    values.push(matchId, id);
-
-    const query = `
-      UPDATE club_championship_matches 
-      SET ${updateFields.join(', ')}
-      WHERE id = $${paramCount++} AND tournament_id = $${paramCount++}
-      RETURNING *
-    `;
-
-    const result = await pool.query(query, values);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Match not found' });
-    }
-    
-    res.json({
-      success: true,
-      match: result.rows[0],
-      message: `Updated match result`
-    });
-    
-  } catch (err) {
-    console.error('Error updating match result:', err);
-    res.status(500).json({ error: 'Failed to update match result' });
-  }
-});
-
-// Delete match
-app.delete('/api/tournaments/:id/matches/:matchId', async (req, res) => {
-  const { id, matchId } = req.params;
-  
-  try {
-    const result = await pool.query(`
-      DELETE FROM club_championship_matches 
-      WHERE id = $1 AND tournament_id = $2
-      RETURNING *
-    `, [matchId, id]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Match not found' });
-    }
-    
-    res.json({
-      success: true,
-      message: `Deleted match`
-    });
-    
-  } catch (err) {
-    console.error('Error deleting match:', err);
-    res.status(500).json({ error: 'Failed to delete match' });
-  }
-});
-
-// Get club groups for a tournament
-app.get('/api/tournaments/:id/club-groups', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const { rows } = await pool.query(`
-      SELECT * FROM club_groups 
-      WHERE tournament_id = $1 
-      ORDER BY group_name
-    `, [id]);
-    
-    // Ensure user_ids is always an array and participating_clubs is always an array
-    const groupsWithDefaults = rows.map(group => ({
-      ...group,
-      user_ids: group.user_ids || [],
-      participating_clubs: group.participating_clubs || []
-    }));
-    
-    res.json(groupsWithDefaults);
-  } catch (err) {
-    console.error('Error fetching club groups:', err);
-    res.status(500).json({ error: 'Failed to fetch club groups' });
-  }
-});
-
-// Generate matches for club groups
-app.post('/api/tournaments/:id/generate-championship-matches', async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    // Get all club groups for this tournament
-    const groupsResult = await pool.query(`
-      SELECT cg.*, 
-             ARRAY_AGG(u.member_id) as user_ids
-      FROM club_groups cg
-      JOIN participation p ON p.tournament_id = cg.tournament_id
-      JOIN users u ON p.user_member_id = u.member_id AND u.club = ANY(cg.participating_clubs)
-      WHERE cg.tournament_id = $1
-      GROUP BY cg.id, cg.group_name, cg.participating_clubs, cg.min_participants, cg.participant_count
-    `, [id]);
-    
-    const groups = groupsResult.rows;
-    console.log(`Found ${groups.length} club groups for tournament ${id}`);
-    
-    if (groups.length === 0) {
-      return res.status(400).json({ 
-        error: 'No club groups found. Please create club groups first using the auto-group or manual grouping feature.' 
-      });
-    }
-    
-    // Clear existing matches for this tournament first
-    await pool.query(
-      'DELETE FROM club_championship_matches WHERE tournament_id = $1',
-      [id]
-    );
-    console.log(`Cleared existing matches for tournament ${id}`);
-    
-    const matches = [];
-    
-    for (const group of groups) {
-      const userIds = group.user_ids;
-      console.log(`Processing group ${group.group_name} with ${userIds.length} users:`, userIds);
-      
-      // Generate exactly 3 matches per player
-      const playerMatches = new Map(); // Track how many matches each player has
-      const allMatches = []; // Store all possible matchups
-      
-      // Initialize match count for each player
-      userIds.forEach(userId => {
-        playerMatches.set(userId, 0);
-      });
-      
-      // Generate all possible matchups
-      for (let i = 0; i < userIds.length; i++) {
-        for (let j = i + 1; j < userIds.length; j++) {
-          allMatches.push([userIds[i], userIds[j]]);
-        }
-      }
-      
-      console.log(`  Found ${allMatches.length} possible matchups for ${userIds.length} players`);
-      
-      // Select matches ensuring each player gets exactly 3 matches
-      const selectedMatches = [];
-      let matchNumber = 1;
-      
-      // First pass: give each player their first match
-      for (const [player1, player2] of allMatches) {
-        if (playerMatches.get(player1) < 3 && playerMatches.get(player2) < 3) {
-          selectedMatches.push([player1, player2, matchNumber]);
-          playerMatches.set(player1, playerMatches.get(player1) + 1);
-          playerMatches.set(player2, playerMatches.get(player2) + 1);
-          matchNumber++;
-        }
-      }
-      
-      // Second pass: fill remaining matches for players who need more
-      for (const [player1, player2] of allMatches) {
-        if (playerMatches.get(player1) < 3 && playerMatches.get(player2) < 3) {
-          selectedMatches.push([player1, player2, matchNumber]);
-          playerMatches.set(player1, playerMatches.get(player1) + 1);
-          playerMatches.set(player2, playerMatches.get(player2) + 1);
-          matchNumber++;
-        }
-      }
-      
-      // Third pass: fill any remaining matches (some players might need more)
-      for (const [player1, player2] of allMatches) {
-        if (playerMatches.get(player1) < 3 && playerMatches.get(player2) < 3) {
-          selectedMatches.push([player1, player2, matchNumber]);
-          playerMatches.set(player1, playerMatches.get(player1) + 1);
-          playerMatches.set(player2, playerMatches.get(player2) + 1);
-          matchNumber++;
-        }
-      }
-      
-      console.log(`  Selected ${selectedMatches.length} matches for group ${group.group_name}`);
-      
-      // Insert the selected matches into the database
-      for (const [player1, player2, matchNum] of selectedMatches) {
-        try {
-          console.log(`    Creating match: ${player1} vs ${player2} (Match ${matchNum})`);
-          const matchResult = await pool.query(`
-            INSERT INTO club_championship_matches (
-              tournament_id,
-              club_group,
-              player1_id,
-              player2_id,
-              match_number,
-              match_status
-            ) VALUES ($1, $2, $3, $4, $5, 'pending')
-            RETURNING *
-          `, [id, group.group_name, player1, player2, matchNum]);
-          
-          matches.push(matchResult.rows[0]);
-          console.log(`    ✅ Match created successfully`);
-        } catch (matchError) {
-          console.error(`    ❌ Error creating match:`, matchError.message);
-          throw matchError;
-        }
-      }
-    }
-    
-    res.json({
-      success: true,
-      matches: matches,
-      message: `Generated ${matches.length} matches for ${groups.length} groups`
-    });
-    
-  } catch (err) {
-    console.error('Error generating matches:', err);
-    console.error('Error details:', {
-      message: err.message,
-      code: err.code,
-      detail: err.detail,
-      hint: err.hint
-    });
-    res.status(500).json({ 
-      error: 'Failed to generate matches',
-      details: err.message 
-    });
-  }
-});
-
-// Get championship matches for a tournament
-app.get('/api/tournaments/:id/championship-matches', async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    const { rows } = await pool.query(`
-      SELECT 
-        ccm.*,
-        u1.first_name as player1_name,
-        u1.last_name as player1_last_name,
-        u1.sim_handicap as player1_handicap,
-        u1.handicap as player1_grass_handicap,
-        u2.first_name as player2_name,
-        u2.last_name as player2_last_name,
-        u2.sim_handicap as player2_handicap,
-        u2.handicap as player2_grass_handicap
-      FROM club_championship_matches ccm
-      JOIN users u1 ON ccm.player1_id = u1.member_id
-      JOIN users u2 ON ccm.player2_id = u2.member_id
-      WHERE ccm.tournament_id = $1
-      ORDER BY ccm.club_group, ccm.match_number, ccm.id
-    `, [id]);
-    
-    console.log('Championship matches query result:', rows.length, 'matches');
-    if (rows.length > 0) {
-      console.log('Sample match data:', {
-        id: rows[0].id,
-        player1_scorecard_photo_url: rows[0].player1_scorecard_photo_url,
-        player2_scorecard_photo_url: rows[0].player2_scorecard_photo_url,
-        allColumns: Object.keys(rows[0])
-      });
-    }
-    
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching championship matches:', err);
-    res.status(500).json({ error: 'Failed to fetch championship matches' });
-  }
-});
-
-// Update championship match players
-app.put('/api/tournaments/:id/championship-matches/:matchId', async (req, res) => {
-  const { id, matchId } = req.params;
-  const { player1Id, player2Id } = req.body;
-  
-  try {
-    // Validate that both players are provided
-    if (!player1Id || !player2Id) {
-      return res.status(400).json({ error: 'Both player1Id and player2Id are required' });
-    }
-
-    if (player1Id === player2Id) {
-      return res.status(400).json({ error: 'Players must be different' });
-    }
-
-    // Validate that the match exists and belongs to the tournament
-    const matchResult = await pool.query(
-      'SELECT * FROM club_championship_matches WHERE id = $1 AND tournament_id = $2',
-      [matchId, id]
-    );
-    
-    if (matchResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Match not found' });
-    }
-
-    // Validate that both players exist
-    const playersResult = await pool.query(
-      'SELECT member_id FROM users WHERE member_id IN ($1, $2)',
-      [player1Id, player2Id]
-    );
-    
-    if (playersResult.rows.length !== 2) {
-      return res.status(400).json({ error: 'One or both players not found' });
-    }
-
-    // Update the match
-    const updateResult = await pool.query(
-      `UPDATE club_championship_matches 
-       SET player1_id = $1, player2_id = $2, updated_at = NOW()
-       WHERE id = $3 AND tournament_id = $4
-       RETURNING *`,
-      [player1Id, player2Id, matchId, id]
-    );
-    
-    if (updateResult.rows.length === 0) {
-      return res.status(500).json({ error: 'Failed to update match' });
-    }
-    
-    res.json({
-      success: true,
-      match: updateResult.rows[0],
-      message: 'Match updated successfully'
-    });
-    
-  } catch (err) {
-    console.error('Error updating championship match:', err);
-    res.status(500).json({ error: 'Failed to update match' });
-  }
-});
-
-// Helper function to calculate net score for match play
-function calculateNetScore(grossScore, handicap, holeIndex, opponentHandicap = 0) {
-  if (holeIndex === 0) return grossScore;
-  
-  // Calculate the handicap differential (max 8 strokes for match play)
-  const rawDifferential = Math.abs(handicap - opponentHandicap);
-  const handicapDifferential = Math.min(Math.round(rawDifferential), 8);
-  
-  // Determine which player gets strokes (the higher handicap player)
-  const playerGetsStrokes = handicap > opponentHandicap;
-  
-  if (!playerGetsStrokes) {
-    // This player doesn't get strokes, return gross score
-    return grossScore;
-  }
-  
-  // Calculate handicap strokes for this hole
-  // Distribute strokes across holes 1-18, with harder holes (lower index) getting strokes first
-  const handicapStrokes = Math.floor(handicapDifferential / 18) + 
-    (handicapDifferential % 18 >= holeIndex ? 1 : 0);
-  
-  // Return net score (gross - handicap strokes), minimum 1
-  return Math.max(1, grossScore - handicapStrokes);
-}
-
-// Helper function to calculate net score with proper course handicap indexes
-function calculateNetScoreWithIndex(grossScore, playerHandicap, holeIndex, handicapDifferential, playerGetsStrokes) {
-  if (holeIndex === 0) return grossScore;
-  
-  if (!playerGetsStrokes) {
-    // This player doesn't get strokes, return gross score
-    return grossScore;
-  }
-  
-  // Calculate handicap strokes for this hole based on course handicap index
-  // Distribute strokes across holes based on their handicap index (1-18)
-  // Note: handicapDifferential should already be rounded when passed to this function
-  const handicapStrokes = Math.floor(handicapDifferential / 18) + 
-    (handicapDifferential % 18 >= holeIndex ? 1 : 0);
-  
-  // Return net score (gross - handicap strokes), minimum 1
-  return Math.max(1, grossScore - handicapStrokes);
-}
-
-// Update championship match result
-app.put('/api/tournaments/:id/championship-matches/:matchId/result', async (req, res) => {
-  const { id, matchId } = req.params;
-  const { 
-    player1_score, 
-    player2_score, 
-    winner_id,
-    player1_hole_scores,
-    player2_hole_scores,
-    player1_net_hole_scores,
-    player2_net_hole_scores,
-    player1_holes_won,
-    player2_holes_won,
-    player1_holes_lost,
-    player2_holes_lost,
-    player1_net_holes,
-    player2_net_holes,
-    player1_scorecard_photo_url,
-    player2_scorecard_photo_url,
-    course_id,
-    teebox,
-    match_status
-  } = req.body;
-  
-  console.log('Championship match result update request:', {
-    matchId,
-    tournamentId: id,
-    player1_scorecard_photo_url,
-    player2_scorecard_photo_url,
-    match_status,
-    allBodyKeys: Object.keys(req.body)
-  });
-  
-  try {
-    // Build dynamic query based on provided fields
-    let updateFields = [];
-    let values = [];
-    let paramCount = 1;
-
-    if (player1_score !== undefined) {
-      updateFields.push(`player1_score = $${paramCount++}`);
-      values.push(player1_score);
-    }
-    if (player2_score !== undefined) {
-      updateFields.push(`player2_score = $${paramCount++}`);
-      values.push(player2_score);
-    }
-    if (winner_id !== undefined) {
-      updateFields.push(`winner_id = $${paramCount++}`);
-      values.push(winner_id);
-    }
-    if (player1_hole_scores !== undefined) {
-      updateFields.push(`player1_hole_scores = $${paramCount++}`);
-      values.push(player1_hole_scores);
-    }
-    if (player2_hole_scores !== undefined) {
-      updateFields.push(`player2_hole_scores = $${paramCount++}`);
-      values.push(player2_hole_scores);
-    }
-    if (player1_net_hole_scores !== undefined) {
-      updateFields.push(`player1_net_hole_scores = $${paramCount++}`);
-      values.push(player1_net_hole_scores);
-    }
-    if (player2_net_hole_scores !== undefined) {
-      updateFields.push(`player2_net_hole_scores = $${paramCount++}`);
-      values.push(player2_net_hole_scores);
-    }
-    if (player1_holes_won !== undefined) {
-      updateFields.push(`player1_holes_won = $${paramCount++}`);
-      values.push(player1_holes_won);
-    }
-    if (player2_holes_won !== undefined) {
-      updateFields.push(`player2_holes_won = $${paramCount++}`);
-      values.push(player2_holes_won);
-    }
-    if (player1_holes_lost !== undefined) {
-      updateFields.push(`player1_holes_lost = $${paramCount++}`);
-      values.push(player1_holes_lost);
-    }
-    if (player2_holes_lost !== undefined) {
-      updateFields.push(`player2_holes_lost = $${paramCount++}`);
-      values.push(player2_holes_lost);
-    }
-    if (player1_net_holes !== undefined) {
-      updateFields.push(`player1_net_holes = $${paramCount++}`);
-      values.push(player1_net_holes);
-    }
-    if (player2_net_holes !== undefined) {
-      updateFields.push(`player2_net_holes = $${paramCount++}`);
-      values.push(player2_net_holes);
-    }
-    if (course_id !== undefined) {
-      updateFields.push(`course_id = $${paramCount++}`);
-      values.push(course_id);
-    }
-    if (teebox !== undefined) {
-      updateFields.push(`teebox = $${paramCount++}`);
-      values.push(teebox);
-    }
-    if (match_status !== undefined) {
-      updateFields.push(`match_status = $${paramCount++}`);
-      values.push(match_status);
-    }
-    if (player1_scorecard_photo_url !== undefined) {
-      updateFields.push(`player1_scorecard_photo_url = $${paramCount++}`);
-      values.push(player1_scorecard_photo_url);
-    }
-    if (player2_scorecard_photo_url !== undefined) {
-      updateFields.push(`player2_scorecard_photo_url = $${paramCount++}`);
-      values.push(player2_scorecard_photo_url);
-    }
-    
-    if (updateFields.length === 0) {
-      return res.status(400).json({ error: 'No fields to update' });
-    }
-
-    // Add match ID and tournament ID as final parameters
-    values.push(matchId, id);
-
-    const query = `
-      UPDATE club_championship_matches 
-      SET ${updateFields.join(', ')}
-      WHERE id = $${paramCount++} AND tournament_id = $${paramCount++}
-      RETURNING *
-    `;
-
-    const result = await pool.query(query, values);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Championship match not found' });
-    }
-    
-    const updatedMatch = result.rows[0];
-    
-    // Check if both players have submitted their scores and auto-complete the match
-    if (updatedMatch.player1_hole_scores && updatedMatch.player2_hole_scores && updatedMatch.match_status === 'in_progress') {
-      try {
-        // Debug logging
-        console.log('Attempting to auto-complete match:', {
-          matchId,
-          player1_hole_scores: updatedMatch.player1_hole_scores,
-          player2_hole_scores: updatedMatch.player2_hole_scores,
-          player1_type: typeof updatedMatch.player1_hole_scores,
-          player2_type: typeof updatedMatch.player2_hole_scores
-        });
-        
-        // Calculate match results - handle both JSON strings and arrays
-        let player1Scores, player2Scores;
-        
-        // Handle player1 scores - could be JSON string or already parsed array
-        if (typeof updatedMatch.player1_hole_scores === 'string') {
-          try {
-            player1Scores = JSON.parse(updatedMatch.player1_hole_scores);
-          } catch (e) {
-            console.error('Error parsing player1_hole_scores:', updatedMatch.player1_hole_scores, e);
-            player1Scores = [];
-          }
-        } else if (Array.isArray(updatedMatch.player1_hole_scores)) {
-          player1Scores = updatedMatch.player1_hole_scores;
-        } else {
-          console.error('Invalid player1_hole_scores type:', typeof updatedMatch.player1_hole_scores);
-          player1Scores = [];
-        }
-        
-        // Handle player2 scores - could be JSON string or already parsed array
-        if (typeof updatedMatch.player2_hole_scores === 'string') {
-          try {
-            player2Scores = JSON.parse(updatedMatch.player2_hole_scores);
-          } catch (e) {
-            console.error('Error parsing player2_hole_scores:', updatedMatch.player2_hole_scores, e);
-            player2Scores = [];
-          }
-        } else if (Array.isArray(updatedMatch.player2_hole_scores)) {
-          player2Scores = updatedMatch.player2_hole_scores;
-        } else {
-          console.error('Invalid player2_hole_scores type:', typeof updatedMatch.player2_hole_scores);
-          player2Scores = [];
-        }
-        
-        // Validate that we have valid score arrays
-        if (!Array.isArray(player1Scores) || !Array.isArray(player2Scores)) {
-          console.error('Invalid score arrays:', { player1Scores, player2Scores });
-          return res.json({
-            success: true,
-            match: updatedMatch,
-            message: `Updated championship match result`
-          });
-        }
-        
-        let player1HolesWon = 0;
-        let player2HolesWon = 0;
-        
-        // Get both players' handicaps for proper net score calculation
-        const player1HandicapResult = await pool.query(
-          'SELECT sim_handicap, handicap FROM users WHERE member_id = $1',
-          [updatedMatch.player1_id]
-        );
-        const player2HandicapResult = await pool.query(
-          'SELECT sim_handicap, handicap FROM users WHERE member_id = $1',
-          [updatedMatch.player2_id]
-        );
-        
-        const player1Handicap = parseFloat(player1HandicapResult.rows[0]?.sim_handicap || player1HandicapResult.rows[0]?.handicap || 0);
-        const player2Handicap = parseFloat(player2HandicapResult.rows[0]?.sim_handicap || player2HandicapResult.rows[0]?.handicap || 0);
-        
-        // Get course data for handicap index calculation
-        let courseData = null;
-        console.log('Course data lookup:', {
-          matchCourseId: updatedMatch.course_id,
-          hasCourseId: !!updatedMatch.course_id
-        });
-        
-        if (updatedMatch.course_id) {
-          const courseResult = await pool.query(
-            'SELECT hole_indexes, par_values FROM simulator_courses_combined WHERE id = $1',
-            [updatedMatch.course_id]
-          );
-          if (courseResult.rows.length > 0) {
-            courseData = courseResult.rows[0];
-            console.log('Course data found:', {
-              courseId: updatedMatch.course_id,
-              holeIndexes: courseData.hole_indexes,
-              parValues: courseData.par_values
-            });
-          }
-        } else {
-          // Try to get course data from the tournament
-          console.log('No course_id in match, trying to get course from tournament');
-          const tournamentResult = await pool.query(
-            'SELECT course_id, trackman_course_id, gspro_course_id FROM tournaments WHERE id = $1',
-            [id]
-          );
-          
-          if (tournamentResult.rows.length > 0) {
-            const tournament = tournamentResult.rows[0];
-            const courseId = tournament.course_id || tournament.trackman_course_id || tournament.gspro_course_id;
-            
-            if (courseId) {
-              console.log('Found tournament course_id:', courseId);
-              const courseResult = await pool.query(
-                'SELECT hole_indexes, par_values FROM simulator_courses_combined WHERE id = $1',
-                [courseId]
-              );
-              if (courseResult.rows.length > 0) {
-                courseData = courseResult.rows[0];
-                console.log('Tournament course data found:', {
-                  courseId: courseId,
-                  holeIndexes: courseData.hole_indexes,
-                  parValues: courseData.par_values
-                });
-              }
-            }
-          }
-          
-          // If still no course data, try to get a default course
-          if (!courseData) {
-            console.log('No tournament course found, trying default course');
-            const defaultCourseResult = await pool.query(
-              'SELECT hole_indexes, par_values FROM simulator_courses_combined WHERE is_default = true LIMIT 1'
-            );
-            if (defaultCourseResult.rows.length > 0) {
-              courseData = defaultCourseResult.rows[0];
-              console.log('Default course data found:', {
-                holeIndexes: courseData.hole_indexes,
-                parValues: courseData.par_values
-              });
-            } else {
-              // Last resort: get any course with handicap indexes
-              console.log('No default course found, trying any course with handicap indexes');
-              const anyCourseResult = await pool.query(
-                'SELECT hole_indexes, par_values FROM simulator_courses_combined WHERE hole_indexes IS NOT NULL LIMIT 1'
-              );
-              if (anyCourseResult.rows.length > 0) {
-                courseData = anyCourseResult.rows[0];
-                console.log('Any course with handicap indexes found:', {
-                  holeIndexes: courseData.hole_indexes,
-                  parValues: courseData.par_values
-                });
-              }
-            }
-          }
-        }
-        
-        // Default hole indexes if no course data (1-18, with 1 being hardest)
-        const holeIndexes = courseData?.hole_indexes || [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
-        
-        console.log('Final hole indexes being used:', {
-          holeIndexes: holeIndexes.slice(0, 10), // Show first 10
-          source: courseData ? 'course_data' : 'default',
-          courseId: updatedMatch.course_id
-        });
-        
-        console.log('Player handicaps:', { 
-          player1: player1Handicap, 
-          player2: player2Handicap,
-          player1_id: updatedMatch.player1_id,
-          player2_id: updatedMatch.player2_id
-        });
-        
-        console.log('Score arrays:', {
-          player1Scores: player1Scores.slice(0, 5), // Show first 5 scores
-          player2Scores: player2Scores.slice(0, 5), // Show first 5 scores
-          player1Length: player1Scores.length,
-          player2Length: player2Scores.length
-        });
-        
-        // Calculate handicap differential (max 8 strokes for match play)
-        const rawDifferential = Math.abs(player1Handicap - player2Handicap);
-        const handicapDifferential = Math.min(Math.round(rawDifferential), 8);
-        const higherHandicapPlayer = player1Handicap > player2Handicap ? 1 : 2;
-        
-        console.log('Handicap calculation:', {
-          player1Handicap,
-          player2Handicap,
-          handicapDifferential,
-          higherHandicapPlayer,
-          holeIndexes: holeIndexes.slice(0, 5) // Show first 5 hole indexes
-        });
-        
-        // Recalculate net scores with proper handicap differentials and course indexes
-        const recalculatedPlayer1NetScores = player1Scores.map((score, index) => {
-          if (score === 0) return 0;
-          const holeNumber = index + 1; // Hole numbers are 1-18
-          const holeHandicapIndex = holeIndexes[index] || (index + 1); // The handicap index for this hole
-          const netScore = calculateNetScoreWithIndex(score, player1Handicap, holeHandicapIndex, handicapDifferential, higherHandicapPlayer === 1);
-          return netScore;
-        });
-        
-        const recalculatedPlayer2NetScores = player2Scores.map((score, index) => {
-          if (score === 0) return 0;
-          const holeNumber = index + 1; // Hole numbers are 1-18
-          const holeHandicapIndex = holeIndexes[index] || (index + 1); // The handicap index for this hole
-          const netScore = calculateNetScoreWithIndex(score, player2Handicap, holeHandicapIndex, handicapDifferential, higherHandicapPlayer === 2);
-          return netScore;
-        });
-        
-        console.log('Net score calculation:', {
-          player1Handicap: player1Handicap,
-          player2Handicap: player2Handicap,
-          handicapDifferential: handicapDifferential,
-          higherHandicapPlayer: higherHandicapPlayer,
-          player1GetsStrokes: higherHandicapPlayer === 1,
-          player2GetsStrokes: higherHandicapPlayer === 2,
-          player1NetScores: recalculatedPlayer1NetScores.slice(0, 5), // First 5 holes
-          player2NetScores: recalculatedPlayer2NetScores.slice(0, 5), // First 5 holes
-          player1GrossScores: player1Scores.slice(0, 5),
-          player2GrossScores: player2Scores.slice(0, 5)
-        });
-        
-        // Show detailed calculation for first few holes
-        console.log('Detailed net score calculation (first 3 holes):');
-        for (let i = 0; i < Math.min(3, player1Scores.length); i++) {
-          const holeNumber = i + 1;
-          const holeHandicapIndex = holeIndexes[i] || (i + 1);
-          const p1Gross = player1Scores[i];
-          const p2Gross = player2Scores[i];
-          const p1Net = recalculatedPlayer1NetScores[i];
-          const p2Net = recalculatedPlayer2NetScores[i];
-          
-          console.log(`Hole ${holeNumber} (Index ${holeHandicapIndex}): P1 ${p1Gross}->${p1Net}, P2 ${p2Gross}->${p2Net}`);
-        }
-        
-        // Simple match play scoring - compare hole by hole using net scores
-        for (let i = 0; i < Math.min(recalculatedPlayer1NetScores.length, recalculatedPlayer2NetScores.length); i++) {
-          if (recalculatedPlayer1NetScores[i] > 0 && recalculatedPlayer2NetScores[i] > 0) { // Both players played the hole
-            if (recalculatedPlayer1NetScores[i] < recalculatedPlayer2NetScores[i]) {
-              player1HolesWon++;
-            } else if (recalculatedPlayer2NetScores[i] < recalculatedPlayer1NetScores[i]) {
-              player2HolesWon++;
-            }
-          }
-        }
-        
-        const player1HolesLost = player2HolesWon;
-        const player2HolesLost = player1HolesWon;
-        const player1NetHoles = player1HolesWon - player1HolesLost;
-        const player2NetHoles = player2HolesWon - player2HolesLost;
-        
-        // Determine winner
-        let winnerId = null;
-        if (player1NetHoles > player2NetHoles) {
-          winnerId = updatedMatch.player1_id;
-        } else if (player2NetHoles > player1NetHoles) {
-          winnerId = updatedMatch.player2_id;
-        }
-        
-        // Update match with calculated results and recalculated net scores
-        await pool.query(`
-          UPDATE club_championship_matches 
-          SET player1_holes_won = $1, player2_holes_won = $2, 
-              player1_holes_lost = $3, player2_holes_lost = $4,
-              player1_net_holes = $5, player2_net_holes = $6,
-              player1_net_hole_scores = $7, player2_net_hole_scores = $8,
-              winner_id = $9, match_status = 'completed'
-          WHERE id = $10
-        `, [player1HolesWon, player2HolesWon, player1HolesLost, player2HolesLost, 
-            player1NetHoles, player2NetHoles, 
-            JSON.stringify(recalculatedPlayer1NetScores), 
-            JSON.stringify(recalculatedPlayer2NetScores),
-            winnerId, matchId]);
-        
-        // Get the final updated match
-        const finalResult = await pool.query(
-          'SELECT * FROM club_championship_matches WHERE id = $1',
-          [matchId]
-        );
-        
-        return res.json({
-          success: true,
-          match: finalResult.rows[0],
-          message: `Match completed automatically - both players submitted scores`
-        });
-        
-      } catch (error) {
-        console.error('Error processing match completion:', error);
-        // If there's an error in processing, just return the updated match without auto-completion
-        return res.json({
-          success: true,
-          match: updatedMatch,
-          message: `Updated championship match result`
-        });
-      }
-    }
-    
-    res.json({
-      success: true,
-      match: updatedMatch,
-      message: `Updated championship match result`
-    });
-    
-  } catch (err) {
-    console.error('Error updating championship match result:', err);
-    res.status(500).json({ error: 'Failed to update championship match result' });
-  }
-});
-
-// Get championship standings
-app.get('/api/tournaments/:id/championship-standings', async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    // Get all club groups for this tournament
-    const groupsResult = await pool.query(`
-      SELECT id, group_name, participating_clubs, participant_count, user_ids
-      FROM club_groups 
-      WHERE tournament_id = $1
-      ORDER BY group_name
-    `, [id]);
-
-    const standings = [];
-
-    for (const group of groupsResult.rows) {
-      // Get participants for this group from participation table
-      const participantsResult = await pool.query(`
-        SELECT 
-          p.user_member_id as user_id,
-          u.first_name,
-          u.last_name,
-          u.club
-        FROM participation p
-        JOIN users u ON p.user_member_id = u.member_id
-        WHERE p.tournament_id = $1 
-        AND p.user_member_id = ANY($2)
-        ORDER BY u.first_name, u.last_name
-      `, [id, group.user_ids || []]);
-
-      // Calculate match statistics for each participant
-      const participantsWithStats = [];
-      
-      for (const participant of participantsResult.rows) {
-        // Get match statistics from club_championship_matches
-        const matchStatsResult = await pool.query(`
-          SELECT 
-            COUNT(*) as total_matches,
-            COUNT(CASE WHEN winner_id = $1 THEN 1 END) as match_wins,
-            COUNT(CASE WHEN winner_id != $1 AND winner_id IS NOT NULL THEN 1 END) as match_losses,
-            COUNT(CASE WHEN winner_id IS NULL AND match_status = 'completed' THEN 1 END) as match_ties,
-            COALESCE(SUM(CASE WHEN player1_id = $1 THEN player1_holes_won ELSE player2_holes_won END), 0) as total_holes_won,
-            COALESCE(SUM(CASE WHEN player1_id = $1 THEN player1_holes_lost ELSE player2_holes_lost END), 0) as total_holes_lost,
-            COALESCE(SUM(CASE WHEN player1_id = $1 THEN player1_net_holes ELSE player2_net_holes END), 0) as net_holes
-          FROM club_championship_matches 
-          WHERE tournament_id = $2 
-          AND (player1_id = $1 OR player2_id = $1)
-          AND match_status = 'completed'
-        `, [participant.user_id, id]);
-
-        const stats = matchStatsResult.rows[0];
-        
-        // Calculate traditional match play tiebreaker points
-        // Get individual match results to calculate tiebreaker points correctly
-        const individualMatchesResult = await pool.query(`
-          SELECT 
-            CASE WHEN player1_id = $1 THEN player1_net_holes ELSE player2_net_holes END as net_holes,
-            winner_id
-          FROM club_championship_matches 
-          WHERE tournament_id = $2 
-          AND (player1_id = $1 OR player2_id = $1)
-          AND match_status = 'completed'
-        `, [participant.user_id, id]);
-
-        let tiebreakerPoints = 0;
-        for (const match of individualMatchesResult.rows) {
-          if (match.winner_id === participant.user_id) {
-            // Player won this match - add tiebreaker points equal to their net holes advantage
-            tiebreakerPoints += Math.max(1, match.net_holes);
-          }
-          // If player lost or tied, they get 0 tiebreaker points for that match
-        }
-        
-        participantsWithStats.push({
-          ...participant,
-          match_wins: parseInt(stats.match_wins) || 0,
-          match_losses: parseInt(stats.match_losses) || 0,
-          match_ties: parseInt(stats.match_ties) || 0,
-          total_matches: parseInt(stats.total_matches) || 0,
-          tiebreaker_points: tiebreakerPoints,
-          total_holes_won: parseInt(stats.total_holes_won) || 0,
-          total_holes_lost: parseInt(stats.total_holes_lost) || 0,
-          net_holes: parseInt(stats.net_holes) || 0
-        });
-      }
-
-      // Sort participants by wins, then tiebreaker points, then net holes
-      participantsWithStats.sort((a, b) => {
-        // First by match wins (descending)
-        if (b.match_wins !== a.match_wins) {
-          return b.match_wins - a.match_wins;
-        }
-        // Then by tiebreaker points (descending)
-        if (b.tiebreaker_points !== a.tiebreaker_points) {
-          return b.tiebreaker_points - a.tiebreaker_points;
-        }
-        // Finally by net holes (descending)
-        return b.net_holes - a.net_holes;
-      });
-
-      standings.push({
-        group_id: group.id,
-        group_name: group.group_name,
-        participants: participantsWithStats
-      });
-    }
-
-    res.json(standings);
-  } catch (err) {
-    console.error('Error fetching championship standings:', err);
-    res.status(500).json({ error: 'Failed to fetch championship standings' });
-  }
-});
-
-// Determine club champions
-app.post('/api/tournaments/:id/determine-champions', async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    // Get all completed matches with results
-    const matchesResult = await pool.query(`
-      SELECT 
-        ccm.*,
-        u1.first_name as player1_name,
-        u1.last_name as player1_last_name,
-        u2.first_name as player2_name,
-        u2.last_name as player2_last_name
-      FROM club_championship_matches ccm
-      JOIN users u1 ON ccm.player1_id = u1.member_id
-      JOIN users u2 ON ccm.player2_id = u2.member_id
-      WHERE ccm.tournament_id = $1 AND ccm.match_status = 'completed'
-    `, [id]);
-    
-    const matches = matchesResult.rows;
-    
-    // Calculate standings for each group
-    const groupStandings = {};
-    
-    for (const match of matches) {
-      const group = match.club_group;
-      if (!groupStandings[group]) {
-        groupStandings[group] = {};
-      }
-      
-      const standings = groupStandings[group];
-      
-      // Initialize players if not exists
-      if (!standings[match.player1_id]) {
-        standings[match.player1_id] = {
-          user_id: match.player1_id,
-          name: `${match.player1_name} ${match.player1_last_name}`,
-          match_wins: 0,
-          match_losses: 0,
-          match_ties: 0,
-          tiebreaker_points: 0,
-          total_holes_won: 0,
-          total_holes_lost: 0
-        };
-      }
-      
-      if (!standings[match.player2_id]) {
-        standings[match.player2_id] = {
-          user_id: match.player2_id,
-          name: `${match.player2_name} ${match.player2_last_name}`,
-          match_wins: 0,
-          match_losses: 0,
-          match_ties: 0,
-          tiebreaker_points: 0,
-          total_holes_won: 0,
-          total_holes_lost: 0
-        };
-      }
-      
-      // Calculate traditional match play tiebreaker points
-      // Tiebreaker points = how many holes ahead the winner was when they clinched the match
-      let player1TiebreakerPoints = 0;
-      let player2TiebreakerPoints = 0;
-      
-      if (match.winner_id === match.player1_id) {
-        // Player 1 won - they get tiebreaker points equal to their net holes advantage
-        player1TiebreakerPoints = Math.max(1, match.player1_net_holes);
-        player2TiebreakerPoints = 0;
-      } else if (match.winner_id === match.player2_id) {
-        // Player 2 won - they get tiebreaker points equal to their net holes advantage
-        player1TiebreakerPoints = 0;
-        player2TiebreakerPoints = Math.max(1, match.player2_net_holes);
-      } else {
-        // Tie - both players get 0 tiebreaker points
-        player1TiebreakerPoints = 0;
-        player2TiebreakerPoints = 0;
-      }
-
-      // Update standings based on match result
-      if (match.winner_id === match.player1_id) {
-        standings[match.player1_id].match_wins++;
-        standings[match.player2_id].match_losses++;
-        standings[match.player1_id].tiebreaker_points += player1TiebreakerPoints;
-        standings[match.player2_id].tiebreaker_points += player2TiebreakerPoints;
-      } else if (match.winner_id === match.player2_id) {
-        standings[match.player2_id].match_wins++;
-        standings[match.player1_id].match_losses++;
-        standings[match.player2_id].tiebreaker_points += player2TiebreakerPoints;
-        standings[match.player1_id].tiebreaker_points += player1TiebreakerPoints;
-      } else {
-        // Tie
-        standings[match.player1_id].match_ties++;
-        standings[match.player2_id].match_ties++;
-        standings[match.player1_id].tiebreaker_points += player1TiebreakerPoints;
-        standings[match.player2_id].tiebreaker_points += player2TiebreakerPoints;
-      }
-      
-      standings[match.player1_id].total_holes_won += match.player1_holes_won;
-      standings[match.player1_id].total_holes_lost += match.player1_holes_lost;
-      standings[match.player2_id].total_holes_won += match.player2_holes_won;
-      standings[match.player2_id].total_holes_lost += match.player2_holes_lost;
-    }
-    
-    // Determine champions for each group
-    const champions = [];
-    
-    for (const [groupName, standings] of Object.entries(groupStandings)) {
-      const players = Object.values(standings);
-      
-      // Sort by match record, then tiebreaker points
-      players.sort((a, b) => {
-        if (a.match_wins !== b.match_wins) return b.match_wins - a.match_wins;
-        if (a.match_ties !== b.match_ties) return b.match_ties - a.match_ties;
-        return b.tiebreaker_points - a.tiebreaker_points;
-      });
-      
-      const champion = players[0];
-      champions.push({
-        group_name: groupName,
-        champion: champion,
-        standings: players
-      });
-      
-      // Update database with championship results
-      await pool.query(`
-        UPDATE club_championship_participants 
-        SET 
-          match_wins = $1,
-          match_losses = $2,
-          match_ties = $3,
-          tiebreaker_points = $4,
-          total_holes_won = $5,
-          total_holes_lost = $6,
-          net_holes = $7,
-          is_club_champion = $8,
-          championship_rank = $9
-        WHERE tournament_id = $10 AND user_id = $11
-      `, [
-        champion.match_wins,
-        champion.match_losses,
-        champion.match_ties,
-        champion.tiebreaker_points,
-        champion.total_holes_won,
-        champion.total_holes_lost,
-        champion.total_holes_won - champion.total_holes_lost,
-        true,
-        1
-      ]);
-    }
-    
-    res.json({
-      success: true,
-      champions: champions,
-      message: `Determined ${champions.length} club champions`
-    });
-    
-  } catch (err) {
-    console.error('Error determining champions:', err);
-    res.status(500).json({ error: 'Failed to determine champions' });
   }
 });
 
@@ -5494,6 +2895,7 @@ app.put('/api/tournaments/:id/status', async (req, res) => {
     res.status(500).json({ error: 'Failed to update tournament status' });
   }
 });
+
 // Toggle registration open/closed
 app.put('/api/tournaments/:id/registration', async (req, res) => {
   const { id } = req.params;
@@ -5565,13 +2967,7 @@ app.get('/api/tournaments/:id/formation-stats', async (req, res) => {
       formation: {
         can_start: participantCount >= (tournament.min_participants || 2),
         is_full: tournament.max_participants ? participantCount >= tournament.max_participants : false,
-        registration_deadline_passed: tournament.registration_deadline ? (() => {
-          const deadlineDate = new Date(tournament.registration_deadline);
-          const currentDate = new Date();
-          const deadlineDay = new Date(deadlineDate.getFullYear(), deadlineDate.getMonth(), deadlineDate.getDate());
-          const currentDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
-          return currentDay > deadlineDay;
-        })() : false
+        registration_deadline_passed: tournament.registration_deadline ? new Date(tournament.registration_deadline) < new Date() : false
       }
     };
     
@@ -5579,113 +2975,6 @@ app.get('/api/tournaments/:id/formation-stats', async (req, res) => {
   } catch (err) {
     console.error('Error fetching tournament formation stats:', err);
     res.status(500).json({ error: 'Failed to fetch tournament formation stats' });
-  }
-});
-
-// Submit payment for tournament
-app.post('/api/tournaments/:id/payment', authenticateToken, async (req, res) => {
-  const { id } = req.params;
-  const { user_id, payment_method, payment_amount, payment_notes } = req.body;
-  
-  if (!user_id || !payment_method || !payment_amount) {
-    return res.status(400).json({ error: 'Missing required payment information' });
-  }
-  
-  try {
-    // Check if user is registered for tournament
-    const participantCheck = await pool.query(
-      'SELECT * FROM participation WHERE tournament_id = $1 AND user_member_id = $2',
-      [id, user_id]
-    );
-    
-    if (participantCheck.rows.length === 0) {
-      return res.status(400).json({ error: 'User is not registered for this tournament' });
-    }
-    
-    // Check if payment already submitted
-    const paymentCheck = await pool.query(
-      'SELECT * FROM participation WHERE tournament_id = $1 AND user_member_id = $2 AND payment_submitted = true',
-      [id, user_id]
-    );
-    
-    if (paymentCheck.rows.length > 0) {
-      return res.status(400).json({ error: 'Payment already submitted for this tournament' });
-    }
-    
-    // Update participation record to mark payment as submitted
-    await pool.query(
-      `UPDATE participation SET 
-        payment_submitted = true,
-        payment_method = $1,
-        payment_amount = $2,
-        payment_notes = $3,
-        payment_submitted_at = CURRENT_TIMESTAMP
-       WHERE tournament_id = $4 AND user_member_id = $5`,
-      [payment_method, payment_amount, payment_notes, id, user_id]
-    );
-    
-    res.json({ 
-      success: true, 
-      message: 'Payment submitted successfully. Tournament admin will verify your payment.' 
-    });
-  } catch (err) {
-    console.error('Error submitting payment:', err);
-    res.status(500).json({ error: 'Failed to submit payment' });
-  }
-});
-
-// Get payment status for user
-app.get('/api/tournaments/:id/payment-status/:userId', authenticateToken, async (req, res) => {
-  const { id, userId } = req.params;
-  
-  try {
-    const { rows } = await pool.query(
-      `SELECT 
-        payment_submitted,
-        payment_method,
-        payment_amount,
-        payment_notes,
-        payment_submitted_at
-       FROM participation 
-       WHERE tournament_id = $1 AND user_member_id = $2`,
-      [id, userId]
-    );
-    
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'User not found in tournament' });
-    }
-    
-    res.json(rows[0]);
-  } catch (err) {
-    console.error('Error fetching payment status:', err);
-    res.status(500).json({ error: 'Failed to fetch payment status' });
-  }
-});
-
-// Get all check-in statuses for a user across all tournaments
-app.get('/api/users/:userId/check-in-statuses', authenticateToken, async (req, res) => {
-  const { userId } = req.params;
-  
-  try {
-    const { rows } = await pool.query(
-      `SELECT 
-        p.tournament_id,
-        c.status as check_in_status,
-        c.check_in_time,
-        c.notes,
-        t.name as tournament_name,
-        t.entry_fee
-       FROM participation p
-       JOIN tournaments t ON p.tournament_id = t.id
-       LEFT JOIN check_ins c ON p.tournament_id = c.tournament_id AND p.user_member_id = c.user_member_id
-       WHERE p.user_member_id = $1`,
-      [userId]
-    );
-    
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching check-in statuses:', err);
-    res.status(500).json({ error: 'Failed to fetch check-in statuses' });
   }
 });
 
@@ -5904,7 +3193,7 @@ app.post('/api/calculate-handicaps/:userId', authenticateToken, async (req, res)
   const { userId } = req.params;
   
   // Only allow users to calculate their own handicap or admins to calculate any
-  if (req.user.member_id !== parseInt(userId) && req.user.role?.toLowerCase() !== 'admin') {
+  if (req.user.member_id !== parseInt(userId) && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Unauthorized' });
   }
   
@@ -5941,158 +3230,13 @@ app.get('/api/handicaps', async (req, res) => {
   }
 });
 
-// Club Pro: Get handicaps for users in the pro's club (auth required)
-app.get('/api/club-pro/handicaps', authenticateToken, requireClubProOrAdmin, async (req, res) => {
-  try {
-    // Access check is now handled by requireClubProOrAdmin middleware
-    // User details are in req.userDetails
-    const userClub = req.userDetails.club;
-
-    // Use club from query parameter if provided (for view-as mode), otherwise use user's club
-    const targetClub = req.query.club || userClub;
-
-    const { rows } = await pool.query(`
-      SELECT u.member_id, u.first_name, u.last_name, u.club,
-             u.sim_handicap, u.grass_handicap,
-             COUNT(s.id) as total_rounds,
-             COUNT(CASE WHEN s.round_type = 'sim' OR s.round_type IS NULL THEN 1 END) as sim_rounds,
-             COUNT(CASE WHEN s.round_type = 'grass' THEN 1 END) as grass_rounds,
-             MIN(s.differential) as best_differential,
-             AVG(s.differential) as avg_differential
-      FROM users u
-      LEFT JOIN scorecards s ON u.member_id = s.user_id AND s.differential IS NOT NULL
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
-      GROUP BY u.member_id, u.first_name, u.last_name, u.club, u.sim_handicap, u.grass_handicap
-      ORDER BY u.first_name, u.last_name
-    `, [targetClub]);
-
-    res.json({ club: targetClub, players: rows });
-  } catch (error) {
-    console.error('Error fetching club pro handicaps:', error);
-    res.status(500).json({ error: 'Failed to fetch handicaps' });
-  }
-});
-
-// Club Pro: Get weekly matches for the pro's club for a tournament/week (auth required)
-app.get('/api/club-pro/tournaments/:id/weekly-matches', authenticateToken, requireClubProOrAdmin, async (req, res) => {
-  const { id } = req.params;
-  const { week_start_date } = req.query;
-  try {
-    // Access check is now handled by requireClubProOrAdmin middleware
-    // User details are in req.userDetails
-    const club = req.userDetails.club;
-
-    // Resolve week date using existing helper if available; otherwise accept query
-    let weekDate = week_start_date;
-    try {
-      if (!weekDate && typeof getWeekStartDate === 'function') {
-        weekDate = getWeekStartDate();
-      }
-    } catch {}
-
-    // Fetch matches where either player belongs to the pro's club
-    const { rows } = await pool.query(
-      `SELECT wm.*, 
-              u1.first_name as player1_first_name, u1.last_name as player1_last_name, u1.club as player1_club,
-              u2.first_name as player2_first_name, u2.last_name as player2_last_name, u2.club as player2_club,
-              ws1.hole_scores as player1_scores, ws2.hole_scores as player2_scores
-       FROM weekly_matches wm
-       JOIN users u1 ON wm.player1_id = u1.member_id
-       JOIN users u2 ON wm.player2_id = u2.member_id
-       JOIN weekly_scorecards ws1 ON wm.player1_scorecard_id = ws1.id
-       JOIN weekly_scorecards ws2 ON wm.player2_scorecard_id = ws2.id
-       WHERE wm.tournament_id = $1
-         AND ($2::date IS NULL OR wm.week_start_date = $2::date)
-         AND (u1.club = $3 OR u2.club = $3)
-       ORDER BY wm.created_at`,
-      [id, weekDate || null, club]
-    );
-
-    res.json({ club, matches: rows });
-  } catch (err) {
-    console.error('Error fetching club pro weekly matches:', err);
-    res.status(500).json({ error: 'Failed to fetch matches' });
-  }
-});
-
-// Club Pro: Get player tournament participation data for the pro's club (auth required)
-app.get('/api/club-pro/player-tournaments', authenticateToken, requireClubProOrAdmin, async (req, res) => {
-  try {
-    // Access check is now handled by requireClubProOrAdmin middleware
-    // User details are in req.userDetails
-    const userClub = req.userDetails.club;
-
-    if (!userClub) {
-      return res.status(403).json({ error: 'Only club pros or admins can access this resource' });
-    }
-
-    // Use club from query parameter if provided (for view-as mode), otherwise use user's club
-    const targetClub = req.query.club || userClub;
-
-    const { rows } = await pool.query(`
-      SELECT 
-        u.member_id,
-        u.first_name,
-        u.last_name,
-        u.club,
-        t.id as tournament_id,
-        t.name as tournament_name,
-        t.status as tournament_status,
-        t.start_date,
-        t.end_date,
-        CASE 
-          WHEN t.status = 'completed' THEN 'completed'
-          WHEN t.status = 'active' THEN 'active'
-          WHEN t.status = 'registration' THEN 'registered'
-          ELSE 'registered'
-        END as participation_status
-      FROM users u
-      LEFT JOIN participation p ON u.member_id = p.user_member_id
-      LEFT JOIN tournaments t ON p.tournament_id = t.id
-      WHERE u.club = $1 
-        AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
-      ORDER BY u.first_name, u.last_name, t.start_date DESC
-    `, [targetClub]);
-
-    // Group by player
-    const playerData = {};
-    rows.forEach(row => {
-      if (!playerData[row.member_id]) {
-        playerData[row.member_id] = {
-          member_id: row.member_id,
-          first_name: row.first_name,
-          last_name: row.last_name,
-          club: row.club,
-          tournaments: []
-        };
-      }
-      
-      if (row.tournament_id) {
-        playerData[row.member_id].tournaments.push({
-          tournament_id: row.tournament_id,
-          tournament_name: row.tournament_name,
-          tournament_status: row.tournament_status,
-          start_date: row.start_date,
-          end_date: row.end_date,
-          participation_status: row.participation_status
-        });
-      }
-    });
-
-    res.json({ club: targetClub, players: Object.values(playerData) });
-  } catch (error) {
-    console.error('Error fetching club pro player tournaments:', error);
-    res.status(500).json({ error: 'Failed to fetch player tournament data' });
-  }
-});
-
 // Get user's course records
 app.get('/api/user-course-records/:userId', authenticateToken, async (req, res) => {
   try {
     const { userId } = req.params;
     
     // Only allow users to view their own records or admins to view any
-    if (req.user.member_id !== parseInt(userId) && req.user.role?.toLowerCase() !== 'admin') {
+    if (req.user.member_id !== parseInt(userId) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Unauthorized' });
     }
     
@@ -6395,96 +3539,6 @@ app.get('/api/users/:id/combined-stats', authenticateToken, async (req, res) => 
   }
 });
 
-// Get user's recent simulator rounds with handicap counting info
-app.get('/api/users/:id/recent-simulator-rounds', authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    // Only allow users to view their own rounds or admins to view any
-    if (req.user.member_id !== parseInt(id) && req.user.role?.toLowerCase() !== 'admin') {
-      return res.status(403).json({ error: 'Unauthorized' });
-    }
-    
-    // Get recent simulator rounds (last 20) with handicap counting information
-    // First, get the last 20 rounds to determine which are actually used in handicap calculation
-    const { rows: allRounds } = await pool.query(`
-      SELECT 
-        s.id,
-        s.date_played,
-        s.course_name,
-        s.total_strokes,
-        s.differential,
-        s.round_type,
-        s.handicap,
-        s.tournament_id
-      FROM scorecards s
-      WHERE s.user_id = $1 
-        AND (s.round_type = 'sim' OR s.round_type IS NULL)
-      ORDER BY s.date_played DESC
-      LIMIT 20
-    `, [id]);
-
-    // Calculate which rounds are actually used in handicap calculation
-    // Filter rounds with valid differentials and sort by date (newest first)
-    const validRounds = allRounds
-      .filter(round => round.differential !== null)
-      .sort((a, b) => new Date(b.date_played).getTime() - new Date(a.date_played).getTime());
-
-    let roundsToUse = [];
-    
-    // USGA Handicap System 2020+ rules (matching Profile.tsx logic)
-    if (validRounds.length >= 20) {
-      // Use best 8 out of last 20
-      roundsToUse = validRounds.slice(0, 20).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 8);
-    } else if (validRounds.length >= 15) {
-      // Use best 7 out of last 15
-      roundsToUse = validRounds.slice(0, 15).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 7);
-    } else if (validRounds.length >= 10) {
-      // Use best 6 out of last 10
-      roundsToUse = validRounds.slice(0, 10).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 6);
-    } else if (validRounds.length >= 5) {
-      // Use best 5 out of last 5
-      roundsToUse = validRounds.slice(0, 5).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 5);
-    } else if (validRounds.length >= 3) {
-      // Use best 3 out of last 3
-      roundsToUse = validRounds.slice(0, 3).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 3);
-    } else if (validRounds.length >= 1) {
-      // Use best 1 out of last 1
-      roundsToUse = validRounds.slice(0, 1).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 1);
-    }
-
-    const usedRoundIds = new Set(roundsToUse.map(round => round.id));
-
-    // Add handicap status to each round
-    const roundsWithStatus = allRounds.map(round => {
-      let handicapStatus, handicapStatusColor;
-
-      if (round.differential === null) {
-        handicapStatus = 'No (No Differential)';
-        handicapStatusColor = 'text-gray-500';
-      } else if (usedRoundIds.has(round.id)) {
-        handicapStatus = 'Yes (Used in Handicap)';
-        handicapStatusColor = 'text-green-600';
-      } else {
-        handicapStatus = 'No (Not Used)';
-        handicapStatusColor = 'text-yellow-500';
-      }
-
-      return {
-        ...round,
-        handicap_status: handicapStatus,
-        handicap_status_color: handicapStatusColor
-      };
-    });
-
-    res.json(roundsWithStatus);
-    
-  } catch (error) {
-    console.error('Error fetching recent simulator rounds:', error);
-    res.status(500).json({ error: 'Failed to fetch recent simulator rounds' });
-  }
-});
-
 // Google Cloud Storage setup using environment variables (conditional)
 let gcs = null;
 let bucket = null;
@@ -6518,6 +3572,7 @@ const upload = multer({
     }
   }
 });
+
 // Upload profile photo endpoint (GCS version)
 app.post('/api/users/profile-photo', authenticateToken, upload.single('profilePhoto'), async (req, res) => {
   try {
@@ -6557,75 +3612,6 @@ app.post('/api/users/profile-photo', authenticateToken, upload.single('profilePh
   } catch (error) {
     console.error('Error uploading profile photo:', error);
     res.status(500).json({ error: 'Failed to upload profile photo' });
-  }
-});
-
-// Upload scorecard photo endpoint (GCS version with fallback)
-app.post('/api/tournaments/scorecard-photo', authenticateToken, upload.single('scorecardPhoto'), async (req, res) => {
-  try {
-    console.log('Scorecard photo upload request received');
-    console.log('Request user:', req.user);
-    console.log('Request file:', req.file ? 'File present' : 'No file');
-    
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-
-    console.log('File details:', {
-      originalname: req.file.originalname,
-      mimetype: req.file.mimetype,
-      size: req.file.size
-    });
-
-    const userId = req.user.member_id;
-    let photoUrl;
-
-    // Check if GCS is configured
-    if (gcs && bucket) {
-      console.log('Using GCS for photo upload');
-      try {
-        // Use GCS for production
-        const ext = path.extname(req.file.originalname);
-        const gcsFileName = `scorecard-photos/user_${userId}_${Date.now()}${ext}`;
-        const blob = bucket.file(gcsFileName);
-
-        console.log('Uploading to GCS:', gcsFileName);
-
-        // Upload to GCS
-        await blob.save(req.file.buffer, {
-          contentType: req.file.mimetype,
-          metadata: { cacheControl: 'public, max-age=31536000' }
-        });
-
-        photoUrl = `https://storage.googleapis.com/${bucket.name}/${gcsFileName}`;
-        console.log('GCS upload successful, URL:', photoUrl);
-      } catch (gcsError) {
-        console.error('GCS upload failed:', gcsError);
-        throw gcsError;
-      }
-    } else {
-      console.log('GCS not configured, using data URL fallback');
-      // Fallback: Convert to data URL for development
-      const base64Data = req.file.buffer.toString('base64');
-      const mimeType = req.file.mimetype;
-      photoUrl = `data:${mimeType};base64,${base64Data}`;
-      
-      console.log('Data URL fallback created, length:', photoUrl.length);
-    }
-
-    console.log('Photo upload successful, returning response');
-    res.json({ 
-      success: true, 
-      photoUrl,
-      message: 'Scorecard photo uploaded successfully' 
-    });
-  } catch (error) {
-    console.error('Error uploading scorecard photo:', error);
-    console.error('Error stack:', error.stack);
-    res.status(500).json({ 
-      error: 'Failed to upload scorecard photo',
-      details: error.message 
-    });
   }
 });
 
@@ -7022,117 +4008,13 @@ app.post('/api/trackman-courses/import', authenticateToken, async (req, res) => 
   }
 });
 
-// Combined Simulator Courses Stats
-app.get('/api/simulator-courses/stats', async (req, res) => {
-  try {
-    // Get all courses from the combined table
-    const { rows } = await pool.query('SELECT platforms FROM simulator_courses_combined');
-    let total_courses = rows.length;
-    let gspro_courses = 0;
-    let trackman_courses = 0;
-    let shared_courses = 0;
-    let unique_gspro = 0;
-    let unique_trackman = 0;
-    
-    // Debug: Log a few sample platforms to see the format
-    console.log('Sample platforms from database:');
-    for (let i = 0; i < Math.min(5, rows.length); i++) {
-      console.log(`Row ${i}:`, rows[i].platforms);
-    }
-    
-    for (const row of rows) {
-      let platforms = row.platforms;
-      
-      // Handle different possible formats of the platforms data
-      if (typeof platforms === 'string') {
-        // If it's a string, try to parse it as JSON
-        try {
-          platforms = JSON.parse(platforms);
-        } catch (e) {
-          console.log('Failed to parse platforms as JSON:', platforms);
-          continue;
-        }
-      }
-      
-      // Ensure platforms is an array
-      if (!Array.isArray(platforms)) {
-        console.log('Platforms is not an array:', platforms);
-        continue;
-      }
-      
-      console.log('Processing platforms:', platforms, 'Type:', typeof platforms, 'Is array:', Array.isArray(platforms));
-      
-      // Check if this course has both platforms
-      const hasGSPro = platforms.includes('GSPro');
-      const hasTrackman = platforms.includes('Trackman');
-      
-      if (hasGSPro && hasTrackman) {
-        shared_courses++;
-        console.log('Found shared course');
-      } else if (hasGSPro) {
-        unique_gspro++;
-        console.log('Found GSPro course');
-      } else if (hasTrackman) {
-        unique_trackman++;
-        console.log('Found Trackman course');
-      }
-      
-      // Count total courses for each platform
-      if (hasGSPro) gspro_courses++;
-      if (hasTrackman) trackman_courses++;
-    }
-    
-    const result = {
-      total_courses,
-      gspro_courses,
-      trackman_courses,
-      shared_courses,
-      unique_gspro,
-      unique_trackman
-    };
-    
-    console.log('Stats result:', result);
-    res.json(result);
-  } catch (error) {
-    console.error('Error fetching combined simulator stats:', error);
-    res.status(500).json({ error: 'Failed to fetch stats' });
-  }
-});
-
-// Get a single simulator course by ID
-app.get('/api/simulator-courses/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const { rows } = await pool.query(`
-      SELECT * FROM simulator_courses_combined WHERE id = $1
-    `, [id]);
-    
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Course not found' });
-    }
-    
-    res.json(rows[0]);
-  } catch (error) {
-    console.error('Error fetching simulator course:', error);
-    res.status(500).json({ error: 'Failed to fetch course' });
-  }
-});
-
 // Combined Simulator Courses API
 app.get('/api/simulator-courses', async (req, res) => {
   try {
-    const { search, platform, server, designer, location, courseType, id, limit = 20, offset = 0 } = req.query;
+    const { search, platform, server, designer, location, courseType, limit = 20, offset = 0 } = req.query;
     let query = 'SELECT * FROM simulator_courses_combined WHERE 1=1';
     const params = [];
     let paramCount = 0;
-
-    // ID filter
-    if (id) {
-      paramCount++;
-      query += ` AND id = $${paramCount}`;
-      params.push(parseInt(id));
-    }
 
     // Platform filter
     if (platform === 'gspro') {
@@ -7253,6 +4135,39 @@ app.get('/api/simulator-courses', async (req, res) => {
   }
 });
 
+// Combined Simulator Courses Stats
+app.get('/api/simulator-courses/stats', async (req, res) => {
+  try {
+    // Get all courses from the combined table
+    const { rows } = await pool.query('SELECT platforms FROM simulator_courses_combined');
+    let total_courses = rows.length;
+    let gspro_courses = 0;
+    let trackman_courses = 0;
+    let shared_courses = 0;
+    let unique_gspro = 0;
+    let unique_trackman = 0;
+    for (const row of rows) {
+      const p = row.platforms;
+      if (p.includes('GSPro') && p.includes('Trackman')) shared_courses++;
+      else if (p.includes('GSPro')) unique_gspro++;
+      else if (p.includes('Trackman')) unique_trackman++;
+      if (p.includes('GSPro')) gspro_courses++;
+      if (p.includes('Trackman')) trackman_courses++;
+    }
+    res.json({
+      total_courses,
+      gspro_courses,
+      trackman_courses,
+      shared_courses,
+      unique_gspro,
+      unique_trackman
+    });
+  } catch (error) {
+    console.error('Error fetching combined simulator stats:', error);
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
 // Update course par values
 app.put('/api/simulator-courses/:id/par-values', authenticateToken, async (req, res) => {
   try {
@@ -7306,58 +4221,6 @@ app.put('/api/simulator-courses/:id/par-values', authenticateToken, async (req, 
   }
 });
 
-// Update course hole indexes
-app.put('/api/simulator-courses/:id/hole-indexes', authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { hole_indexes } = req.body;
-    
-    console.log('Hole indexes update request:', { id, hole_indexes, userId: req.user.member_id });
-    
-    // Validate hole indexes
-    if (!Array.isArray(hole_indexes) || hole_indexes.length === 0) {
-      console.log('Validation failed: hole_indexes is not a non-empty array');
-      return res.status(400).json({ error: 'Hole indexes must be a non-empty array' });
-    }
-    
-    // Validate each hole index is between 1 and 18
-    if (hole_indexes.some(index => !Number.isInteger(index) || index < 1 || index > 18)) {
-      console.log('Validation failed: hole indexes out of range');
-      return res.status(400).json({ error: 'Hole indexes must be integers between 1 and 18' });
-    }
-    
-    // Check if course exists first
-    const { rows: courseCheck } = await pool.query(`
-      SELECT id, name FROM simulator_courses_combined WHERE id = $1
-    `, [id]);
-    
-    if (courseCheck.length === 0) {
-      console.log('Course not found with ID:', id);
-      return res.status(404).json({ error: 'Course not found' });
-    }
-    
-    console.log('Found course:', courseCheck[0]);
-    
-    // Update the course with hole indexes
-    const { rows } = await pool.query(`
-      UPDATE simulator_courses_combined 
-      SET hole_indexes = $1, updated_at = NOW()
-      WHERE id = $2
-      RETURNING id, name, hole_indexes
-    `, [JSON.stringify(hole_indexes), id]);
-    
-    console.log('Update result:', rows[0]);
-    
-    res.json({
-      message: 'Hole indexes updated successfully',
-      course: rows[0]
-    });
-    
-  } catch (error) {
-    console.error('Error updating course hole indexes:', error);
-    res.status(500).json({ error: 'Failed to update hole indexes', details: error.message });
-  }
-});
 // Get existing teebox data for a course
 app.get('/api/simulator-courses/:id/teebox-data', async (req, res) => {
   try {
@@ -7471,7 +4334,9 @@ app.put('/api/simulator-courses/:id/teebox-data', authenticateToken, async (req,
   }
 });
 
-// NOTE: server start moved to the bottom to avoid duplicate listeners
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+}); 
 
 // Get course records and player statistics for leaderboard
 app.get('/api/leaderboard-stats', async (req, res) => {
@@ -7521,7 +4386,7 @@ app.get('/api/leaderboard-stats', async (req, res) => {
         AND date_played >= DATE_TRUNC('month', CURRENT_DATE)
         GROUP BY user_id
       ) recent_activity ON u.member_id = recent_activity.user_id
-      WHERE u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      WHERE u.role IN ('Member', 'Admin', 'Club Pro')
       ORDER BY sim_stats.total_sim_rounds DESC NULLS LAST, u.last_name, u.first_name
     `);
 
@@ -7589,7 +4454,7 @@ app.get('/api/leaderboard-stats', async (req, res) => {
       FROM users u
       LEFT JOIN matches m ON (u.member_id = m.player1_id OR u.member_id = m.player2_id)
       LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL)
-      WHERE u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      WHERE u.role IN ('Member', 'Admin', 'Club Pro')
     `);
 
     res.json({
@@ -7887,7 +4752,7 @@ app.get('/api/global-leaderboard', async (req, res) => {
         AND s.total_strokes IS NOT NULL 
         AND s.total_strokes > 0
       LEFT JOIN course_records cr ON u.member_id = cr.user_id AND cr.is_current = true
-      WHERE u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      WHERE u.role IN ('Member', 'Admin', 'Club Pro')
     `);
 
     // Count courses with no records
@@ -7897,10 +4762,10 @@ app.get('/api/global-leaderboard', async (req, res) => {
         SELECT DISTINCT s.course_id
         FROM scorecards s
         JOIN users u ON s.user_id = u.member_id
-      WHERE (s.round_type = 'sim' OR s.round_type IS NULL)
-      AND s.total_strokes IS NOT NULL 
-      AND s.total_strokes > 0
-      AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+        WHERE (s.round_type = 'sim' OR s.round_type IS NULL)
+        AND s.total_strokes IS NOT NULL 
+        AND s.total_strokes > 0
+        AND u.role IN ('Member', 'Admin', 'Club Pro')
         AND s.course_id NOT IN (
           SELECT DISTINCT course_id FROM course_records WHERE is_current = true
         )
@@ -8027,7 +4892,7 @@ app.get('/api/clubs', async (req, res) => {
       SELECT DISTINCT club 
       FROM users 
       WHERE club IS NOT NULL AND club != '' 
-      AND role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      AND role IN ('Member', 'Admin', 'Club Pro')
       ORDER BY club
     `);
     
@@ -8038,6 +4903,7 @@ app.get('/api/clubs', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch clubs' });
   }
 });
+
 // Get individual club leaderboard (legacy)
 app.get('/api/club-leaderboard/:club', async (req, res) => {
   try {
@@ -8174,7 +5040,7 @@ app.get('/api/club-leaderboard/:club', async (req, res) => {
       FROM users u
       LEFT JOIN user_profiles up ON u.member_id = up.user_id
       LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL)
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
       GROUP BY u.member_id, u.first_name, u.last_name, u.sim_handicap, u.grass_handicap, up.total_matches, up.wins, up.losses, up.ties, up.total_points, up.win_rate
       ORDER BY up.total_points DESC NULLS LAST, up.win_rate DESC NULLS LAST
     `, [club]);
@@ -8211,21 +5077,21 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
     const { rows: playerCount } = await pool.query(`
       SELECT COUNT(DISTINCT u.member_id) as total_players
       FROM users u
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
     `, [club]);
 
     const { rows: roundsCount } = await pool.query(`
       SELECT COUNT(s.id) as total_rounds
       FROM users u
       LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${dateFilter}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
     `, [club]);
 
     const { rows: recordsCount } = await pool.query(`
       SELECT COUNT(DISTINCT cr.course_id) as total_records
       FROM users u
       LEFT JOIN course_records cr ON u.member_id = cr.user_id AND cr.is_current = true ${timeFrame === 'monthly' ? "AND cr.date_played >= CURRENT_DATE - INTERVAL '30 days'" : ""}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
     `, [club]);
 
 
@@ -8245,7 +5111,7 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
         COUNT(DISTINCT cr.course_id) as record_count
       FROM users u
       LEFT JOIN course_records cr ON u.member_id = cr.user_id AND cr.is_current = true ${monthlyRecordsFilter}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
       GROUP BY u.member_id, u.first_name, u.last_name
       HAVING COUNT(DISTINCT cr.course_id) > 0
       ORDER BY record_count DESC
@@ -8258,7 +5124,7 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
         COUNT(DISTINCT cr.course_id) as record_count
       FROM users u
       LEFT JOIN course_records cr ON u.member_id = cr.user_id AND cr.is_current = true ${allTimeRecordsFilter}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
       GROUP BY u.member_id, u.first_name, u.last_name
       HAVING COUNT(DISTINCT cr.course_id) > 0
       ORDER BY record_count DESC
@@ -8272,7 +5138,7 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
         COUNT(s.id) as rounds_count
       FROM users u
       LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${monthlyDateFilter}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
       GROUP BY u.member_id, u.first_name, u.last_name
       HAVING COUNT(s.id) > 0
       ORDER BY rounds_count DESC
@@ -8285,7 +5151,7 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
         COUNT(s.id) as rounds_count
       FROM users u
       LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${allTimeDateFilter}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
       GROUP BY u.member_id, u.first_name, u.last_name
       HAVING COUNT(s.id) > 0
       ORDER BY rounds_count DESC
@@ -8300,7 +5166,7 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
         COUNT(s.id) as rounds_count
       FROM users u
       LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${monthlyDateFilter}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
       GROUP BY u.member_id, u.first_name, u.last_name
       HAVING COUNT(s.id) > 0
       ORDER BY avg_score ASC
@@ -8314,7 +5180,7 @@ app.get('/api/leaderboard/club/:club', async (req, res) => {
         COUNT(s.id) as rounds_count
       FROM users u
       LEFT JOIN scorecards s ON u.member_id = s.user_id AND (s.round_type = 'sim' OR s.round_type IS NULL) ${allTimeDateFilter}
-      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
+      WHERE u.club = $1 AND u.role IN ('Member', 'Admin', 'Club Pro')
       GROUP BY u.member_id, u.first_name, u.last_name
       HAVING COUNT(s.id) > 0
       ORDER BY avg_score ASC
@@ -8358,9 +5224,18 @@ function transformUserData(user) {
 }
 
 // Get admin user tracking statistics
-app.get('/api/admin/user-tracking-stats', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/user-tracking-stats', authenticateToken, async (req, res) => {
   try {
-    // Admin check is now handled by requireAdmin middleware
+    // Check if user is admin
+    const { rows: userRows } = await pool.query(
+      'SELECT role FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userRows.length === 0 || userRows[0].role !== 'Admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
     // Get total users and claimed accounts
     console.log('Fetching user stats...');
     const { rows: userStats } = await pool.query(`
@@ -8447,9 +5322,18 @@ app.get('/api/admin/user-tracking-stats', authenticateToken, requireAdmin, async
 });
 
 // Get detailed user tracking data for a specific date range
-app.get('/api/admin/user-tracking-details', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/user-tracking-details', authenticateToken, async (req, res) => {
   try {
-    // Admin check is now handled by requireAdmin middleware
+    // Check if user is admin
+    const { rows: userRows } = await pool.query(
+      'SELECT role FROM users WHERE member_id = $1',
+      [req.user.member_id]
+    );
+    
+    if (userRows.length === 0 || userRows[0].role !== 'Admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
     const { startDate, endDate, club } = req.query;
     
     let whereClause = '';
@@ -8504,3134 +5388,349 @@ app.get('/api/admin/user-tracking-details', authenticateToken, requireAdmin, asy
   }
 });
 
-// Get view-as mode data for admins (roles and clubs)
-app.get('/api/admin/view-as-data', authenticateToken, requireAdmin, async (req, res) => {
+// --- Simulator Bay Booking ---
+// Create tables if not exists
+(async () => {
   try {
-    // Admin check is now handled by requireAdmin middleware
-    // Get available roles for view-as mode
-    const availableRoles = [
-      { value: UserRole.MEMBER, label: 'Member' },
-      { value: UserRole.CLUB_PRO, label: 'Club Pro' },
-      { value: UserRole.AMBASSADOR, label: 'Ambassador' }
-    ];
-
-    // Get available clubs
-    const { rows: clubRows } = await pool.query(`
-      SELECT DISTINCT club
-      FROM users
-      WHERE club IS NOT NULL AND club != ''
-      AND role IN ('Member', 'Admin', 'Club Pro', 'Ambassador')
-      ORDER BY club
+    // Create simulator_bookings table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS simulator_bookings (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(member_id) ON DELETE CASCADE,
+        date DATE NOT NULL,
+        start_time TIME NOT NULL,
+        end_time TIME NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        type VARCHAR(10) DEFAULT 'solo',
+        participants INTEGER[] DEFAULT '{}',
+        bay INTEGER DEFAULT 1
+      )
     `);
+    console.log('simulator_bookings table ready.');
 
-    const availableClubs = clubRows.map(row => row.club);
+    // Create club_booking_settings table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS club_booking_settings (
+        id SERIAL PRIMARY KEY,
+        club_name VARCHAR(100) UNIQUE NOT NULL,
+        number_of_bays INTEGER DEFAULT 4,
+        opening_time TIME DEFAULT '07:00',
+        closing_time TIME DEFAULT '22:00',
+        days_of_operation VARCHAR(50) DEFAULT 'Mon,Tue,Wed,Thu,Fri,Sat,Sun',
+        booking_duration_options VARCHAR(100) DEFAULT '30,60,90,120',
+        max_advance_booking_days INTEGER DEFAULT 30,
+        min_booking_duration INTEGER DEFAULT 30,
+        max_booking_duration INTEGER DEFAULT 240,
+        enabled BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('club_booking_settings table ready.');
 
-    res.json({
-      roles: availableRoles,
-      clubs: availableClubs
-    });
+    // Insert default settings for No. 5 club if not exists
+    await pool.query(`
+      INSERT INTO club_booking_settings (club_name, number_of_bays, opening_time, closing_time)
+      VALUES ('No. 5', 4, '07:00', '22:00')
+      ON CONFLICT (club_name) DO NOTHING
+    `);
+    console.log('Default booking settings for No. 5 created.');
   } catch (err) {
-    console.error('Error fetching view-as mode data:', err);
-    res.status(500).json({ error: 'Failed to fetch view-as mode data' });
+    console.error('Error creating booking tables:', err);
   }
-});
+})();
 
-// ============================================================================
-// PERMISSION MANAGEMENT API ENDPOINTS
-// ============================================================================
-
-// Get all roles with their permission counts
-app.get('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) => {
+// Middleware to restrict to admin users only
+async function requireAdminForBooking(req, res, next) {
   try {
-    const { rows } = await pool.query(`
-      SELECT
-        r.id,
-        r.role_name,
-        r.role_key,
-        r.description,
-        r.is_system_role,
-        r.is_active,
-        r.created_at,
-        COALESCE(perm_count.count, 0) as permission_count,
-        COALESCE(user_count.count, 0) as user_count
-      FROM roles r
-      LEFT JOIN (
-        SELECT role_id, COUNT(DISTINCT permission_id) as count
-        FROM role_permissions
-        GROUP BY role_id
-      ) perm_count ON r.id = perm_count.role_id
-      LEFT JOIN (
-        SELECT role_id, COUNT(DISTINCT member_id) as count
-        FROM users
-        GROUP BY role_id
-      ) user_count ON r.id = user_count.role_id
-      WHERE r.is_active = TRUE
-      GROUP BY r.id, r.role_name, r.role_key, r.description, r.is_system_role, r.is_active, r.created_at, perm_count.count, user_count.count
-      ORDER BY
-        CASE r.role_key
-          WHEN 'admin' THEN 1
-          WHEN 'club_pro' THEN 2
-          WHEN 'ambassador' THEN 3
-          WHEN 'member' THEN 4
-          WHEN 'deactivated' THEN 5
-          ELSE 6
-        END,
-        r.role_name
-    `);
+    const userId = req.user?.member_id || req.user?.user_id;
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+    const { rows } = await pool.query('SELECT role FROM users WHERE member_id = $1', [userId]);
+    if (!rows[0] || rows[0].role?.toLowerCase() !== 'admin') {
+      return res.status(403).json({ error: 'Access restricted to administrators only' });
+    }
+    next();
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to check admin access' });
+  }
+}
 
+// Get bookings (all or for a specific date)
+app.get('/api/simulator-bookings', authenticateToken, requireAdminForBooking, async (req, res) => {
+  const { date } = req.query;
+  try {
+    let query = 'SELECT b.*, u.first_name, u.last_name FROM simulator_bookings b JOIN users u ON b.user_id = u.member_id';
+    let params = [];
+    
+    if (date) {
+      query += ' WHERE b.date = $1 ORDER BY b.start_time';
+      params = [date];
+    } else {
+      query += ' ORDER BY b.date, b.start_time';
+    }
+    
+    const { rows } = await pool.query(query, params);
     res.json(rows);
   } catch (err) {
-    console.error('Error fetching roles:', err);
-    res.status(500).json({ error: 'Failed to fetch roles' });
+    res.status(500).json({ error: 'Failed to fetch bookings' });
   }
 });
 
-// Get a specific role with its permissions
-app.get('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res) => {
+// Create a booking
+app.post('/api/simulator-bookings', authenticateToken, requireAdminForBooking, async (req, res) => {
+  const userId = req.user?.member_id || req.user?.user_id;
+  const { date, start_time, end_time, type, bay } = req.body;
+  if (!date || !start_time || !end_time) return res.status(400).json({ error: 'Missing fields' });
   try {
-    const { id } = req.params;
-
-    // Get role details
-    const { rows: roleRows } = await pool.query(`
-      SELECT
-        id,
-        role_name,
-        role_key,
-        description,
-        is_system_role,
-        is_active,
-        created_at
-      FROM roles
-      WHERE id = $1
-    `, [id]);
-
-    if (roleRows.length === 0) {
-      return res.status(404).json({ error: 'Role not found' });
-    }
-
-    const role = roleRows[0];
-
-    // Get role's permissions
-    const { rows: permissionRows } = await pool.query(`
-      SELECT
-        p.id,
-        p.permission_key,
-        p.permission_name,
-        p.description,
-        p.category
-      FROM permissions p
-      INNER JOIN role_permissions rp ON p.id = rp.permission_id
-      WHERE rp.role_id = $1
-      ORDER BY p.category, p.permission_name
-    `, [id]);
-
-    role.permissions = permissionRows;
-
-    res.json(role);
-  } catch (err) {
-    console.error('Error fetching role:', err);
-    res.status(500).json({ error: 'Failed to fetch role' });
-  }
-});
-
-// Get all available permissions grouped by category
-app.get('/api/admin/permissions', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool.query(`
-      SELECT
-        id,
-        permission_key,
-        permission_name,
-        description,
-        category,
-        created_at
-      FROM permissions
-      ORDER BY category, permission_name
-    `);
-
-    // Group by category
-    const grouped = rows.reduce((acc, permission) => {
-      const category = permission.category || 'other';
-      if (!acc[category]) {
-        acc[category] = [];
-      }
-      acc[category].push(permission);
-      return acc;
-    }, {});
-
-    res.json({
-      permissions: rows,
-      grouped: grouped
-    });
-  } catch (err) {
-    console.error('Error fetching permissions:', err);
-    res.status(500).json({ error: 'Failed to fetch permissions' });
-  }
-});
-
-// Create a new role
-app.post('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const { role_name, role_key, description, permissions } = req.body;
-
-    // Validate required fields
-    if (!role_name || !role_key) {
-      return res.status(400).json({ error: 'role_name and role_key are required' });
-    }
-
-    // Create slug from role_key (lowercase, replace spaces with underscores)
-    const slug = role_key.toLowerCase().replace(/\s+/g, '_');
-
-    // Check if role_key already exists
-    const { rows: existingRoles } = await pool.query(
-      'SELECT id FROM roles WHERE role_key = $1',
-      [slug]
+    // Prevent double booking for the same bay
+    const conflict = await pool.query(
+      'SELECT 1 FROM simulator_bookings WHERE date = $1 AND bay = $2 AND ((start_time, end_time) OVERLAPS ($3::time, $4::time))',
+      [date, bay || 1, start_time, end_time]
     );
-
-    if (existingRoles.length > 0) {
-      return res.status(409).json({ error: 'A role with this key already exists' });
+    if (conflict.rows.length > 0) {
+      return res.status(409).json({ error: 'Time slot already booked for this bay' });
     }
-
-    // Insert new role
-    const { rows: newRoleRows } = await pool.query(`
-      INSERT INTO roles (role_name, role_key, description, is_system_role, is_active)
-      VALUES ($1, $2, $3, FALSE, TRUE)
-      RETURNING id, role_name, role_key, description, is_system_role, is_active, created_at
-    `, [role_name, slug, description || null]);
-
-    const newRole = newRoleRows[0];
-
-    // Assign permissions if provided
-    if (permissions && Array.isArray(permissions) && permissions.length > 0) {
-      const permissionValues = permissions.map((permId, idx) =>
-        `($1, $${idx + 2})`
-      ).join(', ');
-
-      await pool.query(
-        `INSERT INTO role_permissions (role_id, permission_id) VALUES ${permissionValues}`,
-        [newRole.id, ...permissions]
-      );
-    }
-
-    // Log the action
-    await pool.query(`
-      INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
-      VALUES ($1, $2, $3, $4)
-    `, [
-      'role_created',
-      newRole.id,
-      req.user.member_id,
-      JSON.stringify({ role_name, permissions: permissions || [] })
-    ]);
-
-    res.status(201).json(newRole);
+    const { rows } = await pool.query(
+      'INSERT INTO simulator_bookings (user_id, date, start_time, end_time, type, participants, bay) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+      [userId, date, start_time, end_time, type || 'solo', type === 'social' ? [userId] : [], bay || 1]
+    );
+    res.status(201).json(rows[0]);
   } catch (err) {
-    console.error('Error creating role:', err);
-    res.status(500).json({ error: 'Failed to create role', details: err.message });
+    res.status(500).json({ error: 'Failed to create booking' });
   }
 });
 
-// Update a role
-app.put('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res) => {
+// Delete a booking (only by owner)
+app.delete('/api/simulator-bookings/:id', authenticateToken, requireAdminForBooking, async (req, res) => {
+  const userId = req.user?.member_id || req.user?.user_id;
+  const { id } = req.params;
   try {
-    const { id } = req.params;
-    const { role_name, description, is_active } = req.body;
-
-    // Check if role exists and is not a system role
-    const { rows: roleRows } = await pool.query(
-      'SELECT is_system_role FROM roles WHERE id = $1',
-      [id]
-    );
-
-    if (roleRows.length === 0) {
-      return res.status(404).json({ error: 'Role not found' });
-    }
-
-    // Build update query dynamically
-    const updates = [];
-    const values = [];
-    let paramCount = 1;
-
-    if (role_name !== undefined) {
-      updates.push(`role_name = $${paramCount++}`);
-      values.push(role_name);
-    }
-
-    if (description !== undefined) {
-      updates.push(`description = $${paramCount++}`);
-      values.push(description);
-    }
-
-    if (is_active !== undefined) {
-      updates.push(`is_active = $${paramCount++}`);
-      values.push(is_active);
-    }
-
-    updates.push(`updated_at = CURRENT_TIMESTAMP`);
-    values.push(id);
-
-    const { rows: updatedRows } = await pool.query(`
-      UPDATE roles
-      SET ${updates.join(', ')}
-      WHERE id = $${paramCount}
-      RETURNING id, role_name, role_key, description, is_system_role, is_active, updated_at
-    `, values);
-
-    // Log the action
-    await pool.query(`
-      INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
-      VALUES ($1, $2, $3, $4)
-    `, [
-      'role_updated',
-      id,
-      req.user.member_id,
-      JSON.stringify({ role_name, description, is_active })
-    ]);
-
-    res.json(updatedRows[0]);
+    const { rows } = await pool.query('SELECT * FROM simulator_bookings WHERE id = $1', [id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Booking not found' });
+    if (rows[0].user_id !== userId) return res.status(403).json({ error: 'Can only delete your own bookings' });
+    await pool.query('DELETE FROM simulator_bookings WHERE id = $1', [id]);
+    res.json({ success: true });
   } catch (err) {
-    console.error('Error updating role:', err);
-    res.status(500).json({ error: 'Failed to update role' });
+    res.status(500).json({ error: 'Failed to delete booking' });
   }
 });
 
-// Delete a role
-app.delete('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res) => {
+// Reschedule a booking (only by owner)
+app.put('/api/simulator-bookings/:id', authenticateToken, requireAdminForBooking, async (req, res) => {
+  const userId = req.user?.member_id || req.user?.user_id;
+  const { id } = req.params;
+  const { date, start_time, end_time, type, bay } = req.body;
+  if (!date || !start_time || !end_time) return res.status(400).json({ error: 'Missing fields' });
   try {
-    const { id } = req.params;
-
-    // Check if role exists and is not a system role
-    const { rows: roleRows } = await pool.query(
-      'SELECT role_name, is_system_role FROM roles WHERE id = $1',
-      [id]
+    const { rows } = await pool.query('SELECT * FROM simulator_bookings WHERE id = $1', [id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Booking not found' });
+    if (rows[0].user_id !== userId) return res.status(403).json({ error: 'Can only reschedule your own bookings' });
+    // Prevent double booking for the same bay
+    const conflict = await pool.query(
+      'SELECT 1 FROM simulator_bookings WHERE id != $1 AND date = $2 AND bay = $3 AND ((start_time, end_time) OVERLAPS ($4::time, $5::time))',
+      [id, date, bay || rows[0].bay || 1, start_time, end_time]
     );
-
-    if (roleRows.length === 0) {
-      return res.status(404).json({ error: 'Role not found' });
+    if (conflict.rows.length > 0) {
+      return res.status(409).json({ error: 'Time slot already booked for this bay' });
     }
-
-    if (roleRows[0].is_system_role) {
-      return res.status(403).json({ error: 'Cannot delete system roles' });
-    }
-
-    // Check if any users have this role
-    const { rows: userRows } = await pool.query(
-      'SELECT COUNT(*) as count FROM users WHERE role_id = $1',
-      [id]
+    const updated = await pool.query(
+      'UPDATE simulator_bookings SET date = $1, start_time = $2, end_time = $3, type = $4, bay = $5 WHERE id = $6 RETURNING *',
+      [date, start_time, end_time, type || rows[0].type, bay || rows[0].bay || 1, id]
     );
-
-    if (parseInt(userRows[0].count) > 0) {
-      return res.status(409).json({
-        error: 'Cannot delete role with assigned users',
-        user_count: userRows[0].count
-      });
-    }
-
-    // Log the action before deletion
-    await pool.query(`
-      INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
-      VALUES ($1, $2, $3, $4)
-    `, [
-      'role_deleted',
-      id,
-      req.user.member_id,
-      JSON.stringify({ role_name: roleRows[0].role_name })
-    ]);
-
-    // Delete role (CASCADE will delete role_permissions)
-    await pool.query('DELETE FROM roles WHERE id = $1', [id]);
-
-    res.json({ message: 'Role deleted successfully' });
+    res.json(updated.rows[0]);
   } catch (err) {
-    console.error('Error deleting role:', err);
-    res.status(500).json({ error: 'Failed to delete role' });
+    res.status(500).json({ error: 'Failed to reschedule booking' });
   }
 });
 
-// Update role permissions
-app.put('/api/admin/roles/:id/permissions', authenticateToken, requireAdmin, async (req, res) => {
+// Join a social booking
+app.post('/api/simulator-bookings/:id/join', authenticateToken, requireAdminForBooking, async (req, res) => {
+  const userId = req.user?.member_id || req.user?.user_id;
+  const { id } = req.params;
   try {
-    const { id } = req.params;
-    const { permissions } = req.body;
-
-    if (!Array.isArray(permissions)) {
-      return res.status(400).json({ error: 'permissions must be an array of permission IDs' });
+    const { rows } = await pool.query('SELECT * FROM simulator_bookings WHERE id = $1', [id]);
+    const booking = rows[0];
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.type !== 'social') return res.status(400).json({ error: 'Only social bookings can be joined' });
+    if (booking.participants && booking.participants.includes(userId)) {
+      return res.status(409).json({ error: 'Already joined' });
     }
-
-    // Check if role exists
-    const { rows: roleRows } = await pool.query(
-      'SELECT role_name FROM roles WHERE id = $1',
-      [id]
+    const newParticipants = booking.participants ? [...booking.participants, userId] : [userId];
+    const updated = await pool.query(
+      'UPDATE simulator_bookings SET participants = $1 WHERE id = $2 RETURNING *',
+      [newParticipants, id]
     );
-
-    if (roleRows.length === 0) {
-      return res.status(404).json({ error: 'Role not found' });
-    }
-
-    // Begin transaction
-    await pool.query('BEGIN');
-
-    try {
-      // Remove all existing permissions for this role
-      await pool.query('DELETE FROM role_permissions WHERE role_id = $1', [id]);
-
-      // Add new permissions
-      if (permissions.length > 0) {
-        const permissionValues = permissions.map((permId, idx) =>
-          `($1, $${idx + 2})`
-        ).join(', ');
-
-        await pool.query(
-          `INSERT INTO role_permissions (role_id, permission_id) VALUES ${permissionValues}`,
-          [id, ...permissions]
-        );
-      }
-
-      // Log the action
-      await pool.query(`
-        INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
-        VALUES ($1, $2, $3, $4)
-      `, [
-        'permissions_updated',
-        id,
-        req.user.member_id,
-        JSON.stringify({ permission_count: permissions.length, permission_ids: permissions })
-      ]);
-
-      await pool.query('COMMIT');
-
-      // Return updated role with permissions
-      const { rows: updatedPermissions } = await pool.query(`
-        SELECT
-          p.id,
-          p.permission_key,
-          p.permission_name,
-          p.category
-        FROM permissions p
-        INNER JOIN role_permissions rp ON p.id = rp.permission_id
-        WHERE rp.role_id = $1
-        ORDER BY p.category, p.permission_name
-      `, [id]);
-
-      res.json({
-        role_id: id,
-        role_name: roleRows[0].role_name,
-        permissions: updatedPermissions
-      });
-    } catch (error) {
-      await pool.query('ROLLBACK');
-      throw error;
-    }
+    res.json(updated.rows[0]);
   } catch (err) {
-    console.error('Error updating role permissions:', err);
-    res.status(500).json({ error: 'Failed to update role permissions' });
+    res.status(500).json({ error: 'Failed to join booking' });
   }
 });
 
-// Get permission audit log
-app.get('/api/admin/permission-audit-log', authenticateToken, requireAdmin, async (req, res) => {
+// Migration: add type, participants, and bay columns if not exist
+(async () => {
   try {
-    const { limit = 50 } = req.query;
+    await pool.query(`ALTER TABLE simulator_bookings ADD COLUMN IF NOT EXISTS type VARCHAR(10) DEFAULT 'solo'`);
+    await pool.query(`ALTER TABLE simulator_bookings ADD COLUMN IF NOT EXISTS participants INTEGER[] DEFAULT '{}'`);
+    await pool.query(`ALTER TABLE simulator_bookings ADD COLUMN IF NOT EXISTS bay INTEGER DEFAULT 1`);
+  } catch (err) {
+    // Ignore if already exists
+  }
+})();
 
-    const { rows } = await pool.query(`
-      SELECT
-        pal.id,
-        pal.action,
-        pal.created_at,
-        r.role_name,
-        p.permission_name,
-        u.first_name,
-        u.last_name,
-        pal.details
-      FROM permission_audit_log pal
-      LEFT JOIN roles r ON pal.role_id = r.id
-      LEFT JOIN permissions p ON pal.permission_id = p.id
-      LEFT JOIN users u ON pal.admin_user_id = u.member_id
-      ORDER BY pal.created_at DESC
-      LIMIT $1
-    `, [limit]);
+// --- Club Booking Settings API ---
 
+// Get all club booking settings
+app.get('/api/club-booking-settings', authenticateToken, requireAdminForBooking, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM club_booking_settings ORDER BY club_name');
     res.json(rows);
   } catch (err) {
-    console.error('Error fetching audit log:', err);
-    res.status(500).json({ error: 'Failed to fetch audit log' });
+    console.error('Error fetching club booking settings:', err);
+    res.status(500).json({ error: 'Failed to fetch club booking settings' });
   }
 });
 
-// ============================================================================
-// NEW WEEKLY SCORING SYSTEM API ENDPOINTS
-// ============================================================================
-
-// Resolve canonical tournament period from DB (single source of truth)
-async function resolveTournamentPeriod(tournamentId) {
-  const result = await pool.query(
-    'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-    [tournamentId]
-  );
-  if (result.rows.length === 0) {
-    throw new Error('Tournament not found');
-  }
-  const t = result.rows[0];
-  const weekDate = normalizeDateYMD(t.week_start_date) || normalizeDateYMD(t.start_date);
-  return {
-    start_date: t.start_date,
-    end_date: t.end_date,
-    week_start_date: weekDate
-  };
-}
-
-// Normalize any date-like input to YYYY-MM-DD (UTC)
-function normalizeDateYMD(dateInput) {
-  if (!dateInput) return null;
+// Get booking settings for a specific club
+app.get('/api/club-booking-settings/:clubName', authenticateToken, requireAdminForBooking, async (req, res) => {
+  const { clubName } = req.params;
   try {
-    const d = new Date(dateInput);
-    if (isNaN(d.getTime())) return null;
-    const y = d.getUTCFullYear();
-    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(d.getUTCDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  } catch (e) {
-    const str = String(dateInput);
-    return str.includes('T') ? str.split('T')[0] : str;
-  }
-}
-
-// Helper function to get the Monday of the week containing a given date
-// For tournaments, we want the Monday of the week that contains the tournament period
-function getWeekStartFromDate(dateString) {
-  const date = new Date(dateString);
-  
-  // For tournament purposes, we want to ensure we get the Monday of the week
-  // that contains the tournament dates, not necessarily the Monday of the week
-  // containing the start date if it falls on a weekend
-  
-  // If the start date is Saturday or Sunday, we want the Monday of the NEXT week
-  // If it's Monday-Friday, we want the Monday of the current week
-  const day = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
-  
-  let diff;
-  if (day === 0) { // Sunday
-    // For Sunday, go forward to next Monday (not backward to previous Monday)
-    diff = 1;
-  } else if (day === 6) { // Saturday
-    // For Saturday, go forward to next Monday
-    diff = 2;
-  } else {
-    // For Monday-Friday, go back to Monday of current week
-    diff = date.getDate() - day + 1;
-  }
-  
-  const monday = new Date(date);
-  monday.setDate(diff);
-  
-  // Format as YYYY-MM-DD
-  const year = monday.getFullYear();
-  const month = String(monday.getMonth() + 1).padStart(2, '0');
-  const dayOfMonth = String(monday.getDate()).padStart(2, '0');
-  const result = `${year}-${month}-${dayOfMonth}`;
-  
-  console.log(`getWeekStartFromDate: ${dateString} (day ${day}) -> Monday of week: ${result}`);
-  return result;
-}
-
-// Helper function to determine which course a user should use based on their club
-function getUserCoursePreference(userClub) {
-  // Club No. 8 uses Trackman, all other clubs use GSPro
-  return userClub === 'No. 8' ? 'trackman' : 'gspro';
-}
-
-// Helper function to get the appropriate course for a user
-function getUserCourse(tournament, userClub) {
-  const preference = getUserCoursePreference(userClub);
-  
-  if (preference === 'trackman' && tournament.trackman_course_id) {
-    return {
-      course: tournament.trackman_course,
-      course_id: tournament.trackman_course_id,
-      platform: 'trackman'
-    };
-  } else if (preference === 'gspro' && tournament.gspro_course_id) {
-    return {
-      course: tournament.gspro_course,
-      course_id: tournament.gspro_course_id,
-      platform: 'gspro'
-    };
-  }
-  
-  // Fallback to legacy course if platform-specific course not available
-  return {
-    course: tournament.course,
-    course_id: tournament.course_id,
-    platform: 'legacy'
-  };
-}
-
-// Helper function to get week start date (Monday) for current date
-function getWeekStartDate(date = new Date()) {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
-  const weekStart = new Date(d.setDate(diff));
-  const year = weekStart.getFullYear();
-  const month = String(weekStart.getMonth() + 1).padStart(2, '0');
-  const dayOfMonth = String(weekStart.getDate()).padStart(2, '0');
-  const result = year + '-' + month + '-' + dayOfMonth;
-  console.log('getWeekStartDate input:', date.toISOString().split('T')[0], 'output:', result);
-  return result;
-}
-
-// Helper function to get all possible week start dates for a given date range
-async function getPossibleWeekStartDates(tournamentId, weekStartDate) {
-  try {
-    // Query the database to find all actual week_start_date values for this tournament
-    const result = await pool.query(
-      `SELECT DISTINCT week_start_date 
-       FROM weekly_scorecards 
-       WHERE tournament_id = $1 
-       ORDER BY week_start_date DESC`,
-      [tournamentId]
-    );
-    
-    const actualDates = result.rows.map(row => row.week_start_date);
-    
-    // Return the provided weekStartDate plus any actual dates from the database
-    // No more calculated dates - only use actual data
-    const allDates = weekStartDate ? [weekStartDate, ...actualDates] : actualDates;
-    return [...new Set(allDates)]; // Remove duplicates
-  } catch (error) {
-    console.error('Error getting possible week start dates:', error);
-    // Fallback to just the provided weekStartDate
-    return weekStartDate ? [weekStartDate] : [];
-  }
-}
-
-// Helper function to calculate hole-level points
-function calculateHolePoints(player1Scores, player2Scores) {
-  let player1HolePoints = 0;
-  let player2HolePoints = 0;
-  
-  for (let i = 0; i < 9; i++) {
-    const p1Score = player1Scores[i];
-    const p2Score = player2Scores[i];
-    
-    // Only compare holes where both players have actually played (score > 0)
-    if (p1Score > 0 && p2Score > 0) {
-    if (p1Score < p2Score) {
-      player1HolePoints += 0.5; // Hole win = 0.5 points
-    } else if (p2Score < p1Score) {
-      player2HolePoints += 0.5; // Hole win = 0.5 points
-    }
-    // Tie = 0 points for both
-    }
-  }
-  
-  return { player1HolePoints, player2HolePoints };
-}
-
-// Helper function to calculate round-level points
-function calculateRoundPoints(player1Scores, player2Scores) {
-  const rounds = [
-    { start: 0, end: 3, name: 'round1' }, // Holes 1-3
-    { start: 3, end: 6, name: 'round2' }, // Holes 4-6
-    { start: 6, end: 9, name: 'round3' }  // Holes 7-9
-  ];
-  
-  const roundPoints = {
-    round1: { player1: 0, player2: 0 },
-    round2: { player1: 0, player2: 0 },
-    round3: { player1: 0, player2: 0 }
-  };
-  
-  rounds.forEach(round => {
-    let player1Wins = 0;
-    let player2Wins = 0;
-    let holesPlayed = 0;
-    
-    for (let i = round.start; i < round.end; i++) {
-      // Only compare holes where both players have actually played (score > 0)
-      if (player1Scores[i] > 0 && player2Scores[i] > 0) {
-        holesPlayed++;
-      if (player1Scores[i] < player2Scores[i]) {
-        player1Wins++;
-      } else if (player2Scores[i] < player1Scores[i]) {
-        player2Wins++;
-        }
-      }
-    }
-    
-    // Round scoring: Win = 1, Tie = 0, Loss = 0
-    // Only calculate round points if at least 2 holes were played in this round
-    if (holesPlayed >= 2) {
-    if (player1Wins > player2Wins) {
-      roundPoints[round.name].player1 = 1;
-      roundPoints[round.name].player2 = 0;
-    } else if (player2Wins > player1Wins) {
-      roundPoints[round.name].player1 = 0;
-      roundPoints[round.name].player2 = 1;
-    } else {
-      roundPoints[round.name].player1 = 0;
-      roundPoints[round.name].player2 = 0;
-      }
-    } else {
-      // Not enough holes played in this round to determine winner
-      roundPoints[round.name].player1 = 0;
-      roundPoints[round.name].player2 = 0;
-    }
-  });
-  
-  return roundPoints;
-}
-
-// Helper function to determine match winner
-function determineMatchWinner(roundPoints) {
-  let player1RoundsWon = 0;
-  let player2RoundsWon = 0;
-  let roundsTied = 0;
-  let roundsPlayed = 0;
-  
-  Object.values(roundPoints).forEach(round => {
-    if (round.player1 > 0 || round.player2 > 0) {
-      roundsPlayed++;
-    if (round.player1 > round.player2) {
-      player1RoundsWon++;
-    } else if (round.player2 > round.player1) {
-      player2RoundsWon++;
-    } else {
-      roundsTied++;
-      }
-    }
-  });
-  
-  // Need at least 2 rounds played to determine a match winner
-  if (roundsPlayed < 2) {
-    return 'tie'; // Not enough rounds played yet
-  }
-  
-  // Match win conditions:
-  // - Win 2 or more rounds, OR
-  // - Win 1 round and tie the other 2
-  if (player1RoundsWon >= 2 || (player1RoundsWon === 1 && roundsTied === 2)) {
-    return 'player1';
-  } else if (player2RoundsWon >= 2 || (player2RoundsWon === 1 && roundsTied === 2)) {
-    return 'player2';
-  } else {
-    return 'tie';
-  }
-}
-
-// Helper function to calculate live match bonus (DISABLED - no longer used)
-function calculateLiveMatchBonus(matchWinner, isLive, maxLiveMatches = 3) {
-  // Live bonus points are no longer awarded
-  return 0;
-}
-
-// Cache for weekly match calculations to avoid unnecessary recalculations
-const weeklyMatchCache = new Map();
-
-// Helper function to get cache key
-function getWeeklyMatchCacheKey(tournamentId, weekStartDate) {
-  return `${tournamentId}-${weekStartDate}`;
-}
-
-// Helper function to get scorecard hash for change detection
-async function getScorecardHash(tournamentId, weekStartDate) {
-  const possibleDates = await getPossibleWeekStartDates(tournamentId, weekStartDate);
-  const datePlaceholders = possibleDates.map((_, i) => `$${i + 2}`).join(', ');
-  
-  const result = await pool.query(
-    `SELECT ws.id, ws.hole_scores, ws.updated_at
-     FROM weekly_scorecards ws
-     WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${datePlaceholders})
-     ORDER BY ws.id`,
-    [tournamentId, ...possibleDates]
-  );
-  
-  // Create a hash based on scorecard IDs, scores, and update timestamps
-  const hashData = result.rows.map(row => ({
-    id: row.id,
-    scores: row.hole_scores,
-    updated: row.updated_at
-  }));
-  
-  return JSON.stringify(hashData);
-}
-// Helper function to canonicalize player pairs
-// Always store the pair so that player1_id < player2_id
-function canonicalizePair(a, b) {
-  return a.user_id < b.user_id ? [a, b] : [b, a];
-}
-
-// Helper function to calculate all matches for a week with smart caching
-// IMPORTANT: This function should ONLY be called by:
-// 1. Scorecard submission endpoints (when new/updated scorecards are submitted)
-// 2. Manual trigger endpoints (for debugging/testing)
-// 3. NOT by data fetching endpoints (to prevent duplicate match creation)
-async function calculateWeeklyMatches(tournamentId, weekStartDate) {
-  try {
-    console.log(`=== CALCULATING WEEKLY MATCHES ===`);
-    console.log(`Tournament ID: ${tournamentId}, Week: ${weekStartDate}`);
-    
-    // Check if we need to recalculate
-    const cacheKey = getWeeklyMatchCacheKey(tournamentId, weekStartDate);
-    const currentHash = await getScorecardHash(tournamentId, weekStartDate);
-    
-    console.log(`Cache key: ${cacheKey}`);
-    console.log(`Current hash: ${currentHash}`);
-    
-    // Check cache (but allow bypass for debugging)
-    const forceRecalculate = process.env.FORCE_RECALCULATE === 'true';
-    if (!forceRecalculate && weeklyMatchCache.has(cacheKey)) {
-      const cached = weeklyMatchCache.get(cacheKey);
-      if (cached.hash === currentHash) {
-        console.log(`Using cached weekly matches for tournament ${tournamentId}, week ${weekStartDate}`);
-        return; // No changes, use cached data
-      }
-    }
-    
-    if (forceRecalculate) {
-      console.log(`Force recalculating matches (bypassing cache)`);
-    }
-    
-    console.log(`Recalculating weekly matches for tournament ${tournamentId}, week ${weekStartDate} (data changed)`);
-    
-    // Get all scorecards for this tournament and week
-    // IMPORTANT: Only process scorecards for the specific week, not all possible dates
-    // This prevents duplicate match creation across different weeks
-    const scorecardsResult = await pool.query(
-      `SELECT ws.*, u.first_name, u.last_name
-       FROM weekly_scorecards ws
-       JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.tournament_id = $1 AND ws.week_start_date = $2`,
-      [tournamentId, weekStartDate]
-    );
-    
-    const scorecards = scorecardsResult.rows;
-    console.log(`Found ${scorecards.length} scorecards for tournament ${tournamentId}, week ${weekStartDate}`);
-    
-    // Debug: Show scorecard details
-    scorecards.forEach((scorecard, index) => {
-      console.log(`  Scorecard ${index + 1}: User ${scorecard.user_id} (${scorecard.first_name} ${scorecard.last_name}), Week: ${scorecard.week_start_date}, Scores: ${JSON.stringify(scorecard.hole_scores)}`);
-    });
-    
-    if (scorecards.length < 2) {
-      console.log('Not enough scorecards to calculate matches (need at least 2 players)');
-      // Cache the empty result
-      weeklyMatchCache.set(cacheKey, { hash: currentHash, timestamp: Date.now() });
-      return;
-    }
-    
-    // Generate all possible player pairs
-    const matches = [];
-    let matchCount = 0;
-    
-    for (let i = 0; i < scorecards.length; i++) {
-      for (let j = i + 1; j < scorecards.length; j++) {
-        let a = scorecards[i];
-        let b = scorecards[j];
-        
-        // Skip self-matches (guardrail in code)
-        if (a.user_id === b.user_id) {
-          console.log(`Skipping self-match for user ${a.user_id}`);
-          continue;
-        }
-        
-        // Canonicalize the pair - ensure player1_id < player2_id
-        const [player1, player2] = canonicalizePair(a, b);
-        
-        console.log(`\n--- Creating Match ${++matchCount} ---`);
-        console.log(`Player 1: ${player1.first_name} ${player1.last_name} (${player1.user_id})`);
-        console.log(`Player 2: ${player2.first_name} ${player2.last_name} (${player2.user_id})`);
-        console.log(`Canonical order: ${player1.user_id} < ${player2.user_id}`);
-        
-        // Calculate match results using the canonical pair
-        const player1Scores = player1.hole_scores;
-        const player2Scores = player2.hole_scores;
-        
-        console.log(`Player 1 scores: ${JSON.stringify(player1Scores)}`);
-        console.log(`Player 2 scores: ${JSON.stringify(player2Scores)}`);
-        
-        // Verify scorecard IDs exist
-        console.log(`Verifying scorecard IDs: P1=${player1.id}, P2=${player2.id}`);
-        const scorecardCheck = await pool.query(
-          `SELECT id FROM weekly_scorecards WHERE id IN ($1, $2)`,
-          [player1.id, player2.id]
-        );
-        console.log(`Found ${scorecardCheck.rows.length} scorecards with IDs ${player1.id}, ${player2.id}`);
-        
-        // Check for existing match - use the specific week_start_date, not all possible dates
-        const existingMatch = await pool.query(
-          `SELECT id FROM weekly_matches 
-           WHERE tournament_id = $1 AND week_start_date = $2 
-           AND player1_id = $3 AND player2_id = $4`,
-          [tournamentId, weekStartDate, player1.user_id, player2.user_id]
-        );
-        console.log(`Found ${existingMatch.rows.length} existing matches for this pair in week ${weekStartDate}`);
-        
-        // Calculate hole points
-        const { player1HolePoints, player2HolePoints } = calculateHolePoints(player1Scores, player2Scores);
-        
-        // Calculate round points
-        const roundPoints = calculateRoundPoints(player1Scores, player2Scores);
-        
-        // Determine match winner
-        const matchWinner = determineMatchWinner(roundPoints);
-        
-        // Determine winner ID
-        let winnerId = null;
-        if (matchWinner === 'player1') winnerId = player1.user_id;
-        else if (matchWinner === 'player2') winnerId = player2.user_id;
-        
-        // Calculate total points (no live bonus)
-        const player1TotalPoints = player1HolePoints + 
-          roundPoints.round1.player1 + roundPoints.round2.player1 + roundPoints.round3.player1;
-        
-        const player2TotalPoints = player2HolePoints + 
-          roundPoints.round1.player2 + roundPoints.round2.player2 + roundPoints.round3.player2;
-        
-        console.log(`Hole points: P1=${player1HolePoints}, P2=${player2HolePoints}`);
-        console.log(`Round points: P1=${JSON.stringify(roundPoints)}, P2=${JSON.stringify(roundPoints)}`);
-        console.log(`Total points: P1=${player1TotalPoints}, P2=${player2TotalPoints}`);
-        console.log(`Match winner: ${matchWinner} (ID: ${winnerId})`);
-        
-        // Insert or update match with canonical player order
-        try {
-          console.log(`Inserting match with canonical order: player1_id=${player1.user_id}, player2_id=${player2.user_id}`);
-          
-          const result = await pool.query(
-            `INSERT INTO weekly_matches 
-             (tournament_id, week_start_date, player1_id, player2_id, 
-              player1_scorecard_id, player2_scorecard_id,
-              hole_points_player1, hole_points_player2,
-              round1_points_player1, round1_points_player2,
-              round2_points_player1, round2_points_player2,
-              round3_points_player1, round3_points_player2,
-              match_winner_id, match_live_bonus_player1, match_live_bonus_player2,
-              total_points_player1, total_points_player2)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-             ON CONFLICT (tournament_id, week_start_date, player1_id, player2_id)
-             DO UPDATE SET
-               player1_scorecard_id = EXCLUDED.player1_scorecard_id,
-               player2_scorecard_id = EXCLUDED.player2_scorecard_id,
-               hole_points_player1 = EXCLUDED.hole_points_player1,
-               hole_points_player2 = EXCLUDED.hole_points_player2,
-               round1_points_player1 = EXCLUDED.round1_points_player1,
-               round1_points_player2 = EXCLUDED.round1_points_player2,
-               round2_points_player1 = EXCLUDED.round2_points_player1,
-               round2_points_player2 = EXCLUDED.round2_points_player2,
-               round3_points_player1 = EXCLUDED.round3_points_player1,
-               round3_points_player2 = EXCLUDED.round3_points_player2,
-               match_winner_id = EXCLUDED.match_winner_id,
-               match_live_bonus_player1 = EXCLUDED.match_live_bonus_player1,
-               match_live_bonus_player2 = EXCLUDED.match_live_bonus_player2,
-               total_points_player1 = EXCLUDED.total_points_player1,
-               total_points_player2 = EXCLUDED.total_points_player2
-             RETURNING id`,
-            [tournamentId, weekStartDate, player1.user_id, player2.user_id,
-             player1.id, player2.id,
-             player1HolePoints, player2HolePoints,
-             roundPoints.round1.player1, roundPoints.round1.player2,
-             roundPoints.round2.player1, roundPoints.round2.player2,
-             roundPoints.round3.player1, roundPoints.round3.player2,
-             winnerId, 0, 0,
-             player1TotalPoints, player2TotalPoints]
-          );
-          
-          console.log(`Match inserted/updated successfully. Match ID: ${result.rows[0]?.id || 'N/A'}`);
-          console.log(`Rows affected: ${result.rowCount}`);
-        } catch (insertError) {
-          console.error(`Error inserting match between ${player1.first_name} and ${player2.first_name}:`, insertError);
-          console.error('Insert error details:', insertError.message);
-          console.error('Error code:', insertError.code);
-          console.error('Error constraint:', insertError.constraint);
-          console.error('Error detail:', insertError.detail);
-          
-          // Clear cache on error to force recalculation
-          weeklyMatchCache.delete(cacheKey);
-          console.log(`Cleared cache due to insertion error`);
-        }
-      }
-    }
-    
-    // Cache the result (only if we successfully created matches)
-    if (matchCount > 0) {
-      weeklyMatchCache.set(cacheKey, { 
-        hash: currentHash, 
-        timestamp: Date.now(),
-        matchCount: matchCount 
-      });
-      console.log(`Cached ${matchCount} matches for tournament ${tournamentId}, week ${weekStartDate}`);
-
-      console.log(`Updating leaderboard after match calculation...`);
-      await updateWeeklyLeaderboard(tournamentId, weekStartDate);
-      
-    } else {
-      console.log(`No matches created, not caching result`);
-    }
-    
-    console.log(`=== COMPLETED WEEKLY MATCH CALCULATION ===`);
-    console.log(`Tournament ${tournamentId}, Week ${weekStartDate}: Created ${matchCount} matches`);
-    
-  } catch (err) {
-    console.error('Error calculating weekly matches:', err);
-    console.error('Stack trace:', err.stack);
-  }
-}
-
-// Clean up old cache entries (older than 1 hour)
-setInterval(() => {
-  const oneHourAgo = Date.now() - (60 * 60 * 1000);
-  for (const [key, value] of weeklyMatchCache.entries()) {
-    if (value.timestamp < oneHourAgo) {
-      weeklyMatchCache.delete(key);
-    }
-  }
-}, 30 * 60 * 1000); // Clean up every 30 minutes
-
-// Helper function to update weekly leaderboard
-async function updateWeeklyLeaderboard(tournamentId, weekStartDate) {
-  try {
-    console.log(`=== UPDATING WEEKLY LEADERBOARD ===`);
-    console.log(`Tournament ID: ${tournamentId}, Week: ${weekStartDate}`);
-    
-    // Get all registered participants for this tournament
-    const participantsResult = await pool.query(
-      `SELECT p.user_member_id, u.first_name, u.last_name, u.club
-       FROM participation p 
-       JOIN users u ON p.user_member_id = u.member_id 
-       WHERE p.tournament_id = $1`,
-      [tournamentId]
-    );
-    
-    const allParticipants = participantsResult.rows;
-    console.log(`Found ${allParticipants.length} registered participants`);
-    
-    // Get all possible week start dates for this tournament
-    const possibleDates = await getPossibleWeekStartDates(tournamentId, weekStartDate);
-    console.log(`Possible week dates for tournament ${tournamentId}: ${possibleDates.join(', ')}`);
-    
-    // Get all scorecards for this tournament across all possible weeks
-    const scorecardsResult = await pool.query(
-      `SELECT ws.*, u.first_name, u.last_name, u.club
-       FROM weekly_scorecards ws
-       JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
-      [tournamentId, ...possibleDates]
-    );
-    
-    const scorecards = scorecardsResult.rows;
-    console.log(`Found ${scorecards.length} scorecards across all possible weeks`);
-    
-    // Get all matches for this tournament across all possible weeks
-    const matchesResult = await pool.query(
-      `SELECT * FROM weekly_matches 
-       WHERE tournament_id = $1 AND week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
-      [tournamentId, ...possibleDates]
-    );
-    
-    const matches = matchesResult.rows;
-    console.log(`Found ${matches.length} matches across all possible weeks`);
-    
-    // Create a map of scorecards by user_id for quick lookup
-    const scorecardMap = new Map();
-    scorecards.forEach(scorecard => {
-      scorecardMap.set(scorecard.user_id, scorecard);
-    });
-    
-    // Calculate leaderboard for each registered participant
-    for (const participant of allParticipants) {
-      const playerId = participant.user_member_id;
-      let totalHolePoints = 0;
-      let totalRoundPoints = 0;
-      let totalMatchBonus = 0;
-      let matchesPlayed = 0;
-      let matchesWon = 0;
-      let matchesTied = 0;
-      let matchesLost = 0;
-      let liveMatchesPlayed = 0;
-      
-      // Calculate points from matches
-      matches.forEach(match => {
-        if (match.player1_id === playerId) {
-          totalHolePoints += parseFloat(match.hole_points_player1 || 0);
-          totalRoundPoints += parseFloat(match.round1_points_player1 || 0) + 
-                            parseFloat(match.round2_points_player1 || 0) + 
-                            parseFloat(match.round3_points_player1 || 0);
-          totalMatchBonus += parseFloat(match.match_live_bonus_player1 || 0);
-          matchesPlayed++;
-          
-          if (match.match_winner_id === playerId) matchesWon++;
-          else if (match.match_winner_id === null) matchesTied++;
-          else matchesLost++;
-          
-          if (parseFloat(match.match_live_bonus_player1 || 0) > 0) liveMatchesPlayed++;
-        } else if (match.player2_id === playerId) {
-          totalHolePoints += parseFloat(match.hole_points_player2 || 0);
-          totalRoundPoints += parseFloat(match.round1_points_player2 || 0) + 
-                            parseFloat(match.round2_points_player2 || 0) + 
-                            parseFloat(match.round3_points_player2 || 0);
-          totalMatchBonus += parseFloat(match.match_live_bonus_player2 || 0);
-          matchesPlayed++;
-          
-          if (match.match_winner_id === playerId) matchesWon++;
-          else if (match.match_winner_id === null) matchesTied++;
-          else matchesLost++;
-          
-          if (parseFloat(match.match_live_bonus_player2 || 0) > 0) liveMatchesPlayed++;
-        }
-      });
-      
-      // If player has no matches but has submitted a scorecard, they still appear on leaderboard
-      // with 0 points until other players join
-      const totalScore = totalHolePoints + totalRoundPoints;
-      
-      console.log(`Player ${playerId}: Hole Points: ${totalHolePoints}, Round Points: ${totalRoundPoints}, Total: ${totalScore}, Matches: ${matchesPlayed}`);
-      
-      // Insert or update leaderboard entry
-      console.log(`Inserting/updating leaderboard entry: Tournament ${tournamentId}, Week ${weekStartDate}, User ${playerId}, Total Score ${totalScore}`);
-      
-      await pool.query(
-        `INSERT INTO weekly_leaderboards 
-         (tournament_id, week_start_date, user_id, total_hole_points, total_round_points, 
-          total_match_bonus, total_score, matches_played, matches_won, matches_tied, 
-          matches_lost, live_matches_played)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-         ON CONFLICT (tournament_id, week_start_date, user_id)
-         DO UPDATE SET
-           total_hole_points = EXCLUDED.total_hole_points,
-           total_round_points = EXCLUDED.total_round_points,
-           total_match_bonus = EXCLUDED.total_match_bonus,
-           total_score = EXCLUDED.total_score,
-           matches_played = EXCLUDED.matches_played,
-           matches_won = EXCLUDED.matches_won,
-           matches_tied = EXCLUDED.matches_tied,
-           matches_lost = EXCLUDED.matches_lost,
-           live_matches_played = EXCLUDED.live_matches_played,
-           updated_at = CURRENT_TIMESTAMP`,
-        [tournamentId, weekStartDate, playerId, totalHolePoints, totalRoundPoints, 
-         totalMatchBonus, totalScore, matchesPlayed, matchesWon, matchesTied, 
-         matchesLost, liveMatchesPlayed]
-      );
-    }
-    
-    console.log(`Updated leaderboard for ${allParticipants.length} participants`);
-  } catch (err) {
-    console.error('Error updating weekly leaderboard:', err);
-    throw err;
-  }
-}
-
-// Test endpoint for weekly scoring (no authentication required)
-app.post('/api/test/weekly-scorecard', async (req, res) => {
-  const { tournament_id = 1, user_id = 1, hole_scores, is_live = false, group_id = null } = req.body;
-  
-  try {
-    // Validate hole scores (must be 9 holes)
-    if (!Array.isArray(hole_scores) || hole_scores.length !== 9) {
-      return res.status(400).json({ error: 'Must provide exactly 9 hole scores' });
-    }
-    
-    // Validate all scores are valid numbers
-    if (!hole_scores.every(score => typeof score === 'number' && score >= 1)) {
-      return res.status(400).json({ error: 'All hole scores must be valid numbers >= 1' });
-    }
-    
-    const totalScore = hole_scores.reduce((sum, score) => sum + score, 0);
-    // For test endpoint, use current date as week start date
-    const weekStartDate = new Date().toISOString().split('T')[0];
-    
-    console.log('Attempting to insert scorecard:', {
-      user_id,
-      tournament_id,
-      weekStartDate,
-      hole_scores,
-      totalScore,
-      is_live,
-      group_id
-    });
-    
-    // Insert scorecard
-    const { rows } = await pool.query(
-      `INSERT INTO weekly_scorecards 
-       (user_id, tournament_id, week_start_date, hole_scores, total_score, is_live, group_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [user_id, tournament_id, weekStartDate, JSON.stringify(hole_scores), totalScore, is_live, group_id]
-    );
-    
-    console.log('Scorecard inserted successfully:', rows[0]);
-    
-    // Trigger match calculations for this week
-    await calculateWeeklyMatches(tournament_id, weekStartDate);
-    
-    res.json(rows[0]);
-  } catch (err) {
-    console.error('Error submitting weekly scorecard:', err);
-    res.status(500).json({ error: 'Failed to submit scorecard', details: err.message });
-  }
-});
-
-// NEW: Test endpoint to manually update leaderboard for completed tournaments
-app.post('/api/test/update-completed-tournament-leaderboard', async (req, res) => {
-  const { tournament_id, week_start_date } = req.body;
-  
-  try {
-    console.log(`=== MANUALLY UPDATING COMPLETED TOURNAMENT LEADERBOARD ===`);
-    console.log(`Tournament ID: ${tournament_id}, Week: ${week_start_date}`);
-    
-    if (!tournament_id) {
-      return res.status(400).json({ error: 'tournament_id is required' });
-    }
-    
-    // Get tournament dates
-    const tournamentResult = await pool.query(
-      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-      [tournament_id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date);
-    
-    console.log(`Tournament start: ${tournament.start_date}, Tournament end: ${tournament.end_date}`);
-    console.log(`Using week date: ${weekDate}`);
-    
-    // Get all possible week start dates for this tournament
-    const possibleDates = await getPossibleWeekStartDates(tournament_id, weekDate);
-    console.log(`Possible week dates for tournament ${tournament_id}: ${possibleDates.join(', ')}`);
-    
-    // Check what scorecards exist across all possible weeks
-    const scorecardResult = await pool.query(
-      `SELECT COUNT(*) FROM weekly_scorecards WHERE tournament_id = $1 AND week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
-      [tournament_id, ...possibleDates]
-    );
-    
-    console.log(`Found ${scorecardResult.rows[0].count} scorecards for tournament ${tournament_id}, possible weeks: ${possibleDates.join(', ')}`);
-    
-    // Update the leaderboard for each possible week
-    for (const date of possibleDates) {
-      await updateWeeklyLeaderboard(tournament_id, date);
-    }
-    
-    // Check what leaderboard entries were created across all possible weeks
-    const leaderboardResult = await pool.query(
-      `SELECT COUNT(*) FROM weekly_leaderboards WHERE tournament_id = $1 AND week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
-      [tournament_id, ...possibleDates]
-    );
-    
-    console.log(`Created ${leaderboardResult.rows[0].count} leaderboard entries for tournament ${tournament_id}, possible weeks: ${possibleDates.join(', ')}`);
-    
-    res.json({ 
-      success: true, 
-      message: 'Leaderboard updated successfully',
-      tournament_id,
-      week_start_date: weekDate,
-      scorecards: parseInt(scorecardResult.rows[0].count),
-      leaderboard_entries: parseInt(leaderboardResult.rows[0].count)
-    });
-    
-  } catch (err) {
-    console.error('Error updating completed tournament leaderboard:', err);
-    res.status(500).json({ error: 'Failed to update leaderboard', details: err.message });
-  }
-});
-
-// API Endpoint: Submit 9-hole scorecard
-app.post('/api/tournaments/:id/weekly-scorecard', authenticateToken, async (req, res) => {
-  console.log('=== WEEKLY SCORECARD SUBMISSION ENDPOINT CALLED ===');
-  console.log('Tournament ID:', req.params.id);
-  console.log('User ID:', req.user?.member_id);
-  console.log('Request body:', req.body);
-  
-  const { id } = req.params;
-  const { hole_scores, is_live = false, group_id = null } = req.body;
-  
-  try {
-    // Validate tournament exists and get tournament settings
-    const tournamentResult = await pool.query(
-      'SELECT * FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    console.log('Tournament settings:', tournament);
-    
-    // Check if this is a par 3 tournament (either by format or teebox selection)
-    const isPar3Tournament = tournament.tee === 'Par 3' || tournament.tournament_format === 'par3_match_play';
-    console.log('Tournament tee:', tournament.tee);
-    console.log('Tournament format:', tournament.tournament_format);
-    console.log('Is par 3 tournament:', isPar3Tournament);
-    
-    // Validate hole scores (must be 9 holes)
-    if (!Array.isArray(hole_scores) || hole_scores.length !== 9) {
-      return res.status(400).json({ error: 'Must provide exactly 9 hole scores' });
-    }
-    
-    // For real-time scoring, allow partial submissions (some holes can be 0)
-    // But validate that submitted scores are valid numbers >= 1
-    const submittedScores = hole_scores.filter(score => score > 0);
-    if (submittedScores.length === 0) {
-      return res.status(400).json({ error: 'Must provide at least one valid hole score' });
-    }
-    
-    if (!submittedScores.every(score => typeof score === 'number' && score >= 1)) {
-      return res.status(400).json({ error: 'All submitted hole scores must be valid numbers >= 1' });
-    }
-    
-    const totalScore = hole_scores.reduce((sum, score) => sum + score, 0);
-    
-    // Get tournament dates and week_start_date to validate submission period
-    const tournamentDatesResult = await pool.query(
-      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentDatesResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournamentDates = tournamentDatesResult.rows[0];
-    const currentDate = new Date().toISOString().split('T')[0];
-    
-    // Check if current date is within tournament period
-    if (tournamentDates.start_date && tournamentDates.end_date) {
-      const startDate = new Date(tournamentDates.start_date);
-      const endDate = new Date(tournamentDates.end_date);
-      const submissionDate = new Date(currentDate);
-      
-      if (submissionDate < startDate || submissionDate > endDate) {
-        return res.status(400).json({ 
-          error: `Score submission is only allowed during tournament period (${tournamentDates.start_date} to ${tournamentDates.end_date})` 
-        });
-      }
-    }
-    
-    // Use the tournament's stored week_start_date as the reference period
-    // This ensures all scores for the same tournament use the same reference date
-    // IMPORTANT: Always use the tournament's week_start_date to prevent duplicate matches
-    const tournamentPeriod = tournamentDates.week_start_date || currentDate;
-    
-    console.log('=== SCORECARD SUBMISSION ===');
-    console.log('Client provided week_start_date:', req.body.week_start_date);
-    console.log('Tournament period:', tournamentPeriod);
-    console.log('Current date:', currentDate);
-    console.log('Tournament start:', tournamentDates.start_date);
-    console.log('Tournament end:', tournamentDates.end_date);
-    console.log('Tournament week_start_date:', tournamentDates.week_start_date);
-    console.log('Using tournament week_start_date:', tournamentDates.week_start_date);
-    
-    // Check if player already submitted for this tournament period
-    const existingScorecard = await pool.query(
-      'SELECT * FROM weekly_scorecards WHERE user_id = $1 AND tournament_id = $2 AND week_start_date = $3',
-      [req.user.member_id, id, tournamentPeriod]
-    );
-    
-    if (existingScorecard.rows.length > 0) {
-      // For real-time scoring, allow updates to existing scorecard
-      const existing = existingScorecard.rows[0];
-      const existingScores = existing.hole_scores;
-      
-      // Merge new scores with existing scores (new scores take precedence)
-      const mergedScores = existingScores.map((existingScore, index) => 
-        hole_scores[index] > 0 ? hole_scores[index] : existingScore
-      );
-      
-      const newTotalScore = mergedScores.reduce((sum, score) => sum + score, 0);
-      
-      // Log par 3 tournament detection for debugging (update)
-      console.log('Par 3 tournament detected (update):', isPar3Tournament);
-      console.log('Note: Par values should be set to 3 for all holes in par 3 tournaments');
-      
-      // Update existing scorecard
-      const { rows } = await pool.query(
-        `UPDATE weekly_scorecards 
-         SET hole_scores = $1, total_score = $2, is_live = $3, group_id = $4, updated_at = CURRENT_TIMESTAMP
-         WHERE user_id = $5 AND tournament_id = $6 AND week_start_date = $7 RETURNING *`,
-        [JSON.stringify(mergedScores), newTotalScore, is_live, group_id, req.user.member_id, id, tournamentPeriod]
-      );
-      
-      // Trigger match calculations for this tournament period
-      await calculateWeeklyMatches(id, tournamentPeriod);
-      
-      // Update leaderboard to reflect new total points
-      await updateWeeklyLeaderboard(id, tournamentPeriod);
-      
-      res.json(rows[0]);
-      return;
-    }
-    
-    // Log par 3 tournament detection for debugging
-    console.log('Par 3 tournament detected:', isPar3Tournament);
-    console.log('Note: Par values should be set to 3 for all holes in par 3 tournaments');
-    
-    // Insert scorecard
-    const { rows } = await pool.query(
-      `INSERT INTO weekly_scorecards 
-       (user_id, tournament_id, week_start_date, hole_scores, total_score, is_live, group_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [req.user.member_id, id, tournamentPeriod, JSON.stringify(hole_scores), totalScore, is_live, group_id]
-    );
-    
-    console.log(`Inserted scorecard for user ${req.user.member_id}, tournament ${id}, tournament period ${tournamentPeriod}`);
-    
-    // Trigger match calculations for this tournament period
-    await calculateWeeklyMatches(id, tournamentPeriod);
-    
-    // Update leaderboard to reflect new total points
-    await updateWeeklyLeaderboard(id, tournamentPeriod);
-    
-    res.json(rows[0]);
-  } catch (err) {
-    console.error('Error submitting weekly scorecard:', err);
-    res.status(500).json({ error: 'Failed to submit scorecard' });
-  }
-});
-
-// API Endpoint: Get current player's weekly scorecard
-app.get('/api/tournaments/:id/weekly-scorecard/current', authenticateToken, async (req, res) => {
-  const { id } = req.params;
-  const { week_start_date, fallback_date } = req.query;
-  
-  try {
-    // Get tournament dates to determine the correct reference period
-    const tournamentResult = await pool.query(
-      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    
-    // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
-    
-    // Get all possible dates for this tournament
-    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
-    const datePlaceholders = possibleDates.map((_, i) => `$${i + 2}`).join(', ');
-    
-    let { rows } = await pool.query(
-      `SELECT * FROM weekly_scorecards 
-       WHERE tournament_id = $1 AND week_start_date IN (${datePlaceholders}) AND user_id = $${possibleDates.length + 2}`,
-      [id, ...possibleDates, req.user.member_id]
-    );
-    
-    if (rows.length > 0) {
-      res.json(rows[0]);
-    } else {
-      res.json(null);
-    }
-  } catch (err) {
-    console.error('Error fetching current player scorecard:', err);
-    res.status(500).json({ error: 'Failed to fetch scorecard' });
-  }
-});
-
-// API Endpoint: Manually trigger leaderboard update (for debugging)
-app.post('/api/tournaments/:id/update-leaderboard', async (req, res) => {
-  const { id } = req.params;
-  const { override_week } = req.query;
-  
-  try {
-    const period = await resolveTournamentPeriod(id);
-    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
-    console.log(`Manually updating leaderboard for tournament ${id}, week ${weekDate}`);
-    console.log(`Tournament start: ${period.start_date}, Tournament end: ${period.end_date}`);
-    
-    await updateWeeklyLeaderboard(id, weekDate);
-    
-    res.json({ success: true, message: 'Leaderboard updated successfully' });
-  } catch (err) {
-    console.error('Error manually updating leaderboard:', err);
-    res.status(500).json({ error: 'Failed to update leaderboard' });
-  }
-});
-
-// API Endpoint: Manually trigger match calculation (for debugging)
-app.post('/api/tournaments/:id/calculate-matches', async (req, res) => {
-  const { id } = req.params;
-  const { override_week, force = false } = req.query;
-  
-  try {
-    const period = await resolveTournamentPeriod(id);
-    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
-    console.log(`Manually calculating matches for tournament ${id}, week ${weekDate}, force: ${force}`);
-    
-    if (force === 'true') {
-      // Clear cache to force recalculation
-      const cacheKey = getWeeklyMatchCacheKey(id, weekDate);
-      weeklyMatchCache.delete(cacheKey);
-      console.log(`Cleared cache for key: ${cacheKey}`);
-    }
-    
-    await calculateWeeklyMatches(id, weekDate);
-    
-    res.json({ success: true, message: 'Matches calculated successfully' });
-  } catch (err) {
-    console.error('Error manually calculating matches:', err);
-    res.status(500).json({ error: 'Failed to calculate matches' });
-  }
-});
-
-// API Endpoint: Clean up duplicate matches (for fixing existing duplicates)
-app.post('/api/tournaments/:id/cleanup-duplicates', async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    console.log(`Manually cleaning up duplicate matches for tournament ${id}`);
-    
-    // Find duplicate matches (same tournament, week, and player pair)
-    const duplicateResult = await pool.query(
-      `SELECT tournament_id, week_start_date, player1_id, player2_id, COUNT(*) as match_count
-       FROM weekly_matches 
-       WHERE tournament_id = $1
-       GROUP BY tournament_id, week_start_date, player1_id, player2_id
-       HAVING COUNT(*) > 1
-       ORDER BY week_start_date, player1_id, player2_id`,
-      [id]
-    );
-    
-    if (duplicateResult.rows.length === 0) {
-      return res.json({ success: true, message: 'No duplicate matches found' });
-    }
-    
-    console.log(`Found ${duplicateResult.rows.length} duplicate match groups`);
-    let totalDeleted = 0;
-    
-    for (const duplicate of duplicateResult.rows) {
-      console.log(`Processing duplicates for tournament ${duplicate.tournament_id}, week ${duplicate.week_start_date}, players ${duplicate.player1_id} vs ${duplicate.player2_id}`);
-      
-      // Get all matches for this group, ordered by creation time
-      const matchesResult = await pool.query(
-        `SELECT id, created_at 
-         FROM weekly_matches 
-         WHERE tournament_id = $1 AND week_start_date = $2 
-         AND player1_id = $3 AND player2_id = $4
-         ORDER BY created_at ASC`,
-        [duplicate.tournament_id, duplicate.week_start_date, duplicate.player1_id, duplicate.player2_id]
-      );
-      
-      const matches = matchesResult.rows;
-      console.log(`Found ${matches.length} matches for this group`);
-      
-      // Keep the first (oldest) match, delete the rest
-      if (matches.length > 1) {
-        const matchesToDelete = matches.slice(1); // All except the first
-        const deleteIds = matchesToDelete.map(m => m.id);
-        
-        console.log(`Keeping match ID ${matches[0].id}, deleting IDs: ${deleteIds.join(', ')}`);
-        
-        const deleteResult = await pool.query(
-          `DELETE FROM weekly_matches WHERE id = ANY($1)`,
-          [deleteIds]
-        );
-        
-        totalDeleted += deleteResult.rowCount;
-        console.log(`Deleted ${deleteResult.rowCount} duplicate matches`);
-      }
-    }
-    
-    // Clear cache after cleanup
-    const cacheKey = getWeeklyMatchCacheKey(id, 'all');
-    weeklyMatchCache.delete(cacheKey);
-    
-    res.json({ 
-      success: true, 
-      message: `Cleanup completed. Deleted ${totalDeleted} duplicate matches.`,
-      duplicatesFound: duplicateResult.rows.length,
-      duplicatesDeleted: totalDeleted
-    });
-    
-  } catch (err) {
-    console.error('Error cleaning up duplicate matches:', err);
-    res.status(500).json({ error: 'Failed to cleanup duplicate matches', details: err.message });
-  }
-});
-
-// API Endpoint: Fix tournament week start date (for fixing incorrect week_start_date)
-app.post('/api/tournaments/:id/fix-week-date', async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    console.log(`Manually fixing week start date for tournament ${id}`);
-    
-    // Get the tournament details
-    const tournamentResult = await pool.query(
-      `SELECT id, name, start_date, end_date, week_start_date 
-       FROM tournaments 
-       WHERE id = $1`,
-      [id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    console.log(`Tournament: ${tournament.name}`);
-    console.log(`  Start date: ${tournament.start_date}`);
-    console.log(`  Current week_start_date: ${tournament.week_start_date}`);
-    
-    // Calculate the correct week start date
-    const correctWeekStart = getWeekStartFromDate(tournament.start_date);
-    console.log(`  Correct week_start_date: ${correctWeekStart}`);
-    
-    // Check if the current week_start_date is incorrect
-    if (tournament.week_start_date === correctWeekStart) {
-      return res.json({ 
-        success: true, 
-        message: 'Tournament week start date is already correct',
-        current: tournament.week_start_date,
-        correct: correctWeekStart
-      });
-    }
-    
-    // Update the tournament
-    const updateResult = await pool.query(
-      `UPDATE tournaments 
-       SET week_start_date = $1, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $2`,
-      [correctWeekStart, id]
-    );
-    
-    if (updateResult.rowCount > 0) {
-      console.log(`Updated tournament ${id} week_start_date from ${tournament.week_start_date} to ${correctWeekStart}`);
-      
-      // Clear any related caches
-      const cacheKey = getWeeklyMatchCacheKey(id, 'all');
-      weeklyMatchCache.delete(cacheKey);
-      
-      res.json({ 
-        success: true, 
-        message: `Tournament week start date fixed successfully`,
-        previous: tournament.week_start_date,
-        current: correctWeekStart,
-        note: 'You may need to clean up duplicate matches and recalculate after this change'
-      });
-    } else {
-      res.status(500).json({ error: 'Failed to update tournament week start date' });
-    }
-    
-  } catch (err) {
-    console.error('Error fixing tournament week start date:', err);
-    res.status(500).json({ error: 'Failed to fix tournament week start date', details: err.message });
-  }
-});
-// API Endpoint: Test match insertion (for debugging)
-app.post('/api/tournaments/:id/test-match-insert', async (req, res) => {
-  const { id } = req.params;
-  const { override_week } = req.query;
-  
-  try {
-    const period = await resolveTournamentPeriod(id);
-    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
-    console.log(`Testing match insertion for tournament ${id}, week ${weekDate}`);
-    
-    // Get all possible week start dates for this tournament
-    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
-    console.log(`Possible week dates for tournament ${id}: ${possibleDates.join(', ')}`);
-    
-    // Get two scorecards to test with from any of the possible weeks
-    const scorecardsResult = await pool.query(
-      `SELECT ws.*, u.first_name, u.last_name
-       FROM weekly_scorecards ws
-       JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})
-       LIMIT 2`,
-      [id, ...possibleDates]
-    );
-    
-    if (scorecardsResult.rows.length < 2) {
-      return res.status(400).json({ 
-        error: 'Need at least 2 scorecards to test match insertion',
-        scorecards: scorecardsResult.rows.length 
-      });
-    }
-    
-    const player1 = scorecardsResult.rows[0];
-    const player2 = scorecardsResult.rows[1];
-    
-    console.log(`Testing with players: ${player1.first_name} vs ${player2.first_name}`);
-    
-    // Try to insert a simple test match
-    const testResult = await pool.query(
-      `INSERT INTO weekly_matches 
-       (tournament_id, week_start_date, player1_id, player2_id, 
-        player1_scorecard_id, player2_scorecard_id,
-        hole_points_player1, hole_points_player2,
-        total_points_player1, total_points_player2)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       ON CONFLICT (tournament_id, week_start_date, player1_id, player2_id)
-       DO UPDATE SET
-         hole_points_player1 = EXCLUDED.hole_points_player1,
-         hole_points_player2 = EXCLUDED.hole_points_player2,
-         total_points_player1 = EXCLUDED.total_points_player1,
-         total_points_player2 = EXCLUDED.total_points_player2
-       RETURNING id`,
-      [id, weekDate, player1.user_id, player2.user_id,
-       player1.id, player2.id, 1.5, 2.0, 1.5, 2.0]
-    );
-    
-    console.log(`Test match inserted successfully. ID: ${testResult.rows[0]?.id}`);
-    
-    res.json({ 
-      success: true, 
-      message: 'Test match inserted successfully',
-      match_id: testResult.rows[0]?.id,
-      player1: player1.first_name,
-      player2: player2.first_name
-    });
-  } catch (err) {
-    console.error('Error testing match insertion:', err);
-    res.status(500).json({ error: 'Failed to test match insertion', details: err.message });
-  }
-});
-
-// API Endpoint: Debug database state (for debugging)
-app.get('/api/tournaments/:id/debug-state', async (req, res) => {
-  const { id } = req.params;
-  const { override_week } = req.query;
-  
-  try {
-    const period = await resolveTournamentPeriod(id);
-    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
-    console.log(`Debugging state for tournament ${id}, week ${weekDate}`);
-    
-    // Get all possible week start dates for this tournament
-    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
-    console.log(`Possible week dates for tournament ${id}: ${possibleDates.join(', ')}`);
-    
-    // Check scorecards
-    const scorecardsResult = await pool.query(
-      `SELECT ws.*, u.first_name, u.last_name
-       FROM weekly_scorecards ws
-       JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
-      [id, ...possibleDates]
-    );
-    
-    // Check matches
-    const matchesResult = await pool.query(
-      `SELECT wm.*, u1.first_name as p1_name, u2.first_name as p2_name
-       FROM weekly_matches wm
-       JOIN users u1 ON wm.player1_id = u1.member_id
-       JOIN users u2 ON wm.player2_id = u2.member_id
-       WHERE wm.tournament_id = $1 AND wm.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
-      [id, ...possibleDates]
-    );
-    
-    // Check leaderboard
-    const leaderboardResult = await pool.query(
-      `SELECT wl.*, u.first_name, u.last_name
-       FROM weekly_leaderboards wl
-       JOIN users u ON wl.user_id = u.member_id
-       WHERE wl.tournament_id = $1 AND wl.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
-      [id, ...possibleDates]
-    );
-    
-    res.json({
-      tournament_id: id,
-      week_start_date: weekDate,
-      scorecards: scorecardsResult.rows,
-      matches: matchesResult.rows,
-      leaderboard: leaderboardResult.rows,
-      cache_keys: Array.from(weeklyMatchCache.keys())
-    });
-  } catch (err) {
-    console.error('Error debugging state:', err);
-    res.status(500).json({ error: 'Failed to debug state' });
-  }
-});
-
-// API Endpoint: Get weekly leaderboard
-app.get('/api/tournaments/:id/weekly-leaderboard', async (req, res) => {
-  const { id } = req.params;
-  const { override_week } = req.query;
-  
-  try {
-    console.log(`=== FETCHING WEEKLY LEADERBOARD ===`);
-    console.log(`Tournament ID: ${id}, Week: ${override_week || 'canonical'}`);
-    
-    // Resolve canonical week
-    const period = await resolveTournamentPeriod(id);
-    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
-    console.log(`Using week date: ${weekDate}`);
-    console.log(`Tournament start: ${period.start_date}, Tournament end: ${period.end_date}`);
-    
-    // Note: updateWeeklyLeaderboard is only called when data changes (score submissions, match updates)
-    // Not on every leaderboard view to prevent duplicate data creation
-    
-    console.log(`Using week date: ${weekDate}`);
-    
-    // Debug: Check what's actually in the leaderboard table
-    const debugResult = await pool.query(
-      `SELECT * FROM weekly_leaderboards WHERE tournament_id = $1`,
-      [id]
-    );
-    console.log(`Debug: Found ${debugResult.rows.length} total leaderboard entries for tournament ${id}`);
-    debugResult.rows.forEach(row => {
-      console.log(`  - User ${row.user_id}, Week ${row.week_start_date}, Total Score: ${row.total_score}`);
-    });
-    
-    // Debug: Check what scorecards exist for this tournament
-    const scorecardDebugResult = await pool.query(
-      `SELECT * FROM weekly_scorecards WHERE tournament_id = $1`,
-      [id]
-    );
-    console.log(`Debug: Found ${scorecardDebugResult.rows.length} total scorecards for tournament ${id}`);
-    scorecardDebugResult.rows.forEach(row => {
-      console.log(`  - User ${row.user_id}, Week ${row.week_start_date}, Total Score: ${row.total_score}`);
-    });
-    
-    // Debug: Check what matches exist for this tournament
-    const matchDebugResult = await pool.query(
-      `SELECT * FROM weekly_matches WHERE tournament_id = $1`,
-      [id]
-    );
-    console.log(`Debug: Found ${matchDebugResult.rows.length} total matches for tournament ${id}`);
-    matchDebugResult.rows.forEach(row => {
-      console.log(`  - Match ${row.id}: Player1 ${row.player1_id} vs Player2 ${row.player2_id}, Week ${row.week_start_date}`);
-    });
-    
-    // Get all registered participants for this tournament
-    const participantsResult = await pool.query(
-      `SELECT p.user_member_id, u.first_name, u.last_name, u.club
-       FROM participation p 
-       JOIN users u ON p.user_member_id = u.member_id 
-       WHERE p.tournament_id = $1`,
-      [id]
-    );
-    
-    const allParticipants = participantsResult.rows;
-    console.log(`Found ${allParticipants.length} registered participants`);
-    
-    // Get all possible week start dates for this tournament
-    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
-    console.log(`Possible week dates for tournament ${id}: ${possibleDates.join(', ')}`);
-    
-    // Get leaderboard entries for any of the possible weeks
-    let leaderboardResult;
-    if (possibleDates.length > 0) {
-      const datePlaceholders = possibleDates.map((_, i) => `$${i + 2}`).join(', ');
-      leaderboardResult = await pool.query(
-        `SELECT wl.*, u.first_name, u.last_name, u.club, ws.hole_scores
-         FROM weekly_leaderboards wl
-         JOIN users u ON wl.user_id = u.member_id
-         LEFT JOIN weekly_scorecards ws ON wl.user_id = ws.user_id 
-           AND wl.tournament_id = ws.tournament_id 
-           AND ws.week_start_date::date = wl.week_start_date::date
-         WHERE wl.tournament_id = $1 AND wl.week_start_date::date IN (${datePlaceholders})
-         ORDER BY wl.total_score DESC, wl.total_hole_points DESC`,
-        [id, ...possibleDates]
-      );
-    } else {
-      // No dates found, return empty result
-      leaderboardResult = { rows: [] };
-    }
-    
-    console.log(`Leaderboard query executed with tournament_id: ${id}, possible dates: ${possibleDates.join(', ')}`);
-    console.log(`SQL: SELECT ... WHERE tournament_id = ${id} AND week_start_date IN (${possibleDates.map(d => `'${d}'`).join(', ')})`);
-    
-    const leaderboardEntries = leaderboardResult.rows;
-    console.log(`Found ${leaderboardEntries.length} leaderboard entries for week ${weekDate}`);
-    
-    // Create a map of leaderboard entries by user_id for quick lookup
-    const leaderboardMap = new Map();
-    leaderboardEntries.forEach(entry => {
-      leaderboardMap.set(entry.user_id, entry);
-    });
-    
-    // Combine all participants with their leaderboard data
-    const rows = allParticipants.map(participant => {
-      const leaderboardEntry = leaderboardMap.get(participant.user_member_id);
-      
-      if (leaderboardEntry) {
-        // Participant has leaderboard data
-        return leaderboardEntry;
-      } else {
-        // Participant has no leaderboard data yet - create default entry
-        return {
-          user_id: participant.user_member_id,
-          first_name: participant.first_name,
-          last_name: participant.last_name,
-          club: participant.club,
-          total_hole_points: 0,
-          total_round_points: 0,
-          total_match_bonus: 0,
-          total_score: 0,
-          matches_played: 0,
-          matches_won: 0,
-          matches_tied: 0,
-          matches_lost: 0,
-          live_matches_played: 0,
-          hole_scores: null
-        };
-      }
-    });
-    
-    console.log(`Found ${rows.length} leaderboard entries for week ${weekDate}`);
-    
-    // Sort rows by total score (descending), then by total hole points (descending)
-    // Participants with no scores will appear at the bottom
-    rows.sort((a, b) => {
-      const scoreA = parseFloat(a.total_score || 0);
-      const scoreB = parseFloat(b.total_score || 0);
-      
-      if (scoreA !== scoreB) {
-        return scoreB - scoreA; // Descending order
-      }
-      
-      // If scores are equal, sort by hole points
-      const holePointsA = parseFloat(a.total_hole_points || 0);
-      const holePointsB = parseFloat(b.total_hole_points || 0);
-      
-      if (holePointsA !== holePointsB) {
-        return holePointsB - holePointsA; // Descending order
-      }
-      
-      // If hole points are also equal, sort alphabetically by name
-      const nameA = `${a.last_name} ${a.first_name}`.toLowerCase();
-      const nameB = `${b.last_name} ${b.first_name}`.toLowerCase();
-      return nameA.localeCompare(nameB);
-    });
-    
-    // Handle hole_scores (already arrays from PostgreSQL JSONB)
-    const processedRows = rows.map(row => {
-      let holeScores = null;
-      if (row.hole_scores) {
-        if (Array.isArray(row.hole_scores)) {
-          // Already an array from PostgreSQL JSONB
-          holeScores = row.hole_scores;
-        } else if (typeof row.hole_scores === 'string') {
-          // String that needs parsing
-          try {
-            holeScores = JSON.parse(row.hole_scores);
-          } catch (e) {
-            console.log('Failed to parse hole_scores for user:', row.user_id, 'Error:', e);
-            holeScores = null;
-          }
-        }
-      }
-      return {
-        ...row,
-        hole_scores: holeScores
-      };
-    });
-    
-    console.log(`Returning ${processedRows.length} processed leaderboard entries`);
-    res.json(processedRows);
-  } catch (err) {
-    console.error('Error fetching weekly leaderboard:', err);
-    console.error('Stack trace:', err.stack);
-    res.status(500).json({ error: 'Failed to fetch leaderboard' });
-  }
-});
-
-// API Endpoint: Get player's weekly matches
-app.get('/api/tournaments/:id/weekly-matches/:userId', async (req, res) => {
-  const { id, userId } = req.params;
-  const { override_week } = req.query;
-  
-  try {
-    const period = await resolveTournamentPeriod(id);
-    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
-    
-    // Get all possible week start dates for this tournament
-    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
-    console.log(`Possible week dates for tournament ${id}: ${possibleDates.join(', ')}`);
-    
-    // Note: calculateWeeklyMatches is called by scorecard submission endpoints, not here
-    // This prevents duplicate match creation and ensures data consistency
-    
-    let { rows } = await pool.query(
-      `SELECT wm.*, 
-              u1.first_name as player1_first_name, u1.last_name as player1_last_name,
-              u2.first_name as player2_first_name, u2.last_name as player2_last_name,
-              ws1.hole_scores as player1_scores, ws2.hole_scores as player2_scores
-       FROM weekly_matches wm
-       JOIN users u1 ON wm.player1_id = u1.member_id
-       JOIN users u2 ON wm.player2_id = u2.member_id
-       JOIN weekly_scorecards ws1 ON wm.player1_scorecard_id = ws1.id
-       JOIN weekly_scorecards ws2 ON wm.player2_scorecard_id = ws2.id
-       WHERE wm.tournament_id = $1 AND wm.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})
-       AND (wm.player1_id = $${possibleDates.length + 2} OR wm.player2_id = $${possibleDates.length + 2})
-       ORDER BY wm.created_at`,
-      [id, ...possibleDates, userId]
-    );
-    
-
-    
-    // Handle score arrays (already arrays from PostgreSQL JSONB)
-    const processedRows = rows.map(row => {
-      let player1Scores = null;
-      let player2Scores = null;
-      
-      if (row.player1_scores) {
-        if (Array.isArray(row.player1_scores)) {
-          player1Scores = row.player1_scores;
-        } else if (typeof row.player1_scores === 'string') {
-          try {
-            player1Scores = JSON.parse(row.player1_scores);
-          } catch (e) {
-            console.log('Failed to parse player1_scores for match:', row.id, 'Error:', e);
-          }
-        }
-      }
-      
-      if (row.player2_scores) {
-        if (Array.isArray(row.player2_scores)) {
-          player2Scores = row.player2_scores;
-        } else if (typeof row.player2_scores === 'string') {
-          try {
-            player2Scores = JSON.parse(row.player2_scores);
-          } catch (e) {
-            console.log('Failed to parse player2_scores for match:', row.id, 'Error:', e);
-          }
-        }
-      }
-      
-      return {
-        ...row,
-        player1_scores: player1Scores,
-        player2_scores: player2Scores
-      };
-    });
-    
-    res.json(processedRows);
-  } catch (err) {
-    console.error('Error fetching weekly matches:', err);
-    res.status(500).json({ error: 'Failed to fetch matches' });
-  }
-});
-
-// API Endpoint: Get player's total hole points across all matches
-app.get('/api/tournaments/:id/weekly-hole-points/:userId', async (req, res) => {
-  const { id, userId } = req.params;
-  const { override_week } = req.query;
-  
-  try {
-    const period = await resolveTournamentPeriod(id);
-    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
-    
-    // Get all possible week start dates for this tournament
-    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
-    console.log(`Possible week dates for tournament ${id}: ${possibleDates.join(', ')}`);
-    
-    // Note: calculateWeeklyMatches is called by scorecard submission endpoints, not here
-    // This prevents duplicate match creation and ensures data consistency
-    
-    let { rows } = await pool.query(
-      `SELECT wm.*, 
-              ws1.hole_scores as player1_scores, ws2.hole_scores as player2_scores
-       FROM weekly_matches wm
-       JOIN weekly_scorecards ws1 ON wm.player1_scorecard_id = ws1.id
-       JOIN weekly_scorecards ws2 ON wm.player2_scorecard_id = ws2.id
-       WHERE wm.tournament_id = $1 AND wm.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})
-       AND (wm.player1_id = $${possibleDates.length + 2} OR wm.player2_id = $${possibleDates.length + 2})`,
-      [id, ...possibleDates, userId]
-    );
-    
-    // Calculate total hole points across all matches
-    const holePoints = {};
-    const roundPoints = {};
-    
-    for (let hole = 1; hole <= 9; hole++) {
-      let totalPoints = 0;
-      let wins = 0;
-      let losses = 0;
-      let ties = 0;
-      
-      rows.forEach(row => {
-        const isPlayer1 = row.player1_id === userId;
-        const playerScores = isPlayer1 ? row.player1_scores : row.player2_scores;
-        const opponentScores = isPlayer1 ? row.player2_scores : row.player1_scores;
-        
-        // Handle score arrays
-        let playerScore = 0;
-        let opponentScore = 0;
-        
-        if (playerScores) {
-          if (Array.isArray(playerScores)) {
-            playerScore = playerScores[hole - 1] || 0;
-          } else if (typeof playerScores === 'string') {
-            try {
-              const parsed = JSON.parse(playerScores);
-              playerScore = parsed[hole - 1] || 0;
-            } catch (e) {
-              console.log('Failed to parse player scores for hole calculation');
-            }
-          }
-        }
-        
-        if (opponentScores) {
-          if (Array.isArray(opponentScores)) {
-            opponentScore = opponentScores[hole - 1] || 0;
-          } else if (typeof opponentScores === 'string') {
-            try {
-              const parsed = JSON.parse(opponentScores);
-              opponentScore = parsed[hole - 1] || 0;
-            } catch (e) {
-              console.log('Failed to parse opponent scores for hole calculation');
-            }
-          }
-        }
-        
-        if (playerScore > 0 && opponentScore > 0) {
-          if (playerScore < opponentScore) {
-            totalPoints += 0.5; // Win
-            wins++;
-          } else if (playerScore > opponentScore) {
-            losses++;
-          } else {
-            ties++;
-          }
-        }
-      });
-      
-      // Determine result based on wins vs losses
-      let result = null;
-      if (wins > losses) {
-        result = 'W';
-      } else if (losses > wins) {
-        result = 'L';
-      } else {
-        result = 'T';
-      }
-      
-      holePoints[hole] = {
-        points: totalPoints,
-        result,
-        wins,
-        losses,
-        ties,
-        totalMatches: wins + losses + ties,
-        record: `${wins}-${ties}-${losses}`
-      };
-      
-      console.log(`Hole ${hole} record:`, holePoints[hole]);
-    }
-    
-    // Calculate round-level W-T-L records
-    for (let round = 1; round <= 3; round++) {
-      let roundWins = 0;
-      let roundLosses = 0;
-      let roundTies = 0;
-      
-      rows.forEach(row => {
-        const isPlayer1 = row.player1_id === userId;
-        const playerScores = isPlayer1 ? row.player1_scores : row.player2_scores;
-        const opponentScores = isPlayer1 ? row.player2_scores : row.player1_scores;
-        
-        if (playerScores && opponentScores) {
-          let playerScoresArray = [];
-          let opponentScoresArray = [];
-          
-          if (Array.isArray(playerScores)) {
-            playerScoresArray = playerScores;
-          } else if (typeof playerScores === 'string') {
-            try {
-              playerScoresArray = JSON.parse(playerScores);
-            } catch (e) {
-              console.log('Failed to parse player scores for round calculation');
-            }
-          }
-          
-          if (Array.isArray(opponentScores)) {
-            opponentScoresArray = opponentScores;
-          } else if (typeof opponentScores === 'string') {
-            try {
-              opponentScoresArray = JSON.parse(opponentScores);
-            } catch (e) {
-              console.log('Failed to parse opponent scores for round calculation');
-            }
-          }
-          
-          // Calculate round scores (sum of 3 holes)
-          const roundStartHole = (round - 1) * 3;
-          const playerRoundScore = playerScoresArray.slice(roundStartHole, roundStartHole + 3)
-            .filter(score => score > 0)
-            .reduce((sum, score) => sum + score, 0);
-          const opponentRoundScore = opponentScoresArray.slice(roundStartHole, roundStartHole + 3)
-            .filter(score => score > 0)
-            .reduce((sum, score) => sum + score, 0);
-          
-          if (playerRoundScore > 0 && opponentRoundScore > 0) {
-            if (playerRoundScore < opponentRoundScore) {
-              roundWins++;
-            } else if (playerRoundScore > opponentRoundScore) {
-              roundLosses++;
-            } else {
-              roundTies++;
-            }
-          }
-        }
-      });
-      
-      // Determine round result
-      let roundResult = null;
-      if (roundWins > roundLosses) {
-        roundResult = 'W';
-      } else if (roundLosses > roundWins) {
-        roundResult = 'L';
-      } else {
-        roundResult = 'T';
-      }
-      
-      roundPoints[round] = {
-        wins: roundWins,
-        losses: roundLosses,
-        ties: roundTies,
-        result: roundResult,
-        record: `${roundWins}-${roundTies}-${roundLosses}`
-      };
-      
-      console.log(`Round ${round} record:`, roundPoints[round]);
-    }
-    
-    console.log('Final hole points response:', holePoints);
-    console.log('Round points response:', roundPoints);
-    res.json({ holePoints, roundPoints });
-  } catch (err) {
-    console.error('Error calculating hole points:', err);
-    res.status(500).json({ error: 'Failed to calculate hole points' });
-  }
-});
-
-// API Endpoint: Get field statistics for a week
-app.get('/api/tournaments/:id/weekly-field-stats', async (req, res) => {
-  const { id } = req.params;
-  const { override_week } = req.query;
-  
-  try {
-    const period = await resolveTournamentPeriod(id);
-    const weekDate = normalizeDateYMD(override_week) || period.week_start_date;
-    
-    // Get all possible week start dates for this tournament
-    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
-    console.log(`Possible week dates for tournament ${id}: ${possibleDates.join(', ')}`);
-    
-    // Get all scorecards with hole scores from any of the possible weeks
-    let { rows } = await pool.query(
-      `SELECT ws.hole_scores, ws.user_id
-       FROM weekly_scorecards ws
-       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})`,
-      [id, ...possibleDates]
-    );
-    
-          // Calculate field statistics for each hole
-      const fieldStats = [];
-      for (let hole = 1; hole <= 9; hole++) {
-        const holeScores = rows
-          .filter(row => {
-            if (!row.hole_scores) return false;
-            let scores = null;
-            if (Array.isArray(row.hole_scores)) {
-              scores = row.hole_scores;
-            } else if (typeof row.hole_scores === 'string') {
-              try {
-                scores = JSON.parse(row.hole_scores);
-              } catch (e) {
-                console.log('Failed to parse hole_scores for field stats, hole:', hole, 'Error:', e);
-                return false;
-              }
-            }
-            return Array.isArray(scores) && scores[hole - 1] > 0;
-          })
-          .map(row => {
-            let scores = null;
-            if (Array.isArray(row.hole_scores)) {
-              scores = row.hole_scores;
-            } else if (typeof row.hole_scores === 'string') {
-              try {
-                scores = JSON.parse(row.hole_scores);
-              } catch (e) {
-                console.log('Failed to parse hole_scores for field stats mapping, hole:', hole, 'Error:', e);
-                return null;
-              }
-            }
-            return scores ? scores[hole - 1] : null;
-          })
-          .filter(score => score !== null);
-      
-      if (holeScores.length > 0) {
-        const average = holeScores.reduce((a, b) => a + b, 0) / holeScores.length;
-        const best = Math.min(...holeScores);
-        fieldStats.push({
-          hole,
-          averageScore: Math.round(average * 10) / 10,
-          totalPlayers: holeScores.length,
-          bestScore: best
-        });
-      } else {
-        fieldStats.push({
-          hole,
-          averageScore: 0,
-          totalPlayers: 0,
-          bestScore: 0
-        });
-      }
-    }
-    
-    res.json(fieldStats);
-  } catch (err) {
-    console.error('Error fetching field statistics:', err);
-    res.status(500).json({ error: 'Failed to fetch field statistics' });
-  }
-});
-
-// API Endpoint: Get player's scorecard for a week
-app.get('/api/tournaments/:id/weekly-scorecard/:userId', async (req, res) => {
-  const { id, userId } = req.params;
-  const { week_start_date } = req.query;
-  
-  try {
-    // Get tournament dates to determine the correct reference period
-    const tournamentResult = await pool.query(
-      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    
-    // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
-    
-    // Get all possible week start dates for this tournament
-    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
-    console.log(`Possible week dates for tournament ${id}: ${possibleDates.join(', ')}`);
-    
-    // Get scorecard from any of the possible weeks
-    let { rows } = await pool.query(
-      `SELECT ws.*, u.first_name, u.last_name, u.club
-       FROM weekly_scorecards ws
-       JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')}) AND ws.user_id = $${possibleDates.length + 2}`,
-      [id, ...possibleDates, userId]
-    );
-    
+    const { rows } = await pool.query('SELECT * FROM club_booking_settings WHERE club_name = $1', [clubName]);
     if (rows.length === 0) {
-      return res.status(404).json({ error: 'Scorecard not found' });
+      return res.status(404).json({ error: 'Club booking settings not found' });
     }
-    
     res.json(rows[0]);
   } catch (err) {
-    console.error('Error fetching weekly scorecard:', err);
-    res.status(500).json({ error: 'Failed to fetch scorecard' });
+    console.error('Error fetching club booking settings:', err);
+    res.status(500).json({ error: 'Failed to fetch club booking settings' });
   }
 });
 
-// Admin endpoint: Get all scorecards for a tournament (admin only)
-app.get('/api/tournaments/:id/admin/scorecards', authenticateToken, async (req, res) => {
-  const { id } = req.params;
-  const { week_start_date } = req.query;
-  
-  try {
-    // Check if user is admin or super admin (Andrew George)
-    const userResult = await pool.query(
-      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    
-    const user = userResult.rows[0];
-    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role?.toLowerCase() === 'admin';
-    
-    if (!isAdmin && !isSuperAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
-    // Get tournament dates to determine the correct reference period
-    const tournamentResult = await pool.query(
-      'SELECT start_date, end_date, week_start_date FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    
-    // Use the provided date, tournament week_start_date, or current date as fallback
-    const weekDate = normalizeDateYMD(week_start_date) || normalizeDateYMD(tournament.week_start_date) || new Date().toISOString().split('T')[0];
-    
-    console.log(`Admin scorecards request - Tournament: ${id}, Requested week: ${week_start_date}, Normalized week: ${weekDate}`);
-    console.log(`Tournament dates - start: ${tournament.start_date}, end: ${tournament.end_date}, week_start: ${tournament.week_start_date}`);
-    
-    // Get all possible week start dates for this tournament
-    const possibleDates = await getPossibleWeekStartDates(id, weekDate);
-    
-    console.log(`Possible dates found: ${JSON.stringify(possibleDates)}`);
-    
-    // If no possible dates, return empty array
-    if (possibleDates.length === 0) {
-      console.log(`No possible dates found for tournament ${id}, returning empty array`);
-      return res.json([]);
-    }
-    
-    // Get all scorecards for the tournament and week
-    let { rows } = await pool.query(
-      `SELECT ws.*, u.first_name, u.last_name, u.club, u.email_address
-       FROM weekly_scorecards ws
-       JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.tournament_id = $1 AND ws.week_start_date IN (${possibleDates.map((_, i) => `$${i + 2}`).join(', ')})
-       ORDER BY u.last_name, u.first_name`,
-      [id, ...possibleDates]
-    );
-    
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching admin scorecards:', err);
-    res.status(500).json({ error: 'Failed to fetch scorecards' });
+// Create new club booking settings
+app.post('/api/club-booking-settings', authenticateToken, requireAdminForBooking, async (req, res) => {
+  const {
+    club_name,
+    number_of_bays,
+    opening_time,
+    closing_time,
+    days_of_operation,
+    booking_duration_options,
+    max_advance_booking_days,
+    min_booking_duration,
+    max_booking_duration,
+    enabled
+  } = req.body;
+
+  if (!club_name) {
+    return res.status(400).json({ error: 'Club name is required' });
   }
-});
-
-// Admin endpoint: Update a scorecard (admin only)
-app.put('/api/tournaments/:id/admin/scorecards/:scorecardId', authenticateToken, async (req, res) => {
-  const { id, scorecardId } = req.params;
-  const { hole_scores, total_score, week_start_date } = req.body;
-  
-  try {
-    // Check if user is admin or super admin (Andrew George)
-    const userResult = await pool.query(
-      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    
-    const user = userResult.rows[0];
-    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role?.toLowerCase() === 'admin';
-    
-    if (!isAdmin && !isSuperAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
-    // Validate scorecard exists and belongs to the tournament
-    const scorecardResult = await pool.query(
-      'SELECT * FROM weekly_scorecards WHERE id = $1 AND tournament_id = $2',
-      [scorecardId, id]
-    );
-    
-    if (scorecardResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Scorecard not found' });
-    }
-    
-    // Get the week date from the scorecard or request body
-    const weekDate = week_start_date || scorecardResult.rows[0].week_start_date;
-    
-    // Update the scorecard
-    const updateResult = await pool.query(
-      `UPDATE weekly_scorecards 
-       SET hole_scores = $1, total_score = $2
-       WHERE id = $3`,
-      [JSON.stringify(hole_scores), total_score, scorecardId]
-    );
-    
-    if (updateResult.rowCount === 0) {
-      return res.status(500).json({ error: 'Failed to update scorecard' });
-    }
-    
-    // Get the updated scorecard
-    const updatedScorecard = await pool.query(
-      `SELECT ws.*, u.first_name, u.last_name, u.club
-       FROM weekly_scorecards ws
-       JOIN users u ON ws.user_id = u.member_id
-       WHERE ws.id = $1`,
-      [scorecardId]
-    );
-    
-    // Recalculate matches for this tournament
-    try {
-      console.log(`Recalculating matches for tournament ${id}, week ${weekDate}`);
-      await calculateWeeklyMatches(id, weekDate);
-      console.log(`Recalculation completed successfully`);
-      // TODO: Implement calculateWeeklyLeaderboard function
-      // await calculateWeeklyLeaderboard(id, weekDate);
-    } catch (calcError) {
-      console.error('Error recalculating after scorecard update:', calcError);
-      console.error('Error stack:', calcError.stack);
-      // Don't fail the request if recalculation fails, but log the error
-    }
-    
-    res.json({
-      message: 'Scorecard updated successfully',
-      scorecard: updatedScorecard.rows[0]
-    });
-  } catch (err) {
-    console.error('Error updating admin scorecard:', err);
-    console.error('Error stack:', err.stack);
-    console.error('Error details:', {
-      tournamentId: id,
-      scorecardId: scorecardId,
-      requestBody: req.body,
-      userId: req.user?.member_id
-    });
-    res.status(500).json({ error: 'Failed to update scorecard' });
-  }
-});
-
-// Admin endpoint: Delete a scorecard (admin only)
-app.delete('/api/tournaments/:id/admin/scorecards/:scorecardId', authenticateToken, async (req, res) => {
-  const { id, scorecardId } = req.params;
-  
-  try {
-    // Check if user is admin or super admin (Andrew George)
-    const userResult = await pool.query(
-      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    
-    const user = userResult.rows[0];
-    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role?.toLowerCase() === 'admin';
-    
-    if (!isAdmin && !isSuperAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
-    // Validate scorecard exists and belongs to the tournament
-    const scorecardResult = await pool.query(
-      'SELECT * FROM weekly_scorecards WHERE id = $1 AND tournament_id = $2',
-      [scorecardId, id]
-    );
-    
-    if (scorecardResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Scorecard not found' });
-    }
-    
-    // Delete the scorecard
-    const deleteResult = await pool.query(
-      'DELETE FROM weekly_scorecards WHERE id = $1',
-      [scorecardId]
-    );
-    
-    if (deleteResult.rowCount === 0) {
-      return res.status(500).json({ error: 'Failed to delete scorecard' });
-    }
-    
-    res.json({ message: 'Scorecard deleted successfully' });
-  } catch (err) {
-    console.error('Error deleting admin scorecard:', err);
-    res.status(500).json({ error: 'Failed to delete scorecard' });
-  }
-});
-
-// Admin endpoint: Get all strokeplay scorecards for a tournament (admin only)
-app.get('/api/tournaments/:id/admin/strokeplay-scorecards', authenticateToken, async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    // Check if user is admin or super admin (Andrew George)
-    const userResult = await pool.query(
-      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    
-    const user = userResult.rows[0];
-    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role?.toLowerCase() === 'admin';
-    
-    if (!isAdmin && !isSuperAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
-    // Get all strokeplay scorecards for the tournament
-    let { rows } = await pool.query(
-      `SELECT s.*, u.first_name, u.last_name, u.club, u.email_address
-       FROM scorecards s
-       JOIN users u ON s.user_id = u.member_id
-       WHERE s.tournament_id = $1 AND s.type = 'strokeplay'
-       ORDER BY u.last_name, u.first_name`,
-      [id]
-    );
-    
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching admin strokeplay scorecards:', err);
-    res.status(500).json({ error: 'Failed to fetch scorecards' });
-  }
-});
-
-// Admin endpoint: Update a strokeplay scorecard (admin only)
-app.put('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', authenticateToken, async (req, res) => {
-  const { id, scorecardId } = req.params;
-  const { hole_scores, total_score, notes } = req.body;
-  
-  try {
-    // Check if user is admin or super admin (Andrew George)
-    const userResult = await pool.query(
-      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    
-    const user = userResult.rows[0];
-    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role?.toLowerCase() === 'admin';
-    
-    if (!isAdmin && !isSuperAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
-    // Validate scorecard exists and belongs to the tournament
-    const scorecardResult = await pool.query(
-      'SELECT * FROM scorecards WHERE id = $1 AND tournament_id = $2 AND type = $3',
-      [scorecardId, id, 'strokeplay']
-    );
-    
-    if (scorecardResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Scorecard not found' });
-    }
-    
-    // Update the scorecard
-    const updateResult = await pool.query(
-      `UPDATE scorecards 
-       SET scores = $1, total_strokes = $2, notes = $3, updated_at = NOW()
-       WHERE id = $4`,
-      [JSON.stringify(hole_scores), total_score, notes, scorecardId]
-    );
-    
-    if (updateResult.rowCount === 0) {
-      return res.status(500).json({ error: 'Failed to update scorecard' });
-    }
-    
-    // Get the updated scorecard
-    const updatedScorecard = await pool.query(
-      `SELECT s.*, u.first_name, u.last_name, u.club
-       FROM scorecards s
-       JOIN users u ON s.user_id = u.member_id
-       WHERE s.id = $1`,
-      [scorecardId]
-    );
-    
-    res.json({
-      message: 'Scorecard updated successfully',
-      scorecard: updatedScorecard.rows[0]
-    });
-  } catch (err) {
-    console.error('Error updating admin strokeplay scorecard:', err);
-    res.status(500).json({ error: 'Failed to update scorecard' });
-  }
-});
-
-// Admin endpoint: Delete a strokeplay scorecard (admin only)
-app.delete('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', authenticateToken, requireAdmin, async (req, res) => {
-  const { id, scorecardId } = req.params;
 
   try {
-    // Admin check is now handled by requireAdmin middleware
-    // Validate scorecard exists and belongs to the tournament
-    const scorecardResult = await pool.query(
-      'SELECT * FROM scorecards WHERE id = $1 AND tournament_id = $2 AND type = $3',
-      [scorecardId, id, 'strokeplay']
-    );
-    
-    if (scorecardResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Scorecard not found' });
-    }
-    
-    // Delete the scorecard
-    const deleteResult = await pool.query(
-      'DELETE FROM scorecards WHERE id = $1',
-      [scorecardId]
-    );
-    
-    if (deleteResult.rowCount === 0) {
-      return res.status(500).json({ error: 'Failed to delete scorecard' });
-    }
-    
-    res.json({ message: 'Scorecard deleted successfully' });
-  } catch (err) {
-    console.error('Error deleting admin strokeplay scorecard:', err);
-    res.status(500).json({ error: 'Failed to delete scorecard' });
-  }
-});
-
-
-// Admin endpoint: Add regular scorecards for handicap tracking (admin only)
-app.post('/api/admin/scorecards', authenticateToken, requireAdmin, async (req, res) => {
-  const { user_id, hole_scores, total_score, notes, round_type, course_id, course_name, teebox, course_rating, course_slope, handicap, date_played } = req.body;
-
-  try {
-    // Admin check is now handled by requireAdmin middleware
-    // Validate required fields
-    if (!user_id) {
-      return res.status(400).json({ error: 'user_id is required' });
-    }
-
-    if (!hole_scores || !Array.isArray(hole_scores)) {
-      return res.status(400).json({ error: 'hole_scores must be an array' });
-    }
-
-    // Check if user exists
-    const userCheck = await pool.query(
-      'SELECT member_id, first_name, last_name FROM users WHERE member_id = $1',
-      [user_id]
-    );
-    
-    if (userCheck.rows.length === 0) {
-      return res.status(400).json({ error: 'User not found' });
-    }
-
-    // Calculate total score if not provided
-    const calculatedTotal = total_score || hole_scores.reduce((sum, score) => sum + (score || 0), 0);
-
-    // Calculate differential for handicap tracking
-    let differential = null;
-    if (course_rating && course_slope && calculatedTotal) {
-      differential = ((calculatedTotal - course_rating) * 113) / course_slope;
-    }
-
-    // Insert into regular scorecards table (no tournament_id for handicap tracking)
-    const insertQuery = `
-      INSERT INTO scorecards (user_id, tournament_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, differential, course_name, course_id, teebox, holes_played, nine_type, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-      RETURNING *
-    `;
-    
-    const insertValues = [
-      user_id,
-      null, // tournament_id - null for regular scorecards
-      'stroke_play', // type
-      `${userCheck.rows[0].first_name} ${userCheck.rows[0].last_name}`, // player_name
-      date_played || new Date().toISOString().split('T')[0], // date_played
-      handicap || 0, // handicap
-      JSON.stringify(hole_scores), // scores
-      calculatedTotal, // total_strokes
-      0, // total_mulligans
-      calculatedTotal, // final_score
-      round_type || 'sim', // round_type
-      course_rating || null, // course_rating
-      course_slope || null, // course_slope
-      differential, // differential
-      course_name || null, // course_name
-      course_id || null, // course_id
-      teebox || null, // teebox
-      hole_scores.length, // holes_played
-      null, // nine_type
-      new Date() // created_at
-    ];
-
-    const { rows } = await pool.query(insertQuery, insertValues);
-    
-    // Recalculate handicap for this user after saving scorecard
-    try {
-      await calculateAndUpdateUserHandicap(user_id);
-      console.log('Handicap recalculated for user after admin scorecard save');
-    } catch (handicapErr) {
-      console.error('Error recalculating handicap:', handicapErr);
-      // Don't fail the scorecard save if handicap calculation fails
-    }
-    
-    console.log(`Admin added scorecard for user ${user_id}:`, rows[0]);
-    
-    res.json({ 
-      success: true, 
-      scorecard: rows[0],
-      message: 'Scorecard added successfully for handicap tracking' 
-    });
-    
-  } catch (err) {
-    console.error('Error adding admin scorecard:', err);
-    res.status(500).json({ error: 'Failed to add scorecard', details: err.message });
-  }
-});
-
-// Admin endpoint: Add multiple rounds for users (admin only)
-app.post('/api/tournaments/:id/admin/rounds/bulk', authenticateToken, async (req, res) => {
-  const { id } = req.params;
-  const { rounds } = req.body;
-  
-  try {
-    // Check if user is admin or super admin (Andrew George)
-    const userResult = await pool.query(
-      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    
-    const user = userResult.rows[0];
-    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role?.toLowerCase() === 'admin';
-    
-    if (!isAdmin && !isSuperAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    if (!rounds || !Array.isArray(rounds) || rounds.length === 0) {
-      return res.status(400).json({ error: 'rounds array is required' });
-    }
-
-    const results = [];
-    const errors = [];
-
-    for (let i = 0; i < rounds.length; i++) {
-      const round = rounds[i];
-      const { user_id, week_start_date, hole_scores, total_score, notes, round_type, course_id, course_name, teebox, course_rating, course_slope, handicap, date_played } = round;
-      
-      try {
-        // Validate required fields
-        if (!user_id || !hole_scores || !Array.isArray(hole_scores) || hole_scores.length === 0) {
-          errors.push({ index: i, error: 'user_id and hole_scores are required' });
-          continue;
-        }
-
-        // Check if user exists
-        const userCheck = await pool.query(
-          'SELECT member_id, first_name, last_name FROM users WHERE member_id = $1',
-          [user_id]
-        );
-        
-        if (userCheck.rows.length === 0) {
-          errors.push({ index: i, error: 'User not found' });
-          continue;
-        }
-
-        // Calculate total score if not provided
-        const calculatedTotal = total_score || hole_scores.reduce((sum, score) => sum + (score || 0), 0);
-        
-        // Determine the appropriate table based on tournament format
-        let tableName, insertQuery, insertValues;
-        
-        if (week_start_date) {
-          // Use weekly_scorecards table
-          tableName = 'weekly_scorecards';
-          insertQuery = `
-            INSERT INTO weekly_scorecards (user_id, tournament_id, week_start_date, hole_scores, total_score, is_live, group_id, submitted_at, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING *
-          `;
-          insertValues = [
-            user_id,
-            id,
-            week_start_date,
-            JSON.stringify(hole_scores),
-            calculatedTotal,
-            false,
-            'admin_added',
-            new Date(),
-            new Date()
-          ];
-        } else {
-          // Use regular scorecards table
-          tableName = 'scorecards';
-          insertQuery = `
-            INSERT INTO scorecards (user_id, tournament_id, type, player_name, date_played, handicap, scores, total_strokes, total_mulligans, final_score, round_type, course_rating, course_slope, course_name, course_id, teebox, holes_played, nine_type, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-            RETURNING *
-          `;
-          insertValues = [
-            user_id,
-            id,
-            'stroke_play',
-            `${userCheck.rows[0].first_name} ${userCheck.rows[0].last_name}`,
-            date_played || new Date().toISOString().split('T')[0],
-            handicap || 0,
-            JSON.stringify(hole_scores),
-            calculatedTotal,
-            0,
-            calculatedTotal,
-            round_type || 'sim',
-            course_rating || null,
-            course_slope || null,
-            course_name || null,
-            course_id || null,
-            teebox || null,
-            hole_scores.length,
-            null,
-            new Date()
-          ];
-        }
-
-        const { rows } = await pool.query(insertQuery, insertValues);
-        results.push({ index: i, scorecard: rows[0] });
-        
-      } catch (err) {
-        console.error(`Error adding round ${i}:`, err);
-        errors.push({ index: i, error: err.message });
-      }
-    }
-    
-    console.log(`Admin bulk added rounds: ${results.length} successful, ${errors.length} failed`);
-    
-    res.status(201).json({
-      message: `Bulk round addition completed: ${results.length} successful, ${errors.length} failed`,
-      results,
-      errors
-    });
-  } catch (err) {
-    console.error('Error in bulk round addition:', err);
-    res.status(500).json({ error: 'Failed to add rounds' });
-  }
-});
-
-// Admin endpoint: Get all matchplay matches for a tournament (admin only)
-app.get('/api/tournaments/:id/admin/matchplay-matches', authenticateToken, async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    // Check if user is admin or super admin (Andrew George)
-    const userResult = await pool.query(
-      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    
-    const user = userResult.rows[0];
-    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role?.toLowerCase() === 'admin';
-    
-    if (!isAdmin && !isSuperAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
-    // Get all matchplay matches for the tournament
-    let { rows } = await pool.query(
-      `SELECT m.*, 
-              p1.first_name as player1_first_name, p1.last_name as player1_last_name, p1.club as player1_club,
-              p2.first_name as player2_first_name, p2.last_name as player2_last_name, p2.club as player2_club
-       FROM tournament_matches m
-       JOIN users p1 ON m.player1_id = p1.member_id
-       JOIN users p2 ON m.player2_id = p2.member_id
-       WHERE m.tournament_id = $1
-       ORDER BY m.match_number`,
-      [id]
-    );
-    
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching admin matchplay matches:', err);
-    res.status(500).json({ error: 'Failed to fetch matches' });
-  }
-});
-
-// Admin endpoint: Update a matchplay match (admin only)
-app.put('/api/tournaments/:id/admin/matchplay-matches/:matchId', authenticateToken, async (req, res) => {
-  const { id, matchId } = req.params;
-  const { player1_score, player2_score, winner_id, scores } = req.body;
-  
-  try {
-    // Check if user is admin or super admin (Andrew George)
-    const userResult = await pool.query(
-      'SELECT role, first_name, last_name FROM users WHERE member_id = $1',
-      [req.user.member_id]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    
-    const user = userResult.rows[0];
-    const isSuperAdmin = user.first_name === 'Andrew' && user.last_name === 'George';
-    const isAdmin = user.role?.toLowerCase() === 'admin';
-    
-    if (!isAdmin && !isSuperAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
-    // Validate match exists and belongs to the tournament
-    const matchResult = await pool.query(
-      'SELECT * FROM tournament_matches WHERE id = $1 AND tournament_id = $2',
-      [matchId, id]
-    );
-    
-    if (matchResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Match not found' });
-    }
-    
-    // Update the match
-    const updateResult = await pool.query(
-      `UPDATE tournament_matches 
-       SET player1_score = $1, player2_score = $2, winner_id = $3, scores = $4, updated_at = NOW()
-       WHERE id = $5`,
-      [player1_score, player2_score, winner_id, JSON.stringify(scores), matchId]
-    );
-    
-    if (updateResult.rowCount === 0) {
-      return res.status(500).json({ error: 'Failed to update match' });
-    }
-    
-    // Get the updated match
-    const updatedMatch = await pool.query(
-      `SELECT m.*, 
-              p1.first_name as player1_first_name, p1.last_name as player1_last_name, p1.club as player1_club,
-              p2.first_name as player2_first_name, p2.last_name as player2_last_name, p2.club as player2_club
-       FROM tournament_matches m
-       JOIN users p1 ON m.player1_id = p1.member_id
-       JOIN users p2 ON m.player2_id = p2.member_id
-       WHERE m.id = $1`,
-      [matchId]
-    );
-    
-    res.json({
-      message: 'Match updated successfully',
-      match: updatedMatch.rows[0]
-    });
-  } catch (err) {
-    console.error('Error updating admin matchplay match:', err);
-    res.status(500).json({ error: 'Failed to update match' });
-  }
-});
-
-// Get available weeks for a tournament
-app.get('/api/tournaments/:id/available-weeks', async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    // Validate that id is a number
-    if (isNaN(Number(id))) {
-      return res.status(400).json({ error: 'Tournament ID must be a number' });
-    }
-    
-    // Get all possible week start dates for this tournament
-    const possibleDates = await getPossibleWeekStartDates(id, new Date().toISOString().split('T')[0]);
-    
-    // Also include the tournament's week_start_date if it exists
-    const tournamentResult = await pool.query(
-      'SELECT week_start_date FROM tournaments WHERE id = $1',
-      [id]
-    );
-    
-    let allDates = [...new Set(possibleDates)];
-    
-    if (tournamentResult.rows.length > 0 && tournamentResult.rows[0].week_start_date) {
-      const tournamentWeekDate = normalizeDateYMD(tournamentResult.rows[0].week_start_date);
-      if (tournamentWeekDate && !allDates.includes(tournamentWeekDate)) {
-        allDates.push(tournamentWeekDate);
-      }
-    }
-    
-    // Sort dates in ascending order
-    allDates.sort();
-    
-    res.json(allDates);
-  } catch (err) {
-    console.error('Error fetching available weeks:', err);
-    res.status(500).json({ error: 'Failed to fetch available weeks' });
-  }
-});
-
-// Get user's appropriate course for a tournament based on their club
-app.get('/api/tournaments/:id/user-course/:userId', async (req, res) => {
-  try {
-    const { id, userId } = req.params;
-    
-    // Validate that id is a number
-    if (isNaN(Number(id)) || isNaN(Number(userId))) {
-      return res.status(400).json({ error: 'Tournament ID and User ID must be numbers' });
-    }
-    
-    // Get tournament details
-    const tournamentResult = await pool.query(
-      `SELECT id, name, course, course_id, gspro_course, gspro_course_id, trackman_course, trackman_course_id
-       FROM tournaments WHERE id = $1`,
-      [Number(id)]
-    );
-    
-    if (tournamentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    
-    // Get user's club
-    const userResult = await pool.query(
-      'SELECT member_id, first_name, last_name, club FROM users WHERE member_id = $1',
-      [Number(userId)]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    const tournament = tournamentResult.rows[0];
-    const user = userResult.rows[0];
-    
-    // Get the appropriate course for this user
-    const userCourse = getUserCourse(tournament, user.club);
-    
-    res.json({
-      tournament_id: tournament.id,
-      tournament_name: tournament.name,
-      user_id: user.member_id,
-      user_name: `${user.first_name} ${user.last_name}`,
-      user_club: user.club,
-      course_preference: getUserCoursePreference(user.club),
-      ...userCourse
-    });
-  } catch (err) {
-    console.error('Error fetching user course:', err);
-    res.status(500).json({ error: 'Failed to fetch user course' });
-  }
-});
-
-// General tournament route - must be placed AFTER all specific routes to avoid conflicts
-app.get('/api/tournaments/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    // Validate that id is a number
-    if (isNaN(Number(id))) {
-      return res.status(400).json({ error: 'Tournament ID must be a number' });
-    }
-    
     const { rows } = await pool.query(
-      `SELECT id, name, description, start_date, end_date, week_start_date, status, type, club_restriction,
-              team_size, hole_configuration, handicap_enabled, created_by, created_at, updated_at,
-              course, course_id, gspro_course, gspro_course_id, trackman_course, trackman_course_id,
-              location, rules, notes, tournament_format, registration_deadline, max_participants, 
-              min_participants, registration_open, entry_fee, tee, pins, putting_gimme, elevation,
-              stimp, mulligan, game_play, firmness, wind, has_registration_form, registration_form_template,
-              registration_form_data, payment_organizer, payment_organizer_name, payment_venmo_url
-       FROM tournaments WHERE id = $1`,
-      [Number(id)]
+      `INSERT INTO club_booking_settings
+       (club_name, number_of_bays, opening_time, closing_time, days_of_operation,
+        booking_duration_options, max_advance_booking_days, min_booking_duration,
+        max_booking_duration, enabled, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
+       RETURNING *`,
+      [
+        club_name,
+        number_of_bays || 4,
+        opening_time || '07:00',
+        closing_time || '22:00',
+        days_of_operation || 'Mon,Tue,Wed,Thu,Fri,Sat,Sun',
+        booking_duration_options || '30,60,90,120',
+        max_advance_booking_days || 30,
+        min_booking_duration || 30,
+        max_booking_duration || 240,
+        enabled !== undefined ? enabled : true
+      ]
     );
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Tournament not found' });
-    }
-    res.json(rows[0]);
+    res.status(201).json(rows[0]);
   } catch (err) {
-    console.error('Error fetching tournament details:', err);
-    res.status(500).json({ error: 'Failed to fetch tournament details' });
+    console.error('Error creating club booking settings:', err);
+    if (err.code === '23505') { // Unique violation
+      return res.status(409).json({ error: 'Settings for this club already exist' });
+    }
+    res.status(500).json({ error: 'Failed to create club booking settings' });
   }
 });
 
-// Start the server
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// Update club booking settings
+app.put('/api/club-booking-settings/:id', authenticateToken, requireAdminForBooking, async (req, res) => {
+  const { id } = req.params;
+  const {
+    club_name,
+    number_of_bays,
+    opening_time,
+    closing_time,
+    days_of_operation,
+    booking_duration_options,
+    max_advance_booking_days,
+    min_booking_duration,
+    max_booking_duration,
+    enabled
+  } = req.body;
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE club_booking_settings
+       SET club_name = COALESCE($1, club_name),
+           number_of_bays = COALESCE($2, number_of_bays),
+           opening_time = COALESCE($3, opening_time),
+           closing_time = COALESCE($4, closing_time),
+           days_of_operation = COALESCE($5, days_of_operation),
+           booking_duration_options = COALESCE($6, booking_duration_options),
+           max_advance_booking_days = COALESCE($7, max_advance_booking_days),
+           min_booking_duration = COALESCE($8, min_booking_duration),
+           max_booking_duration = COALESCE($9, max_booking_duration),
+           enabled = COALESCE($10, enabled),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $11
+       RETURNING *`,
+      [
+        club_name,
+        number_of_bays,
+        opening_time,
+        closing_time,
+        days_of_operation,
+        booking_duration_options,
+        max_advance_booking_days,
+        min_booking_duration,
+        max_booking_duration,
+        enabled,
+        id
+      ]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Club booking settings not found' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating club booking settings:', err);
+    if (err.code === '23505') { // Unique violation
+      return res.status(409).json({ error: 'Settings with this club name already exist' });
+    }
+    res.status(500).json({ error: 'Failed to update club booking settings' });
+  }
 });
+
+// Delete club booking settings
+app.delete('/api/club-booking-settings/:id', authenticateToken, requireAdminForBooking, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { rows } = await pool.query('DELETE FROM club_booking_settings WHERE id = $1 RETURNING *', [id]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Club booking settings not found' });
+    }
+
+    res.json({ message: 'Club booking settings deleted successfully', deleted: rows[0] });
+  } catch (err) {
+    console.error('Error deleting club booking settings:', err);
+    res.status(500).json({ error: 'Failed to delete club booking settings' });
+  }
+});
+
