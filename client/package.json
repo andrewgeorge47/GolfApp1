@@ -4,6 +4,10 @@
   "private": true,
   "homepage": "https://play.nngolf.co",
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^7.2.0",
+    "@mui/material": "^7.2.0",
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/postcss": "^4.1.10",
     "@testing-library/dom": "^10.4.0",
@@ -16,10 +20,12 @@
     "@types/react-dom": "^19.1.6",
     "axios": "^1.10.0",
     "bcrypt": "^6.0.0",
+    "date-fns": "^4.1.0",
     "gh-pages": "^6.3.0",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.523.0",
     "react": "^19.1.0",
+    "react-big-calendar": "^1.19.4",
     "react-dom": "^19.1.0",
     "react-router": "^6.23.1",
     "react-router-dom": "^6.23.1",
@@ -56,6 +62,7 @@
     ]
   },
   "devDependencies": {
+    "@types/react-big-calendar": "^1.16.2",
     "autoprefixer": "^10.4.21",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17"
