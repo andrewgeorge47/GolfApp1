@@ -5,7 +5,7 @@ export type BadgeVariant = 'default' | 'brand' | 'success' | 'warning' | 'error'
 export type BadgeSize = 'sm' | 'md' | 'lg';
 export type BadgeStyle = 'solid' | 'subtle' | 'outlined';
 
-export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
+export interface BadgeProps extends Omit<React.HTMLAttributes<HTMLSpanElement>, 'style'> {
   variant?: BadgeVariant;
   size?: BadgeSize;
   style?: BadgeStyle;

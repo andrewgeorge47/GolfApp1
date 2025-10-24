@@ -16,6 +16,24 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { 
+  Button, 
+  Card, 
+  CardHeader, 
+  CardContent, 
+  Modal, 
+  ModalHeader, 
+  ModalContent, 
+  ModalFooter,
+  FormDialog,
+  Input,
+  Select,
+  SelectOption,
+  Badge,
+  StatusBadge,
+  Loading,
+  Spinner
+} from './ui';
 
 interface ScheduleWeek {
   id: number;
@@ -441,7 +459,7 @@ const LeagueScheduleBuilder: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-neon-green"></div>
+        <Spinner size="lg" label="Loading schedule..." />
       </div>
     );
   }
@@ -458,83 +476,84 @@ const LeagueScheduleBuilder: React.FC = () => {
           </div>
         </div>
         
-        <button
+        <Button
           onClick={() => setShowCreateWeekForm(true)}
-          className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors"
+          icon={Plus}
+          variant="primary"
         >
-          <Plus className="w-5 h-5" />
-          <span>Add Week</span>
-        </button>
+          Add Week
+        </Button>
       </div>
 
       {/* Schedule Weeks */}
       <div className="space-y-4">
         {scheduleWeeks.map((week) => (
-          <div key={week.id} className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
-            <div className="p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  <button
-                    onClick={() => setExpandedWeek(expandedWeek === week.id ? null : week.id)}
-                    className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
-                  >
-                    {expandedWeek === week.id ? (
-                      <ChevronDown className="w-5 h-5 text-neutral-500" />
-                    ) : (
-                      <ChevronRight className="w-5 h-5 text-neutral-500" />
-                    )}
-                  </button>
-                  
-                  <div className="flex items-center space-x-3">
-                    {getStatusIcon(week.status)}
-                    <div>
-                      <h3 className="text-lg font-semibold text-brand-black">
-                        Week {week.week_number}
-                      </h3>
-                      <p className="text-sm text-neutral-600">
-                        {new Date(week.start_date).toLocaleDateString()} - {new Date(week.end_date).toLocaleDateString()}
-                      </p>
-                    </div>
+          <Card key={week.id}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <button
+                  onClick={() => setExpandedWeek(expandedWeek === week.id ? null : week.id)}
+                  className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
+                >
+                  {expandedWeek === week.id ? (
+                    <ChevronDown className="w-5 h-5 text-neutral-500" />
+                  ) : (
+                    <ChevronRight className="w-5 h-5 text-neutral-500" />
+                  )}
+                </button>
+                
+                <div className="flex items-center space-x-3">
+                  {getStatusIcon(week.status)}
+                  <div>
+                    <h3 className="text-lg font-semibold text-brand-black">
+                      Week {week.week_number}
+                    </h3>
+                    <p className="text-sm text-neutral-600">
+                      {new Date(week.start_date).toLocaleDateString()} - {new Date(week.end_date).toLocaleDateString()}
+                    </p>
                   </div>
-                  
-                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(week.status)}`}>
-                    {week.status.charAt(0).toUpperCase() + week.status.slice(1)}
-                  </span>
                 </div>
                 
-                <div className="flex items-center space-x-2">
-                  <div className="flex items-center space-x-2 text-sm text-neutral-600">
-                    <MapPin className="w-4 h-4" />
-                    <span>{week.course_name}</span>
-                  </div>
-                  
-                  <button
-                    onClick={() => handleAutoGenerateMatches(week.id)}
-                    className="flex items-center space-x-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    <span>Auto-Generate</span>
-                  </button>
-                  
-                  <button
-                    onClick={() => {
-                      setEditingMatch({ ...week.matches[0], week_id: week.id } as any);
-                      setShowMatchForm(true);
-                    }}
-                    className="flex items-center space-x-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Add Match</span>
-                  </button>
-                  
-                  <button
-                    onClick={() => handleDeleteWeek(week.id)}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+                <StatusBadge status={week.status === 'scheduled' ? 'pending' : week.status === 'active' ? 'active' : 'completed'} />
               </div>
+              
+              <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-2 text-sm text-neutral-600">
+                  <MapPin className="w-4 h-4" />
+                  <span>{week.course_name}</span>
+                </div>
+                
+                <Button
+                  onClick={() => handleAutoGenerateMatches(week.id)}
+                  icon={RotateCcw}
+                  variant="secondary"
+                  size="sm"
+                >
+                  Auto-Generate
+                </Button>
+                
+                <Button
+                  onClick={() => {
+                    setEditingMatch({ ...week.matches[0], week_id: week.id } as any);
+                    setShowMatchForm(true);
+                  }}
+                  icon={Plus}
+                  variant="success"
+                  size="sm"
+                >
+                  Add Match
+                </Button>
+                
+                <Button
+                  variant="danger"
+                  size="sm"
+                  icon={Trash2}
+                  onClick={() => handleDeleteWeek(week.id)}
+                >
+                  Delete
+                </Button>
+              </div>
+            </div>
               
               {expandedWeek === week.id && (
                 <div className="mt-6 space-y-4">
@@ -547,257 +566,164 @@ const LeagueScheduleBuilder: React.FC = () => {
                   ) : (
                     <div className="space-y-3">
                       {week.matches.map((match) => (
-                        <div key={match.id} className="flex items-center justify-between p-4 border border-neutral-200 rounded-lg">
-                          <div className="flex items-center space-x-4">
-                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(match.status)}`}>
-                              {match.status.charAt(0).toUpperCase() + match.status.slice(1)}
-                            </span>
-                            
-                            <div className="flex items-center space-x-2">
-                              <span className="font-medium text-brand-black">{match.team1_name}</span>
-                              <span className="text-neutral-500">vs</span>
-                              <span className="font-medium text-brand-black">{match.team2_name}</span>
+                        <Card key={match.id} variant="outlined">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-4">
+                              <StatusBadge status={match.status === 'scheduled' ? 'pending' : match.status === 'in_progress' ? 'in_progress' : 'completed'} />
+                              
+                              <div className="flex items-center space-x-2">
+                                <span className="font-medium text-brand-black">{match.team1_name}</span>
+                                <span className="text-neutral-500">vs</span>
+                                <span className="font-medium text-brand-black">{match.team2_name}</span>
+                              </div>
+                              
+                              {match.status === 'completed' && (
+                                <div className="flex items-center space-x-2 text-sm">
+                                  <span className="font-medium">{match.team1_score}</span>
+                                  <span className="text-neutral-500">-</span>
+                                  <span className="font-medium">{match.team2_score}</span>
+                                </div>
+                              )}
                             </div>
                             
-                            {match.status === 'completed' && (
-                              <div className="flex items-center space-x-2 text-sm">
-                                <span className="font-medium">{match.team1_score}</span>
-                                <span className="text-neutral-500">-</span>
-                                <span className="font-medium">{match.team2_score}</span>
-                              </div>
-                            )}
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              icon={Trash2}
+                              onClick={() => handleDeleteMatch(week.id, match.id)}
+                            >
+                              Delete
+                            </Button>
                           </div>
-                          
-                          <button
-                            onClick={() => handleDeleteMatch(week.id, match.id)}
-                            className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                        </Card>
                       ))}
                     </div>
                   )}
                 </div>
               )}
-            </div>
-          </div>
-        ))}
-      </div>
+            </Card>
+          ))}
+        </div>
 
       {/* Create Week Modal */}
-      {showCreateWeekForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-brand-black">Create Week</h2>
-              <button
-                onClick={() => setShowCreateWeekForm(false)}
-                className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      <FormDialog
+        open={showCreateWeekForm}
+        onClose={() => setShowCreateWeekForm(false)}
+        onSubmit={(e) => { e.preventDefault(); handleCreateWeek(); }}
+        title="Create Week"
+        submitText="Create Week"
+        loading={isSubmitting}
+      >
+        <div className="space-y-4">
+          <Input
+            label="Week Number"
+            type="number"
+            min="1"
+            value={weekForm.week_number}
+            onChange={(e) => setWeekForm(prev => ({ ...prev, week_number: parseInt(e.target.value) }))}
+          />
 
-            <form onSubmit={(e) => { e.preventDefault(); handleCreateWeek(); }} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-2">
-                  Week Number
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={weekForm.week_number}
-                  onChange={(e) => setWeekForm(prev => ({ ...prev, week_number: parseInt(e.target.value) }))}
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                />
-              </div>
+          <Input
+            label="Start Date"
+            type="date"
+            value={weekForm.start_date}
+            onChange={(e) => setWeekForm(prev => ({ ...prev, start_date: e.target.value }))}
+            error={formErrors.start_date}
+            required
+          />
 
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-2">
-                  Start Date *
-                </label>
-                <input
-                  type="date"
-                  value={weekForm.start_date}
-                  onChange={(e) => setWeekForm(prev => ({ ...prev, start_date: e.target.value }))}
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                    formErrors.start_date ? 'border-red-500' : 'border-neutral-300'
-                  }`}
-                />
-                {formErrors.start_date && <p className="text-red-500 text-sm mt-1">{formErrors.start_date}</p>}
-              </div>
+          <Input
+            label="End Date"
+            type="date"
+            value={weekForm.end_date}
+            onChange={(e) => setWeekForm(prev => ({ ...prev, end_date: e.target.value }))}
+            error={formErrors.end_date}
+            required
+          />
 
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-2">
-                  End Date *
-                </label>
-                <input
-                  type="date"
-                  value={weekForm.end_date}
-                  onChange={(e) => setWeekForm(prev => ({ ...prev, end_date: e.target.value }))}
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                    formErrors.end_date ? 'border-red-500' : 'border-neutral-300'
-                  }`}
-                />
-                {formErrors.end_date && <p className="text-red-500 text-sm mt-1">{formErrors.end_date}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-2">
-                  Course *
-                </label>
-                <select
-                  value={weekForm.course_id}
-                  onChange={(e) => setWeekForm(prev => ({ ...prev, course_id: parseInt(e.target.value) }))}
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                    formErrors.course_id ? 'border-red-500' : 'border-neutral-300'
-                  }`}
-                >
-                  <option value={0}>Select course...</option>
-                  {courses.map((course) => (
-                    <option key={course.id} value={course.id}>
-                      {course.name} {course.location && `(${course.location})`}
-                    </option>
-                  ))}
-                </select>
-                {formErrors.course_id && <p className="text-red-500 text-sm mt-1">{formErrors.course_id}</p>}
-              </div>
-
-              <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateWeekForm(false)}
-                  className="px-4 py-2 text-neutral-600 hover:text-neutral-800 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors disabled:opacity-50"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>{isSubmitting ? 'Creating...' : 'Create Week'}</span>
-                </button>
-              </div>
-            </form>
-          </div>
+          <Select
+            label="Course"
+            value={weekForm.course_id}
+            onChange={(e) => setWeekForm(prev => ({ ...prev, course_id: parseInt(e.target.value) }))}
+            options={[
+              { value: 0, label: 'Select course...' },
+              ...courses.map((course) => ({
+                value: course.id,
+                label: `${course.name} ${course.location && `(${course.location})`}`
+              }))
+            ]}
+            error={formErrors.course_id}
+            required
+          />
         </div>
-      )}
+      </FormDialog>
 
       {/* Create Match Modal */}
-      {showMatchForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-brand-black">Create Match</h2>
-              <button
-                onClick={() => {
-                  setShowMatchForm(false);
-                  setEditingMatch(null);
-                }}
-                className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      <FormDialog
+        open={showMatchForm}
+        onClose={() => {
+          setShowMatchForm(false);
+          setEditingMatch(null);
+        }}
+        onSubmit={(e) => { e.preventDefault(); handleCreateMatch(); }}
+        title="Create Match"
+        submitText="Create Match"
+        loading={isSubmitting}
+      >
+        <div className="space-y-4">
+          <Select
+            label="Division"
+            value={matchForm.division_id}
+            onChange={(e) => setMatchForm(prev => ({ ...prev, division_id: parseInt(e.target.value) }))}
+            options={[
+              { value: 0, label: 'Select division...' },
+              ...divisions.map((division) => ({
+                value: division.id,
+                label: division.name
+              }))
+            ]}
+            error={formErrors.division_id}
+            required
+          />
 
-            <form onSubmit={(e) => { e.preventDefault(); handleCreateMatch(); }} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-2">
-                  Division *
-                </label>
-                <select
-                  value={matchForm.division_id}
-                  onChange={(e) => setMatchForm(prev => ({ ...prev, division_id: parseInt(e.target.value) }))}
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                    formErrors.division_id ? 'border-red-500' : 'border-neutral-300'
-                  }`}
-                >
-                  <option value={0}>Select division...</option>
-                  {divisions.map((division) => (
-                    <option key={division.id} value={division.id}>
-                      {division.name}
-                    </option>
-                  ))}
-                </select>
-                {formErrors.division_id && <p className="text-red-500 text-sm mt-1">{formErrors.division_id}</p>}
-              </div>
+          <Select
+            label="Team 1"
+            value={matchForm.team1_id}
+            onChange={(e) => setMatchForm(prev => ({ ...prev, team1_id: parseInt(e.target.value) }))}
+            options={[
+              { value: 0, label: 'Select team...' },
+              ...(matchForm.division_id ? divisions
+                .find(d => d.id === matchForm.division_id)
+                ?.teams.map((team) => ({
+                  value: team.id,
+                  label: team.name
+                })) || [] : [])
+            ]}
+            error={formErrors.team1_id}
+            required
+            disabled={!matchForm.division_id}
+          />
 
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-2">
-                  Team 1 *
-                </label>
-                <select
-                  value={matchForm.team1_id}
-                  onChange={(e) => setMatchForm(prev => ({ ...prev, team1_id: parseInt(e.target.value) }))}
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                    formErrors.team1_id ? 'border-red-500' : 'border-neutral-300'
-                  }`}
-                  disabled={!matchForm.division_id}
-                >
-                  <option value={0}>Select team...</option>
-                  {matchForm.division_id && divisions
-                    .find(d => d.id === matchForm.division_id)
-                    ?.teams.map((team) => (
-                      <option key={team.id} value={team.id}>
-                        {team.name}
-                      </option>
-                    ))}
-                </select>
-                {formErrors.team1_id && <p className="text-red-500 text-sm mt-1">{formErrors.team1_id}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-2">
-                  Team 2 *
-                </label>
-                <select
-                  value={matchForm.team2_id}
-                  onChange={(e) => setMatchForm(prev => ({ ...prev, team2_id: parseInt(e.target.value) }))}
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                    formErrors.team2_id ? 'border-red-500' : 'border-neutral-300'
-                  }`}
-                  disabled={!matchForm.division_id}
-                >
-                  <option value={0}>Select team...</option>
-                  {matchForm.division_id && divisions
-                    .find(d => d.id === matchForm.division_id)
-                    ?.teams.filter(team => team.id !== matchForm.team1_id)
-                    .map((team) => (
-                      <option key={team.id} value={team.id}>
-                        {team.name}
-                      </option>
-                    ))}
-                </select>
-                {formErrors.team2_id && <p className="text-red-500 text-sm mt-1">{formErrors.team2_id}</p>}
-              </div>
-
-              <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowMatchForm(false);
-                    setEditingMatch(null);
-                  }}
-                  className="px-4 py-2 text-neutral-600 hover:text-neutral-800 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors disabled:opacity-50"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>{isSubmitting ? 'Creating...' : 'Create Match'}</span>
-                </button>
-              </div>
-            </form>
-          </div>
+          <Select
+            label="Team 2"
+            value={matchForm.team2_id}
+            onChange={(e) => setMatchForm(prev => ({ ...prev, team2_id: parseInt(e.target.value) }))}
+            options={[
+              { value: 0, label: 'Select team...' },
+              ...(matchForm.division_id ? divisions
+                .find(d => d.id === matchForm.division_id)
+                ?.teams.filter(team => team.id !== matchForm.team1_id)
+                .map((team) => ({
+                  value: team.id,
+                  label: team.name
+                })) || [] : [])
+            ]}
+            error={formErrors.team2_id}
+            required
+            disabled={!matchForm.division_id}
+          />
         </div>
-      )}
+      </FormDialog>
     </div>
   );
 };

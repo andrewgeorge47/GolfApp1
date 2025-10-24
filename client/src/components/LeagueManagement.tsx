@@ -23,6 +23,26 @@ import { createTournament, getTournaments, updateTournament, deleteTournament } 
 import LeagueDivisionManager from './LeagueDivisionManager';
 import LeagueScheduleBuilder from './LeagueScheduleBuilder';
 import LeagueTeamManager from './LeagueTeamManager';
+import { 
+  Button, 
+  Card, 
+  CardHeader, 
+  CardContent, 
+  Modal, 
+  ModalHeader, 
+  ModalContent, 
+  ModalFooter,
+  FormDialog,
+  Input,
+  Select,
+  SelectOption,
+  Badge,
+  StatusBadge,
+  Loading,
+  Spinner,
+  Tabs,
+  TabPanel
+} from './ui';
 
 interface League {
   id: number;
@@ -86,7 +106,7 @@ const LeagueManagement: React.FC = () => {
     start_date: '',
     end_date: '',
     teams_per_division: 8,
-    format: 'round_robin' as const,
+    format: 'round_robin' as League['format'],
     scoring_rules: {
       points_per_win: 2,
       points_per_tie: 1,
@@ -268,7 +288,7 @@ const LeagueManagement: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-neon-green"></div>
+        <Spinner size="lg" label="Loading leagues..." />
       </div>
     );
   }
@@ -285,13 +305,13 @@ const LeagueManagement: React.FC = () => {
           </div>
         </div>
         
-        <button
+        <Button
           onClick={() => setShowCreateForm(true)}
-          className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors"
+          icon={Plus}
+          variant="primary"
         >
-          <Plus className="w-5 h-5" />
-          <span>Create League</span>
-        </button>
+          Create League
+        </Button>
       </div>
 
       {/* Tab Navigation */}
@@ -350,7 +370,7 @@ const LeagueManagement: React.FC = () => {
           <div className="space-y-6">
             {/* League Stats */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-white p-6 rounded-lg border border-neutral-200">
+              <Card>
                 <div className="flex items-center">
                   <Trophy className="w-8 h-8 text-brand-neon-green" />
                   <div className="ml-4">
@@ -358,9 +378,9 @@ const LeagueManagement: React.FC = () => {
                     <p className="text-2xl font-bold text-brand-black">{leagues.length}</p>
                   </div>
                 </div>
-              </div>
+              </Card>
               
-              <div className="bg-white p-6 rounded-lg border border-neutral-200">
+              <Card>
                 <div className="flex items-center">
                   <Trophy className="w-8 h-8 text-green-500" />
                   <div className="ml-4">
@@ -370,9 +390,9 @@ const LeagueManagement: React.FC = () => {
                     </p>
                   </div>
                 </div>
-              </div>
+              </Card>
               
-              <div className="bg-white p-6 rounded-lg border border-neutral-200">
+              <Card>
                 <div className="flex items-center">
                   <Users className="w-8 h-8 text-blue-500" />
                   <div className="ml-4">
@@ -382,9 +402,9 @@ const LeagueManagement: React.FC = () => {
                     </p>
                   </div>
                 </div>
-              </div>
+              </Card>
               
-              <div className="bg-white p-6 rounded-lg border border-neutral-200">
+              <Card>
                 <div className="flex items-center">
                   <Calendar className="w-8 h-8 text-purple-500" />
                   <div className="ml-4">
@@ -394,7 +414,7 @@ const LeagueManagement: React.FC = () => {
                     </p>
                   </div>
                 </div>
-              </div>
+              </Card>
             </div>
 
             {/* Leagues List */}
@@ -427,29 +447,30 @@ const LeagueManagement: React.FC = () => {
                           </div>
                         </div>
                         
-                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(league.status)}`}>
-                          {league.status.charAt(0).toUpperCase() + league.status.slice(1)}
-                        </span>
+                        <StatusBadge status={league.status === 'active' ? 'active' : league.status === 'draft' ? 'draft' : 'completed'} />
                       </div>
                       
                       <div className="flex items-center space-x-2">
-                        <select
+                        <Select
                           value={league.status}
                           onChange={(e) => handleUpdateLeagueStatus(league.id, e.target.value as League['status'])}
-                          className="text-sm border border-neutral-300 rounded px-3 py-1"
-                        >
-                          <option value="draft">Draft</option>
-                          <option value="active">Active</option>
-                          <option value="paused">Paused</option>
-                          <option value="completed">Completed</option>
-                        </select>
+                          options={[
+                            { value: 'draft', label: 'Draft' },
+                            { value: 'active', label: 'Active' },
+                            { value: 'paused', label: 'Paused' },
+                            { value: 'completed', label: 'Completed' }
+                          ]}
+                          selectSize="sm"
+                        />
                         
-                        <button
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          icon={Trash2}
                           onClick={() => handleDeleteLeague(league.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                         >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                          Delete
+                        </Button>
                       </div>
                     </div>
                     
@@ -522,191 +543,118 @@ const LeagueManagement: React.FC = () => {
       </div>
 
       {/* Create League Modal */}
-      {showCreateForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-brand-black">Create New League</h2>
-              <button
-                onClick={() => setShowCreateForm(false)}
-                className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+      <FormDialog
+        open={showCreateForm}
+        onClose={() => setShowCreateForm(false)}
+        onSubmit={(e) => { e.preventDefault(); handleCreateLeague(); }}
+        title="Create New League"
+        submitText="Create League"
+        loading={isSubmitting}
+        size="lg"
+      >
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Input
+              label="League Name"
+              value={leagueForm.name}
+              onChange={(e) => setLeagueForm(prev => ({ ...prev, name: e.target.value }))}
+              error={formErrors.name}
+              required
+              placeholder="e.g., Spring 2024 League"
+            />
+
+            <Input
+              label="Season"
+              value={leagueForm.season}
+              onChange={(e) => setLeagueForm(prev => ({ ...prev, season: e.target.value }))}
+              error={formErrors.season}
+              required
+              placeholder="e.g., Spring 2024"
+            />
+
+            <Input
+              label="Start Date"
+              type="date"
+              value={leagueForm.start_date}
+              onChange={(e) => setLeagueForm(prev => ({ ...prev, start_date: e.target.value }))}
+              error={formErrors.start_date}
+              required
+            />
+
+            <Input
+              label="End Date"
+              type="date"
+              value={leagueForm.end_date}
+              onChange={(e) => setLeagueForm(prev => ({ ...prev, end_date: e.target.value }))}
+              error={formErrors.end_date}
+              required
+            />
+
+            <Input
+              label="Teams per Division"
+              type="number"
+              min="4"
+              max="16"
+              value={leagueForm.teams_per_division}
+              onChange={(e) => setLeagueForm(prev => ({ ...prev, teams_per_division: parseInt(e.target.value) }))}
+              error={formErrors.teams_per_division}
+              required
+            />
+
+            <Select
+              label="Format"
+              value={leagueForm.format}
+              onChange={(e) => setLeagueForm(prev => ({ ...prev, format: e.target.value as League['format'] }))}
+              options={[
+                { value: 'round_robin', label: 'Round Robin' },
+                { value: 'playoff', label: 'Playoff' },
+                { value: 'hybrid', label: 'Hybrid' }
+              ]}
+              error={formErrors.format}
+              required
+            />
+          </div>
+
+          {/* Scoring Rules */}
+          <div>
+            <h3 className="text-lg font-semibold text-brand-black mb-4">Scoring Rules</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Input
+                label="Points per Win"
+                type="number"
+                min="0"
+                value={leagueForm.scoring_rules.points_per_win}
+                onChange={(e) => setLeagueForm(prev => ({
+                  ...prev,
+                  scoring_rules: { ...prev.scoring_rules, points_per_win: parseInt(e.target.value) }
+                }))}
+              />
+
+              <Input
+                label="Points per Tie"
+                type="number"
+                min="0"
+                value={leagueForm.scoring_rules.points_per_tie}
+                onChange={(e) => setLeagueForm(prev => ({
+                  ...prev,
+                  scoring_rules: { ...prev.scoring_rules, points_per_tie: parseInt(e.target.value) }
+                }))}
+              />
+
+              <Input
+                label="Points per Loss"
+                type="number"
+                min="0"
+                value={leagueForm.scoring_rules.points_per_loss}
+                onChange={(e) => setLeagueForm(prev => ({
+                  ...prev,
+                  scoring_rules: { ...prev.scoring_rules, points_per_loss: parseInt(e.target.value) }
+                }))}
+              />
             </div>
-
-            <form onSubmit={(e) => { e.preventDefault(); handleCreateLeague(); }} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-neutral-700 mb-2">
-                    League Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={leagueForm.name}
-                    onChange={(e) => setLeagueForm(prev => ({ ...prev, name: e.target.value }))}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                      formErrors.name ? 'border-red-500' : 'border-neutral-300'
-                    }`}
-                    placeholder="e.g., Spring 2024 League"
-                  />
-                  {formErrors.name && <p className="text-red-500 text-sm mt-1">{formErrors.name}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-neutral-700 mb-2">
-                    Season *
-                  </label>
-                  <input
-                    type="text"
-                    value={leagueForm.season}
-                    onChange={(e) => setLeagueForm(prev => ({ ...prev, season: e.target.value }))}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                      formErrors.season ? 'border-red-500' : 'border-neutral-300'
-                    }`}
-                    placeholder="e.g., Spring 2024"
-                  />
-                  {formErrors.season && <p className="text-red-500 text-sm mt-1">{formErrors.season}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-neutral-700 mb-2">
-                    Start Date *
-                  </label>
-                  <input
-                    type="date"
-                    value={leagueForm.start_date}
-                    onChange={(e) => setLeagueForm(prev => ({ ...prev, start_date: e.target.value }))}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                      formErrors.start_date ? 'border-red-500' : 'border-neutral-300'
-                    }`}
-                  />
-                  {formErrors.start_date && <p className="text-red-500 text-sm mt-1">{formErrors.start_date}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-neutral-700 mb-2">
-                    End Date *
-                  </label>
-                  <input
-                    type="date"
-                    value={leagueForm.end_date}
-                    onChange={(e) => setLeagueForm(prev => ({ ...prev, end_date: e.target.value }))}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                      formErrors.end_date ? 'border-red-500' : 'border-neutral-300'
-                    }`}
-                  />
-                  {formErrors.end_date && <p className="text-red-500 text-sm mt-1">{formErrors.end_date}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-neutral-700 mb-2">
-                    Teams per Division *
-                  </label>
-                  <input
-                    type="number"
-                    min="4"
-                    max="16"
-                    value={leagueForm.teams_per_division}
-                    onChange={(e) => setLeagueForm(prev => ({ ...prev, teams_per_division: parseInt(e.target.value) }))}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                      formErrors.teams_per_division ? 'border-red-500' : 'border-neutral-300'
-                    }`}
-                  />
-                  {formErrors.teams_per_division && <p className="text-red-500 text-sm mt-1">{formErrors.teams_per_division}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-neutral-700 mb-2">
-                    Format
-                  </label>
-                  <select
-                    value={leagueForm.format}
-                    onChange={(e) => setLeagueForm(prev => ({ ...prev, format: e.target.value as any }))}
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                  >
-                    <option value="round_robin">Round Robin</option>
-                    <option value="playoff">Playoff</option>
-                    <option value="hybrid">Hybrid</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Scoring Rules */}
-              <div>
-                <h3 className="text-lg font-semibold text-brand-black mb-4">Scoring Rules</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-neutral-700 mb-2">
-                      Points per Win
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={leagueForm.scoring_rules.points_per_win}
-                      onChange={(e) => setLeagueForm(prev => ({
-                        ...prev,
-                        scoring_rules: { ...prev.scoring_rules, points_per_win: parseInt(e.target.value) }
-                      }))}
-                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-neutral-700 mb-2">
-                      Points per Tie
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={leagueForm.scoring_rules.points_per_tie}
-                      onChange={(e) => setLeagueForm(prev => ({
-                        ...prev,
-                        scoring_rules: { ...prev.scoring_rules, points_per_tie: parseInt(e.target.value) }
-                      }))}
-                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-neutral-700 mb-2">
-                      Points per Loss
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={leagueForm.scoring_rules.points_per_loss}
-                      onChange={(e) => setLeagueForm(prev => ({
-                        ...prev,
-                        scoring_rules: { ...prev.scoring_rules, points_per_loss: parseInt(e.target.value) }
-                      }))}
-                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateForm(false)}
-                  className="px-4 py-2 text-neutral-600 hover:text-neutral-800 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors disabled:opacity-50"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>{isSubmitting ? 'Creating...' : 'Create League'}</span>
-                </button>
-              </div>
-            </form>
           </div>
         </div>
-      )}
+      </FormDialog>
     </div>
   );
 };

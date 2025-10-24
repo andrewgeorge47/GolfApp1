@@ -1,4 +1,5 @@
 import React from 'react';
+import { HelpCircle } from 'lucide-react';
 
 // ============================================================
 // Tooltip Component
@@ -27,7 +28,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   className = ''
 }) => {
   const [isVisible, setIsVisible] = React.useState(false);
-  const timeoutRef = React.useRef<NodeJS.Timeout>();
+  const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleMouseEnter = () => {
     if (disabled) return;
@@ -122,8 +123,6 @@ Tooltip.displayName = 'Tooltip';
 // ============================================================
 // Info Tooltip (with icon)
 // ============================================================
-
-import { HelpCircle } from 'lucide-react';
 
 export interface InfoTooltipProps {
   content: React.ReactNode;

@@ -157,7 +157,7 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
       round: 1,
       match_number: 2,
       player1: eastPlayers[1],
-      player2: eastPlayers[2],
+      player2: westPlayers[2],
       division: 'east'
     });
 
@@ -167,7 +167,7 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
       round: 1,
       match_number: 3,
       player1: westPlayers[0],
-      player2: westPlayers[3],
+      player2: eastPlayers[2],
       division: 'west'
     });
     matches.push({
@@ -175,7 +175,7 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
       round: 1,
       match_number: 4,
       player1: westPlayers[1],
-      player2: westPlayers[2],
+      player2: westPlayers[3],
       division: 'west'
     });
 

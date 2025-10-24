@@ -14,6 +14,24 @@ import {
   UserMinus
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { 
+  Button, 
+  Card, 
+  CardHeader, 
+  CardContent, 
+  Modal, 
+  ModalHeader, 
+  ModalContent, 
+  ModalFooter,
+  FormDialog,
+  Input,
+  Select,
+  SelectOption,
+  Badge,
+  StatusBadge,
+  Loading,
+  Spinner
+} from './ui';
 
 interface Division {
   id: number;
@@ -351,7 +369,7 @@ const LeagueDivisionManager: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-neon-green"></div>
+        <Spinner size="lg" label="Loading divisions..." />
       </div>
     );
   }
@@ -368,62 +386,64 @@ const LeagueDivisionManager: React.FC = () => {
           </div>
         </div>
         
-        <button
+        <Button
           onClick={() => setShowCreateForm(true)}
-          className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors"
+          icon={Plus}
+          variant="primary"
         >
-          <Plus className="w-5 h-5" />
-          <span>Create Division</span>
-        </button>
+          Create Division
+        </Button>
       </div>
 
       {/* Divisions List */}
       <div className="space-y-4">
         {divisions.map((division) => (
-          <div key={division.id} className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
-            <div className="p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  <button
-                    onClick={() => setExpandedDivision(expandedDivision === division.id ? null : division.id)}
-                    className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
-                  >
-                    {expandedDivision === division.id ? (
-                      <ChevronDown className="w-5 h-5 text-neutral-500" />
-                    ) : (
-                      <ChevronRight className="w-5 h-5 text-neutral-500" />
-                    )}
-                  </button>
-                  
-                  <div>
-                    <h3 className="text-lg font-semibold text-brand-black">{division.name}</h3>
-                    <p className="text-sm text-neutral-600">
-                      {division.teams.length} / {division.max_teams} teams
-                    </p>
-                  </div>
-                </div>
+          <Card key={division.id}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <button
+                  onClick={() => setExpandedDivision(expandedDivision === division.id ? null : division.id)}
+                  className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
+                >
+                  {expandedDivision === division.id ? (
+                    <ChevronDown className="w-5 h-5 text-neutral-500" />
+                  ) : (
+                    <ChevronRight className="w-5 h-5 text-neutral-500" />
+                  )}
+                </button>
                 
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => {
-                      setSelectedDivision(division.id);
-                      setShowTeamForm(true);
-                    }}
-                    disabled={division.teams.length >= division.max_teams}
-                    className="flex items-center space-x-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Add Team</span>
-                  </button>
-                  
-                  <button
-                    onClick={() => handleDeleteDivision(division.id)}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                <div>
+                  <h3 className="text-lg font-semibold text-brand-black">{division.name}</h3>
+                  <p className="text-sm text-neutral-600">
+                    {division.teams.length} / {division.max_teams} teams
+                  </p>
                 </div>
               </div>
+              
+              <div className="flex items-center space-x-2">
+                <Button
+                  onClick={() => {
+                    setSelectedDivision(division.id);
+                    setShowTeamForm(true);
+                  }}
+                  disabled={division.teams.length >= division.max_teams}
+                  icon={Plus}
+                  variant="secondary"
+                  size="sm"
+                >
+                  Add Team
+                </Button>
+                
+                <Button
+                  variant="danger"
+                  size="sm"
+                  icon={Trash2}
+                  onClick={() => handleDeleteDivision(division.id)}
+                >
+                  Delete
+                </Button>
+              </div>
+            </div>
               
               {expandedDivision === division.id && (
                 <div className="mt-6 space-y-4">
@@ -436,15 +456,17 @@ const LeagueDivisionManager: React.FC = () => {
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {division.teams.map((team) => (
-                        <div key={team.id} className="border border-neutral-200 rounded-lg p-4">
+                        <Card key={team.id} variant="outlined">
                           <div className="flex items-center justify-between mb-3">
                             <h4 className="font-semibold text-brand-black">{team.name}</h4>
-                            <button
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              icon={Trash2}
                               onClick={() => handleDeleteTeam(division.id, team.id)}
-                              className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
                             >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                              Delete
+                            </Button>
                           </div>
                           
                           <div className="space-y-2">
@@ -459,18 +481,20 @@ const LeagueDivisionManager: React.FC = () => {
                                   <span className="text-neutral-700">
                                     {member.first_name} {member.last_name}
                                     {member.role === 'captain' && (
-                                      <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                                      <Badge variant="brand" size="sm" className="ml-2">
                                         Captain
-                                      </span>
+                                      </Badge>
                                     )}
                                   </span>
                                   {member.role !== 'captain' && (
-                                    <button
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      icon={UserMinus}
                                       onClick={() => handleRemoveMemberFromTeam(division.id, team.id, member.id)}
-                                      className="text-red-600 hover:text-red-800"
                                     >
-                                      <UserMinus className="w-4 h-4" />
-                                    </button>
+                                      Remove
+                                    </Button>
                                   )}
                                 </div>
                               ))}
@@ -478,7 +502,7 @@ const LeagueDivisionManager: React.FC = () => {
                             
                             {getAvailableUsersForTeam(team).length > 0 && (
                               <div className="mt-3">
-                                <select
+                                <Select
                                   onChange={(e) => {
                                     const userId = parseInt(e.target.value);
                                     if (userId) {
@@ -486,179 +510,98 @@ const LeagueDivisionManager: React.FC = () => {
                                       e.target.value = '';
                                     }
                                   }}
-                                  className="w-full text-sm border border-neutral-300 rounded px-2 py-1"
-                                  defaultValue=""
-                                >
-                                  <option value="">Add member...</option>
-                                  {getAvailableUsersForTeam(team).map((user) => (
-                                    <option key={user.id} value={user.id}>
-                                      {user.first_name} {user.last_name} (HCP: {user.handicap})
-                                    </option>
-                                  ))}
-                                </select>
+                                  options={[
+                                    { value: '', label: 'Add member...' },
+                                    ...getAvailableUsersForTeam(team).map((user) => ({
+                                      value: user.id.toString(),
+                                      label: `${user.first_name} ${user.last_name} (HCP: ${user.handicap})`
+                                    }))
+                                  ]}
+                                  selectSize="sm"
+                                />
                               </div>
                             )}
                           </div>
-                        </div>
+                        </Card>
                       ))}
                     </div>
                   )}
                 </div>
               )}
-            </div>
-          </div>
-        ))}
-      </div>
+            </Card>
+          ))}
+        </div>
 
       {/* Create Division Modal */}
-      {showCreateForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-brand-black">Create Division</h2>
-              <button
-                onClick={() => setShowCreateForm(false)}
-                className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      <FormDialog
+        open={showCreateForm}
+        onClose={() => setShowCreateForm(false)}
+        onSubmit={(e) => { e.preventDefault(); handleCreateDivision(); }}
+        title="Create Division"
+        submitText="Create Division"
+        loading={isSubmitting}
+      >
+        <div className="space-y-4">
+          <Input
+            label="Division Name"
+            value={divisionForm.name}
+            onChange={(e) => setDivisionForm(prev => ({ ...prev, name: e.target.value }))}
+            error={formErrors.name}
+            required
+            placeholder="e.g., Division A"
+          />
 
-            <form onSubmit={(e) => { e.preventDefault(); handleCreateDivision(); }} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-2">
-                  Division Name *
-                </label>
-                <input
-                  type="text"
-                  value={divisionForm.name}
-                  onChange={(e) => setDivisionForm(prev => ({ ...prev, name: e.target.value }))}
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                    formErrors.name ? 'border-red-500' : 'border-neutral-300'
-                  }`}
-                  placeholder="e.g., Division A"
-                />
-                {formErrors.name && <p className="text-red-500 text-sm mt-1">{formErrors.name}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-2">
-                  Max Teams *
-                </label>
-                <input
-                  type="number"
-                  min="4"
-                  max="16"
-                  value={divisionForm.max_teams}
-                  onChange={(e) => setDivisionForm(prev => ({ ...prev, max_teams: parseInt(e.target.value) }))}
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                    formErrors.max_teams ? 'border-red-500' : 'border-neutral-300'
-                  }`}
-                />
-                {formErrors.max_teams && <p className="text-red-500 text-sm mt-1">{formErrors.max_teams}</p>}
-              </div>
-
-              <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateForm(false)}
-                  className="px-4 py-2 text-neutral-600 hover:text-neutral-800 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors disabled:opacity-50"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>{isSubmitting ? 'Creating...' : 'Create Division'}</span>
-                </button>
-              </div>
-            </form>
-          </div>
+          <Input
+            label="Max Teams"
+            type="number"
+            min="4"
+            max="16"
+            value={divisionForm.max_teams}
+            onChange={(e) => setDivisionForm(prev => ({ ...prev, max_teams: parseInt(e.target.value) }))}
+            error={formErrors.max_teams}
+            required
+          />
         </div>
-      )}
+      </FormDialog>
 
       {/* Create Team Modal */}
-      {showTeamForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-brand-black">Create Team</h2>
-              <button
-                onClick={() => {
-                  setShowTeamForm(false);
-                  setSelectedDivision(null);
-                }}
-                className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      <FormDialog
+        open={showTeamForm}
+        onClose={() => {
+          setShowTeamForm(false);
+          setSelectedDivision(null);
+        }}
+        onSubmit={(e) => { e.preventDefault(); handleCreateTeam(); }}
+        title="Create Team"
+        submitText="Create Team"
+        loading={isSubmitting}
+      >
+        <div className="space-y-4">
+          <Input
+            label="Team Name"
+            value={teamForm.name}
+            onChange={(e) => setTeamForm(prev => ({ ...prev, name: e.target.value }))}
+            error={formErrors.name}
+            required
+            placeholder="e.g., Team Alpha"
+          />
 
-            <form onSubmit={(e) => { e.preventDefault(); handleCreateTeam(); }} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-2">
-                  Team Name *
-                </label>
-                <input
-                  type="text"
-                  value={teamForm.name}
-                  onChange={(e) => setTeamForm(prev => ({ ...prev, name: e.target.value }))}
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                    formErrors.name ? 'border-red-500' : 'border-neutral-300'
-                  }`}
-                  placeholder="e.g., Team Alpha"
-                />
-                {formErrors.name && <p className="text-red-500 text-sm mt-1">{formErrors.name}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-2">
-                  Captain *
-                </label>
-                <select
-                  value={teamForm.captain_id}
-                  onChange={(e) => setTeamForm(prev => ({ ...prev, captain_id: parseInt(e.target.value) }))}
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent ${
-                    formErrors.captain_id ? 'border-red-500' : 'border-neutral-300'
-                  }`}
-                >
-                  <option value={0}>Select captain...</option>
-                  {availableUsers.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.first_name} {user.last_name} (HCP: {user.handicap})
-                    </option>
-                  ))}
-                </select>
-                {formErrors.captain_id && <p className="text-red-500 text-sm mt-1">{formErrors.captain_id}</p>}
-              </div>
-
-              <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowTeamForm(false);
-                    setSelectedDivision(null);
-                  }}
-                  className="px-4 py-2 text-neutral-600 hover:text-neutral-800 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors disabled:opacity-50"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>{isSubmitting ? 'Creating...' : 'Create Team'}</span>
-                </button>
-              </div>
-            </form>
-          </div>
+          <Select
+            label="Captain"
+            value={teamForm.captain_id}
+            onChange={(e) => setTeamForm(prev => ({ ...prev, captain_id: parseInt(e.target.value) }))}
+            options={[
+              { value: 0, label: 'Select captain...' },
+              ...availableUsers.map((user) => ({
+                value: user.id,
+                label: `${user.first_name} ${user.last_name} (HCP: ${user.handicap})`
+              }))
+            ]}
+            error={formErrors.captain_id}
+            required
+          />
         </div>
-      )}
+      </FormDialog>
     </div>
   );
 };
