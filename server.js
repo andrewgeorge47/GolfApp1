@@ -13516,6 +13516,658 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
   }
 });
 
+// ============================================
+// PHASE 5: SCORING ENDPOINTS
+// ============================================
+
+// --------------------------------------------
+// Score Submission - Individual 9 Holes
+// --------------------------------------------
+
+// POST /api/matchups/:matchupId/scores/individual - Submit individual 9-hole scores
+app.post('/api/matchups/:matchupId/scores/individual', authenticateToken, async (req, res) => {
+  try {
+    const { matchupId } = req.params;
+    const {
+      team_id,
+      player_id,
+      lineup_id,
+      assigned_holes,
+      hole_scores, // JSONB: {1: {gross: 4, par: 4}, 2: {gross: 5, par: 4}, ...}
+      player_handicap,
+      course_handicap
+    } = req.body;
+
+    // Validate required fields
+    if (!team_id || !player_id || !lineup_id || !hole_scores) {
+      return res.status(400).json({
+        error: 'Missing required fields: team_id, player_id, lineup_id, hole_scores'
+      });
+    }
+
+    // Get matchup details
+    const matchup = await pool.query('SELECT * FROM league_matchups WHERE id = $1', [matchupId]);
+    if (matchup.rows.length === 0) {
+      return res.status(404).json({ error: 'Matchup not found' });
+    }
+
+    const matchupData = matchup.rows[0];
+
+    // Verify team is in this matchup
+    if (team_id !== matchupData.team1_id && team_id !== matchupData.team2_id) {
+      return res.status(400).json({ error: 'Team is not part of this matchup' });
+    }
+
+    // Verify lineup exists and belongs to this matchup and team
+    const lineup = await pool.query(
+      'SELECT * FROM weekly_lineups WHERE id = $1 AND matchup_id = $2 AND team_id = $3',
+      [lineup_id, matchupId, team_id]
+    );
+    if (lineup.rows.length === 0) {
+      return res.status(404).json({ error: 'Lineup not found for this matchup and team' });
+    }
+
+    const lineupData = lineup.rows[0];
+
+    // Verify player is in the lineup
+    const playerInLineup = [lineupData.player1_id, lineupData.player2_id, lineupData.player3_id].includes(player_id);
+    if (!playerInLineup) {
+      return res.status(400).json({ error: 'Player is not in the lineup for this matchup' });
+    }
+
+    // Verify user is authorized (captain, player themselves, or admin)
+    const team = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [team_id]);
+    const isAdmin = req.user.role === 'Admin';
+    const isCaptain = team.rows[0]?.captain_id === req.user.member_id;
+    const isPlayer = player_id === req.user.member_id;
+
+    if (!isAdmin && !isCaptain && !isPlayer) {
+      return res.status(403).json({ error: 'Only team captain, the player, or admin can submit scores' });
+    }
+
+    // Calculate gross total from hole_scores
+    let gross_total = 0;
+    const holeScoresObj = typeof hole_scores === 'string' ? JSON.parse(hole_scores) : hole_scores;
+    Object.values(holeScoresObj).forEach(hole => {
+      if (hole.gross) {
+        gross_total += hole.gross;
+      }
+    });
+
+    // Note: Net calculation will be done in the calculate endpoint
+    // For now, we store gross scores and will calculate net later with proper stroke allocation
+
+    // Insert or update individual scores
+    const result = await pool.query(
+      `INSERT INTO match_individual_scores
+        (matchup_id, lineup_id, team_id, player_id, assigned_holes, hole_scores,
+         gross_total, player_handicap, course_handicap, submitted_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+       ON CONFLICT (matchup_id, player_id)
+       DO UPDATE SET
+         lineup_id = EXCLUDED.lineup_id,
+         team_id = EXCLUDED.team_id,
+         assigned_holes = EXCLUDED.assigned_holes,
+         hole_scores = EXCLUDED.hole_scores,
+         gross_total = EXCLUDED.gross_total,
+         player_handicap = EXCLUDED.player_handicap,
+         course_handicap = EXCLUDED.course_handicap,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [
+        matchupId,
+        lineup_id,
+        team_id,
+        player_id,
+        assigned_holes || [],
+        JSON.stringify(holeScoresObj),
+        gross_total,
+        player_handicap,
+        course_handicap
+      ]
+    );
+
+    // Update matchup status to 'in_progress' or 'scores_submitted'
+    if (matchupData.status === 'scheduled' || matchupData.status === 'lineup_submitted') {
+      await pool.query(
+        `UPDATE league_matchups SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [matchupId]
+      );
+    }
+
+    res.status(201).json({
+      message: 'Individual scores submitted successfully',
+      score: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error submitting individual scores:', err);
+    res.status(500).json({ error: 'Failed to submit individual scores', details: err.message });
+  }
+});
+
+// --------------------------------------------
+// Score Submission - Alternate Shot 9 Holes
+// --------------------------------------------
+
+// POST /api/matchups/:matchupId/scores/alternate-shot - Submit alternate shot 9-hole scores
+app.post('/api/matchups/:matchupId/scores/alternate-shot', authenticateToken, async (req, res) => {
+  try {
+    const { matchupId } = req.params;
+    const {
+      team_id,
+      lineup_id,
+      hole_scores, // JSONB: {10: {gross: 4, par: 4}, 11: {gross: 5, par: 4}, ...}
+      team_handicap,
+      team_course_handicap
+    } = req.body;
+
+    // Validate required fields
+    if (!team_id || !lineup_id || !hole_scores) {
+      return res.status(400).json({
+        error: 'Missing required fields: team_id, lineup_id, hole_scores'
+      });
+    }
+
+    // Get matchup details
+    const matchup = await pool.query('SELECT * FROM league_matchups WHERE id = $1', [matchupId]);
+    if (matchup.rows.length === 0) {
+      return res.status(404).json({ error: 'Matchup not found' });
+    }
+
+    const matchupData = matchup.rows[0];
+
+    // Verify team is in this matchup
+    if (team_id !== matchupData.team1_id && team_id !== matchupData.team2_id) {
+      return res.status(400).json({ error: 'Team is not part of this matchup' });
+    }
+
+    // Verify lineup exists and belongs to this matchup and team
+    const lineup = await pool.query(
+      'SELECT * FROM weekly_lineups WHERE id = $1 AND matchup_id = $2 AND team_id = $3',
+      [lineup_id, matchupId, team_id]
+    );
+    if (lineup.rows.length === 0) {
+      return res.status(404).json({ error: 'Lineup not found for this matchup and team' });
+    }
+
+    // Verify user is authorized (captain or admin)
+    const team = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [team_id]);
+    const isAdmin = req.user.role === 'Admin';
+    const isCaptain = team.rows[0]?.captain_id === req.user.member_id;
+
+    if (!isAdmin && !isCaptain) {
+      return res.status(403).json({ error: 'Only team captain or admin can submit alternate shot scores' });
+    }
+
+    // Calculate gross total from hole_scores
+    let gross_total = 0;
+    const holeScoresObj = typeof hole_scores === 'string' ? JSON.parse(hole_scores) : hole_scores;
+    Object.values(holeScoresObj).forEach(hole => {
+      if (hole.gross) {
+        gross_total += hole.gross;
+      }
+    });
+
+    // Note: Net calculation will be done in the calculate endpoint
+    // For now, we store gross scores and will calculate net later with proper stroke allocation
+
+    // Insert or update alternate shot scores
+    const result = await pool.query(
+      `INSERT INTO match_alternate_shot_scores
+        (matchup_id, lineup_id, team_id, hole_scores, gross_total,
+         team_handicap, team_course_handicap, submitted_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+       ON CONFLICT (matchup_id, team_id)
+       DO UPDATE SET
+         lineup_id = EXCLUDED.lineup_id,
+         hole_scores = EXCLUDED.hole_scores,
+         gross_total = EXCLUDED.gross_total,
+         team_handicap = EXCLUDED.team_handicap,
+         team_course_handicap = EXCLUDED.team_course_handicap,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [
+        matchupId,
+        lineup_id,
+        team_id,
+        JSON.stringify(holeScoresObj),
+        gross_total,
+        team_handicap,
+        team_course_handicap
+      ]
+    );
+
+    // Update matchup status
+    if (matchupData.status === 'scheduled' || matchupData.status === 'lineup_submitted') {
+      await pool.query(
+        `UPDATE league_matchups SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [matchupId]
+      );
+    }
+
+    res.status(201).json({
+      message: 'Alternate shot scores submitted successfully',
+      score: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error submitting alternate shot scores:', err);
+    res.status(500).json({ error: 'Failed to submit alternate shot scores', details: err.message });
+  }
+});
+
+// --------------------------------------------
+// Get Scores for Matchup
+// --------------------------------------------
+
+// GET /api/matchups/:matchupId/scores - Get all scores for a matchup
+app.get('/api/matchups/:matchupId/scores', async (req, res) => {
+  try {
+    const { matchupId } = req.params;
+
+    // Get matchup details
+    const matchup = await pool.query(
+      `SELECT lm.*,
+        t1.name as team1_name, t2.name as team2_name,
+        l.name as league_name
+       FROM league_matchups lm
+       LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
+       LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
+       LEFT JOIN leagues l ON lm.league_id = l.id
+       WHERE lm.id = $1`,
+      [matchupId]
+    );
+
+    if (matchup.rows.length === 0) {
+      return res.status(404).json({ error: 'Matchup not found' });
+    }
+
+    // Get individual scores for all players
+    const individualScores = await pool.query(
+      `SELECT mis.*,
+        u.first_name || ' ' || u.last_name as player_name,
+        tt.name as team_name
+       FROM match_individual_scores mis
+       LEFT JOIN users u ON mis.player_id = u.member_id
+       LEFT JOIN tournament_teams tt ON mis.team_id = tt.id
+       WHERE mis.matchup_id = $1
+       ORDER BY mis.team_id, mis.player_id`,
+      [matchupId]
+    );
+
+    // Get alternate shot scores for both teams
+    const alternateShotScores = await pool.query(
+      `SELECT mass.*,
+        tt.name as team_name
+       FROM match_alternate_shot_scores mass
+       LEFT JOIN tournament_teams tt ON mass.team_id = tt.id
+       WHERE mass.matchup_id = $1
+       ORDER BY mass.team_id`,
+      [matchupId]
+    );
+
+    // Get lineups for context
+    const lineups = await pool.query(
+      `SELECT wl.*,
+        tt.name as team_name,
+        u1.first_name || ' ' || u1.last_name as player1_name,
+        u2.first_name || ' ' || u2.last_name as player2_name,
+        u3.first_name || ' ' || u3.last_name as player3_name
+       FROM weekly_lineups wl
+       LEFT JOIN tournament_teams tt ON wl.team_id = tt.id
+       LEFT JOIN users u1 ON wl.player1_id = u1.member_id
+       LEFT JOIN users u2 ON wl.player2_id = u2.member_id
+       LEFT JOIN users u3 ON wl.player3_id = u3.member_id
+       WHERE wl.matchup_id = $1`,
+      [matchupId]
+    );
+
+    res.json({
+      matchup: matchup.rows[0],
+      lineups: lineups.rows,
+      individualScores: individualScores.rows,
+      alternateShotScores: alternateShotScores.rows
+    });
+  } catch (err) {
+    console.error('Error fetching matchup scores:', err);
+    res.status(500).json({ error: 'Failed to fetch matchup scores' });
+  }
+});
+
+// --------------------------------------------
+// Update Scores (Before Verification)
+// --------------------------------------------
+
+// PUT /api/matchups/:matchupId/scores/individual/:scoreId - Update individual scores
+app.put('/api/matchups/:matchupId/scores/individual/:scoreId', authenticateToken, async (req, res) => {
+  try {
+    const { matchupId, scoreId } = req.params;
+    const {
+      hole_scores,
+      assigned_holes,
+      player_handicap,
+      course_handicap
+    } = req.body;
+
+    // Get score record
+    const score = await pool.query(
+      'SELECT * FROM match_individual_scores WHERE id = $1 AND matchup_id = $2',
+      [scoreId, matchupId]
+    );
+
+    if (score.rows.length === 0) {
+      return res.status(404).json({ error: 'Score record not found' });
+    }
+
+    const scoreData = score.rows[0];
+
+    // Get matchup to check verification status
+    const matchup = await pool.query('SELECT status FROM league_matchups WHERE id = $1', [matchupId]);
+    if (matchup.rows[0].status === 'verified' || matchup.rows[0].status === 'completed') {
+      return res.status(400).json({ error: 'Cannot update scores after verification' });
+    }
+
+    // Verify authorization (captain, player, or admin)
+    const team = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [scoreData.team_id]);
+    const isAdmin = req.user.role === 'Admin';
+    const isCaptain = team.rows[0]?.captain_id === req.user.member_id;
+    const isPlayer = scoreData.player_id === req.user.member_id;
+
+    if (!isAdmin && !isCaptain && !isPlayer) {
+      return res.status(403).json({ error: 'Only team captain, the player, or admin can update scores' });
+    }
+
+    // Build update query
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (hole_scores !== undefined) {
+      const holeScoresObj = typeof hole_scores === 'string' ? JSON.parse(hole_scores) : hole_scores;
+      updates.push(`hole_scores = $${paramCount++}`);
+      values.push(JSON.stringify(holeScoresObj));
+
+      // Recalculate gross total
+      let gross_total = 0;
+      Object.values(holeScoresObj).forEach(hole => {
+        if (hole.gross) gross_total += hole.gross;
+      });
+      updates.push(`gross_total = $${paramCount++}`);
+      values.push(gross_total);
+    }
+
+    if (assigned_holes !== undefined) {
+      updates.push(`assigned_holes = $${paramCount++}`);
+      values.push(assigned_holes);
+    }
+
+    if (player_handicap !== undefined) {
+      updates.push(`player_handicap = $${paramCount++}`);
+      values.push(player_handicap);
+    }
+
+    if (course_handicap !== undefined) {
+      updates.push(`course_handicap = $${paramCount++}`);
+      values.push(course_handicap);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updates.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(scoreId);
+    values.push(matchupId);
+
+    const result = await pool.query(
+      `UPDATE match_individual_scores
+       SET ${updates.join(', ')}
+       WHERE id = $${paramCount++} AND matchup_id = $${paramCount++}
+       RETURNING *`,
+      values
+    );
+
+    res.json({
+      message: 'Individual scores updated successfully',
+      score: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error updating individual scores:', err);
+    res.status(500).json({ error: 'Failed to update individual scores', details: err.message });
+  }
+});
+
+// PUT /api/matchups/:matchupId/scores/alternate-shot/:scoreId - Update alternate shot scores
+app.put('/api/matchups/:matchupId/scores/alternate-shot/:scoreId', authenticateToken, async (req, res) => {
+  try {
+    const { matchupId, scoreId } = req.params;
+    const {
+      hole_scores,
+      team_handicap,
+      team_course_handicap
+    } = req.body;
+
+    // Get score record
+    const score = await pool.query(
+      'SELECT * FROM match_alternate_shot_scores WHERE id = $1 AND matchup_id = $2',
+      [scoreId, matchupId]
+    );
+
+    if (score.rows.length === 0) {
+      return res.status(404).json({ error: 'Score record not found' });
+    }
+
+    const scoreData = score.rows[0];
+
+    // Get matchup to check verification status
+    const matchup = await pool.query('SELECT status FROM league_matchups WHERE id = $1', [matchupId]);
+    if (matchup.rows[0].status === 'verified' || matchup.rows[0].status === 'completed') {
+      return res.status(400).json({ error: 'Cannot update scores after verification' });
+    }
+
+    // Verify authorization (captain or admin)
+    const team = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [scoreData.team_id]);
+    const isAdmin = req.user.role === 'Admin';
+    const isCaptain = team.rows[0]?.captain_id === req.user.member_id;
+
+    if (!isAdmin && !isCaptain) {
+      return res.status(403).json({ error: 'Only team captain or admin can update alternate shot scores' });
+    }
+
+    // Build update query
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (hole_scores !== undefined) {
+      const holeScoresObj = typeof hole_scores === 'string' ? JSON.parse(hole_scores) : hole_scores;
+      updates.push(`hole_scores = $${paramCount++}`);
+      values.push(JSON.stringify(holeScoresObj));
+
+      // Recalculate gross total
+      let gross_total = 0;
+      Object.values(holeScoresObj).forEach(hole => {
+        if (hole.gross) gross_total += hole.gross;
+      });
+      updates.push(`gross_total = $${paramCount++}`);
+      values.push(gross_total);
+    }
+
+    if (team_handicap !== undefined) {
+      updates.push(`team_handicap = $${paramCount++}`);
+      values.push(team_handicap);
+    }
+
+    if (team_course_handicap !== undefined) {
+      updates.push(`team_course_handicap = $${paramCount++}`);
+      values.push(team_course_handicap);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updates.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(scoreId);
+    values.push(matchupId);
+
+    const result = await pool.query(
+      `UPDATE match_alternate_shot_scores
+       SET ${updates.join(', ')}
+       WHERE id = $${paramCount++} AND matchup_id = $${paramCount++}
+       RETURNING *`,
+      values
+    );
+
+    res.json({
+      message: 'Alternate shot scores updated successfully',
+      score: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error updating alternate shot scores:', err);
+    res.status(500).json({ error: 'Failed to update alternate shot scores', details: err.message });
+  }
+});
+
+// --------------------------------------------
+// Score Verification
+// --------------------------------------------
+
+// POST /api/matchups/:matchupId/verify - Verify/approve scores (opponent captain or admin)
+app.post('/api/matchups/:matchupId/verify', authenticateToken, async (req, res) => {
+  try {
+    const { matchupId } = req.params;
+    const { notes } = req.body;
+
+    // Get matchup details
+    const matchup = await pool.query('SELECT * FROM league_matchups WHERE id = $1', [matchupId]);
+    if (matchup.rows.length === 0) {
+      return res.status(404).json({ error: 'Matchup not found' });
+    }
+
+    const matchupData = matchup.rows[0];
+
+    // Check if already verified
+    if (matchupData.status === 'verified' || matchupData.status === 'completed') {
+      return res.status(400).json({ error: 'Matchup has already been verified' });
+    }
+
+    // Verify user is captain of one of the teams or admin
+    const team1 = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [matchupData.team1_id]);
+    const team2 = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [matchupData.team2_id]);
+
+    const isAdmin = req.user.role === 'Admin';
+    const isCaptain1 = team1.rows[0]?.captain_id === req.user.member_id;
+    const isCaptain2 = team2.rows[0]?.captain_id === req.user.member_id;
+
+    if (!isAdmin && !isCaptain1 && !isCaptain2) {
+      return res.status(403).json({ error: 'Only team captains or admin can verify scores' });
+    }
+
+    // Check if all scores are submitted
+    const individualScoresCount = await pool.query(
+      'SELECT COUNT(*) as count FROM match_individual_scores WHERE matchup_id = $1',
+      [matchupId]
+    );
+    const alternateShotScoresCount = await pool.query(
+      'SELECT COUNT(*) as count FROM match_alternate_shot_scores WHERE matchup_id = $1',
+      [matchupId]
+    );
+
+    // Expect 6 individual scores (3 players per team × 2 teams) and 2 alternate shot scores (1 per team)
+    if (parseInt(individualScoresCount.rows[0].count) < 6) {
+      return res.status(400).json({
+        error: 'Cannot verify: Not all individual scores have been submitted',
+        expected: 6,
+        received: parseInt(individualScoresCount.rows[0].count)
+      });
+    }
+
+    if (parseInt(alternateShotScoresCount.rows[0].count) < 2) {
+      return res.status(400).json({
+        error: 'Cannot verify: Not all alternate shot scores have been submitted',
+        expected: 2,
+        received: parseInt(alternateShotScoresCount.rows[0].count)
+      });
+    }
+
+    // Update matchup status to verified
+    const result = await pool.query(
+      `UPDATE league_matchups
+       SET status = 'verified',
+           verified_at = CURRENT_TIMESTAMP,
+           verified_by = $1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING *`,
+      [req.user.member_id, matchupId]
+    );
+
+    res.json({
+      message: 'Scores verified successfully',
+      matchup: result.rows[0],
+      note: 'Scores are now locked and ready for calculation'
+    });
+  } catch (err) {
+    console.error('Error verifying scores:', err);
+    res.status(500).json({ error: 'Failed to verify scores', details: err.message });
+  }
+});
+
+// POST /api/matchups/:matchupId/dispute - Dispute scores (flag for review)
+app.post('/api/matchups/:matchupId/dispute', authenticateToken, async (req, res) => {
+  try {
+    const { matchupId } = req.params;
+    const { reason } = req.body;
+
+    if (!reason) {
+      return res.status(400).json({ error: 'Dispute reason is required' });
+    }
+
+    // Get matchup details
+    const matchup = await pool.query('SELECT * FROM league_matchups WHERE id = $1', [matchupId]);
+    if (matchup.rows.length === 0) {
+      return res.status(404).json({ error: 'Matchup not found' });
+    }
+
+    const matchupData = matchup.rows[0];
+
+    // Verify user is captain of one of the teams
+    const team1 = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [matchupData.team1_id]);
+    const team2 = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [matchupData.team2_id]);
+
+    const isCaptain1 = team1.rows[0]?.captain_id === req.user.member_id;
+    const isCaptain2 = team2.rows[0]?.captain_id === req.user.member_id;
+
+    if (!isCaptain1 && !isCaptain2) {
+      return res.status(403).json({ error: 'Only team captains can dispute scores' });
+    }
+
+    // Update matchup status to disputed
+    const result = await pool.query(
+      `UPDATE league_matchups
+       SET status = 'disputed',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING *`,
+      [matchupId]
+    );
+
+    // In a full implementation, you might want to:
+    // - Store the dispute reason in a disputes table
+    // - Send notifications to admin
+    // - Log the dispute event
+
+    res.json({
+      message: 'Scores have been disputed and flagged for admin review',
+      matchup: result.rows[0],
+      reason: reason
+    });
+  } catch (err) {
+    console.error('Error disputing scores:', err);
+    res.status(500).json({ error: 'Failed to dispute scores', details: err.message });
+  }
+});
+
 // Start the server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
