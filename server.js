@@ -14168,6 +14168,662 @@ app.post('/api/matchups/:matchupId/dispute', authenticateToken, async (req, res)
   }
 });
 
+// ============================================
+// PHASE 6: LEADERBOARDS & STANDINGS ENDPOINTS
+// ============================================
+
+// --------------------------------------------
+// League Standings
+// --------------------------------------------
+
+// GET /api/leagues/:id/standings - Overall league standings (all divisions)
+app.get('/api/leagues/:id/standings', async (req, res) => {
+  try {
+    const { id: leagueId } = req.params;
+    const { include_stats } = req.query;
+
+    // Verify league exists
+    const league = await pool.query('SELECT * FROM leagues WHERE id = $1', [leagueId]);
+    if (league.rows.length === 0) {
+      return res.status(404).json({ error: 'League not found' });
+    }
+
+    const leagueData = league.rows[0];
+
+    // Get standings from the league_standings view
+    const standings = await pool.query(
+      `SELECT * FROM league_standings WHERE league_id = $1 ORDER BY division_id, rank_in_division`,
+      [leagueId]
+    );
+
+    // Get playoff configuration
+    const playoffFormat = leagueData.playoff_format;
+    const divisionsCount = leagueData.divisions_count;
+
+    // Mark playoff qualifiers based on playoff format
+    const standingsWithPlayoffStatus = standings.rows.map(team => {
+      let qualified = false;
+
+      if (playoffFormat === 'top_per_division') {
+        // Top team from each division qualifies
+        qualified = team.rank_in_division === 1;
+      } else if (playoffFormat === 'top_overall') {
+        // Top N teams overall (regardless of division)
+        const overallRank = standings.rows
+          .sort((a, b) => {
+            if (b.league_points !== a.league_points) return b.league_points - a.league_points;
+            if (a.aggregate_net_score !== b.aggregate_net_score) return a.aggregate_net_score - b.aggregate_net_score;
+            if (a.second_half_net_score !== b.second_half_net_score) return a.second_half_net_score - b.second_half_net_score;
+            return a.final_week_net_score - b.final_week_net_score;
+          })
+          .findIndex(t => t.team_id === team.team_id) + 1;
+        qualified = overallRank <= divisionsCount;
+      } else if (playoffFormat === 'bracket') {
+        // Top 2 from each division
+        qualified = team.rank_in_division <= 2;
+      }
+
+      return {
+        ...team,
+        playoff_qualified: qualified
+      };
+    });
+
+    // Optionally include detailed stats
+    let detailedStandings = standingsWithPlayoffStatus;
+    if (include_stats === 'true') {
+      detailedStandings = await Promise.all(standingsWithPlayoffStatus.map(async (team) => {
+        // Get recent matches
+        const recentMatches = await pool.query(
+          `SELECT lm.*,
+            CASE
+              WHEN lm.team1_id = $1 THEN t2.name
+              ELSE t1.name
+            END as opponent_name,
+            CASE
+              WHEN lm.winner_team_id = $1 THEN 'W'
+              WHEN lm.winner_team_id IS NULL THEN 'T'
+              ELSE 'L'
+            END as result
+           FROM league_matchups lm
+           LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
+           LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
+           WHERE lm.league_id = $2
+             AND (lm.team1_id = $1 OR lm.team2_id = $1)
+             AND lm.status = 'completed'
+           ORDER BY lm.week_number DESC
+           LIMIT 5`,
+          [team.team_id, leagueId]
+        );
+
+        return {
+          ...team,
+          recent_form: recentMatches.rows.map(m => m.result).join('')
+        };
+      }));
+    }
+
+    // Group by division
+    const divisions = {};
+    detailedStandings.forEach(team => {
+      const divName = team.division_name || 'No Division';
+      if (!divisions[divName]) {
+        divisions[divName] = [];
+      }
+      divisions[divName].push(team);
+    });
+
+    res.json({
+      league: leagueData,
+      standings: detailedStandings,
+      divisions: divisions,
+      playoff_format: playoffFormat
+    });
+  } catch (err) {
+    console.error('Error fetching league standings:', err);
+    res.status(500).json({ error: 'Failed to fetch league standings', details: err.message });
+  }
+});
+
+// GET /api/leagues/:id/standings/division/:divId - Division-specific standings
+app.get('/api/leagues/:id/standings/division/:divId', async (req, res) => {
+  try {
+    const { id: leagueId, divId } = req.params;
+
+    // Verify league and division exist
+    const league = await pool.query('SELECT * FROM leagues WHERE id = $1', [leagueId]);
+    if (league.rows.length === 0) {
+      return res.status(404).json({ error: 'League not found' });
+    }
+
+    const division = await pool.query(
+      'SELECT * FROM league_divisions WHERE id = $1 AND league_id = $2',
+      [divId, leagueId]
+    );
+    if (division.rows.length === 0) {
+      return res.status(404).json({ error: 'Division not found' });
+    }
+
+    // Get standings for this division
+    const standings = await pool.query(
+      `SELECT * FROM league_standings
+       WHERE league_id = $1 AND division_id = $2
+       ORDER BY rank_in_division`,
+      [leagueId, divId]
+    );
+
+    // Get all matchups for this division
+    const matchups = await pool.query(
+      `SELECT lm.*,
+        t1.name as team1_name, t2.name as team2_name,
+        ls.week_start_date, ls.week_end_date
+       FROM league_matchups lm
+       LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
+       LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
+       LEFT JOIN league_schedule ls ON lm.schedule_id = ls.id
+       WHERE lm.league_id = $1 AND lm.division_id = $2
+       ORDER BY lm.week_number`,
+      [leagueId, divId]
+    );
+
+    // Create head-to-head matrix
+    const teams = standings.rows;
+    const headToHead = {};
+
+    teams.forEach(team => {
+      headToHead[team.team_id] = {};
+      teams.forEach(opponent => {
+        if (team.team_id !== opponent.team_id) {
+          headToHead[team.team_id][opponent.team_id] = null; // Will fill with result
+        }
+      });
+    });
+
+    // Fill head-to-head results
+    matchups.rows.forEach(match => {
+      if (match.status === 'completed' && match.winner_team_id) {
+        const loserTeamId = match.winner_team_id === match.team1_id ? match.team2_id : match.team1_id;
+        headToHead[match.winner_team_id][loserTeamId] = 'W';
+        headToHead[loserTeamId][match.winner_team_id] = 'L';
+      } else if (match.status === 'completed' && !match.winner_team_id) {
+        // Tie
+        headToHead[match.team1_id][match.team2_id] = 'T';
+        headToHead[match.team2_id][match.team1_id] = 'T';
+      }
+    });
+
+    res.json({
+      league: league.rows[0],
+      division: division.rows[0],
+      standings: standings.rows,
+      matchups: matchups.rows,
+      headToHead: headToHead
+    });
+  } catch (err) {
+    console.error('Error fetching division standings:', err);
+    res.status(500).json({ error: 'Failed to fetch division standings', details: err.message });
+  }
+});
+
+// GET /api/leagues/:id/standings/tiebreakers - Show tiebreaker details
+app.get('/api/leagues/:id/standings/tiebreakers', async (req, res) => {
+  try {
+    const { id: leagueId } = req.params;
+
+    // Get league with tiebreaker rules
+    const league = await pool.query('SELECT * FROM leagues WHERE id = $1', [leagueId]);
+    if (league.rows.length === 0) {
+      return res.status(404).json({ error: 'League not found' });
+    }
+
+    const leagueData = league.rows[0];
+    const tiebreakerRules = leagueData.tiebreaker_rules;
+
+    // Get all standings
+    const standings = await pool.query(
+      `SELECT * FROM league_standings WHERE league_id = $1 ORDER BY division_id, rank_in_division`,
+      [leagueId]
+    );
+
+    // Find tied teams (same points within division)
+    const tiedGroups = {};
+    standings.rows.forEach(team => {
+      const key = `${team.division_id}_${team.league_points}`;
+      if (!tiedGroups[key]) {
+        tiedGroups[key] = [];
+      }
+      tiedGroups[key].push(team);
+    });
+
+    // Filter to only groups with 2+ teams (actual ties)
+    const actualTies = Object.entries(tiedGroups)
+      .filter(([key, teams]) => teams.length > 1)
+      .map(([key, teams]) => ({
+        division_id: teams[0].division_id,
+        division_name: teams[0].division_name,
+        points: teams[0].league_points,
+        teams: teams.map(t => ({
+          team_id: t.team_id,
+          team_name: t.team_name,
+          rank_in_division: t.rank_in_division,
+          league_points: t.league_points,
+          aggregate_net_score: t.aggregate_net_score,
+          second_half_net_score: t.second_half_net_score,
+          final_week_net_score: t.final_week_net_score,
+          tiebreaker_applied: determineTiebreakerLevel(teams, t)
+        }))
+      }));
+
+    // Get tiebreaker log
+    const tiebreakerLog = await pool.query(
+      `SELECT tl.*,
+        t1.name as team1_name,
+        t2.name as team2_name,
+        tw.name as winner_name
+       FROM tiebreaker_log tl
+       LEFT JOIN tournament_teams t1 ON tl.team1_id = t1.id
+       LEFT JOIN tournament_teams t2 ON tl.team2_id = t2.id
+       LEFT JOIN tournament_teams tw ON tl.winner_team_id = tw.id
+       WHERE tl.league_id = $1
+       ORDER BY tl.applied_at DESC`,
+      [leagueId]
+    );
+
+    res.json({
+      league: {
+        id: leagueData.id,
+        name: leagueData.name,
+        tiebreaker_rules: tiebreakerRules
+      },
+      tiebreaker_explanation: {
+        "1": "Total Points (most wins)",
+        "2": "Lowest Aggregate Net Score (cumulative net for all matches)",
+        "3": "Lowest Second Half Aggregate Net (second half of season)",
+        "4": "Lowest Final Week Net Score",
+        "5": "Coin Flip (admin determines)"
+      },
+      tied_teams: actualTies,
+      tiebreaker_history: tiebreakerLog.rows
+    });
+  } catch (err) {
+    console.error('Error fetching tiebreaker details:', err);
+    res.status(500).json({ error: 'Failed to fetch tiebreaker details', details: err.message });
+  }
+});
+
+// Helper function to determine which tiebreaker was used
+function determineTiebreakerLevel(tiedTeams, currentTeam) {
+  // If only one team, no tiebreaker needed
+  if (tiedTeams.length === 1) return null;
+
+  // Check if points differ (shouldn't in a tied group, but sanity check)
+  const samePoints = tiedTeams.every(t => t.league_points === currentTeam.league_points);
+  if (!samePoints) return 1; // Points tiebreaker
+
+  // Check aggregate net
+  const sameAggregateNet = tiedTeams.every(t => t.aggregate_net_score === currentTeam.aggregate_net_score);
+  if (!sameAggregateNet) return 2; // Aggregate net tiebreaker
+
+  // Check second half net
+  const sameSecondHalfNet = tiedTeams.every(t => t.second_half_net_score === currentTeam.second_half_net_score);
+  if (!sameSecondHalfNet) return 3; // Second half tiebreaker
+
+  // Check final week net
+  const sameFinalWeekNet = tiedTeams.every(t => t.final_week_net_score === currentTeam.final_week_net_score);
+  if (!sameFinalWeekNet) return 4; // Final week tiebreaker
+
+  // Still tied - would need coin flip (level 5)
+  return 5;
+}
+
+// --------------------------------------------
+// Team Statistics
+// --------------------------------------------
+
+// GET /api/teams/:teamId/stats - Team statistics
+app.get('/api/teams/:teamId/stats', async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { league_id } = req.query;
+
+    // Get team details
+    const team = await pool.query(
+      `SELECT tt.*,
+        u.first_name || ' ' || u.last_name as captain_name,
+        l.name as league_name,
+        ld.division_name
+       FROM tournament_teams tt
+       LEFT JOIN users u ON tt.captain_id = u.member_id
+       LEFT JOIN leagues l ON tt.league_id = l.id
+       LEFT JOIN league_divisions ld ON tt.division_id = ld.id
+       WHERE tt.id = $1`,
+      [teamId]
+    );
+
+    if (team.rows.length === 0) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    const teamData = team.rows[0];
+
+    // Build query filter
+    let leagueFilter = '';
+    const queryParams = [teamId];
+    if (league_id) {
+      leagueFilter = ' AND lm.league_id = $2';
+      queryParams.push(league_id);
+    }
+
+    // Get match statistics
+    const matchStats = await pool.query(
+      `SELECT
+        COUNT(*) as total_matches,
+        SUM(CASE WHEN lm.winner_team_id = $1 THEN 1 ELSE 0 END) as wins,
+        SUM(CASE WHEN lm.winner_team_id IS NULL AND lm.status = 'completed' THEN 1 ELSE 0 END) as ties,
+        SUM(CASE WHEN lm.winner_team_id IS NOT NULL AND lm.winner_team_id != $1 THEN 1 ELSE 0 END) as losses,
+        SUM(CASE
+          WHEN lm.team1_id = $1 THEN lm.team1_points
+          ELSE lm.team2_points
+        END) as total_points,
+        AVG(CASE
+          WHEN lm.team1_id = $1 THEN lm.team1_total_net
+          ELSE lm.team2_total_net
+        END) as avg_total_net,
+        MIN(CASE
+          WHEN lm.team1_id = $1 THEN lm.team1_total_net
+          ELSE lm.team2_total_net
+        END) as best_total_net,
+        MAX(CASE
+          WHEN lm.team1_id = $1 THEN lm.team1_total_net
+          ELSE lm.team2_total_net
+        END) as worst_total_net
+       FROM league_matchups lm
+       WHERE (lm.team1_id = $1 OR lm.team2_id = $1)
+         AND lm.status = 'completed'${leagueFilter}`,
+      queryParams
+    );
+
+    // Get individual player statistics
+    const playerStats = await pool.query(
+      `SELECT
+        u.member_id,
+        u.first_name || ' ' || u.last_name as player_name,
+        COUNT(DISTINCT mis.matchup_id) as matches_played,
+        AVG(mis.gross_total) as avg_gross,
+        MIN(mis.gross_total) as best_gross,
+        AVG(mis.net_total) as avg_net,
+        MIN(mis.net_total) as best_net
+       FROM match_individual_scores mis
+       JOIN users u ON mis.player_id = u.member_id
+       JOIN league_matchups lm ON mis.matchup_id = lm.id
+       WHERE mis.team_id = $1${leagueFilter}
+       GROUP BY u.member_id, u.first_name, u.last_name
+       ORDER BY matches_played DESC, avg_net ASC`,
+      queryParams
+    );
+
+    // Get team standings
+    let standings = null;
+    if (league_id || teamData.league_id) {
+      const standingsQuery = await pool.query(
+        'SELECT * FROM league_standings WHERE team_id = $1 AND league_id = $2',
+        [teamId, league_id || teamData.league_id]
+      );
+      standings = standingsQuery.rows[0] || null;
+    }
+
+    // Calculate win percentage
+    const stats = matchStats.rows[0];
+    const winPct = stats.total_matches > 0
+      ? ((parseInt(stats.wins) + parseInt(stats.ties) * 0.5) / parseInt(stats.total_matches) * 100).toFixed(1)
+      : 0;
+
+    res.json({
+      team: teamData,
+      statistics: {
+        ...stats,
+        win_percentage: winPct
+      },
+      player_statistics: playerStats.rows,
+      standings: standings
+    });
+  } catch (err) {
+    console.error('Error fetching team stats:', err);
+    res.status(500).json({ error: 'Failed to fetch team statistics', details: err.message });
+  }
+});
+
+// GET /api/teams/:teamId/matches - Match history
+app.get('/api/teams/:teamId/matches', async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { league_id, status, limit = 50 } = req.query;
+
+    // Verify team exists
+    const team = await pool.query('SELECT * FROM tournament_teams WHERE id = $1', [teamId]);
+    if (team.rows.length === 0) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    // Build query
+    let query = `
+      SELECT lm.*,
+        CASE WHEN lm.team1_id = $1 THEN t2.name ELSE t1.name END as opponent_name,
+        CASE WHEN lm.team1_id = $1 THEN t2.id ELSE t1.id END as opponent_id,
+        CASE WHEN lm.team1_id = $1 THEN lm.team1_total_net ELSE lm.team2_total_net END as team_score,
+        CASE WHEN lm.team1_id = $1 THEN lm.team2_total_net ELSE lm.team1_total_net END as opponent_score,
+        CASE
+          WHEN lm.winner_team_id = $1 THEN 'W'
+          WHEN lm.winner_team_id IS NULL AND lm.status = 'completed' THEN 'T'
+          WHEN lm.winner_team_id IS NOT NULL THEN 'L'
+          ELSE '-'
+        END as result,
+        ls.week_start_date, ls.week_end_date,
+        l.name as league_name,
+        ld.division_name
+      FROM league_matchups lm
+      LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
+      LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
+      LEFT JOIN league_schedule ls ON lm.schedule_id = ls.id
+      LEFT JOIN leagues l ON lm.league_id = l.id
+      LEFT JOIN league_divisions ld ON lm.division_id = ld.id
+      WHERE (lm.team1_id = $1 OR lm.team2_id = $1)
+    `;
+
+    const params = [teamId];
+    let paramCount = 2;
+
+    if (league_id) {
+      query += ` AND lm.league_id = $${paramCount++}`;
+      params.push(league_id);
+    }
+
+    if (status) {
+      query += ` AND lm.status = $${paramCount++}`;
+      params.push(status);
+    }
+
+    query += ` ORDER BY lm.week_number DESC LIMIT $${paramCount}`;
+    params.push(limit);
+
+    const matches = await pool.query(query, params);
+
+    // Get summary statistics
+    const summary = {
+      total_matches: 0,
+      wins: 0,
+      ties: 0,
+      losses: 0,
+      pending: 0
+    };
+
+    matches.rows.forEach(match => {
+      summary.total_matches++;
+      if (match.result === 'W') summary.wins++;
+      else if (match.result === 'T') summary.ties++;
+      else if (match.result === 'L') summary.losses++;
+      else summary.pending++;
+    });
+
+    res.json({
+      team: team.rows[0],
+      matches: matches.rows,
+      summary: summary
+    });
+  } catch (err) {
+    console.error('Error fetching team matches:', err);
+    res.status(500).json({ error: 'Failed to fetch team matches', details: err.message });
+  }
+});
+
+// --------------------------------------------
+// Player Statistics (within league)
+// --------------------------------------------
+
+// GET /api/leagues/:id/player-stats/:userId - Player performance within league
+app.get('/api/leagues/:id/player-stats/:userId', async (req, res) => {
+  try {
+    const { id: leagueId, userId } = req.params;
+
+    // Verify league exists
+    const league = await pool.query('SELECT * FROM leagues WHERE id = $1', [leagueId]);
+    if (league.rows.length === 0) {
+      return res.status(404).json({ error: 'League not found' });
+    }
+
+    // Get player details
+    const player = await pool.query(
+      'SELECT member_id, first_name, last_name, email_address, handicap FROM users WHERE member_id = $1',
+      [userId]
+    );
+    if (player.rows.length === 0) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+
+    // Get player's team(s) in this league
+    const teams = await pool.query(
+      `SELECT DISTINCT tt.id, tt.name, tt.captain_id, ld.division_name
+       FROM tournament_teams tt
+       LEFT JOIN team_members tm ON tt.id = tm.team_id
+       LEFT JOIN league_divisions ld ON tt.division_id = ld.id
+       WHERE tt.league_id = $1 AND tm.user_member_id = $2`,
+      [leagueId, userId]
+    );
+
+    if (teams.rows.length === 0) {
+      return res.status(404).json({ error: 'Player is not part of any team in this league' });
+    }
+
+    // Get individual scoring statistics
+    const individualStats = await pool.query(
+      `SELECT
+        COUNT(DISTINCT mis.matchup_id) as matches_played,
+        COUNT(DISTINCT lm.week_number) as weeks_played,
+        SUM(array_length(mis.assigned_holes, 1)) as total_holes_played,
+        AVG(mis.gross_total) as avg_gross_score,
+        MIN(mis.gross_total) as best_gross_score,
+        MAX(mis.gross_total) as worst_gross_score,
+        AVG(mis.net_total) as avg_net_score,
+        MIN(mis.net_total) as best_net_score,
+        MAX(mis.net_total) as worst_net_score,
+        AVG(mis.player_handicap) as avg_handicap
+       FROM match_individual_scores mis
+       JOIN league_matchups lm ON mis.matchup_id = lm.id
+       WHERE mis.player_id = $1 AND lm.league_id = $2`,
+      [userId, leagueId]
+    );
+
+    // Get lineup participation (how many times selected)
+    const lineupStats = await pool.query(
+      `SELECT
+        COUNT(*) as times_selected,
+        SUM(CASE WHEN locked = true THEN 1 ELSE 0 END) as times_locked
+       FROM weekly_lineups
+       WHERE league_id = $1
+         AND (player1_id = $2 OR player2_id = $2 OR player3_id = $2)`,
+      [leagueId, userId]
+    );
+
+    // Get availability submission rate
+    const availabilityStats = await pool.query(
+      `SELECT
+        COUNT(*) as weeks_submitted,
+        SUM(CASE WHEN is_available = true THEN 1 ELSE 0 END) as weeks_available,
+        SUM(CASE WHEN is_available = false THEN 1 ELSE 0 END) as weeks_unavailable
+       FROM team_member_availability
+       WHERE league_id = $1 AND user_id = $2`,
+      [leagueId, userId]
+    );
+
+    // Get hole-by-hole performance (holes 1-9 for individual play)
+    const holePerformance = await pool.query(
+      `SELECT
+        mis.assigned_holes,
+        mis.hole_scores,
+        lm.week_number
+       FROM match_individual_scores mis
+       JOIN league_matchups lm ON mis.matchup_id = lm.id
+       WHERE mis.player_id = $1 AND lm.league_id = $2
+       ORDER BY lm.week_number`,
+      [userId, leagueId]
+    );
+
+    // Aggregate hole statistics
+    const holeStats = {};
+    holePerformance.rows.forEach(match => {
+      const holeScores = typeof match.hole_scores === 'string'
+        ? JSON.parse(match.hole_scores)
+        : match.hole_scores;
+
+      Object.entries(holeScores).forEach(([hole, data]) => {
+        if (!holeStats[hole]) {
+          holeStats[hole] = {
+            hole_number: parseInt(hole),
+            times_played: 0,
+            gross_total: 0,
+            net_total: 0,
+            pars: 0,
+            birdies: 0,
+            bogeys: 0,
+            double_bogeys_or_worse: 0
+          };
+        }
+
+        holeStats[hole].times_played++;
+        holeStats[hole].gross_total += data.gross || 0;
+        if (data.net) holeStats[hole].net_total += data.net;
+
+        const scoreToPar = (data.gross || 0) - (data.par || 4);
+        if (scoreToPar === 0) holeStats[hole].pars++;
+        else if (scoreToPar === -1) holeStats[hole].birdies++;
+        else if (scoreToPar === 1) holeStats[hole].bogeys++;
+        else if (scoreToPar >= 2) holeStats[hole].double_bogeys_or_worse++;
+      });
+    });
+
+    // Calculate averages for each hole
+    Object.values(holeStats).forEach(hole => {
+      hole.avg_gross = (hole.gross_total / hole.times_played).toFixed(2);
+      hole.avg_net = hole.net_total > 0 ? (hole.net_total / hole.times_played).toFixed(2) : null;
+    });
+
+    res.json({
+      league: league.rows[0],
+      player: player.rows[0],
+      teams: teams.rows,
+      statistics: {
+        individual_scoring: individualStats.rows[0],
+        lineup_participation: lineupStats.rows[0],
+        availability: availabilityStats.rows[0],
+        hole_by_hole: Object.values(holeStats).sort((a, b) => a.hole_number - b.hole_number)
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching player stats:', err);
+    res.status(500).json({ error: 'Failed to fetch player statistics', details: err.message });
+  }
+});
+
 // Start the server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
