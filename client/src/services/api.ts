@@ -1029,6 +1029,176 @@ export const getClubProWeeklyMatches = (tournamentId: number, weekStartDate?: st
   return api.get<{ club: string; matches: WeeklyMatch[] }>(`/club-pro/tournaments/${tournamentId}/weekly-matches${qs}`);
 };
 
+// ============================================================================
+// LEAGUE SCORING API FUNCTIONS
+// ============================================================================
+
+// League Matchup Interfaces
+export interface LeagueMatchup {
+  id: number;
+  league_id: number;
+  week_number: number;
+  division_id: number;
+  team1_id: number;
+  team1_name: string;
+  team2_id: number;
+  team2_name: string;
+  course_id: number;
+  course_name: string;
+  course_rating: number;
+  course_slope: number;
+  course_par: number;
+  hole_indexes: number[];
+  status: string;
+  winner_team_id: number;
+  team1_individual_net: number;
+  team2_individual_net: number;
+  team1_alternate_shot_net: number;
+  team2_alternate_shot_net: number;
+  team1_total_net: number;
+  team2_total_net: number;
+  team1_points: number;
+  team2_points: number;
+  match_date: string;
+  completed_at: string;
+  verified_at: string;
+  verified_by: number;
+}
+
+export interface WeeklyLineup {
+  id: number;
+  matchup_id: number;
+  team_id: number;
+  team_name: string;
+  player1_id: number;
+  player1_name: string;
+  player2_id: number;
+  player2_name: string;
+  player3_id: number;
+  player3_name: string;
+  player1_handicap: number;
+  player2_handicap: number;
+  player3_handicap: number;
+  week_number: number;
+  league_id: number;
+  is_locked: boolean;
+  submitted_at: string;
+  submitted_by: number;
+}
+
+export interface IndividualScore {
+  id: number;
+  matchup_id: number;
+  lineup_id: number;
+  team_id: number;
+  player_id: number;
+  assigned_holes: number[];
+  hole_scores: { [hole: string]: { gross: number; net: number; par: number; strokes_received: number } };
+  gross_total: number;
+  net_total: number;
+  player_handicap: number;
+  course_handicap: number;
+  submitted_at: string;
+}
+
+export interface AlternateShotScore {
+  id: number;
+  matchup_id: number;
+  lineup_id: number;
+  team_id: number;
+  hole_scores: { [hole: string]: { gross: number; net: number; par: number; strokes_received: number } };
+  gross_total: number;
+  net_total: number;
+  team_handicap: number;
+  team_course_handicap: number;
+  submitted_at: string;
+}
+
+// League Matchup API Functions
+export const getLeagueMatchups = (leagueId: number, params?: {
+  week_number?: number;
+  division_id?: number;
+  status?: string;
+}) => {
+  const queryParams = new URLSearchParams();
+  if (params?.week_number) queryParams.append('week_number', params.week_number.toString());
+  if (params?.division_id) queryParams.append('division_id', params.division_id.toString());
+  if (params?.status) queryParams.append('status', params.status);
+  
+  const queryString = queryParams.toString();
+  const url = `/api/leagues/${leagueId}/matchups${queryString ? `?${queryString}` : ''}`;
+  return api.get<LeagueMatchup[]>(url);
+};
+
+export const getMatchupScores = (matchupId: number) => {
+  return api.get<{
+    matchup: LeagueMatchup;
+    lineups: WeeklyLineup[];
+    individualScores: IndividualScore[];
+    alternateShotScores: AlternateShotScore[];
+  }>(`/api/matchups/${matchupId}/scores`);
+};
+
+export const submitIndividualScores = (matchupId: number, data: {
+  team_id: number;
+  player_id: number;
+  lineup_id: number;
+  assigned_holes: number[];
+  hole_scores: { [hole: string]: { gross: number; par: number } };
+  player_handicap: number;
+  course_handicap: number;
+}) => {
+  return api.post<IndividualScore>(`/api/matchups/${matchupId}/scores/individual`, data);
+};
+
+export const submitAlternateShotScores = (matchupId: number, data: {
+  team_id: number;
+  lineup_id: number;
+  hole_scores: { [hole: string]: { gross: number; par: number } };
+  team_handicap: number;
+  team_course_handicap: number;
+}) => {
+  return api.post<AlternateShotScore>(`/api/matchups/${matchupId}/scores/alternate-shot`, data);
+};
+
+export const updateIndividualScores = (matchupId: number, scoreId: number, data: {
+  hole_scores: { [hole: string]: { gross: number; par: number } };
+  player_handicap?: number;
+  course_handicap?: number;
+}) => {
+  return api.put<IndividualScore>(`/api/matchups/${matchupId}/scores/individual/${scoreId}`, data);
+};
+
+export const updateAlternateShotScores = (matchupId: number, scoreId: number, data: {
+  hole_scores: { [hole: string]: { gross: number; par: number } };
+  team_handicap?: number;
+  team_course_handicap?: number;
+}) => {
+  return api.put<AlternateShotScore>(`/api/matchups/${matchupId}/scores/alternate-shot/${scoreId}`, data);
+};
+
+export const verifyMatchupScores = (matchupId: number, data: {
+  action: 'approve' | 'dispute';
+  notes?: string;
+  reason?: string;
+  verified_by: number;
+}) => {
+  if (data.action === 'approve') {
+    return api.post(`/api/matchups/${matchupId}/verify`, data);
+  } else {
+    return api.post(`/api/matchups/${matchupId}/dispute`, data);
+  }
+};
+
+export const getMatchupLineups = (matchupId: number) => {
+  return api.get<WeeklyLineup[]>(`/api/matchups/${matchupId}/lineups`);
+};
+
+export const getTeamLineups = (teamId: number, leagueId?: number) => {
+  const params = leagueId ? `?league_id=${leagueId}` : '';
+  return api.get<WeeklyLineup[]>(`/api/teams/${teamId}/lineups${params}`);
+};
+
 export const getClubProPlayerTournaments = (club?: string) => {
   const params = club ? `?club=${encodeURIComponent(club)}` : '';
   return api.get<{ club: string; players: Array<{
@@ -1092,6 +1262,126 @@ export const updateRolePermissions = (id: number, permissions: number[]) => {
 // Get permission audit log
 export const getPermissionAuditLog = (limit: number = 50) => {
   return api.get<AuditLogEntry[]>(`/admin/permission-audit-log?limit=${limit}`);
+};
+
+// Player Availability API Functions
+export interface PlayerAvailability {
+  id: number;
+  team_id: number;
+  user_id: number;
+  league_id: number;
+  week_number: number;
+  is_available: boolean;
+  availability_notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamMemberAvailability {
+  member_id: number;
+  first_name: string;
+  last_name: string;
+  handicap: number;
+  role: 'captain' | 'member';
+  availability_status: 'available' | 'unavailable' | 'pending';
+  last_updated?: string;
+  notes?: string;
+}
+
+export interface WeekAvailability {
+  week_start_date: string;
+  week_end_date: string;
+  members: TeamMemberAvailability[];
+}
+
+// Submit player availability
+export const submitPlayerAvailability = (teamId: number, data: {
+  league_id: number;
+  week_number: number;
+  is_available: boolean;
+  availability_notes?: string;
+}) => api.post<PlayerAvailability>(`/teams/${teamId}/availability`, data);
+
+// Get team availability for a specific week
+export const getTeamAvailability = (teamId: number, weekNumber: number, leagueId: number) => {
+  return api.get<WeekAvailability>(`/teams/${teamId}/availability/week/${weekNumber}?league_id=${leagueId}`);
+};
+
+// Update player availability
+export const updatePlayerAvailability = (teamId: number, availabilityId: number, data: {
+  is_available: boolean;
+  availability_notes?: string;
+}) => api.put<PlayerAvailability>(`/teams/${teamId}/availability/${availabilityId}`, data);
+
+// Player Team View API Functions
+export interface TeamMember {
+  user_member_id: number;
+  first_name: string;
+  last_name: string;
+  email_address: string;
+  handicap: number;
+  is_captain: boolean;
+  phone?: string;
+}
+
+export interface UpcomingMatch {
+  id: number;
+  week_number: number;
+  week_start_date: string;
+  week_end_date: string;
+  opponent_name: string;
+  opponent_captain_name: string;
+  course_name?: string;
+  course_rating?: number;
+  course_slope?: number;
+  course_par?: number;
+  status: 'scheduled' | 'in_progress' | 'completed';
+  match_date?: string;
+}
+
+export interface TeamStats {
+  team_id: number;
+  wins: number;
+  losses: number;
+  ties: number;
+  total_points: number;
+  aggregate_net_total: number;
+  league_position: number;
+  total_teams: number;
+}
+
+export interface TeamData {
+  team: {
+    id: number;
+    name: string;
+    captain_id: number;
+    league_id: number;
+    division_id: number;
+    league_points: number;
+    aggregate_net_score: number;
+    created_at: string;
+  };
+  roster: TeamMember[];
+  upcomingMatches: UpcomingMatch[];
+  standings: TeamStats;
+}
+
+// Get user's teams
+export const getUserTeams = () => api.get<TeamData[]>('/user/teams');
+
+// Get team dashboard data
+export const getTeamDashboard = (teamId: number, leagueId: number) => {
+  return api.get<TeamData>(`/captain/team/${teamId}/dashboard?league_id=${leagueId}`);
+};
+
+// Get available weeks for a league
+export const getLeagueAvailableWeeks = (leagueId: number) => {
+  return api.get<Array<{
+    week_number: number;
+    week_start_date: string;
+    week_end_date: string;
+    is_current_week: boolean;
+  }>>(`/leagues/${leagueId}/available-weeks`);
 };
 
 export default api; 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Users, Trophy, Medal, BarChart3, User, Menu, X, MapPin, LogIn, Calendar, Target, TrendingUp } from 'lucide-react';
+import { Home, Users, Trophy, Medal, BarChart3, User, Menu, X, MapPin, LogIn, Calendar, Target, TrendingUp, Crown } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Leaderboard from './components/Leaderboard';
 import Scoring from './components/Scoring';
@@ -15,6 +15,16 @@ import AvailableTournaments from './components/AvailableTournaments';
 import NewWeeklyScoring from './components/NewWeeklyScoring';
 import NewWeeklyLeaderboard from './components/NewWeeklyLeaderboard';
 import AdminPermissionsManager from './components/AdminPermissionsManager';
+import LeagueManagement from './components/LeagueManagement';
+import CaptainDashboard from './components/CaptainDashboard';
+import LeagueScoring from './components/LeagueScoring';
+import PlayerAvailabilityCalendar from './components/PlayerAvailabilityCalendar';
+import PlayerAvailabilityForm from './components/PlayerAvailabilityForm';
+import PlayerTeamView from './components/PlayerTeamView';
+import LeagueStandings from './components/LeagueStandings';
+import DivisionStandings from './components/DivisionStandings';
+import TeamDetailsPage from './components/TeamDetailsPage';
+import WeeklyResults from './components/WeeklyResults';
 import { AuthProvider, useAuth } from './AuthContext';
 import ClubProDashboard from './components/ClubProDashboard';
 import Login from './components/Login';
@@ -46,6 +56,45 @@ const NewWeeklyLeaderboardWrapper: React.FC = () => {
     <NewWeeklyLeaderboard 
       tournamentId={parseInt(tournamentId || '1')} 
       tournamentName="Weekly Tournament" 
+    />
+  );
+};
+
+// Wrapper for LeagueStandings to handle URL parameters
+const LeagueStandingsWrapper: React.FC = () => {
+  const { leagueId } = useParams();
+  return <LeagueStandings leagueId={parseInt(leagueId || '1')} />;
+};
+
+// Wrapper for DivisionStandings to handle URL parameters
+const DivisionStandingsWrapper: React.FC = () => {
+  const { leagueId, divisionId } = useParams();
+  return (
+    <DivisionStandings 
+      leagueId={parseInt(leagueId || '1')} 
+      divisionId={parseInt(divisionId || '1')} 
+    />
+  );
+};
+
+// Wrapper for TeamDetailsPage to handle URL parameters
+const TeamDetailsWrapper: React.FC = () => {
+  const { teamId, leagueId } = useParams();
+  return (
+    <TeamDetailsPage 
+      teamId={parseInt(teamId || '1')} 
+      leagueId={leagueId ? parseInt(leagueId) : undefined} 
+    />
+  );
+};
+
+// Wrapper for WeeklyResults to handle URL parameters
+const WeeklyResultsWrapper: React.FC = () => {
+  const { leagueId, weekNumber } = useParams();
+  return (
+    <WeeklyResults 
+      leagueId={parseInt(leagueId || '1')} 
+      weekNumber={weekNumber ? parseInt(weekNumber) : undefined} 
     />
   );
 };
@@ -208,7 +257,12 @@ function Navigation() {
     { to: "/tournaments", icon: Trophy, label: "Tournaments" },
     { to: "/simulator-courses", icon: MapPin, label: "Neighborhood Courses" },
     { to: "https://neighborhood-national.mn.co/", icon: Users, label: "Community", external: true },
-    ...(user ? [{ to: "/profile", icon: User, label: "Profile" }] : []),
+    ...(user ? [
+      { to: "/captain-dashboard", icon: Crown, label: "Captain Dashboard" },
+      { to: "/league-scoring", icon: Target, label: "League Scoring" },
+      { to: "/league-standings/1", icon: BarChart3, label: "League Standings" },
+      { to: "/profile", icon: User, label: "Profile" }
+    ] : []),
   ];
 
   return (
@@ -446,6 +500,71 @@ function AppContent() {
         <Route path="/admin/permissions" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <AdminProtectedRoute><AdminPermissionsManager /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/league-management" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><LeagueManagement /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/captain-dashboard" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><CaptainDashboard /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/league-scoring" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><LeagueScoring /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/league-scoring/:matchupId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><LeagueScoring /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/player/availability" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><PlayerAvailabilityCalendar /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/player/availability-form" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><PlayerAvailabilityForm /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/player/team" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><PlayerTeamView /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/league-standings/:leagueId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <LeagueStandingsWrapper />
+          </main>
+        } />
+        <Route path="/league-standings/:leagueId/division/:divisionId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <DivisionStandingsWrapper />
+          </main>
+        } />
+        <Route path="/team/:teamId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <TeamDetailsWrapper />
+          </main>
+        } />
+        <Route path="/team/:teamId/league/:leagueId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <TeamDetailsWrapper />
+          </main>
+        } />
+        <Route path="/weekly-results/:leagueId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <WeeklyResultsWrapper />
+          </main>
+        } />
+        <Route path="/weekly-results/:leagueId/week/:weekNumber" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <WeeklyResultsWrapper />
           </main>
         } />
         <Route path="/login" element={
