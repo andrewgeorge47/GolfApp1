@@ -33,7 +33,7 @@ import {
   Input,
   Tabs,
   TabPanel,
-  Loading,
+  SimpleLoading,
   EmptyState,
   Avatar,
   ConfirmationDialog
@@ -239,9 +239,9 @@ const WeeklyChallengeAdmin: React.FC = () => {
       <Card>
         <Tabs
           tabs={[
-            { label: 'Current Challenge', value: 'current' },
-            { label: 'Entries', value: 'entries' },
-            { label: 'History', value: 'history' }
+            { label: 'Current Challenge', id: 'current' },
+            { label: 'Entries', id: 'entries' },
+            { label: 'History', id: 'history' }
           ]}
           activeTab={activeTab}
           onChange={(value) => setActiveTab(value as any)}
@@ -249,13 +249,13 @@ const WeeklyChallengeAdmin: React.FC = () => {
 
         <CardContent>
           {loading ? (
-            <Loading text="Loading..." />
+            <?SimpleLoading text="Loading..." />
           ) : (
             <>
-              <TabPanel active={activeTab === 'current'}>
+              <TabPanel value="current" activeValue={activeTab}>
                 {challenges.length === 0 ? (
                   <EmptyState
-                    icon={<Trophy />}
+                    icon={Trophy}
                     title="No Active Challenge"
                     description="Create a new challenge to get started"
                   />
@@ -294,7 +294,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
                           </div>
                           {challenge.status === 'active' && (
                             <Button
-                              variant="warning"
+                              variant="danger"
                               size="sm"
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -312,16 +312,16 @@ const WeeklyChallengeAdmin: React.FC = () => {
                 )}
               </TabPanel>
 
-              <TabPanel active={activeTab === 'entries'}>
+              <TabPanel value="entries" activeValue={activeTab}>
                 {!selectedChallenge ? (
                   <EmptyState
-                    icon={<Users />}
+                    icon={Users}
                     title="No Challenge Selected"
                     description="Select a challenge to view entries"
                   />
                 ) : entries.length === 0 ? (
                   <EmptyState
-                    icon={<Users />}
+                    icon={Users}
                     title="No Entries Yet"
                     description="Waiting for players to enter the challenge"
                   />
@@ -420,10 +420,10 @@ const WeeklyChallengeAdmin: React.FC = () => {
                 )}
               </TabPanel>
 
-              <TabPanel active={activeTab === 'history'}>
+              <TabPanel value="history" activeValue={activeTab}>
                 {challenges.length === 0 ? (
                   <EmptyState
-                    icon={<Trophy />}
+                    icon={Trophy}
                     title="No Completed Challenges"
                     description="Completed challenges will appear here"
                   />
@@ -479,9 +479,9 @@ const WeeklyChallengeAdmin: React.FC = () => {
 
       {/* Create Challenge Modal */}
       {showCreateModal && (
-        <Modal isOpen={true} onClose={() => setShowCreateModal(false)} size="md">
+        <Modal open={true} onClose={() => setShowCreateModal(false)} size="md">
           <form onSubmit={handleCreateChallenge}>
-            <ModalHeader onClose={() => setShowCreateModal(false)}>
+            <ModalHeader>
               Create New Challenge
             </ModalHeader>
             <ModalContent>
@@ -541,8 +541,8 @@ const WeeklyChallengeAdmin: React.FC = () => {
 
       {/* Verify Entry Modal */}
       {showEntryVerifyModal && selectedEntry && (
-        <Modal isOpen={true} onClose={() => setShowEntryVerifyModal(false)} size="md">
-          <ModalHeader onClose={() => setShowEntryVerifyModal(false)}>
+        <Modal open={true} onClose={() => setShowEntryVerifyModal(false)} size="md">
+          <ModalHeader>
             Verify Entry
           </ModalHeader>
           <ModalContent>
@@ -564,9 +564,8 @@ const WeeklyChallengeAdmin: React.FC = () => {
                 onChange={(e) => setVerifyDistance(e.target.value)}
                 required
               />
-              <Input
+              <Textarea
                 label="Override Reason (if different)"
-                as="textarea"
                 rows={3}
                 value={verifyReason}
                 onChange={(e) => setVerifyReason(e.target.value)}
@@ -588,11 +587,11 @@ const WeeklyChallengeAdmin: React.FC = () => {
       {/* Finalize Challenge Dialog */}
       {showFinalizeDialog && selectedChallenge && (
         <ConfirmationDialog
-          isOpen={true}
+          open={true}
           title="Finalize Challenge?"
           message={`This will determine the winner and update the pot. Total entries: ${selectedChallenge.total_entries}. This action cannot be undone.`}
-          confirmLabel="Finalize"
-          variant="warning"
+          confirmText="Finalize"
+          variant="danger"
           onConfirm={handleFinalizeChallenge}
           onCancel={() => setShowFinalizeDialog(false)}
         />

@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { DollarSign, CreditCard, AlertCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { enterChallenge, type WeeklyChallenge } from '../services/api';
-import { Modal, ModalHeader, ModalContent, ModalFooter, Button, Input, Select, SelectOption, Alert } from './ui';
+import { Modal, ModalHeader, ModalContent, ModalFooter, Button, Input, Textarea, Select, SelectOption, Alert } from './ui';
+import { Textarea } from \'./ui/Input\';
 
 interface ChallengeEntryModalProps {
   challenge: WeeklyChallenge;
@@ -46,18 +47,18 @@ const ChallengeEntryModal: React.FC<ChallengeEntryModalProps> = ({
   };
 
   const paymentOptions: SelectOption[] = [
-    { value: 'Venmo', label: 'Venmo' },
-    { value: 'Cash', label: 'Cash' },
-    { value: 'Check', label: 'Check' },
-    { value: 'Zelle', label: 'Zelle' },
-    { value: 'PayPal', label: 'PayPal' },
-    { value: 'Other', label: 'Other' }
+    { id: 'Venmo', label: 'Venmo' },
+    { id: 'Cash', label: 'Cash' },
+    { id: 'Check', label: 'Check' },
+    { id: 'Zelle', label: 'Zelle' },
+    { id: 'PayPal', label: 'PayPal' },
+    { id: 'Other', label: 'Other' }
   ];
 
   return (
-    <Modal isOpen={true} onClose={onClose} size="md">
+    <Modal open={true} onClose={onClose} size="md">
       <form onSubmit={handleSubmit}>
-        <ModalHeader onClose={onClose}>
+        <ModalHeader>
           <div className="flex items-center gap-3">
             <div className="bg-indigo-600 p-2 rounded-lg">
               <DollarSign className="w-5 h-5 text-white" />
@@ -109,8 +110,7 @@ const ChallengeEntryModal: React.FC<ChallengeEntryModalProps> = ({
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Payment Details (optional)
               </label>
-              <Input
-                as="textarea"
+              <Textarea
                 rows={3}
                 value={paymentNotes}
                 onChange={(e) => setPaymentNotes(e.target.value)}
@@ -122,7 +122,7 @@ const ChallengeEntryModal: React.FC<ChallengeEntryModalProps> = ({
             </div>
 
             {/* Important Notice */}
-            <Alert variant="warning">
+            <Alert variant="danger">
               <AlertCircle className="w-4 h-4" />
               <div className="text-sm">
                 <strong>Important:</strong> Please complete your payment to the organizer using your selected method.

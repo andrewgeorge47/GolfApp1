@@ -226,3 +226,4 @@ export {
   type AvatarSize,
   type AvatarVariant
 } from './Avatar';
+export { SimpleLoading } from './SimpleLoading';

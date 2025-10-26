@@ -3,7 +3,7 @@ import { Trophy, Target, Medal, Camera, CheckCircle, Clock, ArrowLeft } from 'lu
 import { toast } from 'react-toastify';
 import { getChallengeLeaderboard, getChallenge, type ChallengeEntry, type WeeklyChallenge } from '../services/api';
 import { useAuth } from '../AuthContext';
-import { Card, CardHeader, CardContent, Button, Badge, Avatar, Table, TableHead, TableBody, TableRow, TableHeader, TableCell, Loading, EmptyState } from './ui';
+import { Card, CardHeader, CardContent, Button, Badge, Avatar, Table, TableHead, TableBody, TableRow, TableHeader, TableCell, SimpleLoading, EmptyState } from './ui';
 
 interface ChallengeLeaderboardProps {
   challengeId: number;
@@ -92,14 +92,14 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
     if (entry.status === 'submitted') {
       return <Badge variant="info"><Clock className="w-3 h-3 mr-1" />Submitted</Badge>;
     }
-    return <Badge variant="warning">Pending</Badge>;
+    return <Badge variant="danger">Pending</Badge>;
   };
 
   if (loading) {
     return (
       <Card>
         <CardContent className="py-8">
-          <Loading text="Loading leaderboard..." />
+          <?SimpleLoading text="Loading leaderboard..." />
         </CardContent>
       </Card>
     );
@@ -110,7 +110,7 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
       <Card>
         <CardContent className="py-8">
           <EmptyState
-            icon={<Target />}
+            icon={Target}
             title="Challenge Not Found"
             description="Unable to load challenge information"
           />
@@ -200,7 +200,7 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
                   {myEntry.photo_url ? (
                     <Badge variant="success"><CheckCircle className="w-3 h-3 mr-1" />Uploaded</Badge>
                   ) : (
-                    <Badge variant="warning"><Camera className="w-3 h-3 mr-1" />Required</Badge>
+                    <Badge variant="danger"><Camera className="w-3 h-3 mr-1" />Required</Badge>
                   )}
                 </div>
               </div>
@@ -222,7 +222,7 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
         {/* Leaderboard Table */}
         {entries.length === 0 ? (
           <EmptyState
-            icon={<Trophy />}
+            icon={Trophy}
             title="No Entries Yet"
             description="Be the first to enter this challenge!"
           />

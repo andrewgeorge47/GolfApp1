@@ -4,7 +4,7 @@ import { toast } from 'react-toastify';
 import { getActiveChallenge, getMyChallengeEntry, getChallengePot, type WeeklyChallenge, type ChallengeEntry, type ChallengePot } from '../services/api';
 import { useAuth } from '../AuthContext';
 import { Card, CardHeader, CardContent, Button, Badge, StatCard, Loading } from './ui';
-import ChallengEntryModal from './ChallengeEntryModal';
+import ChallengeEntryModal from './ChallengeEntryModal';
 
 interface WeeklyChallengeCardProps {
   onEntrySuccess?: () => void;
@@ -89,7 +89,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
     return (
       <Card>
         <CardContent className="py-8">
-          <Loading text="Loading challenge..." />
+          <?SimpleLoading text="Loading challenge..." />
         </CardContent>
       </Card>
     );
@@ -138,25 +138,21 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
               icon={<Target className="w-5 h-5" />}
               label="Designated Hole"
               value={`Hole ${challenge.designated_hole}`}
-              variant="primary"
             />
             <StatCard
               icon={<DollarSign className="w-5 h-5" />}
               label="Entry Fee"
               value={formatCurrency(challenge.entry_fee)}
-              variant="success"
             />
             <StatCard
               icon={<Users className="w-5 h-5" />}
               label="Entries"
               value={challenge.total_entries.toString()}
-              variant="info"
             />
             <StatCard
               icon={<Trophy className="w-5 h-5" />}
               label="Challenge Pot"
               value={formatCurrency(totalPot)}
-              variant="warning"
             />
           </div>
 

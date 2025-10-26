@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Camera, Upload, Target, AlertCircle, CheckCircle, Trophy } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { submitChallengeDistance, uploadChallengePhoto, type ChallengeEntry, type WeeklyChallenge } from '../services/api';
-import { Modal, ModalHeader, ModalContent, ModalFooter, Button, Input, Switch, Alert } from './ui';
+import { Modal, ModalHeader, ModalContent, ModalFooter, Button, Input, Textarea, Switch, Alert } from './ui';
 
 interface ChallengeDistanceSubmissionProps {
   challenge: WeeklyChallenge;
@@ -114,8 +114,8 @@ const ChallengeDistanceSubmission: React.FC<ChallengeDistanceSubmissionProps> = 
   };
 
   return (
-    <Modal isOpen={true} onClose={onClose} size="md">
-      <ModalHeader onClose={onClose}>
+    <Modal open={true} onClose={onClose} size="md">
+      <ModalHeader>
         <div className="flex items-center gap-3">
           <div className="bg-indigo-600 p-2 rounded-lg">
             {step === 'distance' ? (
@@ -150,7 +150,7 @@ const ChallengeDistanceSubmission: React.FC<ChallengeDistanceSubmissionProps> = 
                 </div>
                 <Switch
                   checked={holeInOne}
-                  onChange={setHoleInOne}
+                  onChange={(checked) => setHoleInOne(checked)}
                   size="lg"
                 />
               </div>
@@ -282,7 +282,7 @@ const ChallengeDistanceSubmission: React.FC<ChallengeDistanceSubmissionProps> = 
               />
             </div>
 
-            <Alert variant="warning">
+            <Alert variant="danger">
               <AlertCircle className="w-4 h-4" />
               <div className="text-sm">
                 <strong>Important:</strong> Photo must clearly show your ball's position relative to the pin.
