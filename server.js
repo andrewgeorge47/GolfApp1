@@ -14008,6 +14008,7 @@ app.post('/api/challenges/:id/entries/:entryId/photo', authenticateToken, upload
     const blobStream = blob.createWriteStream({
       resumable: false,
       contentType: req.file.mimetype,
+      predefinedAcl: 'publicRead', // Make file public during upload (works with uniform bucket-level access)
       metadata: {
         metadata: {
           challengeId: challengeId,
@@ -14026,9 +14027,7 @@ app.post('/api/challenges/:id/entries/:entryId/photo', authenticateToken, upload
 
     blobStream.on('finish', async () => {
       try {
-        // Make the file publicly accessible
-        await blob.makePublic();
-
+        // File is already public due to predefinedAcl: 'publicRead' in createWriteStream
         // Get the public URL
         const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
 
