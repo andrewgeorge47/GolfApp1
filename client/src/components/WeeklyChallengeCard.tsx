@@ -298,8 +298,8 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
       {/* Distance Submission Modal */}
       {showDistanceModal && challenge && myEntry && (
         <ChallengeDistanceSubmission
-          challengeId={challenge.id}
-          entryId={myEntry.id}
+          challenge={challenge}
+          entry={myEntry}
           onClose={() => setShowDistanceModal(false)}
           onSuccess={handleDistanceSuccess}
         />
