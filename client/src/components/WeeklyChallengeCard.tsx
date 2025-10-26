@@ -58,9 +58,9 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
     }
   };
 
-  const formatCurrency = (amount: number | undefined) => {
+  const formatCurrency = (amount: number | string | undefined) => {
     if (amount === undefined || amount === null) return '$0';
-    return `$${amount.toFixed(2)}`;
+    return `$${Number(amount).toFixed(2)}`;
   };
 
   const formatDate = (date: string) => {
@@ -106,8 +106,8 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
     );
   }
 
-  const totalPot = (challenge.starting_pot || 0) + (challenge.total_entry_fees * 0.5);
-  const potentialWinnings = challenge.has_hole_in_one ? totalPot + challenge.total_entry_fees : challenge.total_entry_fees * 0.5;
+  const totalPot = Number(challenge.starting_pot || 0) + (Number(challenge.total_entry_fees) * 0.5);
+  const potentialWinnings = challenge.has_hole_in_one ? totalPot + Number(challenge.total_entry_fees) : Number(challenge.total_entry_fees) * 0.5;
 
   return (
     <>

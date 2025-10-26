@@ -221,7 +221,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
             <div className="grid grid-cols-3 gap-4">
               <div className="bg-green-50 rounded-lg p-4">
                 <div className="text-sm text-gray-600 mb-1">Current Pot</div>
-                <div className="text-2xl font-bold text-green-600">${pot.current_amount.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-green-600">${Number(pot.current_amount).toFixed(2)}</div>
               </div>
               <div className="bg-blue-50 rounded-lg p-4">
                 <div className="text-sm text-gray-600 mb-1">Weeks Accumulated</div>
@@ -229,7 +229,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
               </div>
               <div className="bg-purple-50 rounded-lg p-4">
                 <div className="text-sm text-gray-600 mb-1">Total Paid Out</div>
-                <div className="text-2xl font-bold text-purple-600">${pot.total_contributions.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-purple-600">${Number(pot.total_contributions).toFixed(2)}</div>
               </div>
             </div>
           )}
@@ -283,7 +283,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
                               <div>
                                 <span className="text-gray-600">Pot:</span>
                                 <span className="ml-2 font-semibold text-green-600">
-                                  ${((challenge.starting_pot || 0) + (challenge.total_entry_fees * 0.5)).toFixed(2)}
+                                  ${(Number(challenge.starting_pot || 0) + (Number(challenge.total_entry_fees) * 0.5)).toFixed(2)}
                                 </span>
                               </div>
                               <div>
@@ -443,12 +443,12 @@ const WeeklyChallengeAdmin: React.FC = () => {
                           <div>
                             <span className="text-gray-600">Payout:</span>
                             <span className="ml-2 font-semibold text-green-600">
-                              ${challenge.payout_amount.toFixed(2)}
+                              ${Number(challenge.payout_amount).toFixed(2)}
                             </span>
                           </div>
                           <div>
                             <span className="text-gray-600">Rollover:</span>
-                            <span className="ml-2 font-semibold">${challenge.rollover_amount.toFixed(2)}</span>
+                            <span className="ml-2 font-semibold">${Number(challenge.rollover_amount).toFixed(2)}</span>
                           </div>
                           <div>
                             {!challenge.payout_completed && (

@@ -168,7 +168,7 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
           <div className="bg-gray-50 rounded-lg p-4">
             <div className="text-sm text-gray-600 mb-1">Prize Pool</div>
             <div className="text-2xl font-bold text-green-600">
-              ${((challenge.starting_pot || 0) + (challenge.total_entry_fees * 0.5)).toFixed(2)}
+              ${(Number(challenge.starting_pot || 0) + (Number(challenge.total_entry_fees) * 0.5)).toFixed(2)}
             </div>
           </div>
           <div className="bg-gray-50 rounded-lg p-4">
@@ -304,7 +304,7 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
         )}
 
         {/* Winner Announcement */}
-        {challenge.status === 'completed' && challenge.payout_amount > 0 && (
+        {challenge.status === 'completed' && Number(challenge.payout_amount) > 0 && (
           <div className="mt-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-6 border-2 border-yellow-300">
             <div className="flex items-center gap-3 mb-4">
               <Trophy className="w-8 h-8 text-yellow-600" />
@@ -316,7 +316,7 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
                   Congratulations to our hole-in-one winner(s)!
                 </p>
                 <p className="text-gray-700">
-                  Payout: ${challenge.payout_amount.toFixed(2)}
+                  Payout: ${Number(challenge.payout_amount).toFixed(2)}
                   {challenge.hole_in_one_winners && challenge.hole_in_one_winners.length > 1 &&
                     ` (split ${challenge.hole_in_one_winners.length} ways)`
                   }
@@ -329,10 +329,10 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
                 </p>
                 <p className="text-gray-700">
                   Distance: {formatDistance(challenge.closest_distance_inches)} |
-                  Payout: ${challenge.payout_amount.toFixed(2)}
+                  Payout: ${Number(challenge.payout_amount).toFixed(2)}
                 </p>
                 <p className="text-sm text-gray-600 mt-2">
-                  ${challenge.rollover_amount.toFixed(2)} carried over to next week's pot!
+                  ${Number(challenge.rollover_amount).toFixed(2)} carried over to next week's pot!
                 </p>
               </div>
             )}
