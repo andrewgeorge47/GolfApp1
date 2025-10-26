@@ -10,6 +10,7 @@ import {
   verifyChallengePhoto,
   finalizeChallenge,
   markPayoutComplete,
+  getSimulatorCourses,
   type WeeklyChallenge,
   type ChallengeEntry,
   type ChallengePot
@@ -58,8 +59,16 @@ const WeeklyChallengeAdmin: React.FC = () => {
     designated_hole: 1,
     entry_fee: 10,
     week_start_date: '',
-    week_end_date: ''
+    week_end_date: '',
+    course_id: ''
   });
+
+  // Course selection state
+  const [simulatorCourses, setSimulatorCourses] = useState<any[]>([]);
+  const [courseSearchTerm, setCourseSearchTerm] = useState('');
+  const [showCourseDropdown, setShowCourseDropdown] = useState(false);
+  const [filteredCourses, setFilteredCourses] = useState<any[]>([]);
+  const [selectedCourse, setSelectedCourse] = useState<any>(null);
 
   // Verify entry form state
   const [verifyDistance, setVerifyDistance] = useState('');
@@ -68,6 +77,46 @@ const WeeklyChallengeAdmin: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [activeTab]);
+
+  useEffect(() => {
+    const fetchCourses = async () => {
+      try {
+        const response = await getSimulatorCourses(undefined, undefined, 10000);
+        setSimulatorCourses(response.data.courses || []);
+      } catch (error) {
+        console.error('Error fetching simulator courses:', error);
+      }
+    };
+    fetchCourses();
+  }, []);
+
+  useEffect(() => {
+    if (courseSearchTerm.trim()) {
+      const filtered = simulatorCourses.filter(course =>
+        course.name.toLowerCase().includes(courseSearchTerm.toLowerCase()) ||
+        (course.location && course.location.toLowerCase().includes(courseSearchTerm.toLowerCase()))
+      );
+      setFilteredCourses(filtered);
+    } else {
+      setFilteredCourses([]);
+    }
+  }, [courseSearchTerm, simulatorCourses]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.course-dropdown-container')) {
+        setShowCourseDropdown(false);
+      }
+    };
+
+    if (showCourseDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showCourseDropdown]);
 
   const loadData = async () => {
     setLoading(true);
@@ -81,7 +130,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
       setPot(potRes.data);
 
       if (challengesRes.data.length > 0 && activeTab === 'current') {
-        selectChallenge(challengesRes.data[0]);
+        selectChallenge(challengesRes.data[0], false);
       }
     } catch (err) {
       console.error('Error loading data:', err);
@@ -91,22 +140,51 @@ const WeeklyChallengeAdmin: React.FC = () => {
     }
   };
 
-  const selectChallenge = async (challenge: WeeklyChallenge) => {
+  const selectChallenge = async (challenge: WeeklyChallenge, switchTab: boolean = true) => {
     setSelectedChallenge(challenge);
     try {
       const entriesRes = await getChallengeEntries(challenge.id);
       setEntries(entriesRes.data);
-      setActiveTab('entries');
+      if (switchTab) {
+        setActiveTab('entries');
+      }
     } catch (err) {
       console.error('Error loading entries:', err);
       toast.error('Failed to load entries');
     }
   };
 
+  const handleCourseSelect = (course: any) => {
+    setSelectedCourse(course);
+    setNewChallenge({ ...newChallenge, course_id: course.id.toString() });
+    setCourseSearchTerm(course.name);
+    setShowCourseDropdown(false);
+  };
+
+  const handleCourseSearchChange = (value: string) => {
+    setCourseSearchTerm(value);
+    setShowCourseDropdown(true);
+    if (!value) {
+      setSelectedCourse(null);
+      setNewChallenge({ ...newChallenge, course_id: '' });
+    }
+  };
+
+  const clearCourseSelection = () => {
+    setSelectedCourse(null);
+    setCourseSearchTerm('');
+    setNewChallenge({ ...newChallenge, course_id: '' });
+    setShowCourseDropdown(false);
+  };
+
   const handleCreateChallenge = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await createChallenge(newChallenge);
+      const challengeData = {
+        ...newChallenge,
+        course_id: newChallenge.course_id ? parseInt(newChallenge.course_id) : undefined
+      };
+      await createChallenge(challengeData);
       toast.success('Challenge created successfully!');
       setShowCreateModal(false);
       loadData();
@@ -115,8 +193,11 @@ const WeeklyChallengeAdmin: React.FC = () => {
         designated_hole: 1,
         entry_fee: 10,
         week_start_date: '',
-        week_end_date: ''
+        week_end_date: '',
+        course_id: ''
       });
+      setSelectedCourse(null);
+      setCourseSearchTerm('');
     } catch (err: any) {
       console.error('Error creating challenge:', err);
       toast.error(err.response?.data?.error || 'Failed to create challenge');
@@ -494,11 +575,67 @@ const WeeklyChallengeAdmin: React.FC = () => {
                   required
                   placeholder="Weekly Hole-in-One Challenge"
                 />
+
+                {/* Course Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Course <span className="text-xs text-gray-500">(Optional)</span>
+                  </label>
+                  <div className="relative course-dropdown-container">
+                    <div className="flex items-center space-x-2">
+                      <div className="flex-1 relative">
+                        <input
+                          type="text"
+                          value={courseSearchTerm}
+                          onChange={(e) => handleCourseSearchChange(e.target.value)}
+                          onFocus={() => setShowCourseDropdown(true)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          placeholder="Search for a course..."
+                        />
+                        {courseSearchTerm && (
+                          <button
+                            type="button"
+                            onClick={clearCourseSelection}
+                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Course Dropdown */}
+                    {showCourseDropdown && (filteredCourses.length > 0 || courseSearchTerm) && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                        {filteredCourses.length > 0 ? (
+                          filteredCourses.map((course) => (
+                            <button
+                              key={course.id}
+                              type="button"
+                              onClick={() => handleCourseSelect(course)}
+                              className="w-full px-4 py-3 text-left hover:bg-indigo-50 border-b border-gray-100 last:border-b-0"
+                            >
+                              <div className="font-medium text-gray-900">{course.name}</div>
+                              {course.location && (
+                                <div className="text-sm text-gray-500">{course.location}</div>
+                              )}
+                            </button>
+                          ))
+                        ) : courseSearchTerm ? (
+                          <div className="px-4 py-3 text-gray-500 text-sm">
+                            No courses found
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 <Input
                   label="Designated Hole"
                   type="number"
                   min="1"
-                  max="9"
+                  max="18"
                   value={newChallenge.designated_hole}
                   onChange={(e) => setNewChallenge({ ...newChallenge, designated_hole: parseInt(e.target.value) })}
                   required

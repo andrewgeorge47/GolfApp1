@@ -77,7 +77,7 @@ const ChallengeEntryModal: React.FC<ChallengeEntryModalProps> = ({
               <div className="flex items-center justify-between mb-2">
                 <span className="text-gray-700 font-medium">Entry Fee</span>
                 <span className="text-2xl font-bold text-indigo-600">
-                  ${challenge.entry_fee.toFixed(2)}
+                  ${Number(challenge.entry_fee).toFixed(2)}
                 </span>
               </div>
               <div className="text-sm text-gray-600 space-y-1">
