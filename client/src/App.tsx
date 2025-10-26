@@ -25,6 +25,10 @@ import BookingPage from './components/BookingPage';
 import BookingSettingsAdmin from './components/BookingSettingsAdmin';
 import ViewAsModeIndicator from './components/ViewAsModeIndicator';
 import { isClubPro, isAdminOrClubPro } from './utils/roleUtils';
+import WeeklyChallengeCard from './components/WeeklyChallengeCard';
+import ChallengeLeaderboard from './components/ChallengeLeaderboard';
+import ChallengeDistanceSubmission from './components/ChallengeDistanceSubmission';
+import WeeklyChallengeAdmin from './components/WeeklyChallengeAdmin';
 
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -55,10 +59,22 @@ const AvailableTournamentsWrapper: React.FC = () => {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const tournamentId = searchParams.get('tournament');
-  
+
   console.log('AvailableTournamentsWrapper: tournamentId from query params:', tournamentId);
-  
+
   return <AvailableTournaments />;
+};
+
+// Wrapper for ChallengeLeaderboard to handle URL parameters
+const ChallengeLeaderboardWrapper: React.FC = () => {
+  const { challengeId } = useParams();
+  const navigate = useNavigate();
+  return (
+    <ChallengeLeaderboard
+      challengeId={parseInt(challengeId || '0')}
+      onBack={() => navigate('/challenges')}
+    />
+  );
 };
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -476,6 +492,31 @@ function AppContent() {
         <Route path="/booking-settings" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <AdminProtectedRoute><BookingSettingsAdmin /></AdminProtectedRoute>
+          </main>
+        } />
+
+        {/* Weekly Hole-in-One Challenge Routes */}
+        <Route path="/challenges" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute>
+              <div className="space-y-6">
+                <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+                  <Trophy className="w-8 h-8 text-yellow-500" />
+                  Weekly Hole-in-One Challenge
+                </h1>
+                <WeeklyChallengeCard />
+              </div>
+            </ProtectedRoute>
+          </main>
+        } />
+        <Route path="/challenges/:challengeId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><ChallengeLeaderboardWrapper /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/challenges/admin" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><WeeklyChallengeAdmin /></AdminProtectedRoute>
           </main>
         } />
       </Routes>
