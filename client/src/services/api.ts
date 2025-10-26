@@ -1094,4 +1094,229 @@ export const getPermissionAuditLog = (limit: number = 50) => {
   return api.get<AuditLogEntry[]>(`/admin/permission-audit-log?limit=${limit}`);
 };
 
+// ============================================================================
+// WEEKLY HOLE-IN-ONE CHALLENGE API
+// ============================================================================
+
+export interface ChallengeEntry {
+  id: number;
+  challenge_id: number;
+  user_id: number;
+  scorecard_id?: number;
+  entry_paid: boolean;
+  payment_method?: string;
+  payment_amount?: number;
+  payment_notes?: string;
+  payment_submitted_at?: string;
+  hole_in_one: boolean;
+  distance_from_pin_inches?: number;
+  score_on_hole?: number;
+  photo_url?: string;
+  photo_uploaded_at?: string;
+  photo_verified: boolean;
+  photo_verified_by?: number;
+  photo_verified_at?: string;
+  distance_verified: boolean;
+  distance_verified_by?: number;
+  distance_verified_at?: string;
+  distance_override_reason?: string;
+  original_distance_inches?: number;
+  status: 'pending' | 'submitted' | 'verified' | 'winner';
+  created_at: string;
+  updated_at: string;
+  // Joined user fields (from GET entries)
+  first_name?: string;
+  last_name?: string;
+  email_address?: string;
+  club?: string;
+  profile_photo_url?: string;
+  rank?: number;
+}
+
+export interface WeeklyChallenge {
+  id: number;
+  challenge_name: string;
+  designated_hole: number;
+  entry_fee: number;
+  week_start_date: string;
+  week_end_date: string;
+  status: 'active' | 'completed' | 'cancelled';
+  total_entries: number;
+  total_entry_fees: number;
+  starting_pot: number;
+  week_entry_contribution: number;
+  final_pot: number;
+  payout_amount: number;
+  rollover_amount: number;
+  has_hole_in_one: boolean;
+  hole_in_one_winners?: number[];
+  closest_to_pin_winner_id?: number;
+  closest_distance_inches?: number;
+  payout_completed: boolean;
+  payout_notes?: string;
+  finalized_by?: number;
+  finalized_at?: string;
+  created_at: string;
+  updated_at: string;
+  entry_count?: number;
+}
+
+export interface ChallengePot {
+  id: number;
+  current_amount: number;
+  total_contributions: number;
+  last_payout_amount?: number;
+  last_payout_date?: string;
+  weeks_accumulated: number;
+  updated_at: string;
+}
+
+export interface ChallengePayoutHistory {
+  id: number;
+  challenge_id: number;
+  payout_type: 'hole_in_one' | 'closest_to_pin';
+  winner_ids: number[];
+  payout_amount_per_winner: number;
+  total_payout: number;
+  pot_after_payout: number;
+  payout_method?: string;
+  payout_notes?: string;
+  payout_completed: boolean;
+  payout_completed_at?: string;
+  created_at: string;
+}
+
+// Get current challenge pot
+export const getChallengePot = () => {
+  return api.get<ChallengePot>('/challenges/pot');
+};
+
+// Create new weekly challenge (Admin only)
+export const createChallenge = (data: {
+  challenge_name: string;
+  designated_hole: number;
+  entry_fee: number;
+  week_start_date: string;
+  week_end_date: string;
+}) => {
+  return api.post<WeeklyChallenge>('/challenges', data);
+};
+
+// Get all challenges
+export const getChallenges = (params?: {
+  status?: 'active' | 'completed' | 'cancelled';
+  limit?: number;
+  offset?: number;
+}) => {
+  return api.get<WeeklyChallenge[]>('/challenges', { params });
+};
+
+// Get active challenge
+export const getActiveChallenge = () => {
+  return api.get<WeeklyChallenge>('/challenges/active');
+};
+
+// Get specific challenge
+export const getChallenge = (id: number) => {
+  return api.get<WeeklyChallenge>(`/challenges/${id}`);
+};
+
+// Update challenge (Admin only)
+export const updateChallenge = (id: number, data: Partial<WeeklyChallenge>) => {
+  return api.put<WeeklyChallenge>(`/challenges/${id}`, data);
+};
+
+// Delete/cancel challenge (Admin only)
+export const deleteChallenge = (id: number) => {
+  return api.delete<{ message: string; challenge: WeeklyChallenge }>(`/challenges/${id}`);
+};
+
+// Enter a challenge
+export const enterChallenge = (challengeId: number, data: {
+  payment_method: string;
+  payment_amount: number;
+  payment_notes?: string;
+}) => {
+  return api.post<ChallengeEntry>(`/challenges/${challengeId}/enter`, data);
+};
+
+// Get all entries for a challenge
+export const getChallengeEntries = (challengeId: number) => {
+  return api.get<ChallengeEntry[]>(`/challenges/${challengeId}/entries`);
+};
+
+// Get current user's entry
+export const getMyChallengeEntry = (challengeId: number) => {
+  return api.get<ChallengeEntry>(`/challenges/${challengeId}/my-entry`);
+};
+
+// Submit distance from pin
+export const submitChallengeDistance = (challengeId: number, entryId: number, data: {
+  distance_from_pin_inches?: number;
+  hole_in_one: boolean;
+  score_on_hole?: number;
+}) => {
+  return api.post<ChallengeEntry>(`/challenges/${challengeId}/entries/${entryId}/distance`, data);
+};
+
+// Upload photo for challenge entry
+export const uploadChallengePhoto = (challengeId: number, entryId: number, file: File) => {
+  const formData = new FormData();
+  formData.append('challengePhoto', file);
+
+  return api.post<{ message: string; photo_url: string; entry: ChallengeEntry }>(
+    `/challenges/${challengeId}/entries/${entryId}/photo`,
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+};
+
+// Verify photo (Admin only)
+export const verifyChallengePhoto = (challengeId: number, entryId: number) => {
+  return api.put<ChallengeEntry>(`/challenges/${challengeId}/entries/${entryId}/photo/verify`, {});
+};
+
+// Verify entry (Admin only)
+export const verifyChallengeEntry = (challengeId: number, entryId: number, data: {
+  distance_from_pin_inches: number;
+  distance_override_reason?: string;
+}) => {
+  return api.put<ChallengeEntry>(`/challenges/${challengeId}/entries/${entryId}/verify`, data);
+};
+
+// Get challenge leaderboard
+export const getChallengeLeaderboard = (challengeId: number) => {
+  return api.get<ChallengeEntry[]>(`/challenges/${challengeId}/leaderboard`);
+};
+
+// Finalize challenge and determine winner (Admin only)
+export const finalizeChallenge = (challengeId: number, payout_notes?: string) => {
+  return api.post<{
+    message: string;
+    challenge: WeeklyChallenge;
+    winners: { user_id: number; payout: number }[];
+    potAmounts: {
+      startingPot: number;
+      weekEntryContribution: number;
+      finalPot: number;
+      payoutAmount: number;
+      rolloverAmount: number;
+    };
+  }>(`/challenges/${challengeId}/finalize`, { payout_notes });
+};
+
+// Mark payout as completed (Admin only)
+export const markPayoutComplete = (challengeId: number, payout_notes?: string) => {
+  return api.post<WeeklyChallenge>(`/challenges/${challengeId}/payout-complete`, { payout_notes });
+};
+
+// Get challenge history
+export const getChallengeHistory = (params?: { limit?: number; offset?: number }) => {
+  return api.get<WeeklyChallenge[]>('/challenges/history', { params });
+};
+
 export default api; 
