@@ -29,6 +29,9 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
+// Serve uploaded files (for local development when GCS is not configured)
+app.use('/uploads', express.static('uploads'));
+
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
 // JWT middleware
@@ -13966,7 +13969,37 @@ app.post('/api/challenges/:id/entries/:entryId/photo', authenticateToken, upload
 
     // Check if Google Cloud Storage is configured
     if (!bucket) {
-      return res.status(503).json({ error: 'File upload service not configured' });
+      // Fallback: Save locally for development
+      console.log('GCS not configured, storing photo locally');
+      const fs = require('fs').promises;
+      const path = require('path');
+
+      const uploadsDir = path.join(__dirname, 'uploads', 'challenges', challengeId.toString());
+      await fs.mkdir(uploadsDir, { recursive: true });
+
+      const fileName = `entry_${entryId}_${Date.now()}.${req.file.mimetype.split('/')[1]}`;
+      const filePath = path.join(uploadsDir, fileName);
+
+      await fs.writeFile(filePath, req.file.buffer);
+
+      const localUrl = `/uploads/challenges/${challengeId}/${fileName}`;
+
+      // Update entry with local photo URL
+      const result = await pool.query(
+        `UPDATE weekly_challenge_entries
+         SET photo_url = $1,
+             photo_uploaded_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING *`,
+        [localUrl, entryId]
+      );
+
+      return res.json({
+        message: 'Photo uploaded successfully (local storage)',
+        photo_url: localUrl,
+        entry: result.rows[0]
+      });
     }
 
     // Upload to Google Cloud Storage
@@ -13986,38 +14019,53 @@ app.post('/api/challenges/:id/entries/:entryId/photo', authenticateToken, upload
 
     blobStream.on('error', (err) => {
       console.error('Error uploading to GCS:', err);
-      res.status(500).json({ error: 'Failed to upload photo' });
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to upload photo to storage', details: err.message });
+      }
     });
 
     blobStream.on('finish', async () => {
-      // Make the file publicly accessible
-      await blob.makePublic();
+      try {
+        // Make the file publicly accessible
+        await blob.makePublic();
 
-      // Get the public URL
-      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
+        // Get the public URL
+        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
 
-      // Update entry with photo URL
-      const result = await pool.query(
-        `UPDATE weekly_challenge_entries
-         SET photo_url = $1,
-             photo_uploaded_at = CURRENT_TIMESTAMP,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2
-         RETURNING *`,
-        [publicUrl, entryId]
-      );
+        // Update entry with photo URL
+        const result = await pool.query(
+          `UPDATE weekly_challenge_entries
+           SET photo_url = $1,
+               photo_uploaded_at = CURRENT_TIMESTAMP,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2
+           RETURNING *`,
+          [publicUrl, entryId]
+        );
 
-      res.json({
-        message: 'Photo uploaded successfully',
-        photo_url: publicUrl,
-        entry: result.rows[0]
-      });
+        res.json({
+          message: 'Photo uploaded successfully',
+          photo_url: publicUrl,
+          entry: result.rows[0]
+        });
+      } catch (finishErr) {
+        console.error('Error in upload finish handler:', finishErr);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to process uploaded photo', details: finishErr.message });
+        }
+      }
     });
 
     blobStream.end(req.file.buffer);
   } catch (err) {
     console.error('Error uploading challenge photo:', err);
-    res.status(500).json({ error: 'Failed to upload photo' });
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Failed to upload photo',
+        details: err.message,
+        hint: 'Check if Google Cloud Storage is properly configured'
+      });
+    }
   }
 });
 
