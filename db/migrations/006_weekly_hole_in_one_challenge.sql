@@ -25,7 +25,7 @@ VALUES (0, 0, 0);
 CREATE TABLE IF NOT EXISTS weekly_challenges (
     id SERIAL PRIMARY KEY,
     challenge_name VARCHAR(255) NOT NULL,
-    designated_hole INTEGER NOT NULL CHECK (designated_hole BETWEEN 1 AND 9),
+    designated_hole INTEGER NOT NULL CHECK (designated_hole BETWEEN 1 AND 18),
     entry_fee NUMERIC(10,2) NOT NULL,
     week_start_date DATE NOT NULL,
     week_end_date DATE NOT NULL,

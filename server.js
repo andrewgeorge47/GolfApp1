@@ -13606,8 +13606,8 @@ app.post('/api/challenges', authenticateToken, requireAdmin, async (req, res) =>
       week_end_date
     } = req.body;
 
-    if (!designated_hole || designated_hole < 1 || designated_hole > 9) {
-      return res.status(400).json({ error: 'Designated hole must be between 1 and 9' });
+    if (!designated_hole || designated_hole < 1 || designated_hole > 18) {
+      return res.status(400).json({ error: 'Designated hole must be between 1 and 18' });
     }
 
     if (!entry_fee || entry_fee <= 0) {
