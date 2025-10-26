@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { DollarSign, CreditCard, AlertCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { enterChallenge, type WeeklyChallenge } from '../services/api';
-import { Modal, ModalHeader, ModalContent, ModalFooter, Button, Input, Textarea, Select, SelectOption, Alert } from './ui';
+import { Modal, ModalHeader, ModalContent, ModalFooter, Button, Input, Textarea, Select, Alert } from './ui';
+import type { SelectOption } from './ui';
 
 interface ChallengeEntryModalProps {
   challenge: WeeklyChallenge;
@@ -94,14 +95,9 @@ const ChallengeEntryModal: React.FC<ChallengeEntryModalProps> = ({
               <Select
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value)}
+                options={paymentOptions}
                 required
-              >
-                {paymentOptions.map(option => (
-                  <SelectOption key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectOption>
-                ))}
-              </Select>
+              />
             </div>
 
             {/* Payment Notes/Details */}

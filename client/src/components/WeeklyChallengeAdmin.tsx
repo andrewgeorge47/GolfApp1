@@ -31,6 +31,7 @@ import {
   ModalContent,
   ModalFooter,
   Input,
+  Textarea,
   Tabs,
   TabPanel,
   SimpleLoading,
@@ -568,7 +569,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
                 label="Override Reason (if different)"
                 rows={3}
                 value={verifyReason}
-                onChange={(e) => setVerifyReason(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setVerifyReason(e.target.value)}
                 placeholder="Explain any distance adjustments..."
               />
             </div>
