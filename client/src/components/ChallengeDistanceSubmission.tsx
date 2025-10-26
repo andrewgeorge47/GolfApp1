@@ -150,8 +150,8 @@ const ChallengeDistanceSubmission: React.FC<ChallengeDistanceSubmissionProps> = 
                 </div>
                 <Switch
                   checked={holeInOne}
-                  onChange={(checked) => setHoleInOne(checked)}
-                  size="lg"
+                  onChange={(e) => setHoleInOne(e.target.checked)}
+                  switchSize="lg"
                 />
               </div>
             </div>
@@ -282,7 +282,7 @@ const ChallengeDistanceSubmission: React.FC<ChallengeDistanceSubmissionProps> = 
               />
             </div>
 
-            <Alert variant="danger">
+            <Alert variant="error">
               <AlertCircle className="w-4 h-4" />
               <div className="text-sm">
                 <strong>Important:</strong> Photo must clearly show your ball's position relative to the pin.

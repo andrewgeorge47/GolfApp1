@@ -92,14 +92,14 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
     if (entry.status === 'submitted') {
       return <Badge variant="info"><Clock className="w-3 h-3 mr-1" />Submitted</Badge>;
     }
-    return <Badge variant="danger">Pending</Badge>;
+    return <Badge variant="error">Pending</Badge>;
   };
 
   if (loading) {
     return (
       <Card>
         <CardContent className="py-8">
-          <?SimpleLoading text="Loading leaderboard..." />
+          <SimpleLoading text="Loading leaderboard..." />
         </CardContent>
       </Card>
     );
@@ -200,7 +200,7 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
                   {myEntry.photo_url ? (
                     <Badge variant="success"><CheckCircle className="w-3 h-3 mr-1" />Uploaded</Badge>
                   ) : (
-                    <Badge variant="danger"><Camera className="w-3 h-3 mr-1" />Required</Badge>
+                    <Badge variant="error"><Camera className="w-3 h-3 mr-1" />Required</Badge>
                   )}
                 </div>
               </div>

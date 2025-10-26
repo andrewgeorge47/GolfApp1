@@ -3,7 +3,7 @@ import { Target, Trophy, DollarSign, Calendar, Users, Award, TrendingUp } from '
 import { toast } from 'react-toastify';
 import { getActiveChallenge, getMyChallengeEntry, getChallengePot, type WeeklyChallenge, type ChallengeEntry, type ChallengePot } from '../services/api';
 import { useAuth } from '../AuthContext';
-import { Card, CardHeader, CardContent, Button, Badge, StatCard, Loading } from './ui';
+import { Card, CardHeader, CardContent, Button, Badge, StatCard, SimpleLoading } from './ui';
 import ChallengeEntryModal from './ChallengeEntryModal';
 
 interface WeeklyChallengeCardProps {
@@ -89,7 +89,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
     return (
       <Card>
         <CardContent className="py-8">
-          <?SimpleLoading text="Loading challenge..." />
+          <SimpleLoading text="Loading challenge..." />
         </CardContent>
       </Card>
     );

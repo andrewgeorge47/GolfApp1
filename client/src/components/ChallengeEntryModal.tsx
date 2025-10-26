@@ -3,7 +3,6 @@ import { DollarSign, CreditCard, AlertCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { enterChallenge, type WeeklyChallenge } from '../services/api';
 import { Modal, ModalHeader, ModalContent, ModalFooter, Button, Input, Textarea, Select, SelectOption, Alert } from './ui';
-import { Textarea } from \'./ui/Input\';
 
 interface ChallengeEntryModalProps {
   challenge: WeeklyChallenge;
@@ -47,12 +46,12 @@ const ChallengeEntryModal: React.FC<ChallengeEntryModalProps> = ({
   };
 
   const paymentOptions: SelectOption[] = [
-    { id: 'Venmo', label: 'Venmo' },
-    { id: 'Cash', label: 'Cash' },
-    { id: 'Check', label: 'Check' },
-    { id: 'Zelle', label: 'Zelle' },
-    { id: 'PayPal', label: 'PayPal' },
-    { id: 'Other', label: 'Other' }
+    { value: 'Venmo', label: 'Venmo' },
+    { value: 'Cash', label: 'Cash' },
+    { value: 'Check', label: 'Check' },
+    { value: 'Zelle', label: 'Zelle' },
+    { value: 'PayPal', label: 'PayPal' },
+    { value: 'Other', label: 'Other' }
   ];
 
   return (
@@ -122,7 +121,7 @@ const ChallengeEntryModal: React.FC<ChallengeEntryModalProps> = ({
             </div>
 
             {/* Important Notice */}
-            <Alert variant="danger">
+            <Alert variant="error">
               <AlertCircle className="w-4 h-4" />
               <div className="text-sm">
                 <strong>Important:</strong> Please complete your payment to the organizer using your selected method.

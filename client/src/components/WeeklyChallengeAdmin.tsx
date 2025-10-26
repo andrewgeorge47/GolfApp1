@@ -243,13 +243,13 @@ const WeeklyChallengeAdmin: React.FC = () => {
             { label: 'Entries', id: 'entries' },
             { label: 'History', id: 'history' }
           ]}
-          activeTab={activeTab}
+          value={activeTab}
           onChange={(value) => setActiveTab(value as any)}
         />
 
         <CardContent>
           {loading ? (
-            <?SimpleLoading text="Loading..." />
+            <SimpleLoading text="Loading..." />
           ) : (
             <>
               <TabPanel value="current" activeValue={activeTab}>
@@ -593,7 +593,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
           confirmText="Finalize"
           variant="danger"
           onConfirm={handleFinalizeChallenge}
-          onCancel={() => setShowFinalizeDialog(false)}
+          onClose={() => setShowFinalizeDialog(false)}
         />
       )}
     </div>
