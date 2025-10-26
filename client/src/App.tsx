@@ -77,6 +77,16 @@ const ChallengeLeaderboardWrapper: React.FC = () => {
   );
 };
 
+// Wrapper for WeeklyChallengeCard to handle navigation
+const WeeklyChallengeCardWrapper: React.FC = () => {
+  const navigate = useNavigate();
+  return (
+    <WeeklyChallengeCard
+      onViewLeaderboard={(challengeId) => navigate(`/challenges/${challengeId}`)}
+    />
+  );
+};
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const location = useLocation();
@@ -504,7 +514,7 @@ function AppContent() {
                   <Trophy className="w-8 h-8 text-yellow-500" />
                   Weekly Hole-in-One Challenge
                 </h1>
-                <WeeklyChallengeCard />
+                <WeeklyChallengeCardWrapper />
               </div>
             </ProtectedRoute>
           </main>

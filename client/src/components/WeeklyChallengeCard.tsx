@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Target, Trophy, DollarSign, Calendar, Users, Award, TrendingUp } from 'lucide-react';
+import { Target, Trophy, DollarSign, Calendar, Users, Award, TrendingUp, Camera } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { getActiveChallenge, getMyChallengeEntry, getChallengePot, type WeeklyChallenge, type ChallengeEntry, type ChallengePot } from '../services/api';
 import { useAuth } from '../AuthContext';
 import { Card, CardHeader, CardContent, Button, Badge, StatCard, SimpleLoading } from './ui';
 import ChallengeEntryModal from './ChallengeEntryModal';
+import ChallengeDistanceSubmission from './ChallengeDistanceSubmission';
 
 interface WeeklyChallengeCardProps {
   onEntrySuccess?: () => void;
@@ -21,6 +22,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
   const [pot, setPot] = useState<ChallengePot | null>(null);
   const [loading, setLoading] = useState(true);
   const [showEntryModal, setShowEntryModal] = useState(false);
+  const [showDistanceModal, setShowDistanceModal] = useState(false);
 
   useEffect(() => {
     loadChallengeData();
@@ -83,6 +85,12 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
     loadChallengeData();
     onEntrySuccess?.();
     toast.success('Successfully entered the challenge!');
+  };
+
+  const handleDistanceSuccess = () => {
+    setShowDistanceModal(false);
+    loadChallengeData();
+    toast.success('Distance and photo submitted successfully!');
   };
 
   if (loading) {
@@ -250,15 +258,29 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
                 Enter Challenge ({formatCurrency(challenge.entry_fee)})
               </Button>
             ) : (
-              <Button
-                onClick={() => onViewLeaderboard?.(challenge.id)}
-                className="flex-1"
-                variant="primary"
-                size="lg"
-              >
-                <Trophy className="w-5 h-5 mr-2" />
-                View Leaderboard
-              </Button>
+              <>
+                {/* Show Submit Distance button if distance hasn't been submitted yet */}
+                {(myEntry.distance_from_pin_inches === null || myEntry.distance_from_pin_inches === undefined) && (
+                  <Button
+                    onClick={() => setShowDistanceModal(true)}
+                    className="flex-1"
+                    variant="success"
+                    size="lg"
+                  >
+                    <Camera className="w-5 h-5 mr-2" />
+                    Submit Distance & Photo
+                  </Button>
+                )}
+                <Button
+                  onClick={() => onViewLeaderboard?.(challenge.id)}
+                  className="flex-1"
+                  variant="primary"
+                  size="lg"
+                >
+                  <Trophy className="w-5 h-5 mr-2" />
+                  View Leaderboard
+                </Button>
+              </>
             )}
           </div>
         </CardContent>
@@ -270,6 +292,16 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
           challenge={challenge}
           onClose={() => setShowEntryModal(false)}
           onSuccess={handleEntrySuccess}
+        />
+      )}
+
+      {/* Distance Submission Modal */}
+      {showDistanceModal && challenge && myEntry && (
+        <ChallengeDistanceSubmission
+          challengeId={challenge.id}
+          entryId={myEntry.id}
+          onClose={() => setShowDistanceModal(false)}
+          onSuccess={handleDistanceSuccess}
         />
       )}
     </>
