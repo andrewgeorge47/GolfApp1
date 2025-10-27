@@ -17,7 +17,10 @@ import {
   UserMinus,
   Move,
   Save,
-  X
+  X,
+  Medal,
+  Award,
+  MapPin
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import api from '../services/api';
@@ -86,6 +89,99 @@ interface MatchResult {
   winner_id: number;
 }
 
+interface EditMatchModalContentProps {
+  match: any;
+  availablePlayers: any[];
+  onClose: () => void;
+  onUpdate: (player1: any, player2: any) => void;
+}
+
+const EditMatchModalContent: React.FC<EditMatchModalContentProps> = ({ match, availablePlayers, onClose, onUpdate }) => {
+  const [localPlayer1, setLocalPlayer1] = useState<any>(match.player1 || null);
+  const [localPlayer2, setLocalPlayer2] = useState<any>(match.player2 || null);
+
+  const handleSave = () => {
+    if (!localPlayer1 || !localPlayer2) {
+      toast.error('Please select both players');
+      return;
+    }
+    onUpdate(localPlayer1, localPlayer2);
+  };
+
+  return (
+    <>
+      <div className="space-y-4 mb-6">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Player 1
+          </label>
+          <select
+            value={localPlayer1?.user_id || ''}
+            onChange={(e) => {
+              const player = availablePlayers.find(p => p.user_id === parseInt(e.target.value));
+              setLocalPlayer1(player);
+            }}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="">Select Player 1</option>
+            {availablePlayers.map(player => (
+              <option key={player.user_id} value={player.user_id}>
+                {player.first_name} {player.last_name} ({player.club})
+              </option>
+            ))}
+          </select>
+          {localPlayer1 && (
+            <div className="mt-2 text-sm text-gray-600">
+              Club: {localPlayer1.club}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Player 2
+          </label>
+          <select
+            value={localPlayer2?.user_id || ''}
+            onChange={(e) => {
+              const player = availablePlayers.find(p => p.user_id === parseInt(e.target.value));
+              setLocalPlayer2(player);
+            }}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="">Select Player 2</option>
+            {availablePlayers.map(player => (
+              <option key={player.user_id} value={player.user_id}>
+                {player.first_name} {player.last_name} ({player.club})
+              </option>
+            ))}
+          </select>
+          {localPlayer2 && (
+            <div className="mt-2 text-sm text-gray-600">
+              Club: {localPlayer2.club}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex justify-end space-x-3">
+        <button
+          onClick={onClose}
+          className="px-4 py-2 text-gray-600 hover:text-gray-800"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+        >
+          Update Match
+        </button>
+      </div>
+    </>
+  );
+};
+
 const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
   tournamentId,
   tournamentName,
@@ -100,7 +196,7 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
   const [clubParticipants, setClubParticipants] = useState<ClubParticipant[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'groups' | 'matches' | 'scoring' | 'standings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'groups' | 'matches' | 'scoring' | 'standings' | 'bracket'>('overview');
   
   // Manual editing states
   const [editingGroup, setEditingGroup] = useState<ClubGroup | null>(null);
@@ -150,6 +246,33 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
   const [showScorecardModal, setShowScorecardModal] = useState(false);
   const [selectedScorecardUrl, setSelectedScorecardUrl] = useState<string>('');
   const [selectedScorecardPlayer, setSelectedScorecardPlayer] = useState<string>('');
+  
+  // Manual champion selection states
+  const [showManualChampionModal, setShowManualChampionModal] = useState(false);
+  const [manualChampionGroup, setManualChampionGroup] = useState<string>('');
+  const [manualChampionUserId, setManualChampionUserId] = useState<number | null>(null);
+  const [manualChampionNotes, setManualChampionNotes] = useState<string>('');
+
+  // Bracket management states
+  const [standings, setStandings] = useState<any[]>([]);
+  const [standingsLoading, setStandingsLoading] = useState(false);
+  const [bracketMatches, setBracketMatches] = useState<any[]>([]);
+  const [selectedMatchForWinner, setSelectedMatchForWinner] = useState<{round: number, match: number, match_number?: number} | null>(null);
+  const [selectedWinner, setSelectedWinner] = useState<number | null>(null);
+  const [editingBracketMatch, setEditingBracketMatch] = useState<any>(null);
+  const [showEditBracketMatchModal, setShowEditBracketMatchModal] = useState(false);
+  const [availablePlayersForMatch, setAvailablePlayersForMatch] = useState<any[]>([]);
+  
+  // Course selection states
+  const [tournamentData, setTournamentData] = useState<any>({});
+  const [showCourseModal, setShowCourseModal] = useState(false);
+  const [editingRound, setEditingRound] = useState<number | null>(null);
+  const [availableCourses, setAvailableCourses] = useState<any[]>([]);
+  const [courseSearchTerm, setCourseSearchTerm] = useState('');
+  const [filteredCourses, setFilteredCourses] = useState<any[]>([]);
+  const [selectedCourseForRound, setSelectedCourseForRound] = useState<any | null>(null);
+  const [teeboxForRound, setTeeboxForRound] = useState<string>('');
+  const [notesForRound, setNotesForRound] = useState<string>('');
 
   // Get user's appropriate course based on their club (for reference only)
   const { courseData: userCourseData, loading: userCourseLoading, courseId: userCourseId } = useUserCourse(tournamentId, tournament);
@@ -191,6 +314,456 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
   }, [tournamentId, tournamentParticipants, tournamentMatches, userCourseId, userCourseLoading]);
 
 
+
+  const loadStandings = async () => {
+    try {
+      setStandingsLoading(true);
+      const response = await api.get(`/tournaments/${tournamentId}/championship-standings`);
+      setStandings(response.data);
+      
+      // Generate bracket matches from standings - this will also load winners from DB
+      await generateBracketMatches(response.data);
+    } catch (error) {
+      console.error('Error loading standings:', error);
+      toast.error('Failed to load standings');
+    } finally {
+      setStandingsLoading(false);
+    }
+  };
+
+  const determineQualifiedPlayers = (standings: any[]) => {
+    const qualified: any[] = [];
+    
+    // Get the highest ranked player from each group (group champions)
+    standings.forEach(group => {
+      if (group.participants.length > 0) {
+        const groupChampion = group.participants[0]; // First player is highest ranked
+        qualified.push({
+          user_id: groupChampion.user_id,
+          first_name: groupChampion.first_name,
+          last_name: groupChampion.last_name,
+          club: groupChampion.club,
+          group_name: group.group_name,
+          position: 1,
+          match_wins: groupChampion.match_wins,
+          match_losses: groupChampion.match_losses,
+          match_ties: groupChampion.match_ties,
+          total_matches: groupChampion.total_matches,
+          tiebreaker_points: groupChampion.tiebreaker_points,
+          total_holes_won: groupChampion.total_holes_won,
+          total_holes_lost: groupChampion.total_holes_lost,
+          net_holes: groupChampion.net_holes
+        });
+      }
+    });
+
+    // Get all remaining players (excluding group champions) and sort by overall ranking
+    const remainingPlayers: any[] = [];
+    standings.forEach(group => {
+      group.participants.slice(1).forEach((participant: any, index: number) => {
+        remainingPlayers.push({
+          user_id: participant.user_id,
+          first_name: participant.first_name,
+          last_name: participant.last_name,
+          club: participant.club,
+          group_name: group.group_name,
+          position: index + 2,
+          match_wins: participant.match_wins,
+          match_losses: participant.match_losses,
+          match_ties: participant.match_ties,
+          total_matches: participant.total_matches,
+          tiebreaker_points: participant.tiebreaker_points,
+          total_holes_won: participant.total_holes_won,
+          total_holes_lost: participant.total_holes_lost,
+          net_holes: participant.net_holes
+        });
+      });
+    });
+
+    // Sort remaining players by wins, then tiebreaker points, then net holes
+    remainingPlayers.sort((a, b) => {
+      if (b.match_wins !== a.match_wins) {
+        return b.match_wins - a.match_wins;
+      }
+      if (b.tiebreaker_points !== a.tiebreaker_points) {
+        return b.tiebreaker_points - a.tiebreaker_points;
+      }
+      return b.net_holes - a.net_holes;
+    });
+
+    // Add top remaining players to fill 8 total spots
+    const spotsNeeded = 8 - qualified.length;
+    const topRemaining = remainingPlayers.slice(0, spotsNeeded);
+    qualified.push(...topRemaining);
+
+    return qualified.slice(0, 8); // Ensure exactly 8 players
+  };
+
+  const generateBracket = (players: any[]) => {
+    if (players.length !== 8) return [];
+
+    // Split into East and West divisions (4 players each)
+    const eastPlayers = players.slice(0, 4);
+    const westPlayers = players.slice(4, 8);
+
+    const matches: any[] = [];
+
+    // East Division - Quarterfinals (Round 1)
+    matches.push({
+      round: 1,
+      match: 1,
+      player1: eastPlayers[0],
+      player2: eastPlayers[3],
+      winner: null,
+      division: 'east',
+      match_number: 1
+    });
+    matches.push({
+      round: 1,
+      match: 2,
+      player1: eastPlayers[1],
+      player2: eastPlayers[2],
+      winner: null,
+      division: 'east',
+      match_number: 2
+    });
+
+    // West Division - Quarterfinals (Round 1)
+    matches.push({
+      round: 1,
+      match: 3,
+      player1: westPlayers[0],
+      player2: westPlayers[3],
+      winner: null,
+      division: 'west',
+      match_number: 3
+    });
+    matches.push({
+      round: 1,
+      match: 4,
+      player1: westPlayers[1],
+      player2: westPlayers[2],
+      winner: null,
+      division: 'west',
+      match_number: 4
+    });
+
+    // Round 2 - Semifinals (TBD, will be populated when Round 1 winners are selected)
+    matches.push({
+      round: 2,
+      match: 1,
+      player1: null,
+      player2: null,
+      winner: null,
+      division: 'east',
+      match_number: 5,
+      depends_on: ['1-1', '1-2']
+    });
+    matches.push({
+      round: 2,
+      match: 2,
+      player1: null,
+      player2: null,
+      winner: null,
+      division: 'west',
+      match_number: 6,
+      depends_on: ['1-3', '1-4']
+    });
+
+    // Round 3 - Championship
+    matches.push({
+      round: 3,
+      match: 1,
+      player1: null,
+      player2: null,
+      winner: null,
+      division: 'final',
+      match_number: 7,
+      depends_on: ['2-1', '2-2']
+    });
+
+    return matches;
+  };
+
+  const generateBracketMatches = async (groups: any[]) => {
+    try {
+      // First check if there are existing matches in the database
+      const dbMatchesResponse = await api.get(`/tournaments/${tournamentId}/championship-matches`);
+      const dbMatches = dbMatchesResponse.data;
+      const nationalMatches = dbMatches.filter((m: any) => m.match_type === 'national_championship');
+      
+      // If we have database matches, use those instead of generating new ones
+      if (nationalMatches.length > 0) {
+        console.log('Loading bracket from database with', nationalMatches.length, 'matches');
+        
+        // Get all users for player information
+        const usersResponse = await api.get('/users');
+        const users = usersResponse.data;
+        
+        // Convert database matches to bracket format
+        const matchesWithPlayers = await Promise.all(nationalMatches.map(async (dbMatch: any) => {
+          // Find player information from users list (handle TBD placeholder with member_id = -1)
+          const player1User = dbMatch.player1_id === -1 ? 
+            { first_name: 'TBD', last_name: '', club: '' } : 
+            users.find((u: any) => u.member_id === dbMatch.player1_id);
+          const player2User = dbMatch.player2_id === -1 ? 
+            { first_name: 'TBD', last_name: '', club: '' } : 
+            users.find((u: any) => u.member_id === dbMatch.player2_id);
+          
+          if (!player1User || !player2User) {
+            console.error('Player not found:', { player1_id: dbMatch.player1_id, player2_id: dbMatch.player2_id });
+            return null;
+          }
+          
+          const player1 = {
+            user_id: dbMatch.player1_id,
+            first_name: player1User.first_name,
+            last_name: player1User.last_name,
+            club: player1User.club
+          };
+          
+          const player2 = {
+            user_id: dbMatch.player2_id,
+            first_name: player2User.first_name,
+            last_name: player2User.last_name,
+            club: player2User.club
+          };
+          
+          // Determine division (east/west) based on match number for Round 1
+          let division = null;
+          if (dbMatch.round_number === 1) {
+            if (dbMatch.match_number === 1 || dbMatch.match_number === 2) {
+              division = 'east';
+            } else if (dbMatch.match_number === 3 || dbMatch.match_number === 4) {
+              division = 'west';
+            }
+          } else if (dbMatch.round_number === 2) {
+            division = dbMatch.match_number === 5 ? 'east' : 'west';
+          }
+          
+          return {
+            round: dbMatch.round_number,
+            match: dbMatch.match_number,
+            match_number: dbMatch.match_number,
+            division: division,
+            player1: player1,
+            player2: player2,
+            winner: dbMatch.winner_id || null,
+            id: dbMatch.id
+          };
+        }));
+        
+        // Filter out null values (failed matches)
+        const validMatches = matchesWithPlayers.filter((m: any) => m !== null);
+        setBracketMatches(validMatches);
+        return;
+      }
+      
+      // If no database matches exist, generate from standings
+      console.log('No database matches found, generating bracket from standings');
+      const qualifiedPlayers = determineQualifiedPlayers(groups);
+      const matches = generateBracket(qualifiedPlayers);
+      setBracketMatches(matches);
+      
+    } catch (error) {
+      console.error('Error loading bracket from database:', error);
+      
+      // Fall back to generating from standings
+      try {
+        const qualifiedPlayers = determineQualifiedPlayers(groups);
+        const matches = generateBracket(qualifiedPlayers);
+        setBracketMatches(matches);
+      } catch (genError) {
+        console.error('Error generating bracket:', genError);
+        toast.error('Failed to load bracket');
+      }
+    }
+  };
+
+  const handleEditBracketMatch = (match: any) => {
+    setEditingBracketMatch(match);
+    // Get all qualified players as options
+    const allQualified = determineQualifiedPlayers(standings);
+    setAvailablePlayersForMatch(allQualified);
+    setShowEditBracketMatchModal(true);
+  };
+
+  const handleUpdateBracketMatchPlayers = async (player1: any, player2: any) => {
+    if (!editingBracketMatch || !player1 || !player2) return;
+
+    const updatedMatches = bracketMatches.map(m => {
+      if (m.round === editingBracketMatch.round && m.match === editingBracketMatch.match) {
+        return { ...m, player1, player2, winner: null };
+      }
+      return m;
+    });
+
+    setBracketMatches(updatedMatches);
+    
+    // Save to database if this match exists in the database
+    try {
+      const dbMatchesResponse = await api.get(`/tournaments/${tournamentId}/championship-matches`);
+      const dbMatches = dbMatchesResponse.data;
+      const dbMatch = dbMatches.find((m: any) => 
+        m.match_type === 'national_championship' &&
+        m.round_number === editingBracketMatch.round &&
+        m.match_number === editingBracketMatch.match
+      );
+
+      if (dbMatch && dbMatch.id) {
+        await api.put(`/tournaments/${tournamentId}/national-matches/${dbMatch.id}/players`, {
+          player1_id: player1.user_id,
+          player2_id: player2.user_id
+        });
+        console.log('Match players updated in database for match:', dbMatch.id);
+      }
+    } catch (error) {
+      console.error('Error updating match players in database:', error);
+      toast.error('Failed to save match update to database');
+    }
+    
+    setShowEditBracketMatchModal(false);
+    setEditingBracketMatch(null);
+    toast.success('Match updated successfully');
+  };
+
+  const handleSelectWinner = (round: number, matchNumber: number, player: any) => {
+    const match = bracketMatches.find(m => m.round === round && m.match === matchNumber);
+    setSelectedMatchForWinner({ round, match_number: match?.match_number || matchNumber, match: matchNumber });
+    setSelectedWinner(player.user_id);
+  };
+
+  const handleSaveWinner = async () => {
+    if (!selectedMatchForWinner || !selectedWinner) {
+      toast.error('Please select a winner');
+      return;
+    }
+
+    try {
+      const match = bracketMatches.find(m => 
+        m.round === selectedMatchForWinner.round && m.match === selectedMatchForWinner.match
+      );
+
+      if (!match) {
+        toast.error('Match not found');
+        return;
+      }
+
+      // Get the winning player
+      const winnerPlayer = match.player1?.user_id === selectedWinner ? match.player1 : match.player2;
+
+      // Update the match with winner
+      const updatedMatches = bracketMatches.map(m => {
+        if (m.round === selectedMatchForWinner.round && m.match === selectedMatchForWinner.match) {
+          return { ...m, winner: selectedWinner };
+        }
+        return m;
+      });
+      setBracketMatches(updatedMatches);
+
+      // Auto-populate next round if applicable
+      // Round 1 -> Round 2 (semifinals)
+      if (selectedMatchForWinner.round === 1) {
+        const matchNumber = match.match_number;
+        
+        // Determine which semifinal match this winner should populate
+        if (matchNumber === 1 || matchNumber === 2) {
+          // East semifinal (match_number 5)
+          const updatedNextMatches = updatedMatches.map(m => {
+            if (m.round === 2 && m.division === 'east') {
+              const position = matchNumber === 1 ? 'player1' : 'player2';
+              return { ...m, [position]: winnerPlayer };
+            }
+            return m;
+          });
+          setBracketMatches(updatedNextMatches);
+        } else if (matchNumber === 3 || matchNumber === 4) {
+          // West semifinal (match_number 6)
+          const updatedNextMatches = updatedMatches.map(m => {
+            if (m.round === 2 && m.division === 'west') {
+              const position = matchNumber === 3 ? 'player1' : 'player2';
+              return { ...m, [position]: winnerPlayer };
+            }
+            return m;
+          });
+          setBracketMatches(updatedNextMatches);
+        }
+      }
+
+      // Round 2 -> Round 3 (championship)
+      if (selectedMatchForWinner.round === 2) {
+        const position = match.match_number === 5 ? 'player1' : 'player2';
+        
+        const updatedNextMatches = updatedMatches.map(m => {
+          if (m.round === 3 && m.match === 1) {
+            return { ...m, [position]: winnerPlayer };
+          }
+          return m;
+        });
+        setBracketMatches(updatedNextMatches);
+      }
+
+      // Save winner to database if this match has been generated in the database
+      // Check if there's a corresponding database match
+      try {
+        const dbMatchesResponse = await api.get(`/tournaments/${tournamentId}/championship-matches`);
+        const dbMatches = dbMatchesResponse.data;
+        const dbMatch = dbMatches.find((m: any) => 
+          m.match_type === 'national_championship' &&
+          m.round_number === match.round &&
+          m.match_number === match.match_number
+        );
+
+        if (dbMatch && dbMatch.id) {
+          await api.put(`/tournaments/${tournamentId}/national-matches/${dbMatch.id}/winner`, {
+            winner_id: selectedWinner
+          });
+          console.log('Winner saved to database for match:', dbMatch.id);
+        }
+      } catch (error) {
+        console.error('Error saving winner to database:', error);
+        // Don't fail the whole operation if DB save fails
+      }
+
+      toast.success('Winner saved and bracket updated');
+      setSelectedMatchForWinner(null);
+      setSelectedWinner(null);
+    } catch (error) {
+      console.error('Error saving winner:', error);
+      toast.error('Failed to save winner');
+    }
+  };
+
+  const handleClearWinner = async (round: number, matchNumber: number) => {
+    const updatedMatches = bracketMatches.map(m => {
+      if (m.round === round && m.match === matchNumber) {
+        return { ...m, winner: null };
+      }
+      return m;
+    });
+    setBracketMatches(updatedMatches);
+    
+    // Also clear winner in database if match exists
+    try {
+      const dbMatchesResponse = await api.get(`/tournaments/${tournamentId}/championship-matches`);
+      const dbMatches = dbMatchesResponse.data;
+        const dbMatch = dbMatches.find((m: any) => 
+          m.match_type === 'national_championship' &&
+          m.round_number === round &&
+          m.match_number === matchNumber
+        );
+
+      if (dbMatch && dbMatch.id) {
+        await api.put(`/tournaments/${tournamentId}/national-matches/${dbMatch.id}/winner`, {
+          winner_id: null
+        });
+      }
+    } catch (error) {
+      console.error('Error clearing winner in database:', error);
+    }
+    
+    toast.success('Winner cleared');
+  };
 
   const loadDashboardData = async () => {
     try {
@@ -235,6 +808,15 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
       } catch (error) {
         console.error('Error loading championship matches:', error);
         setMatches(tournamentMatches);
+      }
+      
+      // Load standings and bracket for championship tournaments
+      if (tournament?.tournament_type === 'championship' || tournament?.is_national_tournament) {
+        try {
+          await loadStandings();
+        } catch (error) {
+          console.error('Error loading standings:', error);
+        }
       }
       
     } catch (error) {
@@ -864,12 +1446,155 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
     }
   };
 
+  const handleManualChampionSelection = (groupName: string) => {
+    setManualChampionGroup(groupName);
+    setManualChampionUserId(null);
+    setManualChampionNotes('');
+    setShowManualChampionModal(true);
+  };
+
+  const handleSubmitManualChampion = async () => {
+    if (!manualChampionUserId || !manualChampionGroup) {
+      toast.error('Please select a player');
+      return;
+    }
+
+    try {
+      const response = await api.post(`/tournaments/${tournamentId}/manual-champion`, {
+        group_name: manualChampionGroup,
+        user_id: manualChampionUserId,
+        notes: manualChampionNotes
+      });
+      
+      toast.success('Champion manually set');
+      setShowManualChampionModal(false);
+      loadDashboardData();
+      loadStandings(); // Refresh standings to show the manual selection
+      onDataRefresh();
+    } catch (error) {
+      console.error('Error setting manual champion:', error);
+      toast.error('Failed to set champion');
+    }
+  };
+
   const calculateTiebreakerPoints = (wins: number, losses: number, ties: number, holesWon: number, holesLost: number) => {
     // Note: This is a placeholder function. Actual tiebreaker points are calculated server-side
     // using traditional match play scoring (how many holes ahead when match was won)
     // For now, return 0 as this is just for display purposes
     return 0;
   };
+
+  const getPositionIcon = (position: number) => {
+    switch (position) {
+      case 1:
+        return <Trophy className="w-5 h-5 text-yellow-500" />;
+      case 2:
+        return <Medal className="w-5 h-5 text-gray-400" />;
+      case 3:
+        return <Medal className="w-5 h-5 text-amber-600" />;
+      default:
+        return <span className="text-sm font-semibold text-gray-500">{position}</span>;
+    }
+  };
+
+  const getWinRate = (wins: number, total: number) => {
+    if (total === 0) return '0%';
+    return `${Math.round((wins / total) * 100)}%`;
+  };
+
+  // Course management helpers
+  const handleOpenCourseModal = (round: number) => {
+    setEditingRound(round);
+    setSelectedCourseForRound(null);
+    setTeeboxForRound('');
+    setNotesForRound('');
+    setShowCourseModal(true);
+  };
+
+  const handleSaveCourse = async () => {
+    if (!editingRound || !selectedCourseForRound) {
+      toast.error('Please select a course');
+      return;
+    }
+
+    try {
+      await api.put(`/tournaments/${tournamentId}/national-course`, {
+        round: editingRound,
+        course_name: selectedCourseForRound.name,
+        course_id: selectedCourseForRound.id,
+        teebox: teeboxForRound,
+        notes: notesForRound
+      });
+
+      toast.success(`Course updated for round ${editingRound}`);
+      setShowCourseModal(false);
+      
+      // Re-fetch tournament data to get the latest course selections
+      const response = await api.get(`/tournaments/${tournamentId}`);
+      setTournamentData(response.data);
+    } catch (error) {
+      console.error('Error saving course:', error);
+      toast.error('Failed to save course selection');
+    }
+  };
+
+  const getRoundCourse = (round: number) => {
+    return {
+      name: tournamentData[`round_${round}_course`],
+      teebox: tournamentData[`round_${round}_teebox`],
+      notes: tournamentData[`round_${round}_notes`]
+    };
+  };
+
+  // Fetch tournament data for course info
+  useEffect(() => {
+    const fetchTournamentData = async () => {
+      try {
+        const response = await api.get(`/tournaments/${tournamentId}`);
+        setTournamentData(response.data);
+      } catch (error) {
+        console.error('Error fetching tournament data:', error);
+      }
+    };
+    
+    fetchTournamentData();
+  }, [tournamentId]);
+
+  // Fetch available courses
+  useEffect(() => {
+    const fetchCourses = async () => {
+      try {
+        const response = await api.get('/simulator-courses?limit=3000');
+        setAvailableCourses(response.data.courses || []);
+      } catch (error) {
+        console.error('Error fetching courses:', error);
+      }
+    };
+    
+    if (activeTab === 'bracket' && showCourseModal) {
+      fetchCourses();
+    }
+  }, [activeTab, showCourseModal]);
+
+  // Filter courses based on search
+  useEffect(() => {
+    if (courseSearchTerm.trim()) {
+      const filtered = availableCourses.filter(course =>
+        course.name.toLowerCase().includes(courseSearchTerm.toLowerCase()) ||
+        (course.location && course.location.toLowerCase().includes(courseSearchTerm.toLowerCase()))
+      ).slice(0, 20);
+      setFilteredCourses(filtered);
+    } else {
+      setFilteredCourses([]);
+    }
+  }, [courseSearchTerm, availableCourses]);
+
+  // Load standings when bracket or standings tab is opened
+  useEffect(() => {
+    if (activeTab === 'bracket' || activeTab === 'standings') {
+      loadStandings();
+    }
+  }, [activeTab, tournamentId]);
 
   if (loading) {
     return (
@@ -911,7 +1636,8 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
               { id: 'groups', label: 'Groups', icon: Users },
               { id: 'matches', label: 'Matches', icon: Play },
               { id: 'scoring', label: 'Scoring', icon: CheckCircle },
-              { id: 'standings', label: 'Standings', icon: Trophy }
+              { id: 'standings', label: 'Standings', icon: Trophy },
+              { id: 'bracket', label: 'Bracket', icon: Crown }
             ].map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -1461,7 +2187,15 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
           {activeTab === 'standings' && (
             <div className="space-y-6">
               <div className="flex justify-between items-center">
-                <h3 className="text-lg font-semibold text-gray-900">Group Standings</h3>
+                <h3 className="text-lg font-semibold text-gray-900">Championship Standings</h3>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={loadStandings}
+                    className="flex items-center px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Refresh Standings
+                  </button>
                 <button
                   onClick={handleDetermineChampions}
                   className="flex items-center px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
@@ -1469,81 +2203,574 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                   <Crown className="w-4 h-4 mr-2" />
                   Determine Champions
                 </button>
+                </div>
               </div>
 
-              {/* Standings by Group */}
-              {clubGroups && clubGroups.length > 0 ? clubGroups.map(group => {
-                const groupMatches = matches && matches.length > 0 ? matches.filter(match => match.club_group === group.group_name) : [];
-                const groupParticipants = group.user_ids && group.user_ids.length > 0 ? group.user_ids.map(userId => 
-                  tournamentParticipants.find(p => p.user_member_id === userId)
-                ).filter(Boolean) : [];
+              {standingsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
+                  <span className="ml-3 text-gray-600">Loading standings...</span>
+                </div>
+              ) : standings.length > 0 ? (
+                <div className="space-y-6">
+                  {standings.map((group) => (
+                    <div key={group.group_id} className="bg-white rounded-xl shadow-sm border border-gray-200">
+                      {/* Group Header */}
+                      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-xl">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-3">
+                            <Award className="w-5 h-5 text-blue-500" />
+                            <h4 className="text-lg font-semibold text-gray-900">{group.group_name}</h4>
+                            <span className="text-sm text-gray-500">
+                              ({group.participants.length} participants)
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleManualChampionSelection(group.group_name)}
+                            className="flex items-center px-3 py-1.5 bg-purple-500 text-white text-sm rounded-lg hover:bg-purple-600 transition-colors"
+                            title="Manually select a group champion"
+                          >
+                            <Crown className="w-4 h-4 mr-1.5" />
+                            Select Champion
+                          </button>
+                        </div>
+                      </div>
 
-                return (
-                  <div key={group.id} className="bg-white border border-gray-200 rounded-lg p-4">
-                    <h4 className="text-lg font-semibold text-gray-900 mb-4">{group.group_name}</h4>
-                    
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-gray-200">
+                      {/* Desktop Table */}
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full">
                         <thead className="bg-gray-50">
                           <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Player</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Wins</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Losses</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ties</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Holes Won</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Holes Lost</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tiebreaker Points</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Position
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Player
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Club
+                              </th>
+                              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                W-L-T
+                              </th>
+                              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Win Rate
+                              </th>
+                              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Holes Won
+                              </th>
+                              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Net Holes
+                              </th>
+                              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Tiebreaker
+                              </th>
                           </tr>
                         </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {groupParticipants.map(participant => {
-                            const participantMatches = groupMatches.filter(match => 
-                              match.player1_id === participant.user_member_id || match.player2_id === participant.user_member_id
-                            );
-                            
-                            const wins = participantMatches.filter(match => 
-                              match.winner_id === participant.user_member_id
-                            ).length;
-                            
-                            const losses = participantMatches.filter(match => 
-                              match.winner_id && match.winner_id !== participant.user_member_id
-                            ).length;
-                            
-                            const ties = participantMatches.filter(match => 
-                              !match.winner_id && match.match_status === 'completed'
-                            ).length;
-
-                            // Calculate holes won/lost (placeholder - would need actual match data)
-                            const holesWon = 0;
-                            const holesLost = 0;
-                            const tiebreakerPoints = calculateTiebreakerPoints(wins, losses, ties, holesWon, holesLost);
-
-                            return (
-                              <tr key={participant.user_member_id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                  {participant.first_name} {participant.last_name}
+                          <tbody className="divide-y divide-gray-200">
+                            {group.participants.map((participant: any, index: number) => (
+                              <tr key={participant.user_id} className="hover:bg-gray-50">
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center space-x-2">
+                                    {getPositionIcon(index + 1)}
+                                    <span className="text-sm font-medium text-gray-600">
+                                      {index + 1}
+                                    </span>
+                                  </div>
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{wins}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{losses}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{ties}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{holesWon}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{holesLost}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                  {tiebreakerPoints.toFixed(1)}
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center space-x-2">
+                                    <span className="font-semibold text-gray-900">
+                                  {participant.first_name} {participant.last_name}
+                                    </span>
+                                    {index === 0 && <Trophy className="w-4 h-4 text-yellow-500" />}
+                                    {participant.manually_selected_champion && (
+                                      <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">
+                                        Manual
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <span className="text-sm text-gray-600">{participant.club}</span>
+                                </td>
+                                <td className="px-6 py-4 text-center">
+                                  <span className="text-sm font-medium text-gray-900">
+                                    {participant.match_wins}-{participant.match_losses}-{participant.match_ties}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 text-center">
+                                  <span className="text-sm font-medium text-gray-900">
+                                    {getWinRate(participant.match_wins, participant.total_matches)}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 text-center">
+                                  <span className="text-sm font-medium text-gray-900">
+                                    {participant.total_holes_won}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 text-center">
+                                  <span className={`text-sm font-medium ${
+                                    participant.net_holes > 0 ? 'text-green-600' : 
+                                    participant.net_holes < 0 ? 'text-red-600' : 'text-gray-900'
+                                  }`}>
+                                    {participant.net_holes > 0 ? '+' : ''}{participant.net_holes}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 text-center">
+                                  <span className="text-sm font-medium text-gray-900">
+                                    {participant.tiebreaker_points}
+                                  </span>
                                 </td>
                               </tr>
-                            );
-                          })}
+                            ))}
                         </tbody>
                       </table>
                     </div>
+
+                      {/* Mobile Cards */}
+                      <div className="md:hidden space-y-3 p-4">
+                        {group.participants.map((participant: any, index: number) => (
+                          <div key={participant.user_id} className="bg-white border border-gray-200 rounded-lg p-4 hover:bg-gray-50">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center space-x-3">
+                                {getPositionIcon(index + 1)}
+                                <div>
+                                  <div className="flex items-center space-x-2">
+                                    <span className="font-semibold text-gray-900">
+                                      {participant.first_name} {participant.last_name}
+                                    </span>
+                                    {index === 0 && <Trophy className="w-4 h-4 text-yellow-500" />}
+                                    {participant.manually_selected_champion && (
+                                      <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">
+                                        Manual
+                                      </span>
+                                    )}
                   </div>
-                );
-              }) : (
-                <div className="text-center py-8 text-gray-500">
-                  <Trophy className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p>No groups created yet</p>
-                  <p className="text-sm">Create groups first to view standings</p>
+                                  <div className="text-sm text-gray-600 mt-1">
+                                    {participant.club}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-sm font-medium text-gray-900">
+                                  {participant.match_wins}-{participant.match_losses}-{participant.match_ties}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {getWinRate(participant.match_wins, participant.total_matches)}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                              <div className="text-sm text-gray-600">
+                                Tiebreaker Points
+                              </div>
+                              <div className="text-sm font-medium text-gray-900">
+                                {participant.tiebreaker_points}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12 text-gray-500">
+                  <Trophy className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                  <p className="text-lg font-medium">No standings available</p>
+                  <p className="text-sm">Click "Refresh Standings" to load data</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Bracket Tab */}
+          {activeTab === 'bracket' && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold text-gray-900">National Championship Bracket</h3>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={async () => {
+                      try {
+                        const response = await api.post(`/tournaments/${tournamentId}/generate-national-bracket`);
+                        toast.success(`Generated ${response.data.matches.length} Round 1 matches in database`);
+                        await loadStandings();
+                      } catch (error) {
+                        console.error('Error generating bracket:', error);
+                        toast.error('Failed to generate bracket matches');
+                      }
+                    }}
+                    className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    <Crown className="w-4 h-4 mr-2" />
+                    Generate Bracket Matches
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const response = await api.get(`/tournaments/${tournamentId}/championship-standings`);
+                        setStandings(response.data);
+                        toast.success('Standings refreshed');
+                      } catch (error) {
+                        console.error('Error loading standings:', error);
+                        toast.error('Failed to load standings');
+                      }
+                    }}
+                    className="flex items-center px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Refresh Standings
+                  </button>
+                </div>
+              </div>
+
+              {/* Course Selection for Rounds */}
+              <div className="bg-white border border-gray-200 rounded-lg p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-2">
+                    <MapPin className="w-5 h-5 text-blue-500" />
+                    <h4 className="text-md font-semibold text-gray-900">Round Courses</h4>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {[1, 2, 3].map((round) => {
+                    const roundCourse = getRoundCourse(round);
+                    return (
+                      <button
+                        key={round}
+                        onClick={() => handleOpenCourseModal(round)}
+                        className="text-left p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-blue-500 transition-colors group"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium text-gray-500">Round {round}</span>
+                          <Edit className="w-4 h-4 text-gray-400 group-hover:text-blue-500" />
+                        </div>
+                        <div className="text-sm font-medium text-gray-900">
+                          {roundCourse.name || 'Select course...'}
+                        </div>
+                        {roundCourse.teebox && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            Teebox: {roundCourse.teebox}
+                          </div>
+                        )}
+                        {roundCourse.notes && (
+                          <div className="text-xs text-gray-500 mt-1 truncate">
+                            {roundCourse.notes}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Group Champions Overview */}
+              {standings.length > 0 && (
+                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                  <h4 className="text-md font-semibold text-gray-900 mb-4">Group Champions</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {standings.map(group => {
+                      const champion = group.participants && group.participants.length > 0 ? group.participants[0] : null;
+                      return champion ? (
+                        <div key={group.group_id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-medium text-gray-500">{group.group_name}</span>
+                            <Crown className="w-4 h-4 text-yellow-500" />
+                          </div>
+                          <p className="font-semibold text-gray-900">
+                            {champion.first_name} {champion.last_name}
+                          </p>
+                          <p className="text-sm text-gray-600">{champion.club}</p>
+                          {champion.manually_selected_champion && (
+                            <span className="inline-flex items-center mt-2 px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">
+                              Manually Selected
+                            </span>
+                          )}
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+            </div>
+          )}
+
+              {/* Interactive Bracket Display */}
+              {bracketMatches.length > 0 && (
+                <div className="space-y-6">
+                  {/* Round 1 - Quarterfinals */}
+                  <div className="bg-white border border-gray-200 rounded-lg p-6">
+                    <h4 className="text-md font-semibold text-gray-900 mb-4">Round 1 - Quarterfinals</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {bracketMatches.filter(m => m.round === 1).map((match) => (
+                        <div key={`${match.round}-${match.match}`} className="border border-gray-200 rounded-lg overflow-hidden">
+                          <div className="bg-blue-50 px-4 py-2 border-b border-gray-200 flex items-center justify-between">
+                            <span className="text-xs font-medium text-blue-700">Match {match.match_number}</span>
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => handleEditBracketMatch(match)}
+                                className="text-xs px-2 py-1 bg-white text-blue-600 rounded hover:bg-blue-100 transition-colors"
+                              >
+                                <Edit className="w-3 h-3 inline mr-1" />
+                                Edit
+                              </button>
+                              {match.winner && (
+                                <button
+                                  onClick={() => handleClearWinner(match.round, match.match)}
+                                  className="text-xs px-2 py-1 bg-white text-red-600 rounded hover:bg-red-100 transition-colors"
+                                  title="Clear Winner"
+                                >
+                                  <X className="w-3 h-3 inline" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="p-4 space-y-2">
+                            {/* Player 1 */}
+                            <button
+                              onClick={() => match.player1 && handleSelectWinner(match.round, match.match, match.player1)}
+                              className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
+                                match.winner === match.player1?.user_id 
+                                  ? 'border-green-500 bg-green-50' 
+                                  : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                              } ${!match.player1 ? 'opacity-50' : ''}`}
+                              disabled={!match.player1}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  {match.player1 ? (
+                                    <div>
+                                      <p className="font-medium text-gray-900">
+                                        {match.player1.first_name} {match.player1.last_name}
+                                      </p>
+                                      <p className="text-xs text-gray-600">{match.player1.club}</p>
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-gray-400">TBD</p>
+                                  )}
+                                </div>
+                                {match.winner === match.player1?.user_id && (
+                                  <Crown className="w-4 h-4 text-green-600" />
+                                )}
+                              </div>
+                            </button>
+
+                            <div className="text-center text-xs text-gray-400">vs</div>
+
+                            {/* Player 2 */}
+                            <button
+                              onClick={() => match.player2 && handleSelectWinner(match.round, match.match, match.player2)}
+                              className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
+                                match.winner === match.player2?.user_id 
+                                  ? 'border-green-500 bg-green-50' 
+                                  : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                              } ${!match.player2 ? 'opacity-50' : ''}`}
+                              disabled={!match.player2}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  {match.player2 ? (
+                                    <div>
+                                      <p className="font-medium text-gray-900">
+                                        {match.player2.first_name} {match.player2.last_name}
+                                      </p>
+                                      <p className="text-xs text-gray-600">{match.player2.club}</p>
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-gray-400">TBD</p>
+                                  )}
+                                </div>
+                                {match.winner === match.player2?.user_id && (
+                                  <Crown className="w-4 h-4 text-green-600" />
+                                )}
+                              </div>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Round 2 - Semifinals */}
+                  <div className="bg-white border border-gray-200 rounded-lg p-6">
+                    <h4 className="text-md font-semibold text-gray-900 mb-4">Round 2 - Semifinals</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {bracketMatches.filter(m => m.round === 2).map((match) => (
+                        <div key={`${match.round}-${match.match}`} className="border border-gray-200 rounded-lg overflow-hidden">
+                          <div className="bg-purple-50 px-4 py-2 border-b border-gray-200 flex items-center justify-between">
+                            <span className="text-xs font-medium text-purple-700">Semifinal {match.match_number - 4}</span>
+                            <div className="flex items-center space-x-2">
+                              {match.winner && (
+                                <button
+                                  onClick={() => handleClearWinner(match.round, match.match)}
+                                  className="text-xs px-2 py-1 bg-white text-red-600 rounded hover:bg-red-100 transition-colors"
+                                  title="Clear Winner"
+                                >
+                                  <X className="w-3 h-3 inline" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="p-4 space-y-2">
+                            {/* Player 1 */}
+                            <button
+                              onClick={() => match.player1 && handleSelectWinner(match.round, match.match, match.player1)}
+                              className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
+                                match.winner === match.player1?.user_id 
+                                  ? 'border-green-500 bg-green-50' 
+                                  : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                              } ${!match.player1 ? 'opacity-50' : ''}`}
+                              disabled={!match.player1}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  {match.player1 ? (
+                                    <div>
+                                      <p className="font-medium text-gray-900">
+                                        {match.player1.first_name} {match.player1.last_name}
+                                      </p>
+                                      <p className="text-xs text-gray-600">{match.player1.club}</p>
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-gray-400">TBD</p>
+                                  )}
+                                </div>
+                                {match.winner === match.player1?.user_id && (
+                                  <Crown className="w-4 h-4 text-green-600" />
+                                )}
+                              </div>
+                            </button>
+
+                            <div className="text-center text-xs text-gray-400">vs</div>
+
+                            {/* Player 2 */}
+                            <button
+                              onClick={() => match.player2 && handleSelectWinner(match.round, match.match, match.player2)}
+                              className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
+                                match.winner === match.player2?.user_id 
+                                  ? 'border-green-500 bg-green-50' 
+                                  : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                              } ${!match.player2 ? 'opacity-50' : ''}`}
+                              disabled={!match.player2}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  {match.player2 ? (
+                                    <div>
+                                      <p className="font-medium text-gray-900">
+                                        {match.player2.first_name} {match.player2.last_name}
+                                      </p>
+                                      <p className="text-xs text-gray-600">{match.player2.club}</p>
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-gray-400">TBD</p>
+                                  )}
+                                </div>
+                                {match.winner === match.player2?.user_id && (
+                                  <Crown className="w-4 h-4 text-green-600" />
+                                )}
+                              </div>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Round 3 - Championship */}
+                  <div className="bg-white border border-gray-200 rounded-lg p-6">
+                    <h4 className="text-md font-semibold text-gray-900 mb-4">Round 3 - Championship</h4>
+                    <div className="max-w-md mx-auto">
+                      {bracketMatches.filter(m => m.round === 3).map((match) => (
+                        <div key={`${match.round}-${match.match}`} className="border-2 border-yellow-300 bg-yellow-50 rounded-lg overflow-hidden">
+                          <div className="bg-yellow-100 px-4 py-3 border-b-2 border-yellow-300 flex items-center justify-between">
+                            <div className="flex items-center space-x-2 flex-1">
+                              <Trophy className="w-5 h-5 text-yellow-600" />
+                              <span className="text-sm font-semibold text-yellow-800">Championship</span>
+                            </div>
+                            {match.winner && (
+                              <button
+                                onClick={() => handleClearWinner(match.round, match.match)}
+                                className="text-xs px-2 py-1 bg-white text-red-600 rounded hover:bg-red-100 transition-colors"
+                                title="Clear Winner"
+                              >
+                                <X className="w-3 h-3 inline" />
+                              </button>
+                            )}
+                          </div>
+                          <div className="p-6 space-y-3">
+                            {/* Player 1 */}
+                            <button
+                              onClick={() => match.player1 && handleSelectWinner(match.round, match.match, match.player1)}
+                              className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
+                                match.winner === match.player1?.user_id 
+                                  ? 'border-green-500 bg-green-100' 
+                                  : 'border-yellow-200 hover:border-yellow-400 hover:bg-yellow-100'
+                              } ${!match.player1 ? 'opacity-50' : ''}`}
+                              disabled={!match.player1}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  {match.player1 ? (
+                                    <div>
+                                      <p className="font-semibold text-gray-900">
+                                        {match.player1.first_name} {match.player1.last_name}
+                                      </p>
+                                      <p className="text-sm text-gray-600">{match.player1.club}</p>
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-gray-400">TBD</p>
+                                  )}
+                                </div>
+                                {match.winner === match.player1?.user_id && (
+                                  <Trophy className="w-6 h-6 text-green-600" />
+                                )}
+                              </div>
+                            </button>
+
+                            <div className="text-center text-sm font-semibold text-yellow-700">vs</div>
+
+                            {/* Player 2 */}
+                            <button
+                              onClick={() => match.player2 && handleSelectWinner(match.round, match.match, match.player2)}
+                              className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
+                                match.winner === match.player2?.user_id 
+                                  ? 'border-green-500 bg-green-100' 
+                                  : 'border-yellow-200 hover:border-yellow-400 hover:bg-yellow-100'
+                              } ${!match.player2 ? 'opacity-50' : ''}`}
+                              disabled={!match.player2}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  {match.player2 ? (
+                                    <div>
+                                      <p className="font-semibold text-gray-900">
+                                        {match.player2.first_name} {match.player2.last_name}
+                                      </p>
+                                      <p className="text-sm text-gray-600">{match.player2.club}</p>
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-gray-400">TBD</p>
+                                  )}
+                                </div>
+                                {match.winner === match.player2?.user_id && (
+                                  <Trophy className="w-6 h-6 text-green-600" />
+                                )}
+                              </div>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {standings.length === 0 && (
+                <div className="text-center py-12 text-gray-500">
+                  <Crown className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                  <p className="text-lg font-medium">No standings available</p>
+                  <p className="text-sm">Click "Refresh Standings" to load bracket data</p>
                 </div>
               )}
             </div>
@@ -2081,6 +3308,244 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Course Selection Modal */}
+      {showCourseModal && editingRound && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h4 className="text-lg font-semibold mb-4">Select Course for Round {editingRound}</h4>
+            
+            <div className="space-y-4">
+              {/* Course Search */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Search Courses
+                </label>
+                <input
+                  type="text"
+                  value={courseSearchTerm}
+                  onChange={(e) => setCourseSearchTerm(e.target.value)}
+                  placeholder="Search by course name..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              {/* Course Selection */}
+              {filteredCourses.length > 0 && (
+                <div className="max-h-60 overflow-y-auto border border-gray-300 rounded-lg">
+                  {filteredCourses.map((course) => (
+                    <button
+                      key={course.id}
+                      onClick={() => {
+                        setSelectedCourseForRound(course);
+                        setCourseSearchTerm(course.name);
+                      }}
+                      className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-200 last:border-b-0 ${
+                        selectedCourseForRound?.id === course.id ? 'bg-blue-500 text-white' : ''
+                      }`}
+                    >
+                      <div className="font-medium">{course.name}</div>
+                      <div className="text-xs opacity-70 mt-1">
+                        {course.location && `${course.location} • `}
+                        {course.designer && course.designer}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Teebox and Notes */}
+              {selectedCourseForRound && (
+                <div className="space-y-4 border-t pt-4 mt-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Teebox (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={teeboxForRound}
+                      onChange={(e) => setTeeboxForRound(e.target.value)}
+                      placeholder="e.g., Blue, White, Red"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Notes (Optional)
+                    </label>
+                    <textarea
+                      value={notesForRound}
+                      onChange={(e) => setNotesForRound(e.target.value)}
+                      placeholder="Add any notes about this round's course..."
+                      rows={3}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  onClick={() => setShowCourseModal(false)}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveCourse}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                >
+                  Save Course
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Winner Selection Confirmation Modal */}
+      {selectedMatchForWinner && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h4 className="text-lg font-semibold text-gray-900 mb-4">
+              Confirm Winner for Round {selectedMatchForWinner.round}, Match {selectedMatchForWinner.match}
+            </h4>
+            
+            <div className="mb-6">
+              {(() => {
+                const match = bracketMatches.find(m => 
+                  m.round === selectedMatchForWinner.round && m.match === selectedMatchForWinner.match
+                );
+                const winner = match?.player1?.user_id === selectedWinner ? match.player1 : match?.player2;
+                return winner ? (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div className="flex items-center space-x-3">
+                      <Crown className="w-6 h-6 text-green-600" />
+                      <div>
+                        <p className="font-semibold text-gray-900">
+                          {winner.first_name} {winner.last_name}
+                        </p>
+                        <p className="text-sm text-gray-600">{winner.club}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setSelectedMatchForWinner(null);
+                  setSelectedWinner(null);
+                }}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveWinner}
+                className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
+              >
+                Confirm Winner
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Match Modal */}
+      {showEditBracketMatchModal && editingBracketMatch && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h4 className="text-lg font-semibold text-gray-900 mb-4">
+              Edit Match {editingBracketMatch.match_number} - Round {editingBracketMatch.round || 1}
+            </h4>
+            
+            <EditMatchModalContent
+              match={editingBracketMatch}
+              availablePlayers={availablePlayersForMatch}
+              onClose={() => {
+                setShowEditBracketMatchModal(false);
+                setEditingBracketMatch(null);
+              }}
+              onUpdate={handleUpdateBracketMatchPlayers}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Manual Champion Selection Modal */}
+      {showManualChampionModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h4 className="text-lg font-semibold text-gray-900 mb-4">
+              Manually Select Champion for {manualChampionGroup}
+            </h4>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Player to Make Champion
+                </label>
+                <select
+                  value={manualChampionUserId || ''}
+                  onChange={(e) => setManualChampionUserId(parseInt(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                >
+                  <option value="">Select a player</option>
+                  {clubGroups
+                    .find(g => g.group_name === manualChampionGroup)
+                    ?.user_ids
+                    ?.map(userId => {
+                      const participant = tournamentParticipants.find(p => p.user_member_id === userId);
+                      return participant ? (
+                        <option key={userId} value={userId}>
+                          {participant.first_name} {participant.last_name} ({participant.club})
+                        </option>
+                      ) : null;
+                    })
+                    .filter(Boolean)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Notes (Optional)
+                </label>
+                <textarea
+                  value={manualChampionNotes}
+                  onChange={(e) => setManualChampionNotes(e.target.value)}
+                  placeholder="Add notes about why this champion was manually selected..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                  rows={3}
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowManualChampionModal(false);
+                    setManualChampionGroup('');
+                    setManualChampionUserId(null);
+                    setManualChampionNotes('');
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSubmitManualChampion}
+                  className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600"
+                >
+                  Set Champion
+                </button>
+              </div>
             </div>
           </div>
         </div>

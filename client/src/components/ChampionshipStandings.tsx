@@ -7,6 +7,7 @@ interface ChampionshipStandingsProps {
   tournamentId: number;
   tournamentName: string;
   onRefresh?: () => void;
+  isAdmin?: boolean;
 }
 
 interface GroupStanding {
@@ -27,13 +28,16 @@ interface GroupStanding {
     net_holes: number;
     group_name?: string;
     position?: number;
+    manually_selected_champion?: boolean;
+    is_club_champion?: boolean;
   }>;
 }
 
 const ChampionshipStandings: React.FC<ChampionshipStandingsProps> = ({
   tournamentId,
   tournamentName,
-  onRefresh
+  onRefresh,
+  isAdmin = false
 }) => {
   const [standings, setStandings] = useState<GroupStanding[]>([]);
   const [loading, setLoading] = useState(true);
@@ -333,6 +337,7 @@ const ChampionshipStandings: React.FC<ChampionshipStandingsProps> = ({
         <NationalChampionshipBracket 
           tournamentId={tournamentId}
           standings={standings}
+          isAdmin={isAdmin}
         />
       )}
     </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Medal, Users, Target, Award, ChevronRight, RefreshCw, Zap, MapPin } from 'lucide-react';
+import { toast } from 'react-toastify';
 import api from '../services/api';
 
 interface BracketPlayer {
@@ -47,22 +48,44 @@ interface GroupStanding {
     net_holes: number;
     group_name?: string;
     position?: number;
+    manually_selected_champion?: boolean;
+    is_club_champion?: boolean;
   }>;
+}
+
+interface TournamentData {
+  round_1_course?: string;
+  round_1_course_id?: number;
+  round_2_course?: string;
+  round_2_course_id?: number;
+  round_3_course?: string;
+  round_3_course_id?: number;
+  round_1_teebox?: string;
+  round_2_teebox?: string;
+  round_3_teebox?: string;
+  round_1_notes?: string;
+  round_2_notes?: string;
+  round_3_notes?: string;
 }
 
 interface NationalChampionshipBracketProps {
   tournamentId: number;
   standings: GroupStanding[];
+  isAdmin?: boolean;
 }
 
 const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = ({
   tournamentId,
-  standings
+  standings,
+  isAdmin = false
 }) => {
   const [qualifiedPlayers, setQualifiedPlayers] = useState<BracketPlayer[]>([]);
   const [bracket, setBracket] = useState<BracketMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Course selection state (read-only for display)
+  const [tournamentData, setTournamentData] = useState<TournamentData>({});
 
   // Determine qualified players based on standings
   const determineQualifiedPlayers = () => {
@@ -206,12 +229,35 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
     return matches;
   };
 
+  // Fetch tournament data to get course selections (for display only)
+  useEffect(() => {
+    const fetchTournamentData = async () => {
+      try {
+        const response = await api.get(`/tournaments/${tournamentId}`);
+        setTournamentData(response.data);
+      } catch (error) {
+        console.error('Error fetching tournament data:', error);
+      }
+    };
+    
+    fetchTournamentData();
+  }, [tournamentId]);
+
   useEffect(() => {
     const qualified = determineQualifiedPlayers();
     setQualifiedPlayers(qualified);
     setBracket(generateBracket(qualified));
     setLoading(false);
   }, [standings]);
+
+  // Get course info for a round (read-only display)
+  const getRoundCourse = (round: number) => {
+    return {
+      name: tournamentData[`round_${round}_course` as keyof TournamentData],
+      teebox: tournamentData[`round_${round}_teebox` as keyof TournamentData],
+      notes: tournamentData[`round_${round}_notes` as keyof TournamentData]
+    };
+  };
 
   const getPositionIcon = (position: number) => {
     switch (position) {
@@ -261,10 +307,41 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
     <div className="space-y-6">
       {/* Bracket Visualization */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center space-x-3 mb-6">
-          <Trophy className="w-6 h-6 text-brand-neon-green" />
-          <h3 className="text-xl font-semibold text-gray-900">National Championship Bracket</h3>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-3">
+            <Trophy className="w-6 h-6 text-brand-neon-green" />
+            <h3 className="text-xl font-semibold text-gray-900">National Championship Bracket</h3>
+          </div>
         </div>
+
+
+        {/* Course Display for Players */}
+        {!isAdmin && (
+          <div className="mb-6 bg-blue-50 p-4 rounded-lg border border-blue-200">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[1, 2, 3].map((round) => {
+                const roundCourse = getRoundCourse(round);
+                if (!roundCourse.name) return null;
+                
+                return (
+                  <div key={round} className="bg-white p-3 rounded-lg border border-blue-200">
+                    <div className="text-xs font-semibold text-blue-800 mb-1">
+                      Round {round}
+                    </div>
+                    <div className="text-sm font-medium text-gray-900">
+                      {roundCourse.name}
+                    </div>
+                    {roundCourse.teebox && (
+                      <div className="text-xs text-gray-600 mt-1">
+                        Teebox: {roundCourse.teebox}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Bracket Layout */}
         <div className="overflow-x-auto">
@@ -673,6 +750,7 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
           </div>
         </div>
       </div>
+
     </div>
   );
 };
