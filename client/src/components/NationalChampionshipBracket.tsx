@@ -87,7 +87,117 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
   // Course selection state (read-only for display)
   const [tournamentData, setTournamentData] = useState<TournamentData>({});
 
-  // Determine qualified players based on standings
+  // Fetch bracket data from database
+  const fetchBracketData = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch championship matches from database
+      const response = await api.get(`/tournaments/${tournamentId}/championship-matches`);
+      const allMatches = response.data;
+      
+      // Filter for national championship matches
+      const nationalMatches = allMatches.filter((m: any) => m.match_type === 'national_championship');
+      
+      console.log('Fetched national championship matches from database:', nationalMatches.length);
+      
+      if (nationalMatches.length === 0) {
+        // No database matches yet, generate from standings
+        const qualified = determineQualifiedPlayers();
+        setQualifiedPlayers(qualified);
+        setBracket(generateBracket(qualified));
+        setLoading(false);
+        return;
+      }
+      
+      // Convert database matches to bracket format
+      const matches: BracketMatch[] = nationalMatches.map((dbMatch: any) => {
+        // Handle TBD placeholder (member_id = -1) or NULL values from LEFT JOIN
+        const player1 = (dbMatch.player1_id === -1 || !dbMatch.player1_name) ? null : {
+          user_id: dbMatch.player1_id,
+          first_name: dbMatch.player1_name || '',
+          last_name: dbMatch.player1_last_name || '',
+          club: dbMatch.player1_club || '',
+          group_name: '',
+          position: 0,
+          match_wins: 0,
+          match_losses: 0,
+          match_ties: 0,
+          total_matches: 0,
+          tiebreaker_points: 0,
+          total_holes_won: 0,
+          total_holes_lost: 0,
+          net_holes: 0
+        };
+        
+        const player2 = (dbMatch.player2_id === -1 || !dbMatch.player2_name) ? null : {
+          user_id: dbMatch.player2_id,
+          first_name: dbMatch.player2_name || '',
+          last_name: dbMatch.player2_last_name || '',
+          club: dbMatch.player2_club || '',
+          group_name: '',
+          position: 0,
+          match_wins: 0,
+          match_losses: 0,
+          match_ties: 0,
+          total_matches: 0,
+          tiebreaker_points: 0,
+          total_holes_won: 0,
+          total_holes_lost: 0,
+          net_holes: 0
+        };
+        
+        // Determine division based on round and match number
+        let division: 'east' | 'west' = 'east';
+        if (dbMatch.round_number === 1) {
+          if (dbMatch.match_number === 3 || dbMatch.match_number === 4) {
+            division = 'west';
+          }
+        } else if (dbMatch.round_number === 2) {
+          if (dbMatch.match_number === 6) {
+            division = 'west';
+          }
+        }
+        
+        // Only set winner if it's not the placeholder (-1)
+        const winner = (dbMatch.winner_id && dbMatch.winner_id !== -1) ? {
+          user_id: dbMatch.winner_id,
+          first_name: '',
+          last_name: '',
+          club: '',
+          group_name: '',
+          position: 0,
+          match_wins: 0,
+          match_losses: 0,
+          match_ties: 0,
+          total_matches: 0,
+          tiebreaker_points: 0,
+          total_holes_won: 0,
+          total_holes_lost: 0,
+          net_holes: 0
+        } : undefined;
+        
+        return {
+          id: `round-${dbMatch.round_number}-match-${dbMatch.match_number}`,
+          round: dbMatch.round_number,
+          match_number: dbMatch.match_number,
+          player1: player1,
+          player2: player2,
+          winner: winner,
+          division: division
+        };
+      });
+      
+      setBracket(matches);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching bracket data:', error);
+      setError('Failed to load bracket');
+      setLoading(false);
+    }
+  };
+
+  // Determine qualified players based on standings (fallback when no DB matches)
   const determineQualifiedPlayers = () => {
     const qualified: BracketPlayer[] = [];
     
@@ -156,7 +266,7 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
     return qualified.slice(0, 8); // Ensure exactly 8 players
   };
 
-  // Generate bracket structure
+  // Generate bracket structure (fallback when no DB matches)
   const generateBracket = (players: BracketPlayer[]) => {
     if (players.length !== 8) return [];
 
@@ -222,7 +332,7 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
     matches.push({
       id: 'championship',
       round: 3,
-      match_number: 7,
+      match_number: 1,
       division: 'east' // Will be updated to show it's the final
     });
 
@@ -244,11 +354,8 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
   }, [tournamentId]);
 
   useEffect(() => {
-    const qualified = determineQualifiedPlayers();
-    setQualifiedPlayers(qualified);
-    setBracket(generateBracket(qualified));
-    setLoading(false);
-  }, [standings]);
+    fetchBracketData();
+  }, [tournamentId, standings]);
 
   // Get course info for a round (read-only display)
   const getRoundCourse = (round: number) => {
@@ -467,14 +574,24 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
                       </div>
                       <div className="divide-y divide-gray-200">
                         <div className="px-3 py-3">
-                          <div className="font-medium text-gray-500 text-center">
-                            Winner of East QF1
+                          <div className="font-medium text-gray-900 text-center">
+                            {match.player1 ? `${match.player1.first_name} ${match.player1.last_name}` : 'TBD'}
                           </div>
+                          {match.player1 && (
+                            <div className="text-xs text-gray-500 mt-1 text-center">
+                              {match.player1.club}
+                            </div>
+                          )}
                         </div>
                         <div className="px-3 py-3">
-                          <div className="font-medium text-gray-500 text-center">
-                            Winner of East QF2
+                          <div className="font-medium text-gray-900 text-center">
+                            {match.player2 ? `${match.player2.first_name} ${match.player2.last_name}` : 'TBD'}
                           </div>
+                          {match.player2 && (
+                            <div className="text-xs text-gray-500 mt-1 text-center">
+                              {match.player2.club}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -501,14 +618,24 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
                       </div>
                       <div className="divide-y divide-gray-200">
                         <div className="px-3 py-3">
-                          <div className="font-medium text-gray-500 text-center">
-                            Winner of West QF1
+                          <div className="font-medium text-gray-900 text-center">
+                            {match.player1 ? `${match.player1.first_name} ${match.player1.last_name}` : 'TBD'}
                           </div>
+                          {match.player1 && (
+                            <div className="text-xs text-gray-500 mt-1 text-center">
+                              {match.player1.club}
+                            </div>
+                          )}
                         </div>
                         <div className="px-3 py-3">
-                          <div className="font-medium text-gray-500 text-center">
-                            Winner of West QF2
+                          <div className="font-medium text-gray-900 text-center">
+                            {match.player2 ? `${match.player2.first_name} ${match.player2.last_name}` : 'TBD'}
                           </div>
+                          {match.player2 && (
+                            <div className="text-xs text-gray-500 mt-1 text-center">
+                              {match.player2.club}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -534,14 +661,24 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
                     </div>
                     <div className="divide-y divide-yellow-200">
                       <div className="px-3 py-4">
-                        <div className="font-medium text-gray-700 text-center">
-                          East Division Champion
+                        <div className="font-medium text-gray-900 text-center">
+                          {match.player1 ? `${match.player1.first_name} ${match.player1.last_name}` : 'TBD'}
                         </div>
+                        {match.player1 && (
+                          <div className="text-xs text-gray-600 mt-1 text-center">
+                            {match.player1.club}
+                          </div>
+                        )}
                       </div>
                       <div className="px-3 py-4">
-                        <div className="font-medium text-gray-700 text-center">
-                          West Division Champion
+                        <div className="font-medium text-gray-900 text-center">
+                          {match.player2 ? `${match.player2.first_name} ${match.player2.last_name}` : 'TBD'}
                         </div>
+                        {match.player2 && (
+                          <div className="text-xs text-gray-600 mt-1 text-center">
+                            {match.player2.club}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -668,14 +805,24 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
                       </div>
                       <div className="divide-y divide-gray-200">
                         <div className="px-4 py-4">
-                          <div className="font-medium text-gray-500 text-center text-sm">
-                            Winner of East QF1
+                          <div className="font-medium text-gray-900 text-center text-sm">
+                            {match.player1 ? `${match.player1.first_name} ${match.player1.last_name}` : 'TBD'}
                           </div>
+                          {match.player1 && (
+                            <div className="text-xs text-gray-500 mt-1 text-center">
+                              {match.player1.club}
+                            </div>
+                          )}
                         </div>
                         <div className="px-4 py-4">
-                          <div className="font-medium text-gray-500 text-center text-sm">
-                            Winner of East QF2
+                          <div className="font-medium text-gray-900 text-center text-sm">
+                            {match.player2 ? `${match.player2.first_name} ${match.player2.last_name}` : 'TBD'}
                           </div>
+                          {match.player2 && (
+                            <div className="text-xs text-gray-500 mt-1 text-center">
+                              {match.player2.club}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -700,14 +847,24 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
                       </div>
                       <div className="divide-y divide-gray-200">
                         <div className="px-4 py-4">
-                          <div className="font-medium text-gray-500 text-center text-sm">
-                            Winner of West QF1
+                          <div className="font-medium text-gray-900 text-center text-sm">
+                            {match.player1 ? `${match.player1.first_name} ${match.player1.last_name}` : 'TBD'}
                           </div>
+                          {match.player1 && (
+                            <div className="text-xs text-gray-500 mt-1 text-center">
+                              {match.player1.club}
+                            </div>
+                          )}
                         </div>
                         <div className="px-4 py-4">
-                          <div className="font-medium text-gray-500 text-center text-sm">
-                            Winner of West QF2
+                          <div className="font-medium text-gray-900 text-center text-sm">
+                            {match.player2 ? `${match.player2.first_name} ${match.player2.last_name}` : 'TBD'}
                           </div>
+                          {match.player2 && (
+                            <div className="text-xs text-gray-500 mt-1 text-center">
+                              {match.player2.club}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -731,15 +888,35 @@ const NationalChampionshipBracket: React.FC<NationalChampionshipBracketProps> = 
                         </div>
                       </div>
                       <div className="divide-y divide-yellow-200">
-                        <div className="px-4 py-4">
-                          <div className="font-medium text-gray-700 text-center">
-                            East Division Champion
+                        <div className={`px-4 py-4 ${match.winner?.user_id === match.player1?.user_id ? 'bg-green-50' : ''}`}>
+                          <div className="font-medium text-gray-900 text-center">
+                            {match.player1 ? `${match.player1.first_name} ${match.player1.last_name}` : 'TBD'}
                           </div>
+                          {match.player1 && (
+                            <div className="text-xs text-gray-600 mt-1 text-center">
+                              {match.player1.club}
+                            </div>
+                          )}
+                          {match.winner?.user_id === match.player1?.user_id && (
+                            <div className="flex justify-center mt-1">
+                              <Trophy className="w-4 h-4 text-yellow-600" />
+                            </div>
+                          )}
                         </div>
-                        <div className="px-4 py-4">
-                          <div className="font-medium text-gray-700 text-center">
-                            West Division Champion
+                        <div className={`px-4 py-4 ${match.winner?.user_id === match.player2?.user_id ? 'bg-green-50' : ''}`}>
+                          <div className="font-medium text-gray-900 text-center">
+                            {match.player2 ? `${match.player2.first_name} ${match.player2.last_name}` : 'TBD'}
                           </div>
+                          {match.player2 && (
+                            <div className="text-xs text-gray-600 mt-1 text-center">
+                              {match.player2.club}
+                            </div>
+                          )}
+                          {match.winner?.user_id === match.player2?.user_id && (
+                            <div className="flex justify-center mt-1">
+                              <Trophy className="w-4 h-4 text-yellow-600" />
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

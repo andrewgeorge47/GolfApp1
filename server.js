@@ -4698,16 +4698,18 @@ app.get('/api/tournaments/:id/championship-matches', async (req, res) => {
         ncm.*,
         u1.first_name as player1_name,
         u1.last_name as player1_last_name,
+        u1.club as player1_club,
         u1.sim_handicap as player1_handicap,
         u1.handicap as player1_grass_handicap,
         u2.first_name as player2_name,
         u2.last_name as player2_last_name,
+        u2.club as player2_club,
         u2.sim_handicap as player2_handicap,
         u2.handicap as player2_grass_handicap,
         'national_championship' as match_type
       FROM national_championship_matches ncm
-      JOIN users u1 ON ncm.player1_id = u1.member_id
-      JOIN users u2 ON ncm.player2_id = u2.member_id
+      LEFT JOIN users u1 ON ncm.player1_id = u1.member_id
+      LEFT JOIN users u2 ON ncm.player2_id = u2.member_id
       WHERE ncm.tournament_id = $1
       ORDER BY ncm.round_number, ncm.match_number, ncm.id
     `, [id]);
@@ -5934,23 +5936,24 @@ app.put('/api/tournaments/:id/national-matches/:matchId/winner', async (req, res
       }
       
       if (nextRoundMatchNumber && playerPosition) {
-        // Check if the next round match exists
+        // Get the existing next round match to check if it exists
         const existingNextMatch = await pool.query(`
           SELECT * FROM national_championship_matches 
           WHERE tournament_id = $1 AND round_number = 2 AND match_number = $2
         `, [tournamentId, nextRoundMatchNumber]);
         
+        const otherPosition = playerPosition === 'player1_id' ? 'player2_id' : 'player1_id';
+        
         if (existingNextMatch.rows.length > 0) {
-          // Update existing match
+          // Update the existing match, overwriting the player in that position
           await pool.query(`
             UPDATE national_championship_matches 
             SET ${playerPosition} = $1, updated_at = CURRENT_TIMESTAMP
             WHERE tournament_id = $2 AND round_number = 2 AND match_number = $3
           `, [winner_id, tournamentId, nextRoundMatchNumber]);
-          console.log(`Updated semifinal match ${nextRoundMatchNumber} ${playerPosition}`);
+          console.log(`Updated semifinal match ${nextRoundMatchNumber} ${playerPosition} to ${winner_id}`);
         } else {
-          // Create new match with TBD placeholder for the other player
-          const otherPosition = playerPosition === 'player1_id' ? 'player2_id' : 'player1_id';
+          // Create new match with winner and TBD placeholder for the other player
           await pool.query(`
             INSERT INTO national_championship_matches (
               tournament_id, round_number, match_number, ${playerPosition}, ${otherPosition}, match_status
@@ -5977,17 +5980,18 @@ app.put('/api/tournaments/:id/national-matches/:matchId/winner', async (req, res
           WHERE tournament_id = $1 AND round_number = 3 AND match_number = 1
         `, [tournamentId]);
         
+        const otherPosition = playerPosition === 'player1_id' ? 'player2_id' : 'player1_id';
+        
         if (existingChampionship.rows.length > 0) {
-          // Update existing match
+          // Update existing match, overwriting the player in that position
           await pool.query(`
             UPDATE national_championship_matches 
             SET ${playerPosition} = $1, updated_at = CURRENT_TIMESTAMP
             WHERE tournament_id = $2 AND round_number = 3 AND match_number = 1
           `, [winner_id, tournamentId]);
-          console.log(`Updated championship match ${playerPosition}`);
+          console.log(`Updated championship match ${playerPosition} to ${winner_id}`);
         } else {
-          // Create new championship match with TBD placeholder for the other player
-          const otherPosition = playerPosition === 'player1_id' ? 'player2_id' : 'player1_id';
+          // Create new championship match with winner and TBD placeholder for the other player
           await pool.query(`
             INSERT INTO national_championship_matches (
               tournament_id, round_number, match_number, ${playerPosition}, ${otherPosition}, match_status

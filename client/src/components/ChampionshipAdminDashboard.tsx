@@ -2600,6 +2600,13 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                           <div className="bg-purple-50 px-4 py-2 border-b border-gray-200 flex items-center justify-between">
                             <span className="text-xs font-medium text-purple-700">Semifinal {match.match_number - 4}</span>
                             <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => handleEditBracketMatch(match)}
+                                className="text-xs px-2 py-1 bg-white text-blue-600 rounded hover:bg-blue-100 transition-colors"
+                              >
+                                <Edit className="w-3 h-3 inline mr-1" />
+                                Edit
+                              </button>
                               {match.winner && (
                                 <button
                                   onClick={() => handleClearWinner(match.round, match.match)}
@@ -2688,15 +2695,24 @@ const ChampionshipAdminDashboard: React.FC<ChampionshipAdminDashboardProps> = ({
                               <Trophy className="w-5 h-5 text-yellow-600" />
                               <span className="text-sm font-semibold text-yellow-800">Championship</span>
                             </div>
-                            {match.winner && (
+                            <div className="flex items-center space-x-2">
                               <button
-                                onClick={() => handleClearWinner(match.round, match.match)}
-                                className="text-xs px-2 py-1 bg-white text-red-600 rounded hover:bg-red-100 transition-colors"
-                                title="Clear Winner"
+                                onClick={() => handleEditBracketMatch(match)}
+                                className="text-xs px-2 py-1 bg-white text-blue-600 rounded hover:bg-blue-100 transition-colors"
                               >
-                                <X className="w-3 h-3 inline" />
+                                <Edit className="w-3 h-3 inline mr-1" />
+                                Edit
                               </button>
-                            )}
+                              {match.winner && (
+                                <button
+                                  onClick={() => handleClearWinner(match.round, match.match)}
+                                  className="text-xs px-2 py-1 bg-white text-red-600 rounded hover:bg-red-100 transition-colors"
+                                  title="Clear Winner"
+                                >
+                                  <X className="w-3 h-3 inline" />
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <div className="p-6 space-y-3">
                             {/* Player 1 */}
