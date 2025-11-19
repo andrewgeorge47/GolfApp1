@@ -35,6 +35,8 @@ interface Match {
   player2_net_hole_scores?: string;
   player1_scorecard_photo_url?: string;
   player2_scorecard_photo_url?: string;
+  match_type?: 'club_championship' | 'national_championship';
+  round_number?: number;
 }
 
 interface PlayerMatch {
@@ -47,6 +49,49 @@ interface PlayerMatch {
   isPlayer1: boolean;
 }
 
+const NationalMatchCourseInfo: React.FC<{match: Match, tournamentId: number}> = ({ match, tournamentId }) => {
+  const [courseInfo, setCourseInfo] = useState<{name?: string, teebox?: string}>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchCourseInfo = async () => {
+      if (!match.round_number) return;
+      
+      try {
+        const tournamentResponse = await api.get(`/tournaments/${tournamentId}`);
+        const tournament = tournamentResponse.data;
+        
+        const roundCourseKey = `round_${match.round_number}_course`;
+        const roundTeeboxKey = `round_${match.round_number}_teebox`;
+        const courseName = tournament[roundCourseKey];
+        const teebox = tournament[roundTeeboxKey];
+        
+        setCourseInfo({ name: courseName, teebox });
+      } catch (error) {
+        console.error('Error fetching course info:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCourseInfo();
+  }, [match.round_number, tournamentId]);
+
+  if (loading || !courseInfo.name) return null;
+
+  return (
+    <div className="mb-3 p-2 bg-gray-50 border border-gray-200 rounded-lg">
+      <div className="flex items-center justify-center text-xs text-gray-700">
+        <span className="font-medium">Course:</span>
+        <span className="ml-2">{courseInfo.name}</span>
+        {courseInfo.teebox && (
+          <span className="ml-2">({courseInfo.teebox})</span>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
   tournamentId,
   tournamentName,
@@ -55,14 +100,18 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
 }) => {
   const { user } = useAuth();
   const [playerMatches, setPlayerMatches] = useState<PlayerMatch[]>([]);
+  const [clubMatches, setClubMatches] = useState<PlayerMatch[]>([]);
+  const [nationalMatches, setNationalMatches] = useState<PlayerMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
   const [showScoringModal, setShowScoringModal] = useState(false);
   const [holeScores, setHoleScores] = useState<number[]>(new Array(18).fill(0));
   const [submitting, setSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState<'club' | 'national'>('club');
   
   // Course data for handicap calculation
   const [courseData, setCourseData] = useState<any>(null);
+  const [courseName, setCourseName] = useState<string>('');
   const [holeIndexes, setHoleIndexes] = useState<number[]>([]);
   const [parValues, setParValues] = useState<number[]>([]);
   const [opponentHandicap, setOpponentHandicap] = useState<number>(0);
@@ -79,9 +128,70 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
     loadPlayerMatches();
   }, [tournamentId, user?.member_id]);
 
-  // Fetch course data for handicap calculation
+  // Fetch course data for handicap calculation - for national championship, use round-specific course
   useEffect(() => {
     const fetchCourseData = async () => {
+      // If we have a selected match and it's a national championship match, get the round-specific course
+      if (selectedMatch && selectedMatch.match_type === 'national_championship' && selectedMatch.round_number) {
+        try {
+          // Fetch tournament data to get the round-specific course
+          const tournamentResponse = await api.get(`/tournaments/${tournamentId}`);
+          const tournament = tournamentResponse.data;
+          
+          // Get the course for this round
+          const roundCourseIdKey = `round_${selectedMatch.round_number}_course_id`;
+          const courseId = tournament[roundCourseIdKey];
+          
+          if (courseId) {
+            console.log(`Fetching round ${selectedMatch.round_number} course: ${courseId}`);
+            const response = await api.get(`/simulator-courses?id=${courseId}`);
+            const courses = response.data.courses || response.data;
+            const course = Array.isArray(courses) ? courses[0] : courses;
+            
+            if (course) {
+              setCourseData(course);
+              setCourseName(course.name || 'Unknown Course');
+              
+              // Parse hole indexes
+              let indexes;
+              if (Array.isArray(course.hole_indexes)) {
+                indexes = course.hole_indexes;
+              } else if (course.hole_indexes) {
+                indexes = JSON.parse(course.hole_indexes);
+              } else {
+                indexes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+              }
+              setHoleIndexes(indexes);
+              
+              // Parse par values
+              let pars;
+              if (Array.isArray(course.par_values)) {
+                pars = course.par_values;
+              } else if (course.par_values) {
+                pars = JSON.parse(course.par_values);
+              } else {
+                pars = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4];
+              }
+              setParValues(pars);
+              
+              console.log('Loaded national championship round course:', {
+                round: selectedMatch.round_number,
+                courseId,
+                courseName: course.name,
+                holeIndexes: indexes,
+                parValues: pars
+              });
+            }
+          } else {
+            console.log(`No course assigned for round ${selectedMatch.round_number} yet`);
+          }
+        } catch (error) {
+          console.error('Error fetching national championship course data:', error);
+        }
+        return;
+      }
+      
+      // Otherwise use user's club course or tournament course
       const effectiveCourseId = userCourseId || tournament?.course_id;
       
       if (!effectiveCourseId) {
@@ -96,10 +206,12 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
         if (courses && courses.length > 0) {
           const course = courses[0];
           setCourseData(course);
+          setCourseName(course.name || 'Unknown Course');
           setHoleIndexes(course.hole_indexes || []);
           setParValues(course.par_values || []);
           console.log('Course data loaded for handicap calculation:', {
             courseId: effectiveCourseId,
+            courseName: course.name,
             holeIndexes: course.hole_indexes,
             parValues: course.par_values
           });
@@ -109,10 +221,11 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
       }
     };
 
-    if (userCourseId || tournament?.course_id) {
+    // Re-fetch course data when match changes
+    if (selectedMatch || userCourseId || tournament?.course_id) {
       fetchCourseData();
     }
-  }, [userCourseId, tournament?.course_id]);
+  }, [selectedMatch, userCourseId, tournament?.course_id]);
 
   // Calculate net score for a hole based on handicap
   const calculateNetScore = (grossScore: number, handicap: number, holeNumber: number, opponentHandicap: number = 0): number => {
@@ -267,6 +380,18 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
 
       console.log('Filtered player matches:', playerMatchesData);
       setPlayerMatches(playerMatchesData);
+      
+      // Separate club and national championship matches
+      const club = playerMatchesData.filter(m => !m.match.match_type || m.match.match_type === 'club_championship');
+      const national = playerMatchesData.filter(m => m.match.match_type === 'national_championship');
+      
+      setClubMatches(club);
+      setNationalMatches(national);
+      
+      // Auto-switch to national tab if user has national matches
+      if (national.length > 0) {
+        setActiveTab('national');
+      }
     } catch (error) {
       console.error('Error loading player matches:', error);
       toast.error('Failed to load your matches');
@@ -310,7 +435,12 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
         return calculateNetScore(score, currentPlayerHandicap, holeNumber, opponentHandicap);
       });
       
-      const response = await api.put(`/tournaments/${tournamentId}/championship-matches/${selectedMatch.id}/result`, {
+      // Determine the correct endpoint based on match type
+      const endpoint = selectedMatch.match_type === 'national_championship' 
+        ? `/tournaments/${tournamentId}/national-matches/${selectedMatch.id}/result`
+        : `/tournaments/${tournamentId}/championship-matches/${selectedMatch.id}/result`;
+      
+      const response = await api.put(endpoint, {
         [isPlayer1 ? 'player1_hole_scores' : 'player2_hole_scores']: JSON.stringify(holeScores),
         [isPlayer1 ? 'player1_net_hole_scores' : 'player2_net_hole_scores']: JSON.stringify(netScores),
         [isPlayer1 ? 'player1_scorecard_photo_url' : 'player2_scorecard_photo_url']: scorecardPhotoUrl || null,
@@ -320,7 +450,12 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
       toast.success('Your scores have been submitted! Waiting for opponent to submit their scores.');
       setShowScoringModal(false);
       setSelectedMatch(null);
-      loadPlayerMatches();
+      
+      // Reload matches immediately to get updated status
+      setTimeout(() => {
+        loadPlayerMatches();
+      }, 100);
+      
       onScoreSubmitted();
     } catch (error) {
       console.error('Error submitting match score:', error);
@@ -428,19 +563,54 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
         <p className="text-neutral-600">{tournamentName}</p>
       </div>
 
+      {/* Tabs for Club vs National Championship - Only show if user has both types */}
+      {(clubMatches.length > 0 && nationalMatches.length > 0) && (
+        <div className="flex border-b border-neutral-200 mb-4">
+          <button
+            onClick={() => setActiveTab('club')}
+            className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
+              activeTab === 'club'
+                ? 'border-b-2 border-brand-neon-green text-brand-neon-green'
+                : 'text-neutral-600 hover:text-brand-black'
+            }`}
+          >
+            Club Championship
+          </button>
+          <button
+            onClick={() => setActiveTab('national')}
+            className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
+              activeTab === 'national'
+                ? 'border-b-2 border-brand-neon-green text-brand-neon-green'
+                : 'text-neutral-600 hover:text-brand-black'
+            }`}
+          >
+            National Championship
+          </button>
+        </div>
+      )}
+
       {/* Matches List */}
       <div className="space-y-4">
-        <h4 className="text-lg font-semibold text-brand-black">Your Matches</h4>
+        <h4 className="text-lg font-semibold text-brand-black">
+          {activeTab === 'club' ? 'Club Championship Matches' : 'National Championship Matches'}
+        </h4>
         
-        {playerMatches.length === 0 ? (
-          <div className="text-center py-8 text-neutral-500">
-            <Users className="w-12 h-12 mx-auto mb-4 text-neutral-300" />
-            <p>No matches assigned yet</p>
-            <p className="text-sm">Check back later or contact the tournament organizer</p>
-          </div>
-        ) : (
-          <div className="grid gap-4">
-            {playerMatches.map((playerMatch) => {
+        {(() => {
+          const matchesToShow = activeTab === 'club' ? clubMatches : nationalMatches;
+          
+          if (matchesToShow.length === 0) {
+            return (
+              <div className="text-center py-8 text-neutral-500">
+                <Users className="w-12 h-12 mx-auto mb-4 text-neutral-300" />
+                <p>No matches assigned yet</p>
+                <p className="text-sm">Check back later or contact the tournament organizer</p>
+              </div>
+            );
+          }
+          
+          return (
+            <div className="grid gap-4">
+              {matchesToShow.map((playerMatch) => {
               console.log('Rendering match:', playerMatch);
               const strokeInfo = calculateStrokeDifference(playerMatch.match);
               const currentPlayerName = playerMatch.isPlayer1 ? 
@@ -457,6 +627,11 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                 <div className="flex items-center justify-between mb-3">
                   <div className="text-sm font-medium text-neutral-600">
                     Match {playerMatch.match.match_number}
+                    {playerMatch.match.match_type === 'national_championship' && playerMatch.match.round_number && (
+                      <span className="ml-2 text-xs text-blue-600">
+                        (Round {playerMatch.match.round_number})
+                      </span>
+                    )}
                   </div>
                   {/* Status Badge */}
                   <div className="flex items-center">
@@ -515,6 +690,11 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                   </div>
                 </div>
                 
+                {/* Course Information - Fetch dynamically for national matches */}
+                {playerMatch.match.match_type === 'national_championship' && (
+                  <NationalMatchCourseInfo match={playerMatch.match} tournamentId={tournamentId} />
+                )}
+                
                 {/* Stroke Information */}
                 {strokeInfo.handicapDifferential > 0 && (
                   <div className="mb-3 space-y-2">
@@ -570,20 +750,28 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                         const isPlayer1 = playerMatch.match.player1_id === user?.member_id;
                         const currentPlayerScores = isPlayer1 ? playerMatch.match.player1_hole_scores : playerMatch.match.player2_hole_scores;
                         
-                        // Simple check: if scores exist and are not empty/null
-                        const hasCurrentPlayerScores = currentPlayerScores && 
-                          currentPlayerScores !== 'null' && 
-                          currentPlayerScores !== '[]' &&
-                          (typeof currentPlayerScores === 'string' ? currentPlayerScores.trim() !== '' : true);
+                        // Check if scores exist and contain valid data
+                        let hasCurrentPlayerScores = false;
                         
-                        console.log('Score check debug:', {
-                          isPlayer1,
-                          currentPlayerScores,
-                          hasCurrentPlayerScores,
-                          matchStatus: playerMatch.match.match_status,
-                          player1Scores: playerMatch.match.player1_hole_scores,
-                          player2Scores: playerMatch.match.player2_hole_scores
-                        });
+                        if (currentPlayerScores) {
+                          try {
+                            // Parse the scores (they might be JSON string or already parsed)
+                            let parsedScores;
+                            if (typeof currentPlayerScores === 'string') {
+                              parsedScores = JSON.parse(currentPlayerScores);
+                            } else {
+                              parsedScores = currentPlayerScores;
+                            }
+                            
+                            // Check if it's a valid array with at least one non-zero score
+                            if (Array.isArray(parsedScores)) {
+                              hasCurrentPlayerScores = parsedScores.some(score => score > 0);
+                            }
+                          } catch (e) {
+                            // If parsing fails, treat as no scores
+                            hasCurrentPlayerScores = false;
+                          }
+                        }
                         
                         return hasCurrentPlayerScores;
                       })() ? (
@@ -620,9 +808,10 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
                 </div>
               </div>
               );
-            })}
-          </div>
-        )}
+              })}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Scoring Modal - Mobile Optimized */}
@@ -631,7 +820,25 @@ const ChampionshipPlayerScoring: React.FC<ChampionshipPlayerScoringProps> = ({
           <div className="bg-white rounded-lg p-4 sm:p-6 w-full max-w-2xl max-h-[95vh] sm:max-h-[90vh] overflow-y-auto">
             <h4 className="text-base sm:text-lg font-semibold mb-4">
               Enter Scores - Match {selectedMatch.match_number}
+              {selectedMatch.match_type === 'national_championship' && selectedMatch.round_number && (
+                <span className="ml-2 text-sm text-blue-600">
+                  (Round {selectedMatch.round_number})
+                </span>
+              )}
             </h4>
+            
+            {/* Course Information */}
+            {selectedMatch.match_type === 'national_championship' && courseName && (
+              <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                <div className="flex items-center justify-center text-sm text-gray-700">
+                  <span className="font-medium">Course:</span>
+                  <span className="ml-2">{courseName}</span>
+                  {selectedMatch.teebox && (
+                    <span className="ml-2">({selectedMatch.teebox})</span>
+                  )}
+                </div>
+              </div>
+            )}
             
             <div className="mb-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-3">

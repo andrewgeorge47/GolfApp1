@@ -80,7 +80,7 @@ interface ClubLeaderboardData {
 }
 
 const Leaderboard: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const location = useLocation();
   const params = useParams();
   const navigate = useNavigate();
@@ -755,6 +755,7 @@ const Leaderboard: React.FC = () => {
                     onRefresh={() => {
                       // Refresh tournament data if needed
                     }}
+                    isAdmin={isAdmin}
                   />
                 ) : selectedTournament.tournament_format === 'match_play' ? (
                   <MatchplayLeaderboard
