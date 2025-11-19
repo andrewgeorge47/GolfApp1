@@ -10,31 +10,34 @@ export interface EnvironmentConfig {
 const isDevelopment = process.env.NODE_ENV === 'development';
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Get API base URL from environment variable or determine automatically
+// Get API base URL - auto-detect based on current domain
 const getApiBaseUrl = (): string => {
-  // If explicitly set via environment variable, use that
-  if (process.env.REACT_APP_API_URL) {
-    return process.env.REACT_APP_API_URL;
-  }
-  
   // Auto-detect based on current domain
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
-    
+    const port = window.location.port;
+
+    // Local development on localhost
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       return 'http://localhost:3001/api';
     }
-    
-    if (hostname === 'play.nngolf.co' || hostname === 'trackmansucks.com') {
+
+    // Local development on LAN IP (your local server)
+    if (hostname === '192.168.1.202') {
+      return 'http://192.168.1.202:3002/api';
+    }
+
+    // Production domains
+    if (hostname === 'play.nngolf.co' || hostname === 'trackmansucks.com' || hostname === 'www.trackmansucks.com') {
       return 'https://golfapp1.onrender.com/api';
     }
   }
-  
+
   // Fallback for production builds
   if (isProduction) {
     return 'https://golfapp1.onrender.com/api';
   }
-  
+
   // Default fallback
   return 'http://localhost:3001/api';
 };
