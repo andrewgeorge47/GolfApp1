@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { login as apiLogin, getCurrentUser } from './services/api';
+import { login as apiLogin, getCurrentUser, getUserPermissions } from './services/api';
 import { isAdmin as checkIsAdmin } from './utils/roleUtils';
 
 interface ViewAsMode {
@@ -50,7 +50,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (token) {
         try {
           const res = await getCurrentUser(token);
-          setUser(res.data.user);
+          const userData = res.data.user;
+
+          // Fetch user's permissions and roles
+          try {
+            const permRes = await getUserPermissions(userData.member_id);
+            setUser({
+              ...userData,
+              roles: permRes.data.roles,
+              permissions: permRes.data.permissions,
+              primary_role: permRes.data.primary_role
+            });
+          } catch (permError) {
+            console.error('AuthContext: Failed to fetch permissions:', permError);
+            // Still set user even if permissions fail (backward compatibility)
+            setUser(userData);
+          }
         } catch (error) {
           console.error('AuthContext: Token validation failed:', error);
           setUser(null);
@@ -60,7 +75,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       } else {
         setUser(null);
       }
-      
+
       setLoading(false);
     };
 
@@ -73,7 +88,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const res = await apiLogin(email, password);
       setToken(res.data.token);
       localStorage.setItem('token', res.data.token);
-      setUser(res.data.user);
+
+      const userData = res.data.user;
+
+      // Fetch user's permissions and roles
+      try {
+        const permRes = await getUserPermissions(userData.member_id);
+        setUser({
+          ...userData,
+          roles: permRes.data.roles,
+          permissions: permRes.data.permissions,
+          primary_role: permRes.data.primary_role
+        });
+      } catch (permError) {
+        console.error('AuthContext: Failed to fetch permissions:', permError);
+        // Still set user even if permissions fail (backward compatibility)
+        setUser(userData);
+      }
     } catch (error) {
       console.error('AuthContext: Login failed:', error);
       throw error;
@@ -92,7 +123,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (token) {
       try {
         const res = await getCurrentUser(token);
-        setUser(res.data.user);
+        const userData = res.data.user;
+
+        // Fetch user's permissions and roles
+        try {
+          const permRes = await getUserPermissions(userData.member_id);
+          setUser({
+            ...userData,
+            roles: permRes.data.roles,
+            permissions: permRes.data.permissions,
+            primary_role: permRes.data.primary_role
+          });
+        } catch (permError) {
+          console.error('AuthContext: Failed to fetch permissions:', permError);
+          setUser(userData);
+        }
       } catch (error) {
         console.error('AuthContext: Error refreshing user data:', error);
         // Don't logout on refresh failure, just log the error

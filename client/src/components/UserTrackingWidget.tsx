@@ -3,10 +3,11 @@ import { Users, UserCheck, Calendar, TrendingUp, BarChart3, Filter, Clock, Edit3
 import { getUserTrackingStats, getUserTrackingDetails, updateUser, deleteUser, type UserTrackingStats, type UserTrackingDetails } from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../AuthContext';
+import { usePermissions } from '../hooks/usePermissions';
 import { useNavigate } from 'react-router-dom';
 import AddUserModal from './AddUserModal';
 import AdminRoundAdder from './AdminRoundAdder';
-import { isAdmin, getAvailableRoles, getRoleBadgeColor, UserRole } from '../utils/roleUtils';
+import { getAvailableRoles, getRoleBadgeColor, UserRole } from '../utils/roleUtils';
 
 interface UserTrackingWidgetProps {
   className?: string;
@@ -14,6 +15,8 @@ interface UserTrackingWidgetProps {
 
 const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' }) => {
   const { user } = useAuth();
+  const { hasPermission } = usePermissions();
+  const hasAdminAccess = hasPermission('access_admin_panel');
   const navigate = useNavigate();
   const [stats, setStats] = useState<UserTrackingStats | null>(null);
   const [details, setDetails] = useState<UserTrackingDetails[]>([]);
@@ -38,21 +41,20 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
     console.log('User role:', user?.role);
     console.log('User object keys:', user ? Object.keys(user) : 'No user');
 
-    // Check if user is loaded and has admin privileges (using centralized role check)
+    // Check if user is loaded and has admin privileges (using permission check)
     if (user) {
-      const userIsAdmin = isAdmin(user);
-      console.log('Is admin?', userIsAdmin);
+      console.log('Has admin access?', hasAdminAccess);
 
-      if (userIsAdmin) {
+      if (hasAdminAccess) {
         fetchStats();
       } else {
-        console.log('User does not have admin privileges. Role:', user.role);
+        console.log('User does not have access_admin_panel permission');
         setLoading(false);
       }
     } else {
       console.log('No user loaded yet');
     }
-  }, [user]);
+  }, [user, hasAdminAccess]);
 
 
 
@@ -230,8 +232,8 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
     );
   }
 
-  // Check admin access using centralized role check
-  if (!isAdmin(user)) {
+  // Check admin access using permission check
+  if (!hasAdminAccess) {
     return (
       <div className={`bg-white rounded-xl p-6 border border-neutral-200 ${className}`}>
         <div className="text-center">
@@ -239,8 +241,6 @@ const UserTrackingWidget: React.FC<UserTrackingWidgetProps> = ({ className = '' 
           <h3 className="text-lg font-semibold text-neutral-600 mb-2">Access Denied</h3>
           <p className="text-neutral-500">
             You need admin privileges to view user tracking statistics.
-            <br />
-            Current role: {user.role || 'No role assigned'}
           </p>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Eye, X, User, MapPin, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useAuth } from '../AuthContext';
+import { usePermissions } from '../hooks/usePermissions';
 import api from '../services/api';
 import { getAvailableRoles } from '../utils/roleUtils';
 
@@ -9,7 +10,9 @@ interface ViewAsModeProps {
 }
 
 const ViewAsMode: React.FC<ViewAsModeProps> = ({ className = '' }) => {
-  const { user, viewAsMode, enterViewAsMode, exitViewAsMode, isAdmin } = useAuth();
+  const { user, viewAsMode, enterViewAsMode, exitViewAsMode } = useAuth();
+  const { hasPermission } = usePermissions();
+  const canViewAs = hasPermission('view_as_user');
   const [isOpen, setIsOpen] = useState(false);
   const [selectedRole, setSelectedRole] = useState('');
   const [selectedClub, setSelectedClub] = useState('');
@@ -21,7 +24,7 @@ const ViewAsMode: React.FC<ViewAsModeProps> = ({ className = '' }) => {
   useEffect(() => {
     // Fetch available roles and clubs from API
     const fetchViewAsData = async () => {
-      if (!isAdmin) return;
+      if (!canViewAs) return;
       
       try {
         setDataLoading(true);
@@ -50,7 +53,7 @@ const ViewAsMode: React.FC<ViewAsModeProps> = ({ className = '' }) => {
     };
 
     fetchViewAsData();
-  }, [isAdmin, user, selectedClub]);
+  }, [canViewAs, user, selectedClub]);
 
   const handleEnterViewAsMode = () => {
     if (!selectedRole || !selectedClub) {
@@ -74,8 +77,8 @@ const ViewAsMode: React.FC<ViewAsModeProps> = ({ className = '' }) => {
     exitViewAsMode();
   };
 
-  // Don't render if user is not an admin
-  if (!isAdmin) {
+  // Don't render if user doesn't have view_as_user permission
+  if (!canViewAs) {
     return null;
   }
 

@@ -54,6 +54,23 @@ api.interceptors.response.use(
   }
 );
 
+export interface UserRole {
+  role_id: number;
+  role_name: string;
+  role_key: string;
+  role_description: string;
+  is_primary: boolean;
+  assigned_at: string;
+  assigned_by: number | null;
+}
+
+export interface UserPermissions {
+  roles: UserRole[];
+  permissions: string[];
+  permission_details: { permission_key: string; permission_name: string; category: string }[];
+  primary_role: string;
+}
+
 export interface User {
   member_id: number;
   first_name: string;
@@ -66,6 +83,10 @@ export interface User {
   profile_photo_url?: string;
   role: string;
   created_at: string;
+  // Multi-role support
+  roles?: UserRole[];
+  permissions?: string[];
+  primary_role?: string;
 }
 
 export interface Tournament {
@@ -528,6 +549,7 @@ export const claimAccount = (email: string, password: string) => api.post('/auth
 export const resetPassword = (email: string, password: string) => api.post('/auth/reset-password', { email, password });
 export const getCurrentUser = (token: string) => api.get('/auth/me', { headers: { Authorization: `Bearer ${token}` } });
 export const setupPassword = (password: string) => api.post('/auth/setup-password', { password });
+export const getUserPermissions = (userId: number) => api.get<UserPermissions>(`/users/${userId}/permissions`);
 
 export const createTournament = (data: { 
   name: string; 
@@ -1092,6 +1114,48 @@ export const updateRolePermissions = (id: number, permissions: number[]) => {
 // Get permission audit log
 export const getPermissionAuditLog = (limit: number = 50) => {
   return api.get<AuditLogEntry[]>(`/admin/permission-audit-log?limit=${limit}`);
+};
+
+// ============================================================================
+// USER ROLE MANAGEMENT API
+// ============================================================================
+
+export interface UserWithRoles {
+  member_id: number;
+  first_name: string;
+  last_name: string;
+  email_address: string;
+  club: string;
+  legacy_role: string;
+  roles: {
+    role_id: number;
+    role_name: string;
+    role_key: string;
+    is_primary: boolean;
+  }[];
+}
+
+// Get all users with their role assignments
+export const getUsersWithRoles = (search?: string, club?: string) => {
+  const params = new URLSearchParams();
+  if (search) params.append('search', search);
+  if (club) params.append('club', club);
+  return api.get<UserWithRoles[]>(`/admin/users-with-roles?${params.toString()}`);
+};
+
+// Assign a role to a user
+export const assignUserRole = (userId: number, roleId: number, isPrimary: boolean = false) => {
+  return api.post(`/admin/users/${userId}/roles`, { role_id: roleId, is_primary: isPrimary });
+};
+
+// Remove a role from a user
+export const removeUserRole = (userId: number, roleId: number) => {
+  return api.delete(`/admin/users/${userId}/roles/${roleId}`);
+};
+
+// Set primary role for a user
+export const setUserPrimaryRole = (userId: number, roleId: number) => {
+  return api.put(`/admin/users/${userId}/primary-role`, { role_id: roleId });
 };
 
 // ============================================================================

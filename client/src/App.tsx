@@ -16,6 +16,7 @@ import NewWeeklyScoring from './components/NewWeeklyScoring';
 import NewWeeklyLeaderboard from './components/NewWeeklyLeaderboard';
 import AdminPermissionsManager from './components/AdminPermissionsManager';
 import { AuthProvider, useAuth } from './AuthContext';
+import { usePermissions } from './hooks/usePermissions';
 import ClubProDashboard from './components/ClubProDashboard';
 import Login from './components/Login';
 import PasswordSetup from './components/PasswordSetup';
@@ -24,7 +25,6 @@ import ResetPassword from './components/ResetPassword';
 import BookingPage from './components/BookingPage';
 import BookingSettingsAdmin from './components/BookingSettingsAdmin';
 import ViewAsModeIndicator from './components/ViewAsModeIndicator';
-import { isClubPro, isAdminOrClubPro } from './utils/roleUtils';
 import WeeklyChallengeCard from './components/WeeklyChallengeCard';
 import ChallengeLeaderboard from './components/ChallengeLeaderboard';
 import ChallengeDistanceSubmission from './components/ChallengeDistanceSubmission';
@@ -116,64 +116,65 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading, isAdmin } = useAuth();
+  const { user, loading } = useAuth();
+  const { hasPermission } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  
-  console.log('AdminProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'role=', user?.role, 'isAdmin=', isAdmin, 'pathname=', location.pathname);
-  
+
+  const hasAccess = hasPermission('access_admin_panel');
+
+  console.log('AdminProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'hasAccess=', hasAccess, 'pathname=', location.pathname);
+
   useEffect(() => {
     if (!loading) {
       if (!user) {
         console.log('AdminProtectedRoute: No user, redirecting to login');
         navigate('/login');
-      } else if (!isAdmin) {
-        console.log('AdminProtectedRoute: User is not admin, redirecting to home');
+      } else if (!hasAccess) {
+        console.log('AdminProtectedRoute: User lacks access_admin_panel permission, redirecting to home');
         navigate('/');
       }
     }
-  }, [loading, user, navigate, isAdmin]);
-  
+  }, [loading, user, navigate, hasAccess]);
+
   if (loading) {
     console.log('AdminProtectedRoute: Showing loading state');
     return <div className="p-4 text-center">Loading...</div>;
   }
-  
+
   if (!user) {
     console.log('AdminProtectedRoute: No user, showing loading while redirecting');
     return <div className="p-4 text-center">Redirecting to login...</div>;
   }
-  
-  if (!isAdmin) {
-    console.log('AdminProtectedRoute: User is not admin, showing loading while redirecting');
+
+  if (!hasAccess) {
+    console.log('AdminProtectedRoute: User lacks permission, showing loading while redirecting');
     return <div className="p-4 text-center">Redirecting...</div>;
   }
-  
+
   console.log('AdminProtectedRoute: Rendering admin content for', location.pathname);
   return <>{children}</>;
 }
 
 function ClubProProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading, isAdmin } = useAuth();
+  const { user, loading } = useAuth();
+  const { hasAnyPermission } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
 
-  console.log('ClubProProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'role=', user?.role, 'isAdmin=', isAdmin, 'pathname=', location.pathname);
+  const hasAccess = hasAnyPermission(['view_club_handicaps', 'manage_club_members']);
+
+  console.log('ClubProProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'hasAccess=', hasAccess, 'pathname=', location.pathname);
 
   useEffect(() => {
     if (!loading) {
       if (!user) {
         navigate('/login');
-      } else {
-        // Use centralized role checking
-        const hasAccess = isAdminOrClubPro(user) || isAdmin;
-
-        if (!hasAccess) {
-          navigate('/');
-        }
+      } else if (!hasAccess) {
+        navigate('/');
       }
     }
-  }, [loading, user, navigate, isAdmin]);
+  }, [loading, user, navigate, hasAccess]);
 
   if (loading) {
     return <div className="p-4 text-center">Loading...</div>;
@@ -182,9 +183,6 @@ function ClubProProtectedRoute({ children }: { children: React.ReactNode }) {
   if (!user) {
     return <div className="p-4 text-center">Redirecting to login...</div>;
   }
-
-  // Use centralized role checking
-  const hasAccess = isAdminOrClubPro(user) || isAdmin;
 
   if (!hasAccess) {
     return <div className="p-4 text-center">Redirecting...</div>;

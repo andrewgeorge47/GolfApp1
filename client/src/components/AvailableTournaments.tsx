@@ -5,6 +5,7 @@ import { useAuth } from '../AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import TournamentModal from './TournamentModal';
+import { PageContainer, PageHeader, PageContent } from './ui/PageContainer';
 
 interface Tournament {
   id: number;
@@ -180,23 +181,24 @@ const AvailableTournaments: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Available Tournaments</h1>
-          <p className="mt-1 text-white">Register for upcoming tournaments and events</p>
-        </div>
-        
-        {!user && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <p className="text-blue-800 text-sm">
-              <Info className="w-4 h-4 inline mr-1" />
-              Please log in to register for tournaments
-            </p>
-          </div>
-        )}
-      </div>
+    <PageContainer>
+      <PageHeader
+        title="Available Tournaments"
+        subtitle="Register for upcoming tournaments and events"
+        icon={<Trophy className="w-7 h-7 text-brand-neon-green" />}
+        action={
+          !user ? (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-blue-800 text-sm">
+                <Info className="w-4 h-4 inline mr-1" />
+                Please log in to register
+              </p>
+            </div>
+          ) : undefined
+        }
+      />
+
+      <PageContent>
 
       {/* Search and Filter */}
       <div className="flex flex-col sm:flex-row gap-4">
@@ -342,7 +344,8 @@ const AvailableTournaments: React.FC = () => {
           onClose={handleModalClose}
         />
       )}
-    </div>
+      </PageContent>
+    </PageContainer>
   );
 };
 

@@ -154,10 +154,259 @@ async function requireClubProOrAdmin(req, res, next) {
   }
 }
 
+// ========================================
+// Permission Checking Functions (Multi-Role)
+// ========================================
+
+/**
+ * Fetch all permissions for a user from database (aggregated from all roles)
+ * @param {number} userId - The user's member_id
+ * @returns {Promise<string[]>} Array of permission keys
+ */
+async function getUserPermissions(userId) {
+  try {
+    const result = await pool.query(
+      `SELECT DISTINCT permission_key
+       FROM user_all_permissions
+       WHERE member_id = $1`,
+      [userId]
+    );
+    return result.rows.map(row => row.permission_key);
+  } catch (error) {
+    console.error('Error fetching user permissions:', error);
+    return [];
+  }
+}
+
+/**
+ * Check if user has specific permission
+ * @param {number} userId - The user's member_id
+ * @param {string} permissionKey - Permission to check (e.g., 'manage_users')
+ * @returns {Promise<boolean>}
+ */
+async function userHasPermission(userId, permissionKey) {
+  const permissions = await getUserPermissions(userId);
+  return permissions.includes(permissionKey);
+}
+
+/**
+ * Check if user has ANY of the specified permissions
+ * @param {number} userId - The user's member_id
+ * @param {string[]} permissionKeys - Array of permission keys
+ * @returns {Promise<boolean>}
+ */
+async function userHasAnyPermission(userId, permissionKeys) {
+  const permissions = await getUserPermissions(userId);
+  return permissionKeys.some(key => permissions.includes(key));
+}
+
+/**
+ * Check if user has ALL of the specified permissions
+ * @param {number} userId - The user's member_id
+ * @param {string[]} permissionKeys - Array of permission keys
+ * @returns {Promise<boolean>}
+ */
+async function userHasAllPermissions(userId, permissionKeys) {
+  const permissions = await getUserPermissions(userId);
+  return permissionKeys.every(key => permissions.includes(key));
+}
+
+/**
+ * Get all roles for a user
+ * @param {number} userId - The user's member_id
+ * @returns {Promise<Object[]>} Array of role objects
+ */
+async function getUserRoles(userId) {
+  try {
+    const result = await pool.query(
+      `SELECT role_id, role_name, role_key, is_primary
+       FROM user_roles_view
+       WHERE member_id = $1`,
+      [userId]
+    );
+    return result.rows;
+  } catch (error) {
+    console.error('Error fetching user roles:', error);
+    return [];
+  }
+}
+
+// ========================================
+// Permission Middleware (Multi-Role)
+// ========================================
+
+/**
+ * Middleware: Require specific permission
+ * @param {string} permissionKey - Required permission (e.g., 'manage_users')
+ */
+function requirePermission(permissionKey) {
+  return async (req, res, next) => {
+    try {
+      const userId = req.user.member_id;
+      const hasPermission = await userHasPermission(userId, permissionKey);
+
+      if (!hasPermission) {
+        console.log(`Access denied: User ${userId} lacks permission '${permissionKey}'`);
+        return res.status(403).json({
+          error: 'Access denied',
+          required_permission: permissionKey,
+          message: `You do not have the '${permissionKey}' permission`
+        });
+      }
+
+      // Attach permissions to request for later use (avoid repeated queries)
+      if (!req.userPermissions) {
+        req.userPermissions = await getUserPermissions(userId);
+      }
+
+      // Attach user details for backward compatibility
+      if (!req.userDetails) {
+        const { rows } = await pool.query(
+          'SELECT member_id, first_name, last_name, email_address, club, role FROM users WHERE member_id = $1',
+          [userId]
+        );
+        if (rows.length > 0) {
+          req.userDetails = rows[0];
+        }
+      }
+
+      next();
+    } catch (error) {
+      console.error('Permission check error:', error);
+      res.status(500).json({ error: 'Permission check failed' });
+    }
+  };
+}
+
+/**
+ * Middleware: Require ANY of the specified permissions
+ * @param {...string} permissionKeys - One or more permission keys
+ */
+function requireAnyPermission(...permissionKeys) {
+  return async (req, res, next) => {
+    try {
+      const userId = req.user.member_id;
+      const hasAny = await userHasAnyPermission(userId, permissionKeys);
+
+      if (!hasAny) {
+        console.log(`Access denied: User ${userId} lacks any of: ${permissionKeys.join(', ')}`);
+        return res.status(403).json({
+          error: 'Access denied',
+          required_permissions: permissionKeys,
+          message: `You need at least one of these permissions: ${permissionKeys.join(', ')}`
+        });
+      }
+
+      if (!req.userPermissions) {
+        req.userPermissions = await getUserPermissions(userId);
+      }
+
+      // Attach user details for backward compatibility
+      if (!req.userDetails) {
+        const { rows } = await pool.query(
+          'SELECT member_id, first_name, last_name, email_address, club, role FROM users WHERE member_id = $1',
+          [userId]
+        );
+        if (rows.length > 0) {
+          req.userDetails = rows[0];
+        }
+      }
+
+      next();
+    } catch (error) {
+      console.error('Permission check error:', error);
+      res.status(500).json({ error: 'Permission check failed' });
+    }
+  };
+}
+
+/**
+ * Middleware: Require ALL of the specified permissions
+ * @param {...string} permissionKeys - One or more permission keys
+ */
+function requireAllPermissions(...permissionKeys) {
+  return async (req, res, next) => {
+    try {
+      const userId = req.user.member_id;
+      const hasAll = await userHasAllPermissions(userId, permissionKeys);
+
+      if (!hasAll) {
+        console.log(`Access denied: User ${userId} lacks all of: ${permissionKeys.join(', ')}`);
+        return res.status(403).json({
+          error: 'Access denied',
+          required_permissions: permissionKeys,
+          message: `You need all of these permissions: ${permissionKeys.join(', ')}`
+        });
+      }
+
+      if (!req.userPermissions) {
+        req.userPermissions = await getUserPermissions(userId);
+      }
+
+      next();
+    } catch (error) {
+      console.error('Permission check error:', error);
+      res.status(500).json({ error: 'Permission check failed' });
+    }
+  };
+}
+
 // Test route
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// ========================================
+// User Permission Endpoints (Multi-Role)
+// ========================================
+
+/**
+ * GET /api/users/:userId/permissions
+ * Get all roles and permissions for a user
+ */
+app.get('/api/users/:userId/permissions',
+  authenticateToken,
+  async (req, res) => {
+    const { userId } = req.params;
+
+    try {
+      // Only allow users to view their own permissions (or admins to view any)
+      if (req.user.member_id !== parseInt(userId)) {
+        const hasPermission = await userHasPermission(req.user.member_id, 'manage_users');
+        if (!hasPermission) {
+          return res.status(403).json({ error: 'Access denied' });
+        }
+      }
+
+      // Get all roles for user
+      const rolesResult = await pool.query(
+        `SELECT * FROM user_roles_view WHERE member_id = $1 ORDER BY is_primary DESC`,
+        [userId]
+      );
+
+      // Get all permissions (aggregated from all roles)
+      const permissionsResult = await pool.query(
+        `SELECT DISTINCT permission_key, permission_name, category
+         FROM user_all_permissions
+         WHERE member_id = $1
+         ORDER BY category, permission_name`,
+        [userId]
+      );
+
+      const primaryRole = rolesResult.rows.find(r => r.is_primary);
+
+      res.json({
+        roles: rolesResult.rows,
+        permissions: permissionsResult.rows.map(p => p.permission_key),
+        permission_details: permissionsResult.rows,
+        primary_role: primaryRole?.role_name ?? 'Member'
+      });
+    } catch (error) {
+      console.error('Error fetching user permissions:', error);
+      res.status(500).json({ error: 'Failed to fetch user permissions' });
+    }
+  }
+);
 
 // List tournaments (for tournaments page and management)
 app.get('/api/tournaments', async (req, res) => {
@@ -5945,9 +6194,9 @@ app.get('/api/handicaps', async (req, res) => {
 });
 
 // Club Pro: Get handicaps for users in the pro's club (auth required)
-app.get('/api/club-pro/handicaps', authenticateToken, requireClubProOrAdmin, async (req, res) => {
+app.get('/api/club-pro/handicaps', authenticateToken, requireAnyPermission('view_club_handicaps', 'manage_club_members'), async (req, res) => {
   try {
-    // Access check is now handled by requireClubProOrAdmin middleware
+    // Access check is now handled by permission middleware
     // User details are in req.userDetails
     const userClub = req.userDetails.club;
 
@@ -5977,11 +6226,11 @@ app.get('/api/club-pro/handicaps', authenticateToken, requireClubProOrAdmin, asy
 });
 
 // Club Pro: Get weekly matches for the pro's club for a tournament/week (auth required)
-app.get('/api/club-pro/tournaments/:id/weekly-matches', authenticateToken, requireClubProOrAdmin, async (req, res) => {
+app.get('/api/club-pro/tournaments/:id/weekly-matches', authenticateToken, requireAnyPermission('view_club_handicaps', 'manage_club_members'), async (req, res) => {
   const { id } = req.params;
   const { week_start_date } = req.query;
   try {
-    // Access check is now handled by requireClubProOrAdmin middleware
+    // Access check is now handled by permission middleware
     // User details are in req.userDetails
     const club = req.userDetails.club;
 
@@ -6019,9 +6268,9 @@ app.get('/api/club-pro/tournaments/:id/weekly-matches', authenticateToken, requi
 });
 
 // Club Pro: Get player tournament participation data for the pro's club (auth required)
-app.get('/api/club-pro/player-tournaments', authenticateToken, requireClubProOrAdmin, async (req, res) => {
+app.get('/api/club-pro/player-tournaments', authenticateToken, requireAnyPermission('view_club_handicaps', 'manage_club_members'), async (req, res) => {
   try {
-    // Access check is now handled by requireClubProOrAdmin middleware
+    // Access check is now handled by requireAnyPermission middleware
     // User details are in req.userDetails
     const userClub = req.userDetails.club;
 
@@ -8361,9 +8610,9 @@ function transformUserData(user) {
 }
 
 // Get admin user tracking statistics
-app.get('/api/admin/user-tracking-stats', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/user-tracking-stats', authenticateToken, requirePermission('access_admin_panel'), async (req, res) => {
   try {
-    // Admin check is now handled by requireAdmin middleware
+    // Access check is now handled by requirePermission middleware
     // Get total users and claimed accounts
     console.log('Fetching user stats...');
     const { rows: userStats } = await pool.query(`
@@ -8450,9 +8699,9 @@ app.get('/api/admin/user-tracking-stats', authenticateToken, requireAdmin, async
 });
 
 // Get detailed user tracking data for a specific date range
-app.get('/api/admin/user-tracking-details', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/user-tracking-details', authenticateToken, requirePermission('access_admin_panel'), async (req, res) => {
   try {
-    // Admin check is now handled by requireAdmin middleware
+    // Access check is now handled by requirePermission middleware
     const { startDate, endDate, club } = req.query;
     
     let whereClause = '';
@@ -8508,9 +8757,9 @@ app.get('/api/admin/user-tracking-details', authenticateToken, requireAdmin, asy
 });
 
 // Get view-as mode data for admins (roles and clubs)
-app.get('/api/admin/view-as-data', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/view-as-data', authenticateToken, requirePermission('view_as_user'), async (req, res) => {
   try {
-    // Admin check is now handled by requireAdmin middleware
+    // Access check is now handled by requirePermission middleware
     // Get available roles for view-as mode
     const availableRoles = [
       { value: UserRole.MEMBER, label: 'Member' },
@@ -8543,10 +8792,11 @@ app.get('/api/admin/view-as-data', authenticateToken, requireAdmin, async (req, 
 // PERMISSION MANAGEMENT API ENDPOINTS
 // ============================================================================
 
-// Get all roles with their permission counts
-app.get('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) => {
+// Get all roles with their permission counts and permissions
+app.get('/api/admin/roles', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
-    const { rows } = await pool.query(`
+    // Get roles with counts
+    const { rows: roles } = await pool.query(`
       SELECT
         r.id,
         r.role_name,
@@ -8565,7 +8815,7 @@ app.get('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) =>
       ) perm_count ON r.id = perm_count.role_id
       LEFT JOIN (
         SELECT role_id, COUNT(DISTINCT member_id) as count
-        FROM users
+        FROM user_roles
         GROUP BY role_id
       ) user_count ON r.id = user_count.role_id
       WHERE r.is_active = TRUE
@@ -8582,7 +8832,35 @@ app.get('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) =>
         r.role_name
     `);
 
-    res.json(rows);
+    // Get all role permissions
+    const { rows: rolePermissions } = await pool.query(`
+      SELECT
+        rp.role_id,
+        p.id,
+        p.permission_key,
+        p.permission_name,
+        p.description,
+        p.category
+      FROM role_permissions rp
+      INNER JOIN permissions p ON rp.permission_id = p.id
+      ORDER BY p.category, p.permission_name
+    `);
+
+    // Map permissions to each role
+    const rolesWithPermissions = roles.map(role => ({
+      ...role,
+      permissions: rolePermissions
+        .filter(rp => rp.role_id === role.id)
+        .map(rp => ({
+          id: rp.id,
+          permission_key: rp.permission_key,
+          permission_name: rp.permission_name,
+          description: rp.description,
+          category: rp.category
+        }))
+    }));
+
+    res.json(rolesWithPermissions);
   } catch (err) {
     console.error('Error fetching roles:', err);
     res.status(500).json({ error: 'Failed to fetch roles' });
@@ -8590,7 +8868,7 @@ app.get('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) =>
 });
 
 // Get a specific role with its permissions
-app.get('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/roles/:id', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -8638,7 +8916,7 @@ app.get('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res
 });
 
 // Get all available permissions grouped by category
-app.get('/api/admin/permissions', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/permissions', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT
@@ -8673,7 +8951,7 @@ app.get('/api/admin/permissions', authenticateToken, requireAdmin, async (req, r
 });
 
 // Create a new role
-app.post('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/admin/roles', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
     const { role_name, role_key, description, permissions } = req.body;
 
@@ -8735,7 +9013,7 @@ app.post('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) =
 });
 
 // Update a role
-app.put('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/admin/roles/:id', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
     const { id } = req.params;
     const { role_name, description, is_active } = req.body;
@@ -8799,7 +9077,7 @@ app.put('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res
 });
 
 // Delete a role
-app.delete('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.delete('/api/admin/roles/:id', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -8817,9 +9095,9 @@ app.delete('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, 
       return res.status(403).json({ error: 'Cannot delete system roles' });
     }
 
-    // Check if any users have this role
+    // Check if any users have this role (check both user_roles and legacy role_id)
     const { rows: userRows } = await pool.query(
-      'SELECT COUNT(*) as count FROM users WHERE role_id = $1',
+      'SELECT COUNT(*) as count FROM user_roles WHERE role_id = $1',
       [id]
     );
 
@@ -8830,19 +9108,38 @@ app.delete('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, 
       });
     }
 
-    // Log the action before deletion
-    await pool.query(`
-      INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
-      VALUES ($1, $2, $3, $4)
-    `, [
-      'role_deleted',
-      id,
-      req.user.member_id,
-      JSON.stringify({ role_name: roleRows[0].role_name })
-    ]);
+    // Begin transaction for safe deletion
+    await pool.query('BEGIN');
 
-    // Delete role (CASCADE will delete role_permissions)
-    await pool.query('DELETE FROM roles WHERE id = $1', [id]);
+    try {
+      // Delete role permissions first
+      await pool.query('DELETE FROM role_permissions WHERE role_id = $1', [id]);
+
+      // Delete any user_roles entries (should be 0 based on check above, but just in case)
+      await pool.query('DELETE FROM user_roles WHERE role_id = $1', [id]);
+
+      // Update any existing audit log entries to remove the role_id reference
+      await pool.query('UPDATE permission_audit_log SET role_id = NULL WHERE role_id = $1', [id]);
+
+      // Delete the role
+      await pool.query('DELETE FROM roles WHERE id = $1', [id]);
+
+      // Log the action after deletion (with NULL role_id since role no longer exists)
+      await pool.query(`
+        INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
+        VALUES ($1, $2, $3, $4)
+      `, [
+        'role_deleted',
+        null,
+        req.user.member_id,
+        JSON.stringify({ role_id: id, role_name: roleRows[0].role_name })
+      ]);
+
+      await pool.query('COMMIT');
+    } catch (deleteErr) {
+      await pool.query('ROLLBACK');
+      throw deleteErr;
+    }
 
     res.json({ message: 'Role deleted successfully' });
   } catch (err) {
@@ -8852,7 +9149,7 @@ app.delete('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, 
 });
 
 // Update role permissions
-app.put('/api/admin/roles/:id/permissions', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/admin/roles/:id/permissions', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
     const { id } = req.params;
     const { permissions } = req.body;
@@ -8932,7 +9229,7 @@ app.put('/api/admin/roles/:id/permissions', authenticateToken, requireAdmin, asy
 });
 
 // Get permission audit log
-app.get('/api/admin/permission-audit-log', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/permission-audit-log', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
     const { limit = 50 } = req.query;
 
@@ -8958,6 +9255,222 @@ app.get('/api/admin/permission-audit-log', authenticateToken, requireAdmin, asyn
   } catch (err) {
     console.error('Error fetching audit log:', err);
     res.status(500).json({ error: 'Failed to fetch audit log' });
+  }
+});
+
+// ============================================================================
+// USER ROLE MANAGEMENT API ENDPOINTS
+// ============================================================================
+
+// Get all users with their role assignments
+app.get('/api/admin/users-with-roles', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
+  try {
+    const { search, club } = req.query;
+
+    let query = `
+      SELECT
+        u.member_id,
+        u.first_name,
+        u.last_name,
+        u.email_address,
+        u.club,
+        u.role as legacy_role,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'role_id', r.id,
+              'role_name', r.role_name,
+              'role_key', r.role_key,
+              'is_primary', ur.is_primary
+            )
+          ) FILTER (WHERE r.id IS NOT NULL),
+          '[]'
+        ) as roles
+      FROM users u
+      LEFT JOIN user_roles ur ON u.member_id = ur.member_id
+      LEFT JOIN roles r ON ur.role_id = r.id
+      WHERE 1=1
+    `;
+
+    const params = [];
+    let paramIndex = 1;
+
+    if (search) {
+      query += ` AND (
+        u.first_name ILIKE $${paramIndex} OR
+        u.last_name ILIKE $${paramIndex} OR
+        u.email_address ILIKE $${paramIndex}
+      )`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    if (club) {
+      query += ` AND u.club = $${paramIndex}`;
+      params.push(club);
+      paramIndex++;
+    }
+
+    query += `
+      GROUP BY u.member_id, u.first_name, u.last_name, u.email_address, u.club, u.role
+      ORDER BY u.last_name, u.first_name
+      LIMIT 100
+    `;
+
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching users with roles:', err);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// Assign a role to a user
+app.post('/api/admin/users/:userId/roles', authenticateToken, requirePermission('assign_roles'), async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { role_id, is_primary = false } = req.body;
+    const adminId = req.user.member_id;
+
+    if (!role_id) {
+      return res.status(400).json({ error: 'role_id is required' });
+    }
+
+    // Check if user exists
+    const userCheck = await pool.query('SELECT member_id FROM users WHERE member_id = $1', [userId]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if role exists
+    const roleCheck = await pool.query('SELECT id, role_name FROM roles WHERE id = $1', [role_id]);
+    if (roleCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Role not found' });
+    }
+
+    // If setting as primary, unset other primary roles for this user
+    if (is_primary) {
+      await pool.query(
+        'UPDATE user_roles SET is_primary = FALSE WHERE member_id = $1',
+        [userId]
+      );
+    }
+
+    // Insert or update the role assignment
+    const result = await pool.query(`
+      INSERT INTO user_roles (member_id, role_id, is_primary, assigned_by)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (member_id, role_id)
+      DO UPDATE SET is_primary = $3, assigned_by = $4, assigned_at = CURRENT_TIMESTAMP
+      RETURNING *
+    `, [userId, role_id, is_primary, adminId]);
+
+    // Log the action
+    await pool.query(`
+      INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
+      VALUES ($1, $2, $3, $4)
+    `, ['assign_role', role_id, adminId, JSON.stringify({ user_id: userId, is_primary })]);
+
+    res.json({
+      message: 'Role assigned successfully',
+      assignment: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error assigning role:', err);
+    res.status(500).json({ error: 'Failed to assign role' });
+  }
+});
+
+// Remove a role from a user
+app.delete('/api/admin/users/:userId/roles/:roleId', authenticateToken, requirePermission('assign_roles'), async (req, res) => {
+  try {
+    const { userId, roleId } = req.params;
+    const adminId = req.user.member_id;
+
+    // Check if assignment exists
+    const checkResult = await pool.query(
+      'SELECT * FROM user_roles WHERE member_id = $1 AND role_id = $2',
+      [userId, roleId]
+    );
+
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Role assignment not found' });
+    }
+
+    const wasPrimary = checkResult.rows[0].is_primary;
+
+    // Delete the assignment
+    await pool.query(
+      'DELETE FROM user_roles WHERE member_id = $1 AND role_id = $2',
+      [userId, roleId]
+    );
+
+    // If this was the primary role, set another role as primary if exists
+    if (wasPrimary) {
+      await pool.query(`
+        UPDATE user_roles
+        SET is_primary = TRUE
+        WHERE member_id = $1
+        AND role_id = (SELECT role_id FROM user_roles WHERE member_id = $1 LIMIT 1)
+      `, [userId]);
+    }
+
+    // Log the action
+    await pool.query(`
+      INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
+      VALUES ($1, $2, $3, $4)
+    `, ['remove_role', roleId, adminId, JSON.stringify({ user_id: userId })]);
+
+    res.json({ message: 'Role removed successfully' });
+  } catch (err) {
+    console.error('Error removing role:', err);
+    res.status(500).json({ error: 'Failed to remove role' });
+  }
+});
+
+// Set primary role for a user
+app.put('/api/admin/users/:userId/primary-role', authenticateToken, requirePermission('assign_roles'), async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { role_id } = req.body;
+    const adminId = req.user.member_id;
+
+    if (!role_id) {
+      return res.status(400).json({ error: 'role_id is required' });
+    }
+
+    // Check if user has this role
+    const checkResult = await pool.query(
+      'SELECT * FROM user_roles WHERE member_id = $1 AND role_id = $2',
+      [userId, role_id]
+    );
+
+    if (checkResult.rows.length === 0) {
+      return res.status(400).json({ error: 'User does not have this role assigned' });
+    }
+
+    // Unset all primary flags for this user
+    await pool.query(
+      'UPDATE user_roles SET is_primary = FALSE WHERE member_id = $1',
+      [userId]
+    );
+
+    // Set the specified role as primary
+    await pool.query(
+      'UPDATE user_roles SET is_primary = TRUE WHERE member_id = $1 AND role_id = $2',
+      [userId, role_id]
+    );
+
+    // Log the action
+    await pool.query(`
+      INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
+      VALUES ($1, $2, $3, $4)
+    `, ['set_primary_role', role_id, adminId, JSON.stringify({ user_id: userId })]);
+
+    res.json({ message: 'Primary role updated successfully' });
+  } catch (err) {
+    console.error('Error setting primary role:', err);
+    res.status(500).json({ error: 'Failed to set primary role' });
   }
 });
 
@@ -11148,11 +11661,11 @@ app.put('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', authent
 });
 
 // Admin endpoint: Delete a strokeplay scorecard (admin only)
-app.delete('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', authenticateToken, requireAdmin, async (req, res) => {
+app.delete('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', authenticateToken, requirePermission('manage_scores'), async (req, res) => {
   const { id, scorecardId } = req.params;
 
   try {
-    // Admin check is now handled by requireAdmin middleware
+    // Access check is now handled by requirePermission middleware
     // Validate scorecard exists and belongs to the tournament
     const scorecardResult = await pool.query(
       'SELECT * FROM scorecards WHERE id = $1 AND tournament_id = $2 AND type = $3',
@@ -11182,11 +11695,11 @@ app.delete('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', auth
 
 
 // Admin endpoint: Add regular scorecards for handicap tracking (admin only)
-app.post('/api/admin/scorecards', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/admin/scorecards', authenticateToken, requirePermission('manage_scores'), async (req, res) => {
   const { user_id, hole_scores, total_score, notes, round_type, course_id, course_name, teebox, course_rating, course_slope, handicap, date_played } = req.body;
 
   try {
-    // Admin check is now handled by requireAdmin middleware
+    // Access check is now handled by requirePermission middleware
     // Validate required fields
     if (!user_id) {
       return res.status(400).json({ error: 'user_id is required' });
@@ -12003,7 +12516,7 @@ app.delete('/api/club-booking-settings/:id', authenticateToken, requireAdminForB
 // --------------------------------------------
 
 // POST /api/leagues - Create a new league (Admin only)
-app.post('/api/leagues', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/leagues', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const {
       name,
@@ -12124,7 +12637,7 @@ app.get('/api/leagues/:id', async (req, res) => {
 });
 
 // PUT /api/leagues/:id - Update league (Admin only)
-app.put('/api/leagues/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/leagues/:id', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -12225,7 +12738,7 @@ app.put('/api/leagues/:id', authenticateToken, requireAdmin, async (req, res) =>
 });
 
 // DELETE /api/leagues/:id - Delete league (Admin only)
-app.delete('/api/leagues/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.delete('/api/leagues/:id', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -12247,7 +12760,7 @@ app.delete('/api/leagues/:id', authenticateToken, requireAdmin, async (req, res)
 // --------------------------------------------
 
 // POST /api/leagues/:id/divisions - Create division (Admin only)
-app.post('/api/leagues/:leagueId/divisions', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/leagues/:leagueId/divisions', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { leagueId } = req.params;
     const { division_name, division_order = 1 } = req.body;
@@ -12304,7 +12817,7 @@ app.get('/api/leagues/:leagueId/divisions', async (req, res) => {
 });
 
 // PUT /api/leagues/:leagueId/divisions/:divisionId - Update division (Admin only)
-app.put('/api/leagues/:leagueId/divisions/:divisionId', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/leagues/:leagueId/divisions/:divisionId', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { leagueId, divisionId } = req.params;
     const { division_name, division_order } = req.body;
@@ -12347,7 +12860,7 @@ app.put('/api/leagues/:leagueId/divisions/:divisionId', authenticateToken, requi
 });
 
 // DELETE /api/leagues/:leagueId/divisions/:divisionId - Delete division (Admin only)
-app.delete('/api/leagues/:leagueId/divisions/:divisionId', authenticateToken, requireAdmin, async (req, res) => {
+app.delete('/api/leagues/:leagueId/divisions/:divisionId', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { leagueId, divisionId } = req.params;
 
@@ -12541,7 +13054,7 @@ app.put('/api/leagues/:leagueId/teams/:teamId', authenticateToken, async (req, r
 // --------------------------------------------
 
 // POST /api/leagues/:id/schedule/generate - Generate weekly schedule (Admin only)
-app.post('/api/leagues/:leagueId/schedule/generate', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/leagues/:leagueId/schedule/generate', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { leagueId } = req.params;
     const { weeks, start_date } = req.body;
@@ -12647,7 +13160,7 @@ app.get('/api/leagues/:leagueId/schedule/week/:weekNumber', async (req, res) => 
 // --------------------------------------------
 
 // POST /api/leagues/:id/matchups/generate - Generate round-robin matchups (Admin only)
-app.post('/api/leagues/:leagueId/matchups/generate', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/leagues/:leagueId/matchups/generate', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { leagueId } = req.params;
 
@@ -12894,7 +13407,7 @@ app.get('/api/matchups/:matchupId', async (req, res) => {
 });
 
 // PUT /api/matchups/:id - Update matchup (Admin only)
-app.put('/api/matchups/:matchupId', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/matchups/:matchupId', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { matchupId } = req.params;
     const { course_id, course_name, course_rating, course_slope, course_par, hole_indexes, match_date, status } = req.body;
@@ -12960,7 +13473,7 @@ app.put('/api/matchups/:matchupId', authenticateToken, requireAdmin, async (req,
 });
 
 // DELETE /api/matchups/:id - Delete matchup (Admin only)
-app.delete('/api/matchups/:matchupId', authenticateToken, requireAdmin, async (req, res) => {
+app.delete('/api/matchups/:matchupId', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { matchupId } = req.params;
 
@@ -13596,7 +14109,7 @@ app.get('/api/challenges/pot', async (req, res) => {
 });
 
 // POST /api/challenges - Create new weekly challenge (Admin only)
-app.post('/api/challenges', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/challenges', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const {
       challenge_name,
@@ -13701,7 +14214,7 @@ app.get('/api/challenges/:id', async (req, res) => {
 });
 
 // PUT /api/challenges/:id - Update challenge (Admin only)
-app.put('/api/challenges/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/challenges/:id', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -13765,7 +14278,7 @@ app.put('/api/challenges/:id', authenticateToken, requireAdmin, async (req, res)
 });
 
 // DELETE /api/challenges/:id - Delete/cancel challenge (Admin only)
-app.delete('/api/challenges/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.delete('/api/challenges/:id', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -14069,7 +14582,7 @@ app.post('/api/challenges/:id/entries/:entryId/photo', authenticateToken, upload
 });
 
 // PUT /api/challenges/:id/entries/:entryId/photo/verify - Verify photo (Admin only)
-app.put('/api/challenges/:id/entries/:entryId/photo/verify', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/challenges/:id/entries/:entryId/photo/verify', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { entryId } = req.params;
     const adminId = req.user.member_id;
@@ -14097,7 +14610,7 @@ app.put('/api/challenges/:id/entries/:entryId/photo/verify', authenticateToken, 
 });
 
 // PUT /api/challenges/:id/entries/:entryId/verify - Verify entry (Admin only)
-app.put('/api/challenges/:id/entries/:entryId/verify', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/challenges/:id/entries/:entryId/verify', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { entryId } = req.params;
     const { distance_from_pin_inches, distance_override_reason } = req.body;
@@ -14171,7 +14684,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
 });
 
 // POST /api/challenges/:id/finalize - Finalize challenge and determine winner (Admin only)
-app.post('/api/challenges/:id/finalize', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/challenges/:id/finalize', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   const client = await pool.connect();
 
   try {
@@ -14332,7 +14845,7 @@ app.post('/api/challenges/:id/finalize', authenticateToken, requireAdmin, async 
 });
 
 // POST /api/challenges/:id/payout-complete - Mark payout as completed (Admin only)
-app.post('/api/challenges/:id/payout-complete', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/challenges/:id/payout-complete', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { id: challengeId } = req.params;
     const { payout_notes } = req.body;
