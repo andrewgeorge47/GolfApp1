@@ -13194,7 +13194,7 @@ async function requireAdmin(req, res, next) {
 // Get bookings (all or for a specific date/club)
 app.get('/api/simulator-bookings', authenticateToken, requireAdminForBooking, async (req, res) => {
   const { date, club_name } = req.query;
-  const clubName = club_name || 'No. 5';
+  const clubName = club_name || req.user.club || 'No. 5';
 
   try {
     let query = 'SELECT b.*, u.first_name, u.last_name FROM simulator_bookings b JOIN users u ON b.user_id = u.member_id WHERE b.club_name = $1';
@@ -13219,7 +13219,7 @@ app.get('/api/simulator-bookings', authenticateToken, requireAdminForBooking, as
 app.post('/api/simulator-bookings', authenticateToken, requireAdminForBooking, async (req, res) => {
   const userId = req.user?.member_id || req.user?.user_id;
   const { date, start_time, end_time, type, bay, club_name } = req.body;
-  const clubName = club_name || 'No. 5';
+  const clubName = club_name || req.user.club || 'No. 5';
 
   if (!date || !start_time || !end_time) return res.status(400).json({ error: 'Missing fields' });
 
@@ -13284,7 +13284,7 @@ app.put('/api/simulator-bookings/:id', authenticateToken, requireAdminForBooking
     if (!rows[0]) return res.status(404).json({ error: 'Booking not found' });
     if (rows[0].user_id !== userId) return res.status(403).json({ error: 'Can only reschedule your own bookings' });
 
-    const clubName = rows[0].club_name || 'No. 5';
+    const clubName = rows[0].club_name || req.user.club || 'No. 5';
 
     // Check if booking is still enabled for this club
     const settingsCheck = await pool.query(
@@ -17275,7 +17275,7 @@ app.get('/api/challenges/history', async (req, res) => {
 app.delete('/api/user/onboarding', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.member_id;
-    const clubName = req.query.club || 'No. 5';
+    const clubName = req.query.club || req.user.club || 'No. 5';
 
     await pool.query(
       `DELETE FROM user_onboarding WHERE user_id = $1 AND club_name = $2`,
@@ -17293,7 +17293,7 @@ app.delete('/api/user/onboarding', authenticateToken, async (req, res) => {
 app.get('/api/user/onboarding-status', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.member_id;
-    const clubName = req.query.club || 'No. 5';
+    const clubName = req.query.club || req.user.club || 'No. 5';
 
     const result = await pool.query(
       `SELECT
@@ -17329,7 +17329,7 @@ app.post('/api/user/onboarding/welcome', authenticateToken, async (req, res) => 
   try {
     const userId = req.user.member_id;
     const { quiz_score } = req.body;
-    const clubName = req.body.club || 'No. 5';
+    const clubName = req.body.club || req.user.club || 'No. 5';
 
     // Validate quiz score (must be 3/3 to pass)
     if (quiz_score !== 3) {
@@ -17364,7 +17364,7 @@ app.post('/api/user/onboarding/welcome', authenticateToken, async (req, res) => 
 app.post('/api/user/onboarding/waiver', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.member_id;
-    const clubName = req.body?.club || 'No. 5';
+    const clubName = req.body?.club || req.user.club || 'No. 5';
 
     // Get client IP address for legal record-keeping
     const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
@@ -17412,7 +17412,7 @@ app.post('/api/user/onboarding/waiver', authenticateToken, async (req, res) => {
 app.get('/api/user/can-book', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.member_id;
-    const clubName = req.query.club || 'No. 5';
+    const clubName = req.query.club || req.user.club || 'No. 5';
 
     // Check onboarding status
     const onboardingResult = await pool.query(
