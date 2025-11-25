@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Target, Medal, Camera, CheckCircle, Clock, ArrowLeft } from 'lucide-react';
 import { toast } from 'react-toastify';
-import { getChallengeLeaderboard, getChallenge, type ChallengeEntry, type WeeklyChallenge } from '../services/api';
+import { getChallengeLeaderboard, getChallenge, type ChallengeEntry, type WeeklyChallenge, type WeeklyChallengeExtended } from '../services/api';
 import { useAuth } from '../AuthContext';
 import { Card, CardHeader, CardContent, Button, Badge, Avatar, Table, TableHead, TableBody, TableRow, TableHeader, TableCell, SimpleLoading, EmptyState } from './ui';
+import DualLeaderboard from './DualLeaderboard';
 
 interface ChallengeLeaderboardProps {
   challengeId: number;
@@ -20,6 +21,7 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
   const [challenge, setChallenge] = useState<WeeklyChallenge | null>(null);
   const [entries, setEntries] = useState<ChallengeEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isFiveShotChallenge, setIsFiveShotChallenge] = useState(false);
 
   useEffect(() => {
     loadLeaderboard();
@@ -28,13 +30,19 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
   const loadLeaderboard = async () => {
     setLoading(true);
     try {
-      const [challengeRes, leaderboardRes] = await Promise.all([
-        getChallenge(challengeId),
-        getChallengeLeaderboard(challengeId)
-      ]);
-
+      // First fetch challenge to check type
+      const challengeRes = await getChallenge(challengeId);
       setChallenge(challengeRes.data);
-      setEntries(leaderboardRes.data);
+
+      // Check if this is a Five-Shot challenge
+      const isFiveShot = Boolean((challengeRes.data as any).challenge_type_id);
+      setIsFiveShotChallenge(isFiveShot);
+
+      // Only fetch legacy leaderboard for non-Five-Shot challenges
+      if (!isFiveShot) {
+        const leaderboardRes = await getChallengeLeaderboard(challengeId);
+        setEntries(leaderboardRes.data);
+      }
     } catch (err: any) {
       console.error('Error loading leaderboard:', err);
       toast.error('Failed to load leaderboard');
@@ -113,6 +121,20 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
             icon={Target}
             title="Challenge Not Found"
             description="Unable to load challenge information"
+          />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Render DualLeaderboard for Five-Shot challenges
+  if (isFiveShotChallenge) {
+    return (
+      <Card>
+        <CardContent>
+          <DualLeaderboard
+            challenge={challenge as WeeklyChallengeExtended}
+            onBack={onBack}
           />
         </CardContent>
       </Card>

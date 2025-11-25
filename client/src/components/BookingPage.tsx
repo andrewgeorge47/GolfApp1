@@ -1,11 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, dateFnsLocalizer, Views } from 'react-big-calendar';
+import { Calendar, dateFnsLocalizer, Views, View } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay, parseISO, addDays, setHours, setMinutes } from 'date-fns';
 import api from '../services/api';
 import { useAuth } from '../AuthContext';
-import { User as UserIcon, Group as GroupIcon, Plus as PlusIcon, Edit3, X, Clock, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { User as UserIcon, Group as GroupIcon, Plus as PlusIcon, Edit3, X, Clock, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown, ArrowLeft } from 'lucide-react';
+import { Card, CardHeader, CardContent, CardFooter } from './ui/Card';
+import { Button } from './ui/Button';
+import { Modal, ModalHeader, ModalContent, ModalFooter } from './ui/Modal';
+import { Input } from './ui/Input';
+import { SimpleLoading } from './ui/SimpleLoading';
+import { CalendarStyles } from './ui/CalendarStyles';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
+
+// Extend window for calendar navigation
+declare global {
+  interface Window {
+    calendarNavigate?: (action: string, newDate?: Date) => void;
+  }
+}
 
 interface Booking {
   id: number;
@@ -60,6 +73,10 @@ const localizer = dateFnsLocalizer({
 const BookingPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  // Club name - can be made dynamic later for multi-club support
+  const clubName = 'No. 5';
+
   const [allBookings, setAllBookings] = useState<Booking[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,23 +99,15 @@ const BookingPage: React.FC = () => {
   const [rescheduleSlot, setRescheduleSlot] = useState<{ start: Date; end: Date } | null>(null);
   const [rescheduleType, setRescheduleType] = useState<'solo' | 'social'>('solo');
   const [rescheduleBay, setRescheduleBay] = useState<number>(1);
-  const [calendarView, setCalendarView] = useState<'day' | 'week'>('week');
+  const [calendarView, setCalendarView] = useState<View>(Views.DAY);
   const [calendarDate, setCalendarDate] = useState(new Date());
-
-  // Custom 3-day view for mobile
-  const customViews = {
-    week: true,
-    day: {
-      type: Views.DAY,
-      length: 3,
-      label: '3-Day',
-    },
-  };
 
   const fetchBookings = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/simulator-bookings');
+      const response = await api.get('/simulator-bookings', {
+        params: { club_name: clubName }
+      });
       const bookingsData = response.data;
       console.log('Fetched bookings:', bookingsData);
       setAllBookings(bookingsData);
@@ -181,14 +190,14 @@ const BookingPage: React.FC = () => {
   const fetchBookingSettings = async () => {
     try {
       setSettingsLoading(true);
-      const response = await api.get('/club-booking-settings/No. 5');
+      const response = await api.get(`/club-booking-settings/${clubName}`);
       setBookingSettings(response.data);
     } catch (err: any) {
       console.error('Error fetching booking settings:', err);
       // Use default settings if not found
       setBookingSettings({
         id: 0,
-        club_name: 'No. 5',
+        club_name: clubName,
         number_of_bays: 4,
         opening_time: '07:00',
         closing_time: '22:00',
@@ -225,80 +234,127 @@ const BookingPage: React.FC = () => {
     }
   }, [isRescheduleDialogOpen, selectedEvent, rescheduleSlot, rescheduleType, rescheduleBay]);
 
-  // Handle responsive calendar view
+  // Scroll to current day on mobile in week view
   useEffect(() => {
-    const handleResize = () => {
-      setCalendarView(window.innerWidth < 640 ? 'day' : 'week');
-    };
+    if (window.innerWidth < 640 && calendarView === Views.WEEK) {
+      // Small delay to ensure calendar is rendered
+      const timer = setTimeout(() => {
+        const currentDayIndex = new Date().getDay(); // 0 = Sunday, 6 = Saturday
+        const calendarElement = document.querySelector('.rbc-time-content');
 
-    // Set initial view
-    handleResize();
+        if (calendarElement) {
+          // Each day column is roughly 1/7 of the total width
+          // Scroll to show current day in the center
+          const scrollPosition = (currentDayIndex / 7) * calendarElement.scrollWidth - (window.innerWidth / 2);
+          calendarElement.scrollTo({ left: Math.max(0, scrollPosition), behavior: 'smooth' });
+        }
+      }, 300);
 
-    // Add event listener
-    window.addEventListener('resize', handleResize);
+      return () => clearTimeout(timer);
+    }
+  }, [calendarDate, events, calendarView]); // Re-run when view changes
 
-    // Cleanup
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  // Helper function to check for booking conflicts
+  const checkBookingConflict = (date: string, startTime: string, endTime: string, bay: number, excludeBookingId?: number) => {
+    return allBookings.find((booking: Booking) => {
+      // Skip the booking being rescheduled
+      if (excludeBookingId && booking.id === excludeBookingId) return false;
+
+      // Extract date part from booking.date (handles ISO format like "2025-11-21T00:00:00.000Z")
+      const bookingDateOnly = booking.date.split('T')[0];
+      if (bookingDateOnly !== date) return false;
+
+      if (booking.bay !== bay) return false; // Only check conflicts in the same bay
+
+      const bookingStart = booking.start_time;
+      const bookingEnd = booking.end_time;
+
+      // Check for overlap
+      return (
+        (startTime >= bookingStart && startTime < bookingEnd) ||
+        (endTime > bookingStart && endTime <= bookingEnd) ||
+        (startTime <= bookingStart && endTime >= bookingEnd)
+      );
+    });
+  };
 
   const handleSelectSlot = ({ start, end }: { start: Date; end: Date }) => {
+    console.log('Slot selected:', { start, end });
+
     // If reschedule dialog is open, update the reschedule slot
     if (isRescheduleDialogOpen) {
       setRescheduleSlot({ start, end });
       setError(''); // Clear any previous errors
       return;
     }
-    
+
     // Don't allow creating bookings when reschedule dialog is open
     if (isRescheduleDialogOpen) return;
-    
+
     // Check if the selected time slot conflicts with existing bookings
     const selectedDate = format(start, 'yyyy-MM-dd');
     const selectedStart = format(start, 'HH:mm');
     const selectedEnd = format(end, 'HH:mm');
-    
-    const conflictingBooking = allBookings.find((booking: Booking) => {
-      if (booking.date !== selectedDate) return false;
-      if (booking.bay !== activeBay) return false; // Only check conflicts in the same bay
-      
-      const bookingStart = booking.start_time;
-      const bookingEnd = booking.end_time;
-      
-      // Check for overlap
-      return (
-        (selectedStart >= bookingStart && selectedStart < bookingEnd) ||
-        (selectedEnd > bookingStart && selectedEnd <= bookingEnd) ||
-        (selectedStart <= bookingStart && selectedEnd >= bookingEnd)
-      );
-    });
-    
+
+    console.log('Selected slot:', { selectedDate, selectedStart, selectedEnd });
+
+    const conflictingBooking = checkBookingConflict(selectedDate, selectedStart, selectedEnd, activeBay);
+
     if (conflictingBooking) {
       setError(`This time slot is already booked by ${conflictingBooking.first_name} ${conflictingBooking.last_name} in Bay ${conflictingBooking.bay || 1}. Please choose a different time or bay.`);
       return;
     }
-    
+
     setSelectedSlot({ start, end });
     setSelectedBay(activeBay); // Default to the active bay
     setIsCreateDialogOpen(true);
     setError(''); // Clear any previous errors
   };
 
+  const handleQuickBookingClick = () => {
+    // Open create dialog with default time slot (next available hour)
+    const now = new Date();
+    const nextHour = new Date(now);
+    nextHour.setHours(now.getHours() + 1, 0, 0, 0);
+    const endTime = new Date(nextHour);
+    endTime.setHours(nextHour.getHours() + 1, 0, 0, 0);
+
+    setSelectedSlot({ start: nextHour, end: endTime });
+    setSelectedBay(activeBay);
+    setIsCreateDialogOpen(true);
+    setError('');
+  };
+
   const handleCreateBooking = async () => {
     if (!selectedSlot) return;
-    
+
+    const date = format(selectedSlot.start, 'yyyy-MM-dd');
+    const start_time = format(selectedSlot.start, 'HH:mm');
+    const end_time = format(selectedSlot.end, 'HH:mm');
+
+    // Validate time range
+    if (end_time <= start_time) {
+      setError('End time must be after start time.');
+      return;
+    }
+
+    // Check for conflicts client-side before submitting
+    const conflictingBooking = checkBookingConflict(date, start_time, end_time, selectedBay);
+    if (conflictingBooking) {
+      setError(`This time slot is already booked by ${conflictingBooking.first_name} ${conflictingBooking.last_name} in Bay ${conflictingBooking.bay || 1}. Please choose a different time or bay.`);
+      return;
+    }
+
     try {
-      const date = format(selectedSlot.start, 'yyyy-MM-dd');
-      const start_time = format(selectedSlot.start, 'HH:mm');
-      const end_time = format(selectedSlot.end, 'HH:mm');
-      
       await api.post('/simulator-bookings', {
         date,
         start_time,
         end_time,
         type: bookingType,
         bay: selectedBay,
+        club_name: clubName,
       });
-      
+
       setSuccess('Booking created successfully!');
       setIsCreateDialogOpen(false);
       setSelectedSlot(null);
@@ -352,18 +408,25 @@ const BookingPage: React.FC = () => {
       setError('Please select a valid time slot for rescheduling.');
       return;
     }
-    
+
     // Validate that end time is after start time
     if (rescheduleSlot.end <= rescheduleSlot.start) {
       setError('End time must be after start time.');
       return;
     }
-    
+
+    const date = format(rescheduleSlot.start, 'yyyy-MM-dd');
+    const start_time = format(rescheduleSlot.start, 'HH:mm');
+    const end_time = format(rescheduleSlot.end, 'HH:mm');
+
+    // Check for conflicts client-side, excluding the current booking being rescheduled
+    const conflictingBooking = checkBookingConflict(date, start_time, end_time, rescheduleBay, selectedEvent.booking.id);
+    if (conflictingBooking) {
+      setError(`This time slot is already booked by ${conflictingBooking.first_name} ${conflictingBooking.last_name} in Bay ${conflictingBooking.bay || 1}. Please choose a different time or bay.`);
+      return;
+    }
+
     try {
-      const date = format(rescheduleSlot.start, 'yyyy-MM-dd');
-      const start_time = format(rescheduleSlot.start, 'HH:mm');
-      const end_time = format(rescheduleSlot.end, 'HH:mm');
-      
       console.log('Rescheduling booking:', {
         id: selectedEvent.booking.id,
         date,
@@ -372,7 +435,7 @@ const BookingPage: React.FC = () => {
         type: rescheduleType,
         bay: rescheduleBay,
       });
-      
+
       await api.put(`/simulator-bookings/${selectedEvent.booking.id}`, {
         date,
         start_time,
@@ -380,7 +443,7 @@ const BookingPage: React.FC = () => {
         type: rescheduleType,
         bay: rescheduleBay,
       });
-      
+
       setSuccess('Booking rescheduled successfully!');
       setIsRescheduleDialogOpen(false);
       setIsEventDialogOpen(false);
@@ -507,32 +570,39 @@ const BookingPage: React.FC = () => {
       );
     },
     toolbar: (props: any) => {
-      return (
-        <div className="flex items-center justify-between p-3 bg-gray-50 border-b">
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => props.onNavigate('PREV')}
-              className="p-2 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => props.onNavigate('TODAY')}
-              className="px-3 py-1 text-sm bg-brand-dark-green text-white rounded-lg hover:bg-brand-muted-green transition-colors"
-            >
-              Today
-            </button>
-            <button
-              onClick={() => props.onNavigate('NEXT')}
-              className="p-2 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+      // Store navigation functions for floating toolbar
+      window.calendarNavigate = props.onNavigate;
+
+      // Only show date display in Day view
+      if (calendarView === Views.DAY) {
+        return (
+          <div className="flex items-center justify-center p-3 bg-gray-50 border-b">
+            <h2 className="text-lg font-semibold text-gray-900">
+              {format(calendarDate, 'EEEE, MMMM d, yyyy')}
+            </h2>
           </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-sm font-medium text-gray-700">
-              {props.label}
-            </span>
+        );
+      }
+
+      // No toolbar in Week view (day headers are already visible)
+      return null;
+    },
+    timeGutterHeader: () => <div className="text-[10px] text-gray-400"></div>,
+    header: ({ date, label }: any) => {
+      const today = new Date();
+      const isToday =
+        date.getDate() === today.getDate() &&
+        date.getMonth() === today.getMonth() &&
+        date.getFullYear() === today.getFullYear();
+
+      const dayLetter = format(date, 'EEEEE'); // Single letter day
+      const dayNumber = format(date, 'd');
+
+      return (
+        <div style={{ textAlign: 'center' }}>
+          <div className="day-letter">{dayLetter}</div>
+          <div className={`day-number ${isToday ? 'today' : ''}`}>
+            {dayNumber}
           </div>
         </div>
       );
@@ -540,84 +610,129 @@ const BookingPage: React.FC = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto relative pb-16 sm:pb-6 px-4 sm:px-6">
-      {/* Header */}
-      <div className="bg-gradient-to-br from-brand-dark-green to-brand-muted-green rounded-2xl shadow-xl p-4 sm:p-6 mb-4 sm:mb-8 text-white">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold flex items-center">
-              <CalendarIcon className="w-6 h-6 sm:w-8 sm:h-8 mr-2 sm:mr-3" />
-              Simulator Bay Booking
-            </h1>
-            <p className="text-white/90 mt-2 text-sm sm:text-base">No. 5 Clubhouse - Drag to create bookings</p>
-          </div>
-          <button
-            onClick={() => navigate(-1)}
-            className="bg-white/10 backdrop-blur-sm text-white rounded-full px-3 py-2 sm:px-4 sm:py-2 hover:bg-white/20 transition-all duration-200 border border-white/20 hover:border-white/30 shadow-lg hover:shadow-xl flex items-center justify-center space-x-2 w-full sm:w-auto"
-          >
-            <X className="w-4 h-4" />
-            <span className="text-sm sm:text-base">Back to Profile</span>
-          </button>
-        </div>
-      </div>
+    <div className="w-full sm:max-w-6xl sm:mx-auto relative pb-0 sm:pb-6">
+      {/* Mobile-optimized CSS for calendar */}
+      <CalendarStyles />
 
-      {error && (
-        <div className="bg-red-500/20 border border-red-400/50 text-red-800 px-4 py-3 rounded-lg mb-4 text-sm sm:text-base">
-          {error}
-        </div>
-      )}
-      
-      {success && (
-        <div className="bg-green-500/20 border border-green-400/50 text-green-800 px-4 py-3 rounded-lg mb-4 text-sm sm:text-base">
-          {success}
-        </div>
-      )}
+      {/* Compact Mobile Header */}
+      <div className="sm:hidden bg-brand-dark-green text-white px-2 py-3 flex items-center">
+        <button onClick={() => navigate(-1)} className="p-2 hover:bg-white/10 rounded-lg flex-shrink-0">
+          <ArrowLeft className="w-5 h-5" />
+        </button>
 
-      {/* Bay Toggle */}
-      {!settingsLoading && bookingSettings && (
-        <div className="bg-white rounded-2xl shadow-xl p-4 sm:p-6 mb-4 sm:mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Select Simulator Bay</h3>
-              <p className="text-gray-600 text-sm">View bookings for a specific bay</p>
-            </div>
-            <div className="grid grid-cols-2 sm:flex sm:space-x-2 gap-2 sm:gap-0">
+        <div className="flex-1 flex items-center justify-center px-2">
+          <span className="text-base font-semibold">Booking {clubName}</span>
+        </div>
+
+        {bookingSettings && bookingSettings.number_of_bays > 1 ? (
+          <div className="flex items-center gap-1.5 pr-2 flex-shrink-0">
+            <span className="text-xs opacity-90">Bay</span>
+            <div className="flex gap-1">
               {Array.from({ length: bookingSettings.number_of_bays }, (_, i) => i + 1).map((bay) => (
                 <button
                   key={bay}
                   onClick={() => setActiveBay(bay)}
-                  className={`px-3 py-3 sm:px-4 sm:py-2 rounded-lg font-medium transition-all duration-200 text-sm sm:text-base min-h-[44px] ${
+                  className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
                     activeBay === bay
-                      ? 'bg-brand-dark-green text-white shadow-lg'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      ? 'bg-white text-brand-dark-green'
+                      : 'bg-white/20 text-white hover:bg-white/30'
                   }`}
                 >
-                  Bay {bay}
+                  {bay}
                 </button>
               ))}
             </div>
           </div>
+        ) : (
+          <div className="w-10 flex-shrink-0"></div>
+        )}
+      </div>
+
+      {/* Desktop Header */}
+      <div className="hidden sm:block bg-gradient-to-br from-brand-dark-green to-brand-muted-green rounded-xl shadow-md mb-4 sm:mb-6 p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex-1">
+            <h1 className="text-2xl sm:text-3xl font-bold text-white flex items-center">
+              <CalendarIcon className="w-6 h-6 sm:w-8 sm:h-8 mr-2 sm:mr-3" />
+              Simulator Bay Booking
+            </h1>
+            <p className="text-white/90 mt-2 text-sm sm:text-base">
+              {clubName} - Tap calendar to create bookings
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            icon={ArrowLeft}
+            onClick={() => navigate(-1)}
+            className="bg-white/10 text-white hover:bg-white/20 border-white/20 w-full sm:w-auto"
+            size="lg"
+          >
+            Back
+          </Button>
         </div>
+      </div>
+
+      {error && (
+        <Card variant="outlined" className="mb-4 border-red-300 bg-red-50 rounded-none sm:rounded-xl mx-0">
+          <CardContent className="py-3">
+            <p className="text-red-800 text-sm sm:text-base">{error}</p>
+          </CardContent>
+        </Card>
       )}
 
-      <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+      {success && (
+        <Card variant="outlined" className="mb-4 border-green-300 bg-green-50 rounded-none sm:rounded-xl mx-0">
+          <CardContent className="py-3">
+            <p className="text-green-800 text-sm sm:text-base">{success}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Bay Selector - Desktop Only */}
+      {!settingsLoading && bookingSettings && (
+        <Card variant="elevated" className="hidden sm:block mb-4 sm:mb-6 rounded-xl">
+          <CardContent>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Select Simulator Bay</h3>
+                <p className="text-gray-600 text-sm mt-1">Tap a bay to view its schedule</p>
+              </div>
+              <div className="grid grid-cols-2 sm:flex gap-2">
+                {Array.from({ length: bookingSettings.number_of_bays }, (_, i) => i + 1).map((bay) => (
+                  <Button
+                    key={bay}
+                    variant={activeBay === bay ? 'primary' : 'outline'}
+                    onClick={() => setActiveBay(bay)}
+                    size="lg"
+                    className="min-h-[48px]"
+                  >
+                    Bay {bay}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="bg-white shadow-none sm:shadow-md rounded-none sm:rounded-xl overflow-hidden">
         {(loading || settingsLoading) ? (
-          <div className="flex items-center justify-center h-96">
-            <div className="text-gray-600">Loading...</div>
-          </div>
+          <CardContent className="py-16">
+            <SimpleLoading text="Loading booking calendar..." />
+          </CardContent>
         ) : (
           <>
-            <div className="bg-gray-50 border-b px-4 sm:px-6 py-3">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
-                <div className="flex items-center justify-between sm:justify-start sm:space-x-4">
-                  <div className="text-xs sm:text-sm text-gray-600">
+            <div className="hidden sm:block bg-gray-50 border-b px-4 sm:px-6 py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <div className="text-sm text-gray-600">
                     {events.length} booking{events.length !== 1 ? 's' : ''} loaded
                   </div>
-                  <div className="text-xs sm:text-sm font-medium text-brand-dark-green">
+                  <div className="text-sm font-medium text-brand-dark-green">
                     Bay {activeBay}
                   </div>
                 </div>
-                <div className="flex items-center justify-center sm:justify-end space-x-4 text-xs sm:text-sm">
+                <div className="flex items-center space-x-4 text-sm">
                   <div className="flex items-center space-x-2">
                     <div className="w-3 h-3 bg-blue-500 rounded"></div>
                     <span className="text-gray-600">Solo</span>
@@ -626,14 +741,10 @@ const BookingPage: React.FC = () => {
                     <div className="w-3 h-3 bg-green-500 rounded"></div>
                     <span className="text-gray-600">Social</span>
                   </div>
-                  {/* Mobile view indicator */}
-                  <div className="sm:hidden text-xs text-gray-500">
-                    {calendarView === 'day' ? '3-Day View' : 'Week View'}
-                  </div>
                 </div>
               </div>
             </div>
-            <div className="h-[400px] sm:h-[600px]">
+            <div className="h-[calc(100vh-120px)] sm:h-[600px] relative">
               {bookingSettings && (
                 <Calendar
                   localizer={localizer}
@@ -641,22 +752,34 @@ const BookingPage: React.FC = () => {
                   startAccessor="start"
                   endAccessor="end"
                   style={{ height: '100%' }}
-                  selectable="ignoreEvents"
+                  selectable={true}
                   onSelectSlot={handleSelectSlot}
                   onSelectEvent={handleEventClick}
                   eventPropGetter={eventStyleGetter}
                   components={components}
+                  formats={{
+                    timeGutterFormat: (date: Date) => {
+                      const hour = date.getHours();
+                      const minute = date.getMinutes();
+                      if (minute !== 0) return ''; // Only show full hours
+                      const period = hour >= 12 ? 'PM' : 'AM';
+                      const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+                      return `${displayHour} ${period}`;
+                    }
+                  }}
                   step={30}
                   timeslots={2}
-                  views={{ week: true, day: true }}
-                  defaultView={calendarView === 'day' ? 'day' : 'week'}
-                  view={calendarView === 'day' ? 'day' : 'week'}
+                  views={[Views.WEEK, Views.DAY]}
+                  defaultView={calendarView}
+                  view={calendarView}
+                  onView={(view) => setCalendarView(view)}
                   date={calendarDate}
                   onNavigate={date => setCalendarDate(date)}
                   min={new Date(0, 0, 0, parseInt(bookingSettings.opening_time.split(':')[0]), parseInt(bookingSettings.opening_time.split(':')[1]), 0)}
                   max={new Date(0, 0, 0, parseInt(bookingSettings.closing_time.split(':')[0]), parseInt(bookingSettings.closing_time.split(':')[1]), 0)}
                   toolbar={true}
                   popup
+                  longPressThreshold={0}
                 />
               )}
             </div>
@@ -665,189 +788,282 @@ const BookingPage: React.FC = () => {
       </div>
 
       {/* Create Booking Dialog */}
-      {isCreateDialogOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <div className="bg-gradient-to-br from-brand-dark-green to-brand-muted-green text-white p-6 rounded-t-2xl">
-              <h2 className="text-xl font-bold">Create New Booking</h2>
+      <Modal open={isCreateDialogOpen} onClose={() => setIsCreateDialogOpen(false)}>
+        <ModalHeader>Create New Booking</ModalHeader>
+        <ModalContent>
+          <div className="space-y-4 sm:space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+              <input
+                type="date"
+                value={selectedSlot ? format(selectedSlot.start, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd')}
+                onChange={(e) => {
+                  if (selectedSlot) {
+                    const newDate = new Date(e.target.value + 'T00:00:00');
+                    const currentTime = selectedSlot.start;
+                    const newStart = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate(),
+                      currentTime.getHours(), currentTime.getMinutes());
+                    const newEnd = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate(),
+                      selectedSlot.end.getHours(), selectedSlot.end.getMinutes());
+                    setSelectedSlot({ start: newStart, end: newEnd });
+                  }
+                }}
+                className="w-full px-4 py-3 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green text-base min-h-[48px]"
+              />
             </div>
-            <div className="p-6">
-              <div className="space-y-4">
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="text-sm text-gray-600 mb-2">Selected Time Slot</div>
-                  <div className="text-lg font-semibold">
-                    {selectedSlot ? format(selectedSlot.start, 'EEEE, MMMM d, yyyy') : ''}
-                  </div>
-                  <div className="text-gray-600">
-                    {selectedSlot ? `${format(selectedSlot.start, 'HH:mm')} - ${format(selectedSlot.end, 'HH:mm')}` : ''}
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Booking Type
-                  </label>
-                  <select
-                    value={bookingType}
-                    onChange={(e) => setBookingType(e.target.value as 'solo' | 'social')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green"
-                  >
-                    <option value="solo">Solo</option>
-                    <option value="social">Social</option>
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Simulator Bay
-                  </label>
-                  <select
-                    value={selectedBay}
-                    onChange={(e) => setSelectedBay(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green"
-                  >
-                    {bookingSettings && Array.from({ length: bookingSettings.number_of_bays }, (_, i) => i + 1).map((bay) => (
-                      <option key={bay} value={bay}>Bay {bay}</option>
-                    ))}
-                  </select>
-                </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
+                <input
+                  type="time"
+                  value={selectedSlot ? format(selectedSlot.start, 'HH:mm') : ''}
+                  onChange={(e) => {
+                    if (selectedSlot) {
+                      const [hours, minutes] = e.target.value.split(':').map(Number);
+                      const newStart = new Date(selectedSlot.start);
+                      newStart.setHours(hours, minutes);
+                      setSelectedSlot({ start: newStart, end: selectedSlot.end });
+                    }
+                  }}
+                  className="w-full px-4 py-3 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green text-base min-h-[48px]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">End Time</label>
+                <input
+                  type="time"
+                  value={selectedSlot ? format(selectedSlot.end, 'HH:mm') : ''}
+                  onChange={(e) => {
+                    if (selectedSlot) {
+                      const [hours, minutes] = e.target.value.split(':').map(Number);
+                      const newEnd = new Date(selectedSlot.end);
+                      newEnd.setHours(hours, minutes);
+                      setSelectedSlot({ start: selectedSlot.start, end: newEnd });
+                    }
+                  }}
+                  className="w-full px-4 py-3 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green text-base min-h-[48px]"
+                />
               </div>
             </div>
-            <div className="bg-gray-50 px-4 sm:px-6 py-4 rounded-b-2xl flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3">
-              <button
-                onClick={() => setIsCreateDialogOpen(false)}
-                className="px-4 py-3 sm:py-2 text-gray-600 hover:text-gray-800 transition-colors rounded-lg border border-gray-300 sm:border-none"
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Booking Type
+              </label>
+              <select
+                value={bookingType}
+                onChange={(e) => setBookingType(e.target.value as 'solo' | 'social')}
+                className="w-full px-4 py-3 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green text-base min-h-[48px]"
               >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateBooking}
-                className="bg-brand-dark-green text-white px-4 py-3 sm:py-2 rounded-lg hover:bg-brand-muted-green transition-colors font-medium"
+                <option value="solo">Solo</option>
+                <option value="social">Social</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Simulator Bay
+              </label>
+              <select
+                value={selectedBay}
+                onChange={(e) => setSelectedBay(Number(e.target.value))}
+                className="w-full px-4 py-3 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green text-base min-h-[48px]"
               >
-                Create Booking
-              </button>
+                {bookingSettings && Array.from({ length: bookingSettings.number_of_bays }, (_, i) => i + 1).map((bay) => (
+                  <option key={bay} value={bay}>Bay {bay}</option>
+                ))}
+              </select>
             </div>
           </div>
-        </div>
-      )}
+        </ModalContent>
+        <ModalFooter>
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
+            <Button
+              variant="outline"
+              onClick={() => setIsCreateDialogOpen(false)}
+              size="lg"
+              className="w-full sm:w-auto order-2 sm:order-1"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleCreateBooking}
+              size="lg"
+              className="w-full sm:w-auto order-1 sm:order-2"
+            >
+              Create Booking
+            </Button>
+          </div>
+        </ModalFooter>
+      </Modal>
 
       {/* Event Details Dialog */}
-      {isEventDialogOpen && selectedEvent && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <div className="bg-gradient-to-br from-brand-dark-green to-brand-muted-green text-white p-6 rounded-t-2xl">
+      <Modal
+        open={isEventDialogOpen && selectedEvent !== null}
+        onClose={() => setIsEventDialogOpen(false)}
+      >
+        {selectedEvent && (
+          <>
+            <ModalHeader>
               <div className="flex items-center">
                 {selectedEvent.booking.type === 'social' ? (
                   <GroupIcon className="w-6 h-6 mr-3" />
                 ) : (
                   <UserIcon className="w-6 h-6 mr-3" />
                 )}
-                <h2 className="text-xl font-bold">Booking Details</h2>
+                <span>Booking Details</span>
               </div>
-            </div>
-            <div className="p-6">
-              <div className="space-y-4">
+            </ModalHeader>
+            <ModalContent>
+              <div className="space-y-4 sm:space-y-6">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">
+                  <h3 className="text-lg sm:text-xl font-semibold text-gray-900">
                     {selectedEvent.booking.first_name} {selectedEvent.booking.last_name}
                   </h3>
-                  <div className="text-gray-600">
-                    {format(selectedEvent.start, 'EEEE, MMMM d, yyyy')}
-                  </div>
-                  <div className="text-gray-600">
-                    {format(selectedEvent.start, 'HH:mm')} - {format(selectedEvent.end, 'HH:mm')}
-                  </div>
-                  <div className="text-gray-600">
-                    Bay {selectedEvent.booking.bay || 1}
+                  <div className="mt-3 space-y-2 text-sm sm:text-base text-gray-600">
+                    <div className="flex items-center">
+                      <CalendarIcon className="w-4 h-4 mr-2 text-gray-400" />
+                      {format(selectedEvent.start, 'EEEE, MMMM d, yyyy')}
+                    </div>
+                    <div className="flex items-center">
+                      <Clock className="w-4 h-4 mr-2 text-gray-400" />
+                      {format(selectedEvent.start, 'HH:mm')} - {format(selectedEvent.end, 'HH:mm')}
+                    </div>
+                    <div className="flex items-center font-medium text-brand-dark-green">
+                      Bay {selectedEvent.booking.bay || 1}
+                    </div>
                   </div>
                 </div>
-                
-                <div className="flex items-center space-x-2">
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                    selectedEvent.booking.type === 'social' 
-                      ? 'bg-green-100 text-green-800' 
+
+                <div className="flex items-center">
+                  <span className={`px-4 py-2 rounded-full text-sm font-medium flex items-center ${
+                    selectedEvent.booking.type === 'social'
+                      ? 'bg-green-100 text-green-800'
                       : 'bg-blue-100 text-blue-800'
                   }`}>
                     {selectedEvent.booking.type === 'social' ? (
-                      <GroupIcon className="w-4 h-4 inline mr-1" />
+                      <GroupIcon className="w-4 h-4 mr-2" />
                     ) : (
-                      <UserIcon className="w-4 h-4 inline mr-1" />
+                      <UserIcon className="w-4 h-4 mr-2" />
                     )}
                     {selectedEvent.booking.type}
                   </span>
                 </div>
-                
+
                 {selectedEvent.booking.type === 'social' && selectedEvent.booking.participantNames && selectedEvent.booking.participantNames.length > 0 && (
-                  <div>
-                    <div className="text-sm font-medium text-gray-700 mb-2">Participants:</div>
-                    <div className="text-gray-600">
-                      {selectedEvent.booking.participantNames.join(', ')}
-                    </div>
-                  </div>
+                  <Card variant="outlined" className="bg-gray-50 border-gray-200">
+                    <CardContent className="py-3">
+                      <div className="text-sm font-medium text-gray-700 mb-2">Participants:</div>
+                      <div className="text-sm text-gray-600">
+                        {selectedEvent.booking.participantNames.join(', ')}
+                      </div>
+                    </CardContent>
+                  </Card>
                 )}
               </div>
-            </div>
-            <div className="bg-gray-50 px-4 sm:px-6 py-4 rounded-b-2xl flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3">
-              <button
-                onClick={() => setIsEventDialogOpen(false)}
-                className="px-4 py-3 sm:py-2 text-gray-600 hover:text-gray-800 transition-colors rounded-lg border border-gray-300 sm:border-none"
-              >
-                Close
-              </button>
-              {selectedEvent.canJoin && (
-                <button
-                  onClick={handleJoinBooking}
-                  className="bg-green-600 text-white px-4 py-3 sm:py-2 rounded-lg hover:bg-green-700 transition-colors font-medium"
+            </ModalContent>
+            <ModalFooter>
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto sm:justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsEventDialogOpen(false)}
+                  size="lg"
+                  className="w-full sm:w-auto order-last"
                 >
-                  Join Booking
-                </button>
-              )}
-              {selectedEvent.isOwnBooking && (
-                <>
-                  <button
-                    onClick={openRescheduleDialog}
-                    className="bg-yellow-600 text-white px-4 py-3 sm:py-2 rounded-lg hover:bg-yellow-700 transition-colors font-medium"
+                  Close
+                </Button>
+                {selectedEvent.canJoin && (
+                  <Button
+                    variant="primary"
+                    onClick={handleJoinBooking}
+                    size="lg"
+                    className="w-full sm:w-auto bg-green-600 hover:bg-green-700 order-1"
                   >
-                    Reschedule
-                  </button>
-                  <button
-                    onClick={handleCancelBooking}
-                    className="bg-red-600 text-white px-4 py-3 sm:py-2 rounded-lg hover:bg-red-700 transition-colors font-medium"
-                  >
-                    Cancel Booking
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+                    Join Booking
+                  </Button>
+                )}
+                {selectedEvent.isOwnBooking && (
+                  <>
+                    <Button
+                      variant="primary"
+                      onClick={openRescheduleDialog}
+                      size="lg"
+                      className="w-full sm:w-auto bg-yellow-600 hover:bg-yellow-700 order-2"
+                      icon={Edit3}
+                    >
+                      Reschedule
+                    </Button>
+                    <Button
+                      variant="primary"
+                      onClick={handleCancelBooking}
+                      size="lg"
+                      className="w-full sm:w-auto bg-red-600 hover:bg-red-700 order-3"
+                      icon={X}
+                    >
+                      Cancel Booking
+                    </Button>
+                  </>
+                )}
+              </div>
+            </ModalFooter>
+          </>
+        )}
+      </Modal>
 
-            {/* Reschedule Booking Dialog */}
-      {isRescheduleDialogOpen && selectedEvent && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="bg-gradient-to-br from-brand-dark-green to-brand-muted-green text-white p-6 rounded-t-2xl">
-              <h2 className="text-xl font-bold">Reschedule Booking</h2>
-            </div>
-            <div className="p-4 sm:p-6">
+      {/* Reschedule Booking Dialog */}
+      <Modal
+        open={isRescheduleDialogOpen && selectedEvent !== null}
+        onClose={() => {
+          setIsRescheduleDialogOpen(false);
+          setRescheduleSlot(null);
+          setError('');
+        }}
+        size="lg"
+      >
+        {selectedEvent && (
+          <>
+            <ModalHeader>Reschedule Booking</ModalHeader>
+            <ModalContent>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+                {/* Current Booking */}
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Current Booking</h3>
-                  <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-                    <div className="text-sm text-gray-600">Date</div>
-                    <div className="font-medium">{selectedEvent ? format(selectedEvent.start, 'EEEE, MMMM d, yyyy') : ''}</div>
-                    <div className="text-sm text-gray-600">Time</div>
-                    <div className="font-medium">{selectedEvent ? `${format(selectedEvent.start, 'HH:mm')} - ${format(selectedEvent.end, 'HH:mm')}` : ''}</div>
-                    <div className="text-sm text-gray-600">Type</div>
-                    <div className="font-medium">{selectedEvent?.booking.type}</div>
-                    <div className="text-sm text-gray-600">Bay</div>
-                    <div className="font-medium">{selectedEvent?.booking.bay || 1}</div>
-                  </div>
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Current Booking</h3>
+                  <Card variant="outlined" className="bg-gray-50 border-gray-200">
+                    <CardContent className="space-y-3">
+                      <div>
+                        <div className="text-xs sm:text-sm text-gray-600 mb-1">Date</div>
+                        <div className="text-sm sm:text-base font-medium text-gray-900">
+                          {format(selectedEvent.start, 'EEEE, MMMM d, yyyy')}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs sm:text-sm text-gray-600 mb-1">Time</div>
+                        <div className="text-sm sm:text-base font-medium text-gray-900">
+                          {`${format(selectedEvent.start, 'HH:mm')} - ${format(selectedEvent.end, 'HH:mm')}`}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs sm:text-sm text-gray-600 mb-1">Type</div>
+                        <div className="text-sm sm:text-base font-medium text-gray-900 capitalize">
+                          {selectedEvent.booking.type}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs sm:text-sm text-gray-600 mb-1">Bay</div>
+                        <div className="text-sm sm:text-base font-medium text-gray-900">
+                          {selectedEvent.booking.bay || 1}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
-                
+
+                {/* New Booking Details */}
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">New Booking Details</h3>
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">New Booking Details</h3>
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
@@ -859,27 +1075,25 @@ const BookingPage: React.FC = () => {
                           try {
                             if (rescheduleSlot) {
                               const newDate = new Date(e.target.value + 'T00:00:00');
-                              
-                              // Validate the new date
+
                               if (isNaN(newDate.getTime())) {
                                 throw new Error('Invalid date value');
                               }
-                              
+
                               const currentTime = rescheduleSlot.start;
-                              const newStart = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate(), 
+                              const newStart = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate(),
                                 currentTime.getHours(), currentTime.getMinutes());
-                              const newEnd = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate(), 
+                              const newEnd = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate(),
                                 rescheduleSlot.end.getHours(), rescheduleSlot.end.getMinutes());
                               console.log('Updated reschedule slot:', { newStart, newEnd });
                               setRescheduleSlot({ start: newStart, end: newEnd });
                             } else {
-                              // If no slot is selected, create a default one
                               const newDate = new Date(e.target.value + 'T00:00:00');
-                              
+
                               if (isNaN(newDate.getTime())) {
                                 throw new Error('Invalid date value');
                               }
-                              
+
                               const defaultStart = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate(), 9, 0);
                               const defaultEnd = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate(), 10, 0);
                               setRescheduleSlot({ start: defaultStart, end: defaultEnd });
@@ -889,10 +1103,10 @@ const BookingPage: React.FC = () => {
                             setError('Invalid date selected. Please try again.');
                           }
                         }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green"
+                        className="w-full px-4 py-3 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green text-base min-h-[48px]"
                       />
                     </div>
-                    
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
@@ -906,7 +1120,6 @@ const BookingPage: React.FC = () => {
                               newStart.setHours(hours, minutes);
                               setRescheduleSlot({ start: newStart, end: rescheduleSlot.end });
                             } else {
-                              // If no slot is selected, create a default one
                               const [hours, minutes] = e.target.value.split(':').map(Number);
                               const today = new Date();
                               const defaultStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, minutes);
@@ -914,10 +1127,10 @@ const BookingPage: React.FC = () => {
                               setRescheduleSlot({ start: defaultStart, end: defaultEnd });
                             }
                           }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green"
+                          className="w-full px-4 py-3 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green text-base min-h-[48px]"
                         />
                       </div>
-                      
+
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">End Time</label>
                         <input
@@ -930,7 +1143,6 @@ const BookingPage: React.FC = () => {
                               newEnd.setHours(hours, minutes);
                               setRescheduleSlot({ start: rescheduleSlot.start, end: newEnd });
                             } else {
-                              // If no slot is selected, create a default one
                               const [hours, minutes] = e.target.value.split(':').map(Number);
                               const today = new Date();
                               const defaultStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours - 1, minutes);
@@ -938,29 +1150,29 @@ const BookingPage: React.FC = () => {
                               setRescheduleSlot({ start: defaultStart, end: defaultEnd });
                             }
                           }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green"
+                          className="w-full px-4 py-3 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green text-base min-h-[48px]"
                         />
                       </div>
                     </div>
-                    
+
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Booking Type</label>
                       <select
                         value={rescheduleType}
                         onChange={(e) => setRescheduleType(e.target.value as 'solo' | 'social')}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green"
+                        className="w-full px-4 py-3 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green text-base min-h-[48px]"
                       >
                         <option value="solo">Solo</option>
                         <option value="social">Social</option>
                       </select>
                     </div>
-                    
+
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Simulator Bay</label>
                       <select
                         value={rescheduleBay}
                         onChange={(e) => setRescheduleBay(Number(e.target.value))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green"
+                        className="w-full px-4 py-3 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark-green focus:border-brand-dark-green text-base min-h-[48px]"
                       >
                         {bookingSettings && Array.from({ length: bookingSettings.number_of_bays }, (_, i) => i + 1).map((bay) => (
                           <option key={bay} value={bay}>Bay {bay}</option>
@@ -970,45 +1182,135 @@ const BookingPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-              
-              <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-blue-50 rounded-lg">
-                <div className="flex items-start space-x-2 text-blue-800">
-                  <Clock className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                  <span className="text-xs sm:text-sm font-medium">💡 Tip: You can also drag on the calendar to select a new time slot, then click "Reschedule Booking"</span>
-                </div>
-                {rescheduleSlot && (
-                  <div className="mt-3 p-3 bg-white rounded border border-blue-200">
-                    <div className="text-xs sm:text-sm font-medium text-blue-900">Selected Time Slot:</div>
-                    <div className="text-xs sm:text-sm text-blue-700">
-                      {format(rescheduleSlot.start, 'EEEE, MMMM d, yyyy')}
-                    </div>
-                    <div className="text-xs sm:text-sm text-blue-700">
-                      {format(rescheduleSlot.start, 'HH:mm')} - {format(rescheduleSlot.end, 'HH:mm')}
-                    </div>
+
+              {/* Tip Section */}
+              <Card variant="outlined" className="mt-4 sm:mt-6 bg-blue-50 border-blue-200">
+                <CardContent className="py-3">
+                  <div className="flex items-start space-x-2 text-blue-800">
+                    <Clock className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <span className="text-xs sm:text-sm font-medium">
+                      💡 Tip: You can also click on the calendar to select a new time slot, then click "Reschedule Booking"
+                    </span>
                   </div>
-                )}
+                  {rescheduleSlot && (
+                    <div className="mt-3 p-3 bg-white rounded-lg border border-blue-200">
+                      <div className="text-xs sm:text-sm font-medium text-blue-900 mb-1">Selected Time Slot:</div>
+                      <div className="text-xs sm:text-sm text-blue-700">
+                        {format(rescheduleSlot.start, 'EEEE, MMMM d, yyyy')}
+                      </div>
+                      <div className="text-xs sm:text-sm text-blue-700">
+                        {format(rescheduleSlot.start, 'HH:mm')} - {format(rescheduleSlot.end, 'HH:mm')}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </ModalContent>
+            <ModalFooter>
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsRescheduleDialogOpen(false);
+                    setRescheduleSlot(null);
+                    setError('');
+                  }}
+                  size="lg"
+                  className="w-full sm:w-auto order-2 sm:order-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleRescheduleBooking}
+                  size="lg"
+                  className="w-full sm:w-auto bg-yellow-600 hover:bg-yellow-700 order-1 sm:order-2"
+                  icon={Edit3}
+                >
+                  Reschedule Booking
+                </Button>
               </div>
-            </div>
-            <div className="bg-gray-50 px-4 sm:px-6 py-4 rounded-b-2xl flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3">
+            </ModalFooter>
+          </>
+        )}
+      </Modal>
+
+      {/* Floating Bottom Toolbar - Hidden when modals are open */}
+      {!isCreateDialogOpen && !isEventDialogOpen && !isRescheduleDialogOpen && (
+        <>
+          {/* Navigation Toolbar - Centered */}
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pr-[50px]">
+            <div className="bg-white rounded-full shadow-lg border border-gray-200 px-2 py-2 flex items-center gap-2">
+              {/* Previous Navigation */}
               <button
-                onClick={() => {
-                  setIsRescheduleDialogOpen(false);
-                  setRescheduleSlot(null);
-                  setError('');
-                }}
-                className="px-4 py-3 sm:py-2 text-gray-600 hover:text-gray-800 transition-colors rounded-lg border border-gray-300 sm:border-none"
+                onClick={() => window.calendarNavigate?.('PREV')}
+                className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                aria-label="Previous"
               >
-                Cancel
+                <ChevronLeft className="w-5 h-5 text-gray-700" />
               </button>
+
+              {/* View Toggle with Today functionality */}
+              <div className="flex items-center bg-gray-100 rounded-full overflow-hidden">
+                <button
+                  onClick={() => {
+                    if (calendarView === Views.DAY) {
+                      // If already in day view, jump to today
+                      window.calendarNavigate?.('TODAY');
+                    } else {
+                      // Switch to day view
+                      setCalendarView(Views.DAY);
+                    }
+                  }}
+                  className={`px-3 py-2 text-sm font-medium transition-colors ${
+                    calendarView === Views.DAY
+                      ? 'bg-brand-dark-green text-white'
+                      : 'text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Day
+                </button>
+                <button
+                  onClick={() => {
+                    if (calendarView === Views.WEEK) {
+                      // If already in week view, jump to today
+                      window.calendarNavigate?.('TODAY');
+                    } else {
+                      // Switch to week view
+                      setCalendarView(Views.WEEK);
+                    }
+                  }}
+                  className={`px-3 py-2 text-sm font-medium transition-colors ${
+                    calendarView === Views.WEEK
+                      ? 'bg-brand-dark-green text-white'
+                      : 'text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Week
+                </button>
+              </div>
+
+              {/* Next Navigation */}
               <button
-                onClick={handleRescheduleBooking}
-                className="bg-yellow-600 text-white px-4 py-3 sm:py-2 rounded-lg hover:bg-yellow-700 transition-colors font-medium"
+                onClick={() => window.calendarNavigate?.('NEXT')}
+                className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                aria-label="Next"
               >
-                Reschedule Booking
+                <ChevronRight className="w-5 h-5 text-gray-700" />
               </button>
             </div>
           </div>
-        </div>
+
+          {/* Quick Booking Button - Right Side */}
+          <button
+            onClick={handleQuickBookingClick}
+            className="fixed bottom-6 right-6 w-14 h-14 bg-brand-dark-green text-white rounded-full shadow-lg hover:bg-brand-muted-green hover:shadow-xl transition-all duration-200 z-50 active:scale-95 flex items-center justify-center"
+            aria-label="Quick booking"
+            title="Create new booking"
+          >
+            <PlusIcon className="w-6 h-6" />
+          </button>
+        </>
       )}
     </div>
   );

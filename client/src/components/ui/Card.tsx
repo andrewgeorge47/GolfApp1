@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type CardVariant = 'default' | 'elevated' | 'outlined' | 'ghost';
+export type CardVariant = 'default' | 'elevated' | 'outlined' | 'ghost' | 'testimonial' | 'dark-elevated';
 export type CardPadding = 'none' | 'sm' | 'md' | 'lg';
 
 export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -22,14 +22,22 @@ const variantStyles: Record<CardVariant, string> = {
   `,
   ghost: `
     bg-transparent
+  `,
+  testimonial: `
+    bg-white bg-opacity-10 backdrop-blur-sm
+    text-white
+  `,
+  'dark-elevated': `
+    bg-brand-dark-green text-white shadow-lg
   `
 };
 
+// Responsive padding: smaller on mobile
 const paddingStyles: Record<CardPadding, string> = {
   none: '',
-  sm: 'p-4',
-  md: 'p-6',
-  lg: 'p-8'
+  sm: 'p-3 sm:p-4',
+  md: 'p-4 sm:p-6',
+  lg: 'p-5 sm:p-8'
 };
 
 export const Card = React.forwardRef<HTMLDivElement, CardProps>(
@@ -194,29 +202,29 @@ export const StatCard = React.forwardRef<HTMLDivElement, StatCardProps>(
       <Card
         ref={ref}
         variant={variant}
-        padding="md"
+        padding="sm"
         className={className}
         {...props}
       >
         <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <p className="text-sm font-medium text-gray-600">{label}</p>
-            <p className="text-3xl font-bold text-brand-black mt-2">{value}</p>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">{label}</p>
+            <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-brand-black mt-1 sm:mt-2 truncate">{value}</p>
             {(trendValue || description) && (
-              <div className="mt-2 flex items-center gap-2">
+              <div className="mt-1 sm:mt-2 flex items-center gap-2">
                 {trendValue && trend && (
-                  <span className={`text-sm font-medium ${trendColors[trend]}`}>
+                  <span className={`text-xs sm:text-sm font-medium ${trendColors[trend]}`}>
                     {trendValue}
                   </span>
                 )}
                 {description && (
-                  <span className="text-sm text-gray-500">{description}</span>
+                  <span className="text-xs sm:text-sm text-gray-500 truncate">{description}</span>
                 )}
               </div>
             )}
           </div>
           {icon && (
-            <div className="flex-shrink-0 p-3 bg-brand-sage-green/10 rounded-lg">
+            <div className="flex-shrink-0 p-2 sm:p-3 bg-brand-highlight-green bg-opacity-10 rounded-lg ml-2">
               {icon}
             </div>
           )}

@@ -5,6 +5,13 @@ import type { UserWithRoles } from '../services/api';
 import { toast } from 'react-toastify';
 import type { Role, Permission } from '../types/permissions';
 import { PageContainer, PageHeader, PageContent } from './ui/PageContainer';
+import { Button } from './ui/Button';
+import { Input, Textarea } from './ui/Input';
+import { Modal, ModalHeader, ModalContent, ModalFooter } from './ui/Modal';
+import { Badge } from './ui/Badge';
+import { Table, TableHead, TableBody, TableRow, TableHeader, TableCell } from './ui/Table';
+import { Card } from './ui/Card';
+import { Tabs, TabPanel } from './ui/Tabs';
 
 const AdminPermissionsManager: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'roles' | 'users'>('roles');
@@ -313,13 +320,16 @@ const AdminPermissionsManager: React.FC = () => {
         icon={<Shield className="w-7 h-7 text-blue-600" />}
         action={
           activeTab === 'roles' ? (
-            <button
+            <Button
               onClick={openCreateModal}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm"
+              variant="primary"
+              size="sm"
+              responsive
             >
-              <Plus className="w-4 h-4 mr-2" />
-              Create Role
-            </button>
+              <Plus className="w-4 h-4 mr-1 sm:mr-2" />
+              <span className="hidden sm:inline">Create Role</span>
+              <span className="sm:hidden">Create</span>
+            </Button>
           ) : undefined
         }
       />
@@ -328,28 +338,30 @@ const AdminPermissionsManager: React.FC = () => {
 
         {/* Tabs */}
         <div className="border-b border-gray-200">
-          <nav className="-mb-px flex space-x-8">
+          <nav className="-mb-px flex space-x-4 sm:space-x-8 overflow-x-auto">
             <button
               onClick={() => setActiveTab('roles')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              className={`py-2 px-1 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap min-h-[44px] ${
                 activeTab === 'roles'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              <Shield className="w-4 h-4 inline-block mr-2" />
-              Roles & Permissions
+              <Shield className="w-4 h-4 inline-block mr-1 sm:mr-2" />
+              <span className="hidden sm:inline">Roles & Permissions</span>
+              <span className="sm:hidden">Roles</span>
             </button>
             <button
               onClick={() => setActiveTab('users')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              className={`py-2 px-1 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap min-h-[44px] ${
                 activeTab === 'users'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              <Users className="w-4 h-4 inline-block mr-2" />
-              User Role Assignments
+              <Users className="w-4 h-4 inline-block mr-1 sm:mr-2" />
+              <span className="hidden sm:inline">User Role Assignments</span>
+              <span className="sm:hidden">Users</span>
             </button>
           </nav>
         </div>
@@ -394,27 +406,33 @@ const AdminPermissionsManager: React.FC = () => {
             </div>
 
             {/* Actions */}
-            <div className="flex space-x-2">
-              <button
+            <div className="flex gap-2">
+              <Button
                 onClick={() => openPermissionsModal(role)}
-                className="flex-1 px-3 py-2 bg-blue-50 text-blue-700 rounded-md text-sm font-medium hover:bg-blue-100 transition-colors flex items-center justify-center"
+                variant="secondary"
+                size="xs"
+                responsive
+                className="flex-1"
               >
-                <Shield className="w-3.5 h-3.5 mr-1.5" />
-                Permissions
-              </button>
-              <button
+                <Shield className="w-3.5 h-3.5 mr-1" />
+                <span className="hidden sm:inline">Permissions</span>
+                <span className="sm:hidden">Perms</span>
+              </Button>
+              <Button
                 onClick={() => openEditModal(role)}
-                className="px-3 py-2 bg-gray-50 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-100 transition-colors"
+                variant="ghost"
+                size="xs"
               >
                 <Edit className="w-3.5 h-3.5" />
-              </button>
+              </Button>
               {!role.is_system_role && (
-                <button
+                <Button
                   onClick={() => handleDeleteRole(role)}
-                  className="px-3 py-2 bg-red-50 text-red-700 rounded-md text-sm font-medium hover:bg-red-100 transition-colors"
+                  variant="danger"
+                  size="xs"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -426,24 +444,27 @@ const AdminPermissionsManager: React.FC = () => {
       {activeTab === 'users' && (
         <div className="space-y-4">
           {/* Search Bar */}
-          <div className="flex gap-3">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+            <div className="flex-1">
+              <Input
                 value={userSearch}
                 onChange={(e) => setUserSearch(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearchUsers()}
                 placeholder="Search by name or email..."
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                icon={Search}
+                iconPosition="left"
+                fullWidth
               />
             </div>
-            <button
+            <Button
               onClick={handleSearchUsers}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+              variant="primary"
+              size="md"
+              responsive
+              className="w-full sm:w-auto"
             >
               Search
-            </button>
+            </Button>
           </div>
 
           {/* Users List */}
@@ -452,20 +473,20 @@ const AdminPermissionsManager: React.FC = () => {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
             </div>
           ) : (
-            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       User
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">
                       Club
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Roles
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-3 sm:px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -473,47 +494,47 @@ const AdminPermissionsManager: React.FC = () => {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {users.map((user) => (
                     <tr key={user.member_id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-medium text-gray-900">
+                      <td className="px-3 sm:px-6 py-3 sm:py-4">
+                        <div className="font-medium text-gray-900 text-sm">
                           {user.first_name} {user.last_name}
                         </div>
-                        <div className="text-sm text-gray-500">{user.email_address}</div>
+                        <div className="text-xs sm:text-sm text-gray-500 truncate max-w-[120px] sm:max-w-none">{user.email_address}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell">
                         {user.club || '-'}
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-3 sm:px-6 py-3 sm:py-4">
                         <div className="flex flex-wrap gap-1">
                           {user.roles.length === 0 ? (
-                            <span className="text-sm text-gray-400 italic">No roles assigned</span>
+                            <span className="text-xs sm:text-sm text-gray-400 italic">No roles</span>
                           ) : (
                             user.roles.map((role) => (
                               <span
                                 key={role.role_id}
-                                className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getRoleBadgeColorByKey(role.role_key)}`}
+                                className={`inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-xs font-medium border ${getRoleBadgeColorByKey(role.role_key)}`}
                               >
-                                {role.is_primary && <Star className="w-3 h-3 mr-1 fill-current" />}
+                                {role.is_primary && <Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-0.5 sm:mr-1 fill-current" />}
                                 {role.role_name}
                               </span>
                             ))
                           )}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap text-right text-sm font-medium">
                         <button
                           onClick={() => openUserRolesModal(user)}
-                          className="text-blue-600 hover:text-blue-900 flex items-center ml-auto"
+                          className="text-blue-600 hover:text-blue-900 flex items-center ml-auto min-h-[44px] px-2"
                         >
-                          <UserPlus className="w-4 h-4 mr-1" />
-                          Manage
+                          <UserPlus className="w-4 h-4 sm:mr-1" />
+                          <span className="hidden sm:inline">Manage</span>
                         </button>
                       </td>
                     </tr>
                   ))}
                   {users.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
-                        {userSearch ? 'No users found matching your search' : 'Search for users to manage their roles'}
+                      <td colSpan={4} className="px-3 sm:px-6 py-8 text-center text-gray-500 text-sm">
+                        {userSearch ? 'No users found' : 'Search for users to manage their roles'}
                       </td>
                     </tr>
                   )}
@@ -525,175 +546,122 @@ const AdminPermissionsManager: React.FC = () => {
       )}
 
       {/* Create Role Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-gray-900">Create New Role</h2>
-                <button
-                  onClick={() => setShowCreateModal(false)}
-                  className="p-1 hover:bg-gray-100 rounded transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+      <Modal open={showCreateModal} onClose={() => setShowCreateModal(false)} size="md">
+        <ModalHeader>Create New Role</ModalHeader>
+        <ModalContent>
+          <div className="space-y-4">
+            <Input
+              label="Role Name"
+              value={newRoleName}
+              onChange={(e) => setNewRoleName(e.target.value)}
+              placeholder="e.g., Tournament Director"
+              required
+              fullWidth
+            />
 
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Role Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={newRoleName}
-                    onChange={(e) => setNewRoleName(e.target.value)}
-                    placeholder="e.g., Tournament Director"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
+            <Input
+              label="Role Key"
+              value={newRoleKey}
+              onChange={(e) => setNewRoleKey(e.target.value)}
+              placeholder="e.g., tournament_director"
+              helperText="Unique identifier (lowercase, underscores allowed)"
+              required
+              fullWidth
+            />
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Role Key *
-                  </label>
-                  <input
-                    type="text"
-                    value={newRoleKey}
-                    onChange={(e) => setNewRoleKey(e.target.value)}
-                    placeholder="e.g., tournament_director"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Unique identifier (lowercase, underscores allowed)
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description
-                  </label>
-                  <textarea
-                    value={newRoleDescription}
-                    onChange={(e) => setNewRoleDescription(e.target.value)}
-                    placeholder="What can users with this role do?"
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div className="flex space-x-3 mt-6">
-                <button
-                  onClick={() => setShowCreateModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCreateRole}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
-                >
-                  <Save className="w-4 h-4 mr-2" />
-                  Create Role
-                </button>
-              </div>
-            </div>
+            <Textarea
+              label="Description"
+              value={newRoleDescription}
+              onChange={(e) => setNewRoleDescription(e.target.value)}
+              placeholder="What can users with this role do?"
+              rows={3}
+              fullWidth
+            />
           </div>
-        </div>
-      )}
+        </ModalContent>
+        <ModalFooter>
+          <Button
+            variant="outline"
+            onClick={() => setShowCreateModal(false)}
+            size="sm"
+            responsive
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleCreateRole}
+            size="sm"
+            responsive
+          >
+            <Save className="w-4 h-4 mr-1" />
+            Create
+          </Button>
+        </ModalFooter>
+      </Modal>
 
       {/* Edit Role Modal */}
-      {showEditModal && selectedRole && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-gray-900">Edit Role</h2>
-                <button
-                  onClick={() => setShowEditModal(false)}
-                  className="p-1 hover:bg-gray-100 rounded transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {selectedRole.is_system_role && (
-                <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start">
-                  <AlertCircle className="w-5 h-5 text-yellow-600 mr-2 mt-0.5" />
-                  <div className="text-sm text-yellow-800">
-                    <strong>System Role:</strong> You can only edit the name and description. The role key cannot be changed.
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Role Name
-                  </label>
-                  <input
-                    type="text"
-                    value={newRoleName}
-                    onChange={(e) => setNewRoleName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description
-                  </label>
-                  <textarea
-                    value={newRoleDescription}
-                    onChange={(e) => setNewRoleDescription(e.target.value)}
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div className="flex space-x-3 mt-6">
-                <button
-                  onClick={() => setShowEditModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleUpdateRole}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
-                >
-                  <Save className="w-4 h-4 mr-2" />
-                  Save Changes
-                </button>
+      <Modal open={showEditModal && !!selectedRole} onClose={() => setShowEditModal(false)} size="md">
+        <ModalHeader>Edit Role</ModalHeader>
+        <ModalContent>
+          {selectedRole?.is_system_role && (
+            <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start">
+              <AlertCircle className="w-5 h-5 text-yellow-600 mr-2 mt-0.5 flex-shrink-0" />
+              <div className="text-sm text-yellow-800">
+                <strong>System Role:</strong> You can only edit the name and description.
               </div>
             </div>
+          )}
+
+          <div className="space-y-4">
+            <Input
+              label="Role Name"
+              value={newRoleName}
+              onChange={(e) => setNewRoleName(e.target.value)}
+              fullWidth
+            />
+
+            <Textarea
+              label="Description"
+              value={newRoleDescription}
+              onChange={(e) => setNewRoleDescription(e.target.value)}
+              rows={3}
+              fullWidth
+            />
           </div>
-        </div>
-      )}
+        </ModalContent>
+        <ModalFooter>
+          <Button
+            variant="outline"
+            onClick={() => setShowEditModal(false)}
+            size="sm"
+            responsive
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleUpdateRole}
+            size="sm"
+            responsive
+          >
+            <Save className="w-4 h-4 mr-1" />
+            Save
+          </Button>
+        </ModalFooter>
+      </Modal>
 
       {/* Permissions Modal */}
-      {showPermissionsModal && selectedRole && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    Manage Permissions: {selectedRole.role_name}
-                  </h2>
-                  <p className="text-sm text-gray-600 mt-1">
-                    {selectedPermissions.length} of {permissions.length} permissions selected
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowPermissionsModal(false)}
-                  className="p-1 hover:bg-gray-100 rounded transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+      <Modal open={showPermissionsModal && !!selectedRole} onClose={() => setShowPermissionsModal(false)} size="lg">
+        <ModalHeader>
+          <div>
+            <span className="block">Manage Permissions: {selectedRole?.role_name}</span>
+            <span className="text-sm font-normal text-gray-600">
+              {selectedPermissions.length} of {permissions.length} selected
+            </span>
+          </div>
+        </ModalHeader>
+        <ModalContent>
 
               {/* Permissions by Category */}
               <div className="space-y-6">
@@ -753,47 +721,39 @@ const AdminPermissionsManager: React.FC = () => {
                   );
                 })}
               </div>
-
-              <div className="flex space-x-3 mt-6 pt-6 border-t border-gray-200">
-                <button
-                  onClick={() => setShowPermissionsModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleUpdatePermissions}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
-                >
-                  <Save className="w-4 h-4 mr-2" />
-                  Save Permissions
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+        </ModalContent>
+        <ModalFooter>
+          <Button
+            variant="outline"
+            onClick={() => setShowPermissionsModal(false)}
+            size="sm"
+            responsive
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleUpdatePermissions}
+            size="sm"
+            responsive
+          >
+            <Save className="w-4 h-4 mr-1" />
+            Save
+          </Button>
+        </ModalFooter>
+      </Modal>
 
       {/* User Roles Modal */}
-      {showUserRolesModal && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    Manage Roles: {selectedUser.first_name} {selectedUser.last_name}
-                  </h2>
-                  <p className="text-sm text-gray-500 mt-1">{selectedUser.email_address}</p>
-                </div>
-                <button
-                  onClick={() => setShowUserRolesModal(false)}
-                  className="p-1 hover:bg-gray-100 rounded transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
+      <Modal open={showUserRolesModal && !!selectedUser} onClose={() => setShowUserRolesModal(false)} size="md">
+        <ModalHeader>
+          <div>
+            <span className="block">Manage Roles: {selectedUser?.first_name} {selectedUser?.last_name}</span>
+            <span className="text-sm font-normal text-gray-500">{selectedUser?.email_address}</span>
+          </div>
+        </ModalHeader>
+        <ModalContent>
+          {selectedUser && (
+            <>
               {/* Current Roles */}
               <div className="mb-6">
                 <h3 className="text-sm font-medium text-gray-700 mb-3">Current Roles</h3>
@@ -869,19 +829,20 @@ const AdminPermissionsManager: React.FC = () => {
                   </p>
                 )}
               </div>
-
-              <div className="flex justify-end mt-6 pt-6 border-t border-gray-200">
-                <button
-                  onClick={() => setShowUserRolesModal(false)}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+            </>
+          )}
+        </ModalContent>
+        <ModalFooter>
+          <Button
+            variant="secondary"
+            onClick={() => setShowUserRolesModal(false)}
+            size="sm"
+            responsive
+          >
+            Close
+          </Button>
+        </ModalFooter>
+      </Modal>
       </PageContent>
     </PageContainer>
   );

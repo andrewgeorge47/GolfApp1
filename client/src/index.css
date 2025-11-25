@@ -3,20 +3,18 @@
 @tailwind utilities;
 
 :root {
-  /* Brand Colors */
-  --color-brand-forest-green: #0f4429;
-  --color-brand-dark-green: #1a5f3c;
-  --color-brand-muted-green: #2d7a4f;
-  --color-brand-sage-green: #4a7c5f;
+  /* Brand Colors - Official Neighborhood National */
+  --color-brand-black: #020c05;
+  --color-brand-white: #ffffff;
   --color-brand-neon-green: #77dd3c;
-  --color-brand-lime-green: #9ef01a;
-  --color-brand-mint-green: #a3e0c4;
-  --color-brand-black: #1a1a1a;
+  --color-brand-dark-green: #01422c;
+  --color-brand-muted-green: #255946;
+  --color-brand-highlight-green: #416d5c;
 
   /* Semantic Colors */
-  --color-success: #10b981;
+  --color-success: #256a33;
   --color-warning: #f59e0b;
-  --color-error: #ef4444;
+  --color-error: #6b0005;
   --color-info: #3b82f6;
 
   /* Surfaces */
@@ -89,7 +87,7 @@ code {
 
   .btn-primary {
     @apply bg-brand-dark-green text-white;
-    @apply hover:bg-brand-forest-green hover:shadow-lg hover:scale-[1.02];
+    @apply hover:bg-brand-muted-green hover:shadow-lg hover:scale-[1.02];
     @apply active:scale-[0.98];
     @apply focus:ring-brand-neon-green;
   }

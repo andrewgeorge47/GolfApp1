@@ -135,7 +135,7 @@ export const DropdownItem: React.FC<DropdownItemProps> = ({
             ? 'text-error-600 hover:bg-error-50'
             : 'text-gray-700 hover:bg-gray-50'
         }
-        ${selected ? 'bg-brand-sage-green/10' : ''}
+        ${selected ? 'bg-brand-highlight-green bg-opacity-10' : ''}
         ${className}
       `}
     >
@@ -273,7 +273,7 @@ export interface MenuButtonProps {
 const buttonVariantStyles = {
   default: 'bg-white border border-gray-300 hover:bg-gray-50',
   ghost: 'hover:bg-gray-100',
-  outline: 'border border-brand-dark-green text-brand-dark-green hover:bg-brand-sage-green/10'
+  outline: 'border border-brand-dark-green text-brand-dark-green hover:bg-brand-highlight-green hover:bg-opacity-10'
 };
 
 const buttonSizeStyles = {

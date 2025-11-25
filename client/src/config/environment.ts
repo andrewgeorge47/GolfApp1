@@ -19,7 +19,7 @@ const getApiBaseUrl = (): string => {
 
     // Local development on localhost
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'http://localhost:3001/api';
+      return 'http://192.168.1.202:3002/api';
     }
 
     // Local development on LAN IP (your local server)
@@ -47,6 +47,24 @@ export const environment: EnvironmentConfig = {
   isDevelopment,
   isProduction,
   appName: 'Golf League App'
+};
+
+// Get the server base URL (without /api) for static files like uploads
+export const getServerBaseUrl = (): string => {
+  const apiUrl = getApiBaseUrl();
+  // Remove /api suffix to get base server URL
+  return apiUrl.replace(/\/api$/, '');
+};
+
+// Convert relative URLs (like /uploads/...) to absolute URLs
+export const getAbsoluteUrl = (path: string): string => {
+  if (!path) return '';
+  // If already absolute, return as-is
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+  // Prepend server base URL
+  return `${getServerBaseUrl()}${path}`;
 };
 
 // Log configuration in development

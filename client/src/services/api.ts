@@ -1250,6 +1250,157 @@ export interface ChallengePayoutHistory {
   created_at: string;
 }
 
+// ============================================================================
+// FIVE-SHOT CHALLENGE SYSTEM INTERFACES
+// ============================================================================
+
+export interface PayoutConfig {
+  ctp: {
+    enabled: boolean;
+    pot_percentage: number;
+    payout_split: number[]; // e.g., [50, 30, 20] for top 3
+    description?: string;
+  };
+  hio: {
+    enabled: boolean;
+    pot_percentage: number;
+    rolling_jackpot: boolean;
+    description?: string;
+  };
+  admin_fee_percentage: number;
+}
+
+export interface ChallengeType {
+  id: number;
+  type_key: string;
+  type_name: string;
+  description?: string;
+  shots_per_group: number;
+  max_reups?: number | null; // null = unlimited
+  default_entry_fee: number;
+  default_reup_fee: number;
+  payout_config: PayoutConfig;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChallengePayment {
+  id: number;
+  entry_id: number;
+  payment_type: 'entry' | 'reup';
+  amount: number;
+  payment_method?: string;
+  payment_reference?: string;
+  payment_status: 'pending' | 'completed' | 'failed' | 'refunded';
+  payment_timestamp: string;
+  verified_by?: number;
+  verified_at?: string;
+  covers_group_number: number;
+  created_at: string;
+}
+
+export interface ChallengeShotGroup {
+  id: number;
+  entry_id: number;
+  payment_id?: number;
+  group_number: number;
+  group_screenshot_url?: string;
+  screenshot_date?: string;
+  status: 'purchased' | 'submitted' | 'verified' | 'disqualified';
+  admin_notes?: string;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  shots?: ChallengeShot[];
+  payment?: ChallengePayment;
+}
+
+export interface ChallengeShot {
+  id: number;
+  group_id: number;
+  shot_number: number;
+  distance_from_pin_inches?: number;
+  is_hole_in_one: boolean;
+  detail_screenshot_url?: string;
+  submitted_at?: string;
+  verified: boolean;
+  verified_by?: number;
+  verified_at?: string;
+  override_distance_inches?: number;
+  override_reason?: string;
+  created_at: string;
+  // Computed field
+  effective_distance?: number; // override_distance_inches || distance_from_pin_inches
+}
+
+export interface ChallengeHIOJackpot {
+  id: number;
+  current_amount: number;
+  total_contributions: number;
+  last_won_amount?: number;
+  last_won_date?: string;
+  last_winner_id?: number;
+  weeks_accumulated: number;
+  updated_at: string;
+}
+
+// Extended WeeklyChallenge with Five-Shot fields
+export interface WeeklyChallengeExtended extends WeeklyChallenge {
+  challenge_type_id?: number;
+  challenge_type?: ChallengeType;
+  course_id?: number;
+  course_name?: string;
+  required_distance_yards?: number;
+  hio_jackpot_amount?: number;
+  admin_fee_collected?: number;
+  ctp_pot_amount?: number;
+}
+
+// Extended ChallengeEntry with Five-Shot fields
+export interface ChallengeEntryExtended extends ChallengeEntry {
+  groups_purchased: number;
+  total_paid: number;
+  groups?: ChallengeShotGroup[];
+  payments?: ChallengePayment[];
+  // Best shot for leaderboard
+  best_shot?: ChallengeShot;
+}
+
+// Leaderboard entry for CTP
+export interface CTPLeaderboardEntry {
+  rank: number;
+  user_id: number;
+  entry_id: number;
+  shot_id: number;
+  distance_inches: number;
+  is_hole_in_one: boolean;
+  submitted_at: string;
+  verified: boolean;
+  // User info
+  first_name: string;
+  last_name: string;
+  club?: string;
+  profile_photo_url?: string;
+}
+
+// HIO entry for jackpot leaderboard
+export interface HIOLeaderboardEntry {
+  user_id: number;
+  entry_id: number;
+  shot_id: number;
+  group_number: number;
+  shot_number: number;
+  submitted_at: string;
+  verified: boolean;
+  detail_screenshot_url?: string;
+  // User info
+  first_name: string;
+  last_name: string;
+  club?: string;
+  profile_photo_url?: string;
+}
+
 // Get current challenge pot
 export const getChallengePot = () => {
   return api.get<ChallengePot>('/challenges/pot');
@@ -1381,6 +1532,200 @@ export const markPayoutComplete = (challengeId: number, payout_notes?: string) =
 // Get challenge history
 export const getChallengeHistory = (params?: { limit?: number; offset?: number }) => {
   return api.get<WeeklyChallenge[]>('/challenges/history', { params });
+};
+
+// ============================================================================
+// FIVE-SHOT CHALLENGE API FUNCTIONS
+// ============================================================================
+
+// Get all challenge types
+export const getChallengeTypes = () => {
+  return api.get<ChallengeType[]>('/challenges/types');
+};
+
+// Get HIO jackpot
+export const getHIOJackpot = () => {
+  return api.get<ChallengeHIOJackpot>('/challenges/hio-jackpot');
+};
+
+// Create challenge with type (Admin only)
+export const createChallengeWithType = (data: {
+  challenge_type_id: number;
+  challenge_name: string;
+  course_id: number;
+  designated_hole: number;
+  required_distance_yards: number;
+  entry_fee?: number; // override type default
+  week_start_date: string;
+  week_end_date: string;
+}) => {
+  return api.post<WeeklyChallengeExtended>('/challenges', data);
+};
+
+// Enter challenge (creates entry + first payment + first group)
+export const enterChallengeWithPayment = (challengeId: number, data: {
+  payment_method: string;
+  payment_reference?: string;
+}) => {
+  return api.post<{
+    entry: ChallengeEntryExtended;
+    payment: ChallengePayment;
+    group: ChallengeShotGroup;
+  }>(`/challenges/${challengeId}/enter`, data);
+};
+
+// Purchase re-up (additional group)
+export const purchaseReup = (challengeId: number, data: {
+  payment_method: string;
+  payment_reference?: string;
+}) => {
+  return api.post<{
+    payment: ChallengePayment;
+    group: ChallengeShotGroup;
+    entry: ChallengeEntryExtended;
+  }>(`/challenges/${challengeId}/reup`, data);
+};
+
+// Create Stripe payment intent for challenge entry/reup
+export const createChallengePaymentIntent = (challengeId: number, is_reup: boolean = false) => {
+  return api.post<{
+    clientSecret: string;
+    amount: number;
+    paymentIntentId: string;
+  }>(`/challenges/${challengeId}/create-payment-intent`, { is_reup });
+};
+
+// Confirm Stripe payment and create entry/reup
+export const confirmChallengeStripePayment = (challengeId: number, data: {
+  payment_intent_id: string;
+  is_reup: boolean;
+}) => {
+  return api.post<{
+    message: string;
+    entry?: ChallengeEntryExtended;
+    group: ChallengeShotGroup;
+    payment: ChallengePayment;
+  }>(`/challenges/${challengeId}/confirm-stripe-payment`, data);
+};
+
+// Get user's entry with groups and shots
+export const getMyChallengeEntryExtended = (challengeId: number) => {
+  return api.get<ChallengeEntryExtended>(`/challenges/${challengeId}/my-entry`);
+};
+
+// Upload group screenshot
+export const uploadGroupScreenshot = (
+  challengeId: number,
+  groupId: number,
+  file: File,
+  screenshot_date?: string
+) => {
+  const formData = new FormData();
+  formData.append('groupScreenshot', file);
+  if (screenshot_date) {
+    formData.append('screenshot_date', screenshot_date);
+  }
+
+  return api.post<{
+    message: string;
+    group: ChallengeShotGroup;
+  }>(`/challenges/${challengeId}/groups/${groupId}/screenshot`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
+
+// Submit shots for a group (1 to N shots)
+export const submitGroupShots = (
+  challengeId: number,
+  groupId: number,
+  shots: Array<{
+    shot_number: number;
+    distance_from_pin_inches?: number;
+    is_hole_in_one: boolean;
+  }>
+) => {
+  return api.post<{
+    message: string;
+    shots: ChallengeShot[];
+    group: ChallengeShotGroup;
+  }>(`/challenges/${challengeId}/groups/${groupId}/shots`, { shots });
+};
+
+// Upload detail screenshot for specific shot
+export const uploadShotDetail = (
+  challengeId: number,
+  shotId: number,
+  file: File
+) => {
+  const formData = new FormData();
+  formData.append('shotDetail', file);
+
+  return api.post<{
+    message: string;
+    shot: ChallengeShot;
+  }>(`/challenges/${challengeId}/shots/${shotId}/detail`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
+
+// Get group with shots
+export const getChallengeGroup = (challengeId: number, groupId: number) => {
+  return api.get<ChallengeShotGroup>(`/challenges/${challengeId}/groups/${groupId}`);
+};
+
+// Get CTP leaderboard
+export const getCTPLeaderboard = (challengeId: number) => {
+  return api.get<CTPLeaderboardEntry[]>(`/challenges/${challengeId}/leaderboard/ctp`);
+};
+
+// Get HIO leaderboard
+export const getHIOLeaderboard = (challengeId: number) => {
+  return api.get<HIOLeaderboardEntry[]>(`/challenges/${challengeId}/leaderboard/hio`);
+};
+
+// Admin: Verify payment
+export const verifyPayment = (challengeId: number, paymentId: number) => {
+  return api.put<ChallengePayment>(`/challenges/${challengeId}/payments/${paymentId}/verify`, {});
+};
+
+// Admin: Get all payments for challenge
+export const getChallengePayments = (challengeId: number) => {
+  return api.get<ChallengePayment[]>(`/challenges/${challengeId}/payments`);
+};
+
+// Admin: Verify shot
+export const verifyShot = (challengeId: number, shotId: number, data?: {
+  override_distance_inches?: number;
+  override_reason?: string;
+}) => {
+  return api.put<ChallengeShot>(`/challenges/${challengeId}/shots/${shotId}/verify`, data || {});
+};
+
+// Admin: Finalize with dual payouts
+export const finalizeChallengeWithPayouts = (challengeId: number, payout_notes?: string) => {
+  return api.post<{
+    message: string;
+    challenge: WeeklyChallengeExtended;
+    ctp_winners: Array<{
+      rank: number;
+      user_id: number;
+      distance_inches: number;
+      payout: number;
+    }>;
+    hio_winners: Array<{
+      user_id: number;
+      payout: number;
+    }>;
+    pot_breakdown: {
+      total_collected: number;
+      ctp_pot: number;
+      hio_contribution: number;
+      admin_fee: number;
+      ctp_payout_total: number;
+      hio_payout_total: number;
+      hio_jackpot_new_total: number;
+    };
+  }>(`/challenges/${challengeId}/finalize`, { payout_notes });
 };
 
 export default api; 

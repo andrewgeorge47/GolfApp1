@@ -86,7 +86,7 @@ export const Tabs: React.FC<TabsProps> = ({
   return (
     <div className={className}>
       {variant === 'line' && (
-        <div className="border-b border-gray-200">
+        <div className="border-b border-gray-200 overflow-x-auto">
           <nav
             className={`flex ${fullWidth ? '' : 'space-x-8'}`}
             role="tablist"
@@ -110,6 +110,7 @@ export const Tabs: React.FC<TabsProps> = ({
                     border-b-2 font-medium transition-all duration-200
                     focus:outline-none focus:ring-2 focus:ring-brand-neon-green/50 focus:ring-offset-2
                     disabled:opacity-50 disabled:cursor-not-allowed
+                    whitespace-nowrap
                     ${
                       isActive
                         ? 'border-brand-dark-green text-brand-dark-green'
@@ -140,7 +141,7 @@ export const Tabs: React.FC<TabsProps> = ({
       )}
 
       {variant === 'pill' && (
-        <div className="bg-gray-100 p-1 rounded-lg inline-flex">
+        <div className="bg-gray-100 p-1 rounded-lg inline-flex overflow-x-auto">
           <nav
             className="flex space-x-1"
             role="tablist"
@@ -163,6 +164,7 @@ export const Tabs: React.FC<TabsProps> = ({
                     rounded-md font-medium transition-all duration-200
                     focus:outline-none focus:ring-2 focus:ring-brand-neon-green/50
                     disabled:opacity-50 disabled:cursor-not-allowed
+                    whitespace-nowrap
                     ${
                       isActive
                         ? 'bg-white text-brand-dark-green shadow-sm'
@@ -193,7 +195,7 @@ export const Tabs: React.FC<TabsProps> = ({
       )}
 
       {variant === 'enclosed' && (
-        <div className="border-b border-gray-200">
+        <div className="border-b border-gray-200 overflow-x-auto">
           <nav
             className={`flex ${fullWidth ? '' : 'space-x-2'}`}
             role="tablist"
@@ -217,6 +219,7 @@ export const Tabs: React.FC<TabsProps> = ({
                     border border-gray-200 rounded-t-lg font-medium transition-all duration-200
                     focus:outline-none focus:ring-2 focus:ring-brand-neon-green/50
                     disabled:opacity-50 disabled:cursor-not-allowed
+                    whitespace-nowrap
                     ${
                       isActive
                         ? 'bg-white text-brand-dark-green border-b-white -mb-px'

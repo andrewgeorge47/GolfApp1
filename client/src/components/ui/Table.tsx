@@ -96,7 +96,7 @@ export const TableRow = React.forwardRef<HTMLTableRowElement, TableRowProps>(
       <tr
         ref={ref}
         className={`
-          ${selected ? 'bg-brand-sage-green/10' : ''}
+          ${selected ? 'bg-brand-highlight-green bg-opacity-10' : ''}
           ${hoverable ? 'hover:bg-gray-50 transition-colors duration-150' : ''}
           ${className}
         `}
@@ -125,20 +125,20 @@ export const TableHeader = React.forwardRef<HTMLTableCellElement, TableHeaderPro
         ref={ref}
         scope="col"
         className={`
-          px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider
+          px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap
           ${sortable ? 'cursor-pointer select-none hover:bg-gray-100 transition-colors' : ''}
           ${className}
         `}
         onClick={sortable ? onSort : undefined}
         {...props}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2">
           {children}
           {sortable && (
             <span className="text-gray-400">
-              {sortDirection === 'asc' && <ChevronUp className="h-4 w-4" />}
-              {sortDirection === 'desc' && <ChevronDown className="h-4 w-4" />}
-              {sortDirection === null && <ChevronsUpDown className="h-4 w-4" />}
+              {sortDirection === 'asc' && <ChevronUp className="h-3 w-3 sm:h-4 sm:w-4" />}
+              {sortDirection === 'desc' && <ChevronDown className="h-3 w-3 sm:h-4 sm:w-4" />}
+              {sortDirection === null && <ChevronsUpDown className="h-3 w-3 sm:h-4 sm:w-4" />}
             </span>
           )}
         </div>
@@ -161,8 +161,8 @@ export const TableCell = React.forwardRef<HTMLTableCellElement, TableCellProps>(
       <td
         ref={ref}
         className={`
-          ${compact ? 'px-3 py-2' : 'px-4 py-3'}
-          text-sm text-gray-900
+          ${compact ? 'px-2 sm:px-3 py-1.5 sm:py-2' : 'px-2 sm:px-4 py-2 sm:py-3'}
+          text-xs sm:text-sm text-gray-900
           ${className}
         `}
         {...props}

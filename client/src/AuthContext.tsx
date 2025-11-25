@@ -5,7 +5,9 @@ import { isAdmin as checkIsAdmin } from './utils/roleUtils';
 interface ViewAsMode {
   isActive: boolean;
   originalUser: any;
-  viewAsRole: string;
+  viewAsPermissions: string[];
+  viewAsRoles: string[];
+  viewAsPrimaryRole: string;
   viewAsClub: string;
 }
 
@@ -18,7 +20,7 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
   // View-as mode functionality
   viewAsMode: ViewAsMode;
-  enterViewAsMode: (role: string, club: string) => void;
+  enterViewAsMode: (permissions: string[], roles: string[], primaryRole: string, club: string) => void;
   exitViewAsMode: () => void;
   isAdmin: boolean;
 }
@@ -37,7 +39,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [viewAsMode, setViewAsMode] = useState<ViewAsMode>({
     isActive: false,
     originalUser: null,
-    viewAsRole: '',
+    viewAsPermissions: [],
+    viewAsRoles: [],
+    viewAsPrimaryRole: '',
     viewAsClub: ''
   });
   
@@ -146,26 +150,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   // View-as mode functions
-  const enterViewAsMode = (role: string, club: string) => {
+  const enterViewAsMode = (permissions: string[], roles: string[], primaryRole: string, club: string) => {
     if (!isAdmin) {
       console.error('Only admins can enter view-as mode');
       return;
     }
-    
+
     const originalUser = user;
     const viewAsUser = {
       ...originalUser,
-      role: role,
+      permissions: permissions,
+      roles: roles,
+      primary_role: primaryRole,
       club: club
     };
-    
+
     setViewAsMode({
       isActive: true,
       originalUser: originalUser,
-      viewAsRole: role,
+      viewAsPermissions: permissions,
+      viewAsRoles: roles,
+      viewAsPrimaryRole: primaryRole,
       viewAsClub: club
     });
-    
+
     setUser(viewAsUser);
   };
 
@@ -175,7 +183,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setViewAsMode({
         isActive: false,
         originalUser: null,
-        viewAsRole: '',
+        viewAsPermissions: [],
+        viewAsRoles: [],
+        viewAsPrimaryRole: '',
         viewAsClub: ''
       });
     }
