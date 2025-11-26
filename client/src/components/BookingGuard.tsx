@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Calendar, ArrowRight, AlertTriangle } from 'lucide-react';
 import api from '../services/api';
+import { useAuth } from '../AuthContext';
 import { Card, CardHeader, CardContent } from './ui/Card';
 import { Button } from './ui/Button';
 import { SimpleLoading } from './ui/SimpleLoading';
@@ -12,7 +13,10 @@ interface BookingGuardProps {
 }
 
 // Note: This component assumes BetaProtectedRoute has already verified beta access
-const BookingGuard: React.FC<BookingGuardProps> = ({ children, clubName = 'No. 5' }) => {
+const BookingGuard: React.FC<BookingGuardProps> = ({ children, clubName }) => {
+  const { user } = useAuth();
+  // Use prop clubName if provided, otherwise use user's club, fallback to 'No. 5'
+  const effectiveClubName = clubName || user?.club || 'No. 5';
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [onboardingComplete, setOnboardingComplete] = useState(false);
@@ -32,7 +36,7 @@ const BookingGuard: React.FC<BookingGuardProps> = ({ children, clubName = 'No. 5
 
         // Check if booking is enabled for this club
         try {
-          const settingsResponse = await api.get(`/club-booking-settings/${clubName}`);
+          const settingsResponse = await api.get(`/club-booking-settings/${effectiveClubName}`);
           console.log('BookingGuard: club settings response:', settingsResponse.data);
           setBookingEnabled(settingsResponse.data.enabled || false);
         } catch (err: any) {
@@ -51,7 +55,7 @@ const BookingGuard: React.FC<BookingGuardProps> = ({ children, clubName = 'No. 5
     };
 
     checkAccess();
-  }, [clubName]);
+  }, [effectiveClubName]);
 
   if (loading) {
     return (
@@ -91,7 +95,7 @@ const BookingGuard: React.FC<BookingGuardProps> = ({ children, clubName = 'No. 5
               </h2>
 
               <p className="text-gray-600 mb-6 max-w-md mx-auto">
-                {error || `Simulator bay booking is currently disabled for ${clubName}. Please check back later or contact the club for more information.`}
+                {error || `Simulator bay booking is currently disabled for ${effectiveClubName}. Please check back later or contact the club for more information.`}
               </p>
 
               <Button variant="outline" onClick={() => navigate('/profile')}>

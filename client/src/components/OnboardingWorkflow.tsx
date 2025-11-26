@@ -20,6 +20,7 @@ interface OnboardingStatus {
 const OnboardingWorkflow: React.FC = () => {
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
+  const clubName = user?.club || 'No. 5'; // User's assigned club
   const [currentStep, setCurrentStep] = useState<OnboardingStep>('welcome');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -209,7 +210,7 @@ const OnboardingWorkflow: React.FC = () => {
 
             <p className="text-gray-600 mb-8 max-w-md mx-auto">
               You've completed all the required steps. You now have full access to
-              book simulator bays at No. 5.
+              book simulator bays at {clubName}.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center">

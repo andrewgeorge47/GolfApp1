@@ -74,8 +74,8 @@ const BookingPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  // Club name - can be made dynamic later for multi-club support
-  const clubName = 'No. 5';
+  // Use user's assigned club, fallback to No. 5 if not set
+  const clubName = user?.club || 'No. 5';
 
   const [allBookings, setAllBookings] = useState<Booking[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
