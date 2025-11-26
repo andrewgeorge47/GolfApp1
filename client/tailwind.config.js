@@ -34,7 +34,12 @@ module.exports = {
         // System Colors - Official Neighborhood National palette
         'success': {
           DEFAULT: '#256a33',             // Official success green
-          light: '#f0faf2',               // Official success light
+          50: '#f0faf2',                  // Official success lightest
+          200: '#a3d9b1',                 // Official success light border
+          light: '#f0faf2',               // Official success light (alias)
+          500: '#2d7a3e',                 // Official success medium
+          600: '#256a33',                 // Official success standard (same as DEFAULT)
+          700: '#1d5527',                 // Official success dark
         },
         'error': {
           DEFAULT: '#dc2626',             // Official error red (updated to brighter red)
