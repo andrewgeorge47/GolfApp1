@@ -13363,7 +13363,9 @@ app.get('/api/club-booking-settings', authenticateToken, requireAdminForBooking,
 });
 
 // Get booking settings for a specific club
-app.get('/api/club-booking-settings/:clubName', authenticateToken, requireAdminForBooking, async (req, res) => {
+// NOTE: Removed requireAdminForBooking - any authenticated user can READ settings
+// (only POST/PUT/DELETE require admin permissions)
+app.get('/api/club-booking-settings/:clubName', authenticateToken, async (req, res) => {
   const { clubName } = req.params;
   try {
     const { rows } = await pool.query('SELECT * FROM club_booking_settings WHERE club_name = $1', [clubName]);
