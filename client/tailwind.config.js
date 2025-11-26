@@ -6,27 +6,50 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Brand Colors - Extended
+        // Brand Colors - Official Neighborhood National palette
         'brand': {
-          'forest-green': '#0f4429',      // Darker variant for depth
-          'dark-green': '#1a5f3c',        // Primary brand color
-          'muted-green': '#2d7a4f',       // Medium green
-          'sage-green': '#4a7c5f',        // Background variant
-          'neon-green': '#77dd3c',        // Accent/CTA
-          'lime-green': '#9ef01a',        // Brighter accent
-          'mint-green': '#a3e0c4',        // Light accent
-          'black': '#1a1a1a'
+          'black': '#020c05',             // Official brand black (dark green-black)
+          'white': '#ffffff',             // Official brand white
+          'neon-green': '#77dd3c',        // Official neon green accent
+          'dark-green': '#01422c',        // Official primary dark green
+          'muted-green': '#255946',       // Official muted green
+          'highlight-green': '#416d5c',   // Official highlight green
         },
 
-        // Semantic Colors
-        'success': {
-          DEFAULT: '#10b981',
-          50: '#ecfdf5',
-          100: '#d1fae5',
-          500: '#10b981',
-          600: '#059669',
-          700: '#047857'
+        // Neutral Colors - Official Neighborhood National palette
+        'neutral': {
+          50: '#f5f7f8',
+          100: '#eaeaea',
+          200: '#d5d6d5',
+          300: '#bfc1c0',
+          400: '#aaacab',
+          500: '#959896',
+          600: '#808381',
+          700: '#6a6e6c',
+          800: '#555a57',
+          900: '#404542',
+          950: '#2f3331'
         },
+
+        // System Colors - Official Neighborhood National palette
+        'success': {
+          DEFAULT: '#256a33',             // Official success green
+          50: '#f0faf2',                  // Official success lightest
+          200: '#a3d9b1',                 // Official success light border
+          light: '#f0faf2',               // Official success light (alias)
+          500: '#2d7a3e',                 // Official success medium
+          600: '#256a33',                 // Official success standard (same as DEFAULT)
+          700: '#1d5527',                 // Official success dark
+        },
+        'error': {
+          DEFAULT: '#dc2626',             // Official error red (updated to brighter red)
+          50: '#fef2f2',                  // Official error lightest
+          light: '#ffeeeb',               // Official error light
+          600: '#dc2626',                 // Official error standard
+          700: '#b91c1c',                 // Official error dark
+        },
+
+        // Keep standard warning/info for UI flexibility
         'warning': {
           DEFAULT: '#f59e0b',
           50: '#fffbeb',
@@ -34,14 +57,6 @@ module.exports = {
           500: '#f59e0b',
           600: '#d97706',
           700: '#b45309'
-        },
-        'error': {
-          DEFAULT: '#ef4444',
-          50: '#fef2f2',
-          100: '#fee2e2',
-          500: '#ef4444',
-          600: '#dc2626',
-          700: '#b91c1c'
         },
         'info': {
           DEFAULT: '#3b82f6',
@@ -52,7 +67,7 @@ module.exports = {
           700: '#1d4ed8'
         },
 
-        // Extended Gray Scale
+        // Extended Gray Scale (keep for Tailwind compatibility)
         'gray': {
           50: '#f9fafb',
           100: '#f3f4f6',
@@ -128,7 +143,8 @@ module.exports = {
         'slide-in-left': 'slideInLeft 0.3s ease-out',
         'slide-in-right': 'slideInRight 0.3s ease-out',
         'scale-in': 'scaleIn 0.2s ease-out',
-        'bounce-subtle': 'bounceSubtle 0.5s ease-out'
+        'bounce-subtle': 'bounceSubtle 0.5s ease-out',
+        'badge-pop': 'badgePop 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55)'
       },
       keyframes: {
         shimmer: {
@@ -162,6 +178,11 @@ module.exports = {
         bounceSubtle: {
           '0%, 100%': { transform: 'translateY(0)' },
           '50%': { transform: 'translateY(-5px)' }
+        },
+        badgePop: {
+          '0%': { transform: 'scale(0)', opacity: '0' },
+          '50%': { transform: 'scale(1.2)' },
+          '100%': { transform: 'scale(1)', opacity: '1' }
         }
       },
 

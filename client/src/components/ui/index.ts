@@ -14,6 +14,23 @@ export {
   type ButtonSize
 } from './Button';
 
+// Floating Action Button & Circle Button Components
+export {
+  FloatingActionButton,
+  CircleButton,
+  type FloatingActionButtonProps,
+  type CircleButtonProps
+} from './FloatingActionButton';
+
+// Segmented Control Components
+export {
+  SegmentedControl,
+  ViewToggle,
+  type SegmentedControlProps,
+  type SegmentedControlOption,
+  type ViewToggleProps
+} from './SegmentedControl';
+
 // Card Components
 export {
   Card,
@@ -226,3 +243,22 @@ export {
   type AvatarSize,
   type AvatarVariant
 } from './Avatar';
+export { SimpleLoading } from './SimpleLoading';
+export { PageContainer, type PageContainerProps } from './PageContainer';
+export { CalendarStyles } from './CalendarStyles';
+
+// Testimonial Components
+export {
+  Testimonial,
+  TestimonialSection,
+  type TestimonialProps,
+  type TestimonialSectionProps
+} from './Testimonial';
+
+// Feed Item Components
+export {
+  FeedItem,
+  type FeedItemProps,
+  type FeedItemVariant,
+  type FeedItemStatus
+} from './FeedItem';

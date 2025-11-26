@@ -19,12 +19,13 @@ export interface ModalProps {
   className?: string;
 }
 
+// Mobile-first: full-screen on mobile, constrained on desktop
 const sizeStyles: Record<ModalSize, string> = {
-  sm: 'max-w-md',
-  md: 'max-w-lg',
-  lg: 'max-w-2xl',
-  xl: 'max-w-4xl',
-  full: 'max-w-7xl mx-4'
+  sm: 'max-w-full sm:max-w-md',
+  md: 'max-w-full sm:max-w-lg',
+  lg: 'max-w-full sm:max-w-2xl',
+  xl: 'max-w-full sm:max-w-4xl',
+  full: 'max-w-full sm:max-w-7xl sm:mx-4'
 };
 
 export const Modal: React.FC<ModalProps> = ({
@@ -109,31 +110,34 @@ export const Modal: React.FC<ModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 animate-fade-in"
       onClick={handleBackdropClick}
     >
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
 
-      {/* Modal */}
+      {/* Modal - full screen on mobile, centered card on desktop */}
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         className={`
-          relative bg-white rounded-xl shadow-2xl
+          relative bg-white shadow-2xl
           w-full ${sizeStyles[size]}
-          animate-scale-in
+          h-full sm:h-auto sm:max-h-[90vh]
+          rounded-t-xl sm:rounded-xl
+          flex flex-col
+          animate-slide-up sm:animate-scale-in
           ${className}
         `}
       >
         {showCloseButton && (
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10"
+            className="absolute top-3 right-3 sm:top-4 sm:right-4 text-gray-400 hover:text-gray-600 transition-colors z-10"
             aria-label="Close modal"
           >
-            <X className="h-6 w-6" />
+            <X className="h-5 w-5 sm:h-6 sm:w-6" />
           </button>
         )}
 
@@ -156,8 +160,8 @@ export interface ModalHeaderProps {
 
 export const ModalHeader: React.FC<ModalHeaderProps> = ({ children, className = '' }) => {
   return (
-    <div className={`px-6 pt-6 pb-4 border-b border-gray-200 ${className}`}>
-      <h2 className="text-heading-lg text-brand-black font-semibold pr-8">
+    <div className={`px-4 sm:px-6 pt-4 sm:pt-6 pb-3 sm:pb-4 border-b border-gray-200 flex-shrink-0 ${className}`}>
+      <h2 className="text-base sm:text-heading-lg text-brand-black font-semibold pr-8">
         {children}
       </h2>
     </div>
@@ -173,7 +177,7 @@ export interface ModalContentProps {
 
 export const ModalContent: React.FC<ModalContentProps> = ({ children, className = '' }) => {
   return (
-    <div className={`px-6 py-4 ${className}`}>
+    <div className={`px-4 sm:px-6 py-3 sm:py-4 overflow-y-auto flex-1 ${className}`}>
       {children}
     </div>
   );
@@ -188,7 +192,7 @@ export interface ModalFooterProps {
 
 export const ModalFooter: React.FC<ModalFooterProps> = ({ children, className = '' }) => {
   return (
-    <div className={`px-6 py-4 border-t border-gray-200 flex items-center justify-end gap-3 ${className}`}>
+    <div className={`px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 flex items-center justify-end gap-2 sm:gap-3 flex-shrink-0 ${className}`}>
       {children}
     </div>
   );

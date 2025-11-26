@@ -26,6 +26,7 @@ import DivisionStandings from './components/DivisionStandings';
 import TeamDetailsPage from './components/TeamDetailsPage';
 import WeeklyResults from './components/WeeklyResults';
 import { AuthProvider, useAuth } from './AuthContext';
+import { usePermissions } from './hooks/usePermissions';
 import ClubProDashboard from './components/ClubProDashboard';
 import Login from './components/Login';
 import PasswordSetup from './components/PasswordSetup';
@@ -33,8 +34,15 @@ import ClaimAccount from './components/ClaimAccount';
 import ResetPassword from './components/ResetPassword';
 import BookingPage from './components/BookingPage';
 import BookingSettingsAdmin from './components/BookingSettingsAdmin';
+import BookingGuard from './components/BookingGuard';
+import OnboardingWorkflow from './components/OnboardingWorkflow';
 import ViewAsModeIndicator from './components/ViewAsModeIndicator';
-import { isClubPro, isAdminOrClubPro } from './utils/roleUtils';
+import WeeklyChallengeCard from './components/WeeklyChallengeCard';
+import ChallengesList from './components/ChallengesList';
+import ChallengeLeaderboard from './components/ChallengeLeaderboard';
+import ChallengeDistanceSubmission from './components/ChallengeDistanceSubmission';
+import WeeklyChallengeAdmin from './components/WeeklyChallengeAdmin';
+import ComponentShowcase from './components/ComponentShowcase';
 
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -104,10 +112,54 @@ const AvailableTournamentsWrapper: React.FC = () => {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const tournamentId = searchParams.get('tournament');
-  
+
   console.log('AvailableTournamentsWrapper: tournamentId from query params:', tournamentId);
-  
+
   return <AvailableTournaments />;
+};
+
+// Wrapper for ChallengeLeaderboard to handle URL parameters
+const ChallengeLeaderboardWrapper: React.FC = () => {
+  const { challengeId } = useParams();
+  const navigate = useNavigate();
+  return (
+    <ChallengeLeaderboard
+      challengeId={parseInt(challengeId || '0')}
+      onBack={() => navigate('/challenges')}
+    />
+  );
+};
+
+// Wrapper for WeeklyChallengeCard to handle navigation
+const WeeklyChallengeCardWrapper: React.FC = () => {
+  const navigate = useNavigate();
+  return (
+    <WeeklyChallengeCard
+      onViewLeaderboard={(challengeId) => navigate(`/challenges/${challengeId}`)}
+    />
+  );
+};
+
+// Wrapper for Challenges page with beta tester badge
+const ChallengesPageWrapper: React.FC = () => {
+  const { hasPermission } = usePermissions();
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+          <Trophy className="w-8 h-8 text-yellow-500" />
+          CTP Challenges
+        </h1>
+        {hasPermission('access_beta_features') && (
+          <span className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1">
+            🧪 Beta Tester
+          </span>
+        )}
+      </div>
+      <ChallengesList />
+    </div>
+  );
 };
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -139,64 +191,65 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading, isAdmin } = useAuth();
+  const { user, loading } = useAuth();
+  const { hasPermission } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  
-  console.log('AdminProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'role=', user?.role, 'isAdmin=', isAdmin, 'pathname=', location.pathname);
-  
+
+  const hasAccess = hasPermission('access_admin_panel');
+
+  console.log('AdminProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'hasAccess=', hasAccess, 'pathname=', location.pathname);
+
   useEffect(() => {
     if (!loading) {
       if (!user) {
         console.log('AdminProtectedRoute: No user, redirecting to login');
         navigate('/login');
-      } else if (!isAdmin) {
-        console.log('AdminProtectedRoute: User is not admin, redirecting to home');
+      } else if (!hasAccess) {
+        console.log('AdminProtectedRoute: User lacks access_admin_panel permission, redirecting to home');
         navigate('/');
       }
     }
-  }, [loading, user, navigate, isAdmin]);
-  
+  }, [loading, user, navigate, hasAccess]);
+
   if (loading) {
     console.log('AdminProtectedRoute: Showing loading state');
     return <div className="p-4 text-center">Loading...</div>;
   }
-  
+
   if (!user) {
     console.log('AdminProtectedRoute: No user, showing loading while redirecting');
     return <div className="p-4 text-center">Redirecting to login...</div>;
   }
-  
-  if (!isAdmin) {
-    console.log('AdminProtectedRoute: User is not admin, showing loading while redirecting');
+
+  if (!hasAccess) {
+    console.log('AdminProtectedRoute: User lacks permission, showing loading while redirecting');
     return <div className="p-4 text-center">Redirecting...</div>;
   }
-  
+
   console.log('AdminProtectedRoute: Rendering admin content for', location.pathname);
   return <>{children}</>;
 }
 
 function ClubProProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading, isAdmin } = useAuth();
+  const { user, loading } = useAuth();
+  const { hasAnyPermission } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
 
-  console.log('ClubProProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'role=', user?.role, 'isAdmin=', isAdmin, 'pathname=', location.pathname);
+  const hasAccess = hasAnyPermission(['view_club_handicaps', 'manage_club_members']);
+
+  console.log('ClubProProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'hasAccess=', hasAccess, 'pathname=', location.pathname);
 
   useEffect(() => {
     if (!loading) {
       if (!user) {
         navigate('/login');
-      } else {
-        // Use centralized role checking
-        const hasAccess = isAdminOrClubPro(user) || isAdmin;
-
-        if (!hasAccess) {
-          navigate('/');
-        }
+      } else if (!hasAccess) {
+        navigate('/');
       }
     }
-  }, [loading, user, navigate, isAdmin]);
+  }, [loading, user, navigate, hasAccess]);
 
   if (loading) {
     return <div className="p-4 text-center">Loading...</div>;
@@ -206,11 +259,44 @@ function ClubProProtectedRoute({ children }: { children: React.ReactNode }) {
     return <div className="p-4 text-center">Redirecting to login...</div>;
   }
 
-  // Use centralized role checking
-  const hasAccess = isAdminOrClubPro(user) || isAdmin;
-
   if (!hasAccess) {
     return <div className="p-4 text-center">Redirecting...</div>;
+  }
+
+  return <>{children}</>;
+}
+
+function BetaProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const { hasPermission } = usePermissions();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Only beta testers can access - admins need explicit beta permission for demo
+  const hasAccess = hasPermission('access_beta_features');
+
+  console.log('BetaProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'hasAccess=', hasAccess, 'pathname=', location.pathname);
+
+  useEffect(() => {
+    if (!loading) {
+      if (!user) {
+        navigate('/login', { state: { from: location.pathname + location.search } });
+      } else if (!hasAccess) {
+        navigate('/');
+      }
+    }
+  }, [loading, user, navigate, hasAccess, location]);
+
+  if (loading) {
+    return <div className="p-4 text-center">Loading...</div>;
+  }
+
+  if (!user) {
+    return <div className="p-4 text-center">Redirecting to login...</div>;
+  }
+
+  if (!hasAccess) {
+    return <div className="p-4 text-center">Access restricted to beta testers...</div>;
   }
 
   return <>{children}</>;
@@ -220,7 +306,7 @@ function HomeRoute() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  
+
   console.log('HomeRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'pathname=', location.pathname);
   
   useEffect(() => {
@@ -588,13 +674,50 @@ function AppContent() {
           </main>
         } />
         <Route path="/simulator-booking" element={
+          <main className="max-w-7xl mx-auto px-0 sm:px-6 lg:px-8 py-0 sm:py-8">
+            <BetaProtectedRoute>
+              <BookingGuard>
+                <BookingPage />
+              </BookingGuard>
+            </BetaProtectedRoute>
+          </main>
+        } />
+        <Route path="/club-onboarding" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-            <AdminProtectedRoute><BookingPage /></AdminProtectedRoute>
+            <BetaProtectedRoute>
+              <OnboardingWorkflow />
+            </BetaProtectedRoute>
           </main>
         } />
         <Route path="/booking-settings" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <AdminProtectedRoute><BookingSettingsAdmin /></AdminProtectedRoute>
+          </main>
+        } />
+
+        {/* Weekly Hole-in-One Challenge Routes */}
+        <Route path="/challenges" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <BetaProtectedRoute>
+              <ChallengesPageWrapper />
+            </BetaProtectedRoute>
+          </main>
+        } />
+        <Route path="/challenges/:challengeId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <BetaProtectedRoute><ChallengeLeaderboardWrapper /></BetaProtectedRoute>
+          </main>
+        } />
+        <Route path="/challenges/admin" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><WeeklyChallengeAdmin /></AdminProtectedRoute>
+          </main>
+        } />
+
+        {/* Dev-only Component Showcase */}
+        <Route path="/dev/components" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ComponentShowcase />
           </main>
         } />
       </Routes>

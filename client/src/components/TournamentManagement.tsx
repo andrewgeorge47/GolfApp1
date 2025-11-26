@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trophy, Users, BarChart3, CheckCircle, Clock, Edit, Trash2, Target, Award } from 'lucide-react';
-import { 
+import {
   getTournaments,
   getTournamentParticipants,
   getTournamentMatches,
@@ -34,6 +34,7 @@ import AdminScorecardEditor from './AdminScorecardEditor';
 import AdminStrokeplayScorecardEditor from './AdminStrokeplayScorecardEditor';
 import AdminMatchplayEditor from './AdminMatchplayEditor';
 import ChampionshipAdminDashboard from './ChampionshipAdminDashboard';
+import { PageContainer, PageHeader, PageContent } from './ui/PageContainer';
 
 interface TournamentManagementProps {
   // Add any props if needed
@@ -649,26 +650,28 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
   }
 
   return (
-    <div className="space-y-8">
-      {/* Main Content */}
-      <div className="bg-white/95 rounded-2xl shadow-lg">
-        <div className="p-6">
-          <div className="space-y-6">
-            {/* Tournament Management */}
-            <div className="space-y-6">
-              {/* Tournament Overview Grid */}
-              {!selectedTournament && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-lg font-semibold text-brand-black">All Tournaments</h4>
-                    <button
-                      onClick={() => setShowTournamentForm(true)}
-                      className="flex items-center justify-center w-10 h-10 sm:w-auto sm:h-auto sm:px-4 sm:py-2 bg-brand-neon-green text-brand-black rounded-full sm:rounded-lg font-medium hover:bg-green-400 transition-colors text-sm sm:text-base"
-                    >
-                      <Plus className="w-5 h-5 sm:w-4 sm:h-4 sm:mr-2" />
-                      <span className="hidden sm:inline">Create Tournament</span>
-                    </button>
-                  </div>
+    <PageContainer>
+      <PageHeader
+        title="Tournament Management"
+        subtitle="Create and manage tournaments, registrations, and scoring"
+        icon={<Trophy className="w-7 h-7 text-brand-neon-green" />}
+        action={
+          !selectedTournament ? (
+            <button
+              onClick={() => setShowTournamentForm(true)}
+              className="flex items-center justify-center w-10 h-10 sm:w-auto sm:h-auto sm:px-4 sm:py-2 bg-brand-neon-green text-brand-black rounded-full sm:rounded-lg font-medium hover:bg-green-400 transition-colors text-sm sm:text-base"
+            >
+              <Plus className="w-5 h-5 sm:w-4 sm:h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Create Tournament</span>
+            </button>
+          ) : undefined
+        }
+      />
+
+      <PageContent>
+        {/* Tournament Overview Grid */}
+        {!selectedTournament && (
+          <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {tournaments.map(tournament => (
                       <div
@@ -1729,10 +1732,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
                   </div>
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-      </div>
+      </PageContent>
 
       {/* Tournament Form Modals */}
       {showTournamentForm && (
@@ -1915,7 +1915,7 @@ const TournamentManagement: React.FC<TournamentManagementProps> = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 };
 

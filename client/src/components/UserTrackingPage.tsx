@@ -3,18 +3,21 @@ import { ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import UserTrackingWidget from './UserTrackingWidget';
 import { useAuth } from '../AuthContext';
+import { usePermissions } from '../hooks/usePermissions';
 
 const UserTrackingPage: React.FC = () => {
   const navigate = useNavigate();
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
+  const { hasPermission } = usePermissions();
+  const hasAccess = hasPermission('access_admin_panel');
 
   React.useEffect(() => {
-    if (!user || !isAdmin) {
+    if (!user || !hasAccess) {
       navigate('/profile', { replace: true });
     }
-  }, [user, navigate, isAdmin]);
+  }, [user, navigate, hasAccess]);
 
-  if (!user || !isAdmin) {
+  if (!user || !hasAccess) {
     return null;
   }
 

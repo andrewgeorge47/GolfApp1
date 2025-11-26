@@ -1,66 +1,115 @@
 import React, { useState, useEffect } from 'react';
 import { Eye, X, User, MapPin, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useAuth } from '../AuthContext';
+import { usePermissions } from '../hooks/usePermissions';
 import api from '../services/api';
-import { getAvailableRoles } from '../utils/roleUtils';
+
+interface PermissionProfile {
+  id: string;
+  label: string;
+  description: string;
+  permissions: string[];
+  roles: string[];
+  primary_role: string;
+}
 
 interface ViewAsModeProps {
   className?: string;
 }
 
 const ViewAsMode: React.FC<ViewAsModeProps> = ({ className = '' }) => {
-  const { user, viewAsMode, enterViewAsMode, exitViewAsMode, isAdmin } = useAuth();
+  const { user, viewAsMode, enterViewAsMode, exitViewAsMode } = useAuth();
+  const { hasPermission } = usePermissions();
+  const canViewAs = hasPermission('view_as_user');
   const [isOpen, setIsOpen] = useState(false);
-  const [selectedRole, setSelectedRole] = useState('');
+  const [selectedProfile, setSelectedProfile] = useState('');
   const [selectedClub, setSelectedClub] = useState('');
-  const [availableRoles, setAvailableRoles] = useState<Array<{value: string, label: string}>>([]);
+  const [availableProfiles, setAvailableProfiles] = useState<PermissionProfile[]>([]);
   const [availableClubs, setAvailableClubs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
 
   useEffect(() => {
-    // Fetch available roles and clubs from API
+    // Fetch available permission profiles and clubs
     const fetchViewAsData = async () => {
-      if (!isAdmin) return;
-      
+      if (!canViewAs) return;
+
       try {
         setDataLoading(true);
-        const response = await api.get('/admin/view-as-data');
-        setAvailableRoles(response.data.roles);
-        setAvailableClubs(response.data.clubs);
-        
+
+        // Define permission profiles (can be moved to API later)
+        const profiles: PermissionProfile[] = [
+          {
+            id: 'member',
+            label: 'Member',
+            description: 'Regular member with basic access',
+            permissions: [],
+            roles: ['Member'],
+            primary_role: 'Member'
+          },
+          {
+            id: 'beta_tester',
+            label: 'Beta Tester',
+            description: 'Member with beta feature access',
+            permissions: ['access_beta_features'],
+            roles: ['Member'],
+            primary_role: 'Member'
+          },
+          {
+            id: 'club_pro',
+            label: 'Club Pro',
+            description: 'Club professional with member management',
+            permissions: ['view_club_handicaps', 'manage_club_members'],
+            roles: ['Club Pro'],
+            primary_role: 'Club Pro'
+          }
+        ];
+
+        setAvailableProfiles(profiles);
+
+        // Fetch clubs from API or use defaults
+        try {
+          const response = await api.get('/admin/view-as-data');
+          setAvailableClubs(response.data.clubs || [
+            'No. 1', 'No. 2', 'No. 3', 'No. 4', 'No. 5', 'No. 6',
+            'No. 7', 'No. 8', 'No. 9', 'No. 10', 'No. 11', 'No. 12'
+          ]);
+        } catch {
+          setAvailableClubs([
+            'No. 1', 'No. 2', 'No. 3', 'No. 4', 'No. 5', 'No. 6',
+            'No. 7', 'No. 8', 'No. 9', 'No. 10', 'No. 11', 'No. 12'
+          ]);
+        }
+
         // Set default club to user's current club if available
         if (user?.club && selectedClub === '') {
           setSelectedClub(user.club);
         }
       } catch (error) {
         console.error('Error fetching view-as data:', error);
-        // Fallback to centralized role data (excluding Admin and Deactivated for view-as mode)
-        const allRoles = getAvailableRoles();
-        setAvailableRoles(
-          allRoles.filter(r => r.value !== 'Admin' && r.value !== 'Deactivated')
-        );
-        setAvailableClubs([
-          'No. 1', 'No. 2', 'No. 3', 'No. 4', 'No. 5', 'No. 6',
-          'No. 7', 'No. 8', 'No. 9', 'No. 10', 'No. 11', 'No. 12'
-        ]);
       } finally {
         setDataLoading(false);
       }
     };
 
     fetchViewAsData();
-  }, [isAdmin, user, selectedClub]);
+  }, [canViewAs, user, selectedClub]);
 
   const handleEnterViewAsMode = () => {
-    if (!selectedRole || !selectedClub) {
-      alert('Please select both a role and club');
+    if (!selectedProfile || !selectedClub) {
+      alert('Please select both a profile and club');
+      return;
+    }
+
+    const profile = availableProfiles.find(p => p.id === selectedProfile);
+    if (!profile) {
+      alert('Invalid profile selected');
       return;
     }
 
     setLoading(true);
     try {
-      enterViewAsMode(selectedRole, selectedClub);
+      enterViewAsMode(profile.permissions, profile.roles, profile.primary_role, selectedClub);
       setIsOpen(false);
     } catch (error) {
       console.error('Error entering view-as mode:', error);
@@ -74,8 +123,8 @@ const ViewAsMode: React.FC<ViewAsModeProps> = ({ className = '' }) => {
     exitViewAsMode();
   };
 
-  // Don't render if user is not an admin
-  if (!isAdmin) {
+  // Don't render if user doesn't have view_as_user permission
+  if (!canViewAs) {
     return null;
   }
 
@@ -87,7 +136,7 @@ const ViewAsMode: React.FC<ViewAsModeProps> = ({ className = '' }) => {
           onClick={() => {
             setIsOpen(true);
             // Reset selections when opening modal
-            setSelectedRole('');
+            setSelectedProfile('');
             setSelectedClub(user?.club || '');
           }}
           className="flex items-center justify-center p-1.5 sm:p-2 bg-white/10 backdrop-blur-sm text-white rounded-full hover:bg-white/20 transition-all duration-200 border border-white/20 hover:border-white/30 shadow-lg hover:shadow-xl"
@@ -124,22 +173,22 @@ const ViewAsMode: React.FC<ViewAsModeProps> = ({ className = '' }) => {
                 </p>
               </div>
 
-              {/* Role Selection */}
+              {/* Profile Selection */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <User className="w-4 h-4 inline mr-1" />
-                  Select Role
+                  Select User Type
                 </label>
                 <select
-                  value={selectedRole}
-                  onChange={(e) => setSelectedRole(e.target.value)}
+                  value={selectedProfile}
+                  onChange={(e) => setSelectedProfile(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                   disabled={dataLoading}
                 >
-                  <option value="">Select a role...</option>
-                  {availableRoles.map((role) => (
-                    <option key={role.value} value={role.value}>
-                      {role.label}
+                  <option value="">Select a user type...</option>
+                  {availableProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.label} - {profile.description}
                     </option>
                   ))}
                 </select>
@@ -167,14 +216,17 @@ const ViewAsMode: React.FC<ViewAsModeProps> = ({ className = '' }) => {
               </div>
 
               {/* Current Selection Preview */}
-              {selectedRole && selectedClub && (
-                <div className="mb-6 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                  <div className="flex items-center space-x-2 text-sm text-gray-700">
-                    <CheckCircle className="w-4 h-4 text-green-600" />
-                    <span>You will view the platform as a <strong>{selectedRole}</strong> from <strong>{selectedClub}</strong></span>
+              {selectedProfile && selectedClub && (() => {
+                const profile = availableProfiles.find(p => p.id === selectedProfile);
+                return profile ? (
+                  <div className="mb-6 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div className="flex items-center space-x-2 text-sm text-gray-700">
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                      <span>You will view the platform as a <strong>{profile.label}</strong> from <strong>{selectedClub}</strong></span>
+                    </div>
                   </div>
-                </div>
-              )}
+                ) : null;
+              })()}
 
               {/* Action Buttons */}
               <div className="flex space-x-3">
@@ -186,7 +238,7 @@ const ViewAsMode: React.FC<ViewAsModeProps> = ({ className = '' }) => {
                 </button>
                 <button
                   onClick={handleEnterViewAsMode}
-                  disabled={!selectedRole || !selectedClub || loading}
+                  disabled={!selectedProfile || !selectedClub || loading}
                   className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center space-x-2 text-sm shadow-sm hover:shadow-md"
                 >
                   {loading ? (

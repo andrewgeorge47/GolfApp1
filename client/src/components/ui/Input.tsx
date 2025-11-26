@@ -15,10 +15,11 @@ export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElem
   inputSize?: 'sm' | 'md' | 'lg';
 }
 
+// Responsive sizes with minimum 44px touch target
 const sizeStyles = {
-  sm: 'px-3 py-1.5 text-sm',
-  md: 'px-4 py-2 text-base',
-  lg: 'px-4 py-3 text-lg'
+  sm: 'px-3 py-2 text-sm min-h-[36px]',
+  md: 'px-3 sm:px-4 py-2.5 sm:py-2 text-base min-h-[44px]',
+  lg: 'px-4 py-3 text-lg min-h-[48px]'
 };
 
 const iconSizes = {

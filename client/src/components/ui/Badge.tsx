@@ -1,7 +1,7 @@
 import React from 'react';
 import { X, LucideIcon } from 'lucide-react';
 
-export type BadgeVariant = 'default' | 'brand' | 'success' | 'warning' | 'error' | 'info';
+export type BadgeVariant = 'default' | 'brand' | 'success' | 'warning' | 'error' | 'info' | 'neon';
 export type BadgeSize = 'sm' | 'md' | 'lg';
 export type BadgeStyle = 'solid' | 'subtle' | 'outlined';
 
@@ -23,7 +23,7 @@ const variantStyles: Record<BadgeVariant, Record<BadgeStyle, string>> = {
   },
   brand: {
     solid: 'bg-brand-dark-green text-white',
-    subtle: 'bg-brand-sage-green/10 text-brand-dark-green border border-brand-sage-green/20',
+    subtle: 'bg-brand-highlight-green bg-opacity-10 text-brand-dark-green border border-brand-highlight-green border-opacity-20',
     outlined: 'bg-transparent text-brand-dark-green border-2 border-brand-dark-green'
   },
   success: {
@@ -45,6 +45,11 @@ const variantStyles: Record<BadgeVariant, Record<BadgeStyle, string>> = {
     solid: 'bg-info-600 text-white',
     subtle: 'bg-info-50 text-info-700 border border-info-200',
     outlined: 'bg-transparent text-info-700 border-2 border-info-500'
+  },
+  neon: {
+    solid: 'bg-brand-neon-green text-brand-dark-green font-semibold shadow-neon',
+    subtle: 'bg-brand-neon-green bg-opacity-10 text-brand-neon-green border border-brand-neon-green border-opacity-30 font-semibold',
+    outlined: 'bg-transparent text-brand-neon-green border border-brand-neon-green font-semibold'
   }
 };
 
@@ -72,7 +77,8 @@ const dotColors: Record<BadgeVariant, string> = {
   success: 'bg-success-500',
   warning: 'bg-warning-500',
   error: 'bg-error-500',
-  info: 'bg-info-500'
+  info: 'bg-info-500',
+  neon: 'bg-brand-neon-green'
 };
 
 export const Badge = React.forwardRef<HTMLSpanElement, BadgeProps>(

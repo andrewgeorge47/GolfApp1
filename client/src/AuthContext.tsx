@@ -1,11 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { login as apiLogin, getCurrentUser } from './services/api';
+import { login as apiLogin, getCurrentUser, getUserPermissions } from './services/api';
 import { isAdmin as checkIsAdmin } from './utils/roleUtils';
 
 interface ViewAsMode {
   isActive: boolean;
   originalUser: any;
-  viewAsRole: string;
+  viewAsPermissions: string[];
+  viewAsRoles: string[];
+  viewAsPrimaryRole: string;
   viewAsClub: string;
 }
 
@@ -18,7 +20,7 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
   // View-as mode functionality
   viewAsMode: ViewAsMode;
-  enterViewAsMode: (role: string, club: string) => void;
+  enterViewAsMode: (permissions: string[], roles: string[], primaryRole: string, club: string) => void;
   exitViewAsMode: () => void;
   isAdmin: boolean;
 }
@@ -37,7 +39,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [viewAsMode, setViewAsMode] = useState<ViewAsMode>({
     isActive: false,
     originalUser: null,
-    viewAsRole: '',
+    viewAsPermissions: [],
+    viewAsRoles: [],
+    viewAsPrimaryRole: '',
     viewAsClub: ''
   });
   
@@ -50,7 +54,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (token) {
         try {
           const res = await getCurrentUser(token);
-          setUser(res.data.user);
+          const userData = res.data.user;
+
+          // Fetch user's permissions and roles
+          try {
+            const permRes = await getUserPermissions(userData.member_id);
+            setUser({
+              ...userData,
+              roles: permRes.data.roles,
+              permissions: permRes.data.permissions,
+              primary_role: permRes.data.primary_role
+            });
+          } catch (permError) {
+            console.error('AuthContext: Failed to fetch permissions:', permError);
+            // Still set user even if permissions fail (backward compatibility)
+            setUser(userData);
+          }
         } catch (error) {
           console.error('AuthContext: Token validation failed:', error);
           setUser(null);
@@ -60,7 +79,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       } else {
         setUser(null);
       }
-      
+
       setLoading(false);
     };
 
@@ -73,7 +92,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const res = await apiLogin(email, password);
       setToken(res.data.token);
       localStorage.setItem('token', res.data.token);
-      setUser(res.data.user);
+
+      const userData = res.data.user;
+
+      // Fetch user's permissions and roles
+      try {
+        const permRes = await getUserPermissions(userData.member_id);
+        setUser({
+          ...userData,
+          roles: permRes.data.roles,
+          permissions: permRes.data.permissions,
+          primary_role: permRes.data.primary_role
+        });
+      } catch (permError) {
+        console.error('AuthContext: Failed to fetch permissions:', permError);
+        // Still set user even if permissions fail (backward compatibility)
+        setUser(userData);
+      }
     } catch (error) {
       console.error('AuthContext: Login failed:', error);
       throw error;
@@ -92,7 +127,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (token) {
       try {
         const res = await getCurrentUser(token);
-        setUser(res.data.user);
+        const userData = res.data.user;
+
+        // Fetch user's permissions and roles
+        try {
+          const permRes = await getUserPermissions(userData.member_id);
+          setUser({
+            ...userData,
+            roles: permRes.data.roles,
+            permissions: permRes.data.permissions,
+            primary_role: permRes.data.primary_role
+          });
+        } catch (permError) {
+          console.error('AuthContext: Failed to fetch permissions:', permError);
+          setUser(userData);
+        }
       } catch (error) {
         console.error('AuthContext: Error refreshing user data:', error);
         // Don't logout on refresh failure, just log the error
@@ -101,26 +150,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   // View-as mode functions
-  const enterViewAsMode = (role: string, club: string) => {
+  const enterViewAsMode = (permissions: string[], roles: string[], primaryRole: string, club: string) => {
     if (!isAdmin) {
       console.error('Only admins can enter view-as mode');
       return;
     }
-    
+
     const originalUser = user;
     const viewAsUser = {
       ...originalUser,
-      role: role,
+      permissions: permissions,
+      roles: roles,
+      primary_role: primaryRole,
       club: club
     };
-    
+
     setViewAsMode({
       isActive: true,
       originalUser: originalUser,
-      viewAsRole: role,
+      viewAsPermissions: permissions,
+      viewAsRoles: roles,
+      viewAsPrimaryRole: primaryRole,
       viewAsClub: club
     });
-    
+
     setUser(viewAsUser);
   };
 
@@ -130,7 +183,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setViewAsMode({
         isActive: false,
         originalUser: null,
-        viewAsRole: '',
+        viewAsPermissions: [],
+        viewAsRoles: [],
+        viewAsPrimaryRole: '',
         viewAsClub: ''
       });
     }

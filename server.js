@@ -10,7 +10,78 @@ const path = require('path');
 const fs = require('fs');
 const { Storage } = require('@google-cloud/storage');
 
+// Google Cloud Storage configuration (optional - falls back to local storage)
+let storage;
+let bucketName;
+try {
+  if (process.env.GCS_BUCKET_NAME) {
+    storage = new Storage();
+    bucketName = process.env.GCS_BUCKET_NAME;
+  }
+} catch (err) {
+  console.log('GCS not configured, using local storage for uploads');
+}
+
+// Stripe configuration
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
 const app = express();
+
+// Raw body parser for Stripe webhooks (must be before express.json())
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Handle the event
+  switch (event.type) {
+    case 'payment_intent.succeeded':
+      const paymentIntent = event.data.object;
+      console.log('PaymentIntent succeeded:', paymentIntent.id);
+
+      // Update payment status in database
+      try {
+        await pool.query(
+          `UPDATE challenge_payments
+           SET payment_status = 'completed'
+           WHERE payment_reference = $1`,
+          [paymentIntent.id]
+        );
+      } catch (err) {
+        console.error('Error updating payment status:', err);
+      }
+      break;
+
+    case 'payment_intent.payment_failed':
+      const failedPayment = event.data.object;
+      console.log('PaymentIntent failed:', failedPayment.id);
+
+      try {
+        await pool.query(
+          `UPDATE challenge_payments
+           SET payment_status = 'failed'
+           WHERE payment_reference = $1`,
+          [failedPayment.id]
+        );
+      } catch (err) {
+        console.error('Error updating failed payment:', err);
+      }
+      break;
+
+    default:
+      console.log(`Unhandled event type: ${event.type}`);
+  }
+
+  res.json({ received: true });
+});
 
 // PostgreSQL connection pool
 const pool = new Pool({
@@ -28,6 +99,9 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(express.json());
+
+// Serve uploaded files (for local development when GCS is not configured)
+app.use('/uploads', express.static('uploads'));
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
@@ -151,10 +225,259 @@ async function requireClubProOrAdmin(req, res, next) {
   }
 }
 
+// ========================================
+// Permission Checking Functions (Multi-Role)
+// ========================================
+
+/**
+ * Fetch all permissions for a user from database (aggregated from all roles)
+ * @param {number} userId - The user's member_id
+ * @returns {Promise<string[]>} Array of permission keys
+ */
+async function getUserPermissions(userId) {
+  try {
+    const result = await pool.query(
+      `SELECT DISTINCT permission_key
+       FROM user_all_permissions
+       WHERE member_id = $1`,
+      [userId]
+    );
+    return result.rows.map(row => row.permission_key);
+  } catch (error) {
+    console.error('Error fetching user permissions:', error);
+    return [];
+  }
+}
+
+/**
+ * Check if user has specific permission
+ * @param {number} userId - The user's member_id
+ * @param {string} permissionKey - Permission to check (e.g., 'manage_users')
+ * @returns {Promise<boolean>}
+ */
+async function userHasPermission(userId, permissionKey) {
+  const permissions = await getUserPermissions(userId);
+  return permissions.includes(permissionKey);
+}
+
+/**
+ * Check if user has ANY of the specified permissions
+ * @param {number} userId - The user's member_id
+ * @param {string[]} permissionKeys - Array of permission keys
+ * @returns {Promise<boolean>}
+ */
+async function userHasAnyPermission(userId, permissionKeys) {
+  const permissions = await getUserPermissions(userId);
+  return permissionKeys.some(key => permissions.includes(key));
+}
+
+/**
+ * Check if user has ALL of the specified permissions
+ * @param {number} userId - The user's member_id
+ * @param {string[]} permissionKeys - Array of permission keys
+ * @returns {Promise<boolean>}
+ */
+async function userHasAllPermissions(userId, permissionKeys) {
+  const permissions = await getUserPermissions(userId);
+  return permissionKeys.every(key => permissions.includes(key));
+}
+
+/**
+ * Get all roles for a user
+ * @param {number} userId - The user's member_id
+ * @returns {Promise<Object[]>} Array of role objects
+ */
+async function getUserRoles(userId) {
+  try {
+    const result = await pool.query(
+      `SELECT role_id, role_name, role_key, is_primary
+       FROM user_roles_view
+       WHERE member_id = $1`,
+      [userId]
+    );
+    return result.rows;
+  } catch (error) {
+    console.error('Error fetching user roles:', error);
+    return [];
+  }
+}
+
+// ========================================
+// Permission Middleware (Multi-Role)
+// ========================================
+
+/**
+ * Middleware: Require specific permission
+ * @param {string} permissionKey - Required permission (e.g., 'manage_users')
+ */
+function requirePermission(permissionKey) {
+  return async (req, res, next) => {
+    try {
+      const userId = req.user.member_id;
+      const hasPermission = await userHasPermission(userId, permissionKey);
+
+      if (!hasPermission) {
+        console.log(`Access denied: User ${userId} lacks permission '${permissionKey}'`);
+        return res.status(403).json({
+          error: 'Access denied',
+          required_permission: permissionKey,
+          message: `You do not have the '${permissionKey}' permission`
+        });
+      }
+
+      // Attach permissions to request for later use (avoid repeated queries)
+      if (!req.userPermissions) {
+        req.userPermissions = await getUserPermissions(userId);
+      }
+
+      // Attach user details for backward compatibility
+      if (!req.userDetails) {
+        const { rows } = await pool.query(
+          'SELECT member_id, first_name, last_name, email_address, club, role FROM users WHERE member_id = $1',
+          [userId]
+        );
+        if (rows.length > 0) {
+          req.userDetails = rows[0];
+        }
+      }
+
+      next();
+    } catch (error) {
+      console.error('Permission check error:', error);
+      res.status(500).json({ error: 'Permission check failed' });
+    }
+  };
+}
+
+/**
+ * Middleware: Require ANY of the specified permissions
+ * @param {...string} permissionKeys - One or more permission keys
+ */
+function requireAnyPermission(...permissionKeys) {
+  return async (req, res, next) => {
+    try {
+      const userId = req.user.member_id;
+      const hasAny = await userHasAnyPermission(userId, permissionKeys);
+
+      if (!hasAny) {
+        console.log(`Access denied: User ${userId} lacks any of: ${permissionKeys.join(', ')}`);
+        return res.status(403).json({
+          error: 'Access denied',
+          required_permissions: permissionKeys,
+          message: `You need at least one of these permissions: ${permissionKeys.join(', ')}`
+        });
+      }
+
+      if (!req.userPermissions) {
+        req.userPermissions = await getUserPermissions(userId);
+      }
+
+      // Attach user details for backward compatibility
+      if (!req.userDetails) {
+        const { rows } = await pool.query(
+          'SELECT member_id, first_name, last_name, email_address, club, role FROM users WHERE member_id = $1',
+          [userId]
+        );
+        if (rows.length > 0) {
+          req.userDetails = rows[0];
+        }
+      }
+
+      next();
+    } catch (error) {
+      console.error('Permission check error:', error);
+      res.status(500).json({ error: 'Permission check failed' });
+    }
+  };
+}
+
+/**
+ * Middleware: Require ALL of the specified permissions
+ * @param {...string} permissionKeys - One or more permission keys
+ */
+function requireAllPermissions(...permissionKeys) {
+  return async (req, res, next) => {
+    try {
+      const userId = req.user.member_id;
+      const hasAll = await userHasAllPermissions(userId, permissionKeys);
+
+      if (!hasAll) {
+        console.log(`Access denied: User ${userId} lacks all of: ${permissionKeys.join(', ')}`);
+        return res.status(403).json({
+          error: 'Access denied',
+          required_permissions: permissionKeys,
+          message: `You need all of these permissions: ${permissionKeys.join(', ')}`
+        });
+      }
+
+      if (!req.userPermissions) {
+        req.userPermissions = await getUserPermissions(userId);
+      }
+
+      next();
+    } catch (error) {
+      console.error('Permission check error:', error);
+      res.status(500).json({ error: 'Permission check failed' });
+    }
+  };
+}
+
 // Test route
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// ========================================
+// User Permission Endpoints (Multi-Role)
+// ========================================
+
+/**
+ * GET /api/users/:userId/permissions
+ * Get all roles and permissions for a user
+ */
+app.get('/api/users/:userId/permissions',
+  authenticateToken,
+  async (req, res) => {
+    const { userId } = req.params;
+
+    try {
+      // Only allow users to view their own permissions (or admins to view any)
+      if (req.user.member_id !== parseInt(userId)) {
+        const hasPermission = await userHasPermission(req.user.member_id, 'manage_users');
+        if (!hasPermission) {
+          return res.status(403).json({ error: 'Access denied' });
+        }
+      }
+
+      // Get all roles for user
+      const rolesResult = await pool.query(
+        `SELECT * FROM user_roles_view WHERE member_id = $1 ORDER BY is_primary DESC`,
+        [userId]
+      );
+
+      // Get all permissions (aggregated from all roles)
+      const permissionsResult = await pool.query(
+        `SELECT DISTINCT permission_key, permission_name, category
+         FROM user_all_permissions
+         WHERE member_id = $1
+         ORDER BY category, permission_name`,
+        [userId]
+      );
+
+      const primaryRole = rolesResult.rows.find(r => r.is_primary);
+
+      res.json({
+        roles: rolesResult.rows,
+        permissions: permissionsResult.rows.map(p => p.permission_key),
+        permission_details: permissionsResult.rows,
+        primary_role: primaryRole?.role_name ?? 'Member'
+      });
+    } catch (error) {
+      console.error('Error fetching user permissions:', error);
+      res.status(500).json({ error: 'Failed to fetch user permissions' });
+    }
+  }
+);
 
 // List tournaments (for tournaments page and management)
 app.get('/api/tournaments', async (req, res) => {
@@ -4698,16 +5021,18 @@ app.get('/api/tournaments/:id/championship-matches', async (req, res) => {
         ncm.*,
         u1.first_name as player1_name,
         u1.last_name as player1_last_name,
+        u1.club as player1_club,
         u1.sim_handicap as player1_handicap,
         u1.handicap as player1_grass_handicap,
         u2.first_name as player2_name,
         u2.last_name as player2_last_name,
+        u2.club as player2_club,
         u2.sim_handicap as player2_handicap,
         u2.handicap as player2_grass_handicap,
         'national_championship' as match_type
       FROM national_championship_matches ncm
-      JOIN users u1 ON ncm.player1_id = u1.member_id
-      JOIN users u2 ON ncm.player2_id = u2.member_id
+      LEFT JOIN users u1 ON ncm.player1_id = u1.member_id
+      LEFT JOIN users u2 ON ncm.player2_id = u2.member_id
       WHERE ncm.tournament_id = $1
       ORDER BY ncm.round_number, ncm.match_number, ncm.id
     `, [id]);
@@ -5934,23 +6259,24 @@ app.put('/api/tournaments/:id/national-matches/:matchId/winner', async (req, res
       }
       
       if (nextRoundMatchNumber && playerPosition) {
-        // Check if the next round match exists
+        // Get the existing next round match to check if it exists
         const existingNextMatch = await pool.query(`
           SELECT * FROM national_championship_matches 
           WHERE tournament_id = $1 AND round_number = 2 AND match_number = $2
         `, [tournamentId, nextRoundMatchNumber]);
         
+        const otherPosition = playerPosition === 'player1_id' ? 'player2_id' : 'player1_id';
+        
         if (existingNextMatch.rows.length > 0) {
-          // Update existing match
+          // Update the existing match, overwriting the player in that position
           await pool.query(`
             UPDATE national_championship_matches 
             SET ${playerPosition} = $1, updated_at = CURRENT_TIMESTAMP
             WHERE tournament_id = $2 AND round_number = 2 AND match_number = $3
           `, [winner_id, tournamentId, nextRoundMatchNumber]);
-          console.log(`Updated semifinal match ${nextRoundMatchNumber} ${playerPosition}`);
+          console.log(`Updated semifinal match ${nextRoundMatchNumber} ${playerPosition} to ${winner_id}`);
         } else {
-          // Create new match with TBD placeholder for the other player
-          const otherPosition = playerPosition === 'player1_id' ? 'player2_id' : 'player1_id';
+          // Create new match with winner and TBD placeholder for the other player
           await pool.query(`
             INSERT INTO national_championship_matches (
               tournament_id, round_number, match_number, ${playerPosition}, ${otherPosition}, match_status
@@ -5977,17 +6303,18 @@ app.put('/api/tournaments/:id/national-matches/:matchId/winner', async (req, res
           WHERE tournament_id = $1 AND round_number = 3 AND match_number = 1
         `, [tournamentId]);
         
+        const otherPosition = playerPosition === 'player1_id' ? 'player2_id' : 'player1_id';
+        
         if (existingChampionship.rows.length > 0) {
-          // Update existing match
+          // Update existing match, overwriting the player in that position
           await pool.query(`
             UPDATE national_championship_matches 
             SET ${playerPosition} = $1, updated_at = CURRENT_TIMESTAMP
             WHERE tournament_id = $2 AND round_number = 3 AND match_number = 1
           `, [winner_id, tournamentId]);
-          console.log(`Updated championship match ${playerPosition}`);
+          console.log(`Updated championship match ${playerPosition} to ${winner_id}`);
         } else {
-          // Create new championship match with TBD placeholder for the other player
-          const otherPosition = playerPosition === 'player1_id' ? 'player2_id' : 'player1_id';
+          // Create new championship match with winner and TBD placeholder for the other player
           await pool.query(`
             INSERT INTO national_championship_matches (
               tournament_id, round_number, match_number, ${playerPosition}, ${otherPosition}, match_status
@@ -6827,9 +7154,9 @@ app.get('/api/handicaps', async (req, res) => {
 });
 
 // Club Pro: Get handicaps for users in the pro's club (auth required)
-app.get('/api/club-pro/handicaps', authenticateToken, requireClubProOrAdmin, async (req, res) => {
+app.get('/api/club-pro/handicaps', authenticateToken, requireAnyPermission('view_club_handicaps', 'manage_club_members'), async (req, res) => {
   try {
-    // Access check is now handled by requireClubProOrAdmin middleware
+    // Access check is now handled by permission middleware
     // User details are in req.userDetails
     const userClub = req.userDetails.club;
 
@@ -6859,11 +7186,11 @@ app.get('/api/club-pro/handicaps', authenticateToken, requireClubProOrAdmin, asy
 });
 
 // Club Pro: Get weekly matches for the pro's club for a tournament/week (auth required)
-app.get('/api/club-pro/tournaments/:id/weekly-matches', authenticateToken, requireClubProOrAdmin, async (req, res) => {
+app.get('/api/club-pro/tournaments/:id/weekly-matches', authenticateToken, requireAnyPermission('view_club_handicaps', 'manage_club_members'), async (req, res) => {
   const { id } = req.params;
   const { week_start_date } = req.query;
   try {
-    // Access check is now handled by requireClubProOrAdmin middleware
+    // Access check is now handled by permission middleware
     // User details are in req.userDetails
     const club = req.userDetails.club;
 
@@ -6901,9 +7228,9 @@ app.get('/api/club-pro/tournaments/:id/weekly-matches', authenticateToken, requi
 });
 
 // Club Pro: Get player tournament participation data for the pro's club (auth required)
-app.get('/api/club-pro/player-tournaments', authenticateToken, requireClubProOrAdmin, async (req, res) => {
+app.get('/api/club-pro/player-tournaments', authenticateToken, requireAnyPermission('view_club_handicaps', 'manage_club_members'), async (req, res) => {
   try {
-    // Access check is now handled by requireClubProOrAdmin middleware
+    // Access check is now handled by requireAnyPermission middleware
     // User details are in req.userDetails
     const userClub = req.userDetails.club;
 
@@ -9243,9 +9570,9 @@ function transformUserData(user) {
 }
 
 // Get admin user tracking statistics
-app.get('/api/admin/user-tracking-stats', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/user-tracking-stats', authenticateToken, requirePermission('access_admin_panel'), async (req, res) => {
   try {
-    // Admin check is now handled by requireAdmin middleware
+    // Access check is now handled by requirePermission middleware
     // Get total users and claimed accounts
     console.log('Fetching user stats...');
     const { rows: userStats } = await pool.query(`
@@ -9332,9 +9659,9 @@ app.get('/api/admin/user-tracking-stats', authenticateToken, requireAdmin, async
 });
 
 // Get detailed user tracking data for a specific date range
-app.get('/api/admin/user-tracking-details', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/user-tracking-details', authenticateToken, requirePermission('access_admin_panel'), async (req, res) => {
   try {
-    // Admin check is now handled by requireAdmin middleware
+    // Access check is now handled by requirePermission middleware
     const { startDate, endDate, club } = req.query;
     
     let whereClause = '';
@@ -9390,9 +9717,9 @@ app.get('/api/admin/user-tracking-details', authenticateToken, requireAdmin, asy
 });
 
 // Get view-as mode data for admins (roles and clubs)
-app.get('/api/admin/view-as-data', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/view-as-data', authenticateToken, requirePermission('view_as_user'), async (req, res) => {
   try {
-    // Admin check is now handled by requireAdmin middleware
+    // Access check is now handled by requirePermission middleware
     // Get available roles for view-as mode
     const availableRoles = [
       { value: UserRole.MEMBER, label: 'Member' },
@@ -9425,10 +9752,11 @@ app.get('/api/admin/view-as-data', authenticateToken, requireAdmin, async (req, 
 // PERMISSION MANAGEMENT API ENDPOINTS
 // ============================================================================
 
-// Get all roles with their permission counts
-app.get('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) => {
+// Get all roles with their permission counts and permissions
+app.get('/api/admin/roles', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
-    const { rows } = await pool.query(`
+    // Get roles with counts
+    const { rows: roles } = await pool.query(`
       SELECT
         r.id,
         r.role_name,
@@ -9447,7 +9775,7 @@ app.get('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) =>
       ) perm_count ON r.id = perm_count.role_id
       LEFT JOIN (
         SELECT role_id, COUNT(DISTINCT member_id) as count
-        FROM users
+        FROM user_roles
         GROUP BY role_id
       ) user_count ON r.id = user_count.role_id
       WHERE r.is_active = TRUE
@@ -9464,7 +9792,35 @@ app.get('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) =>
         r.role_name
     `);
 
-    res.json(rows);
+    // Get all role permissions
+    const { rows: rolePermissions } = await pool.query(`
+      SELECT
+        rp.role_id,
+        p.id,
+        p.permission_key,
+        p.permission_name,
+        p.description,
+        p.category
+      FROM role_permissions rp
+      INNER JOIN permissions p ON rp.permission_id = p.id
+      ORDER BY p.category, p.permission_name
+    `);
+
+    // Map permissions to each role
+    const rolesWithPermissions = roles.map(role => ({
+      ...role,
+      permissions: rolePermissions
+        .filter(rp => rp.role_id === role.id)
+        .map(rp => ({
+          id: rp.id,
+          permission_key: rp.permission_key,
+          permission_name: rp.permission_name,
+          description: rp.description,
+          category: rp.category
+        }))
+    }));
+
+    res.json(rolesWithPermissions);
   } catch (err) {
     console.error('Error fetching roles:', err);
     res.status(500).json({ error: 'Failed to fetch roles' });
@@ -9472,7 +9828,7 @@ app.get('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) =>
 });
 
 // Get a specific role with its permissions
-app.get('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/roles/:id', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -9520,7 +9876,7 @@ app.get('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res
 });
 
 // Get all available permissions grouped by category
-app.get('/api/admin/permissions', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/permissions', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT
@@ -9555,7 +9911,7 @@ app.get('/api/admin/permissions', authenticateToken, requireAdmin, async (req, r
 });
 
 // Create a new role
-app.post('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/admin/roles', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
     const { role_name, role_key, description, permissions } = req.body;
 
@@ -9617,7 +9973,7 @@ app.post('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) =
 });
 
 // Update a role
-app.put('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/admin/roles/:id', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
     const { id } = req.params;
     const { role_name, description, is_active } = req.body;
@@ -9681,7 +10037,7 @@ app.put('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res
 });
 
 // Delete a role
-app.delete('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.delete('/api/admin/roles/:id', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -9699,9 +10055,9 @@ app.delete('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, 
       return res.status(403).json({ error: 'Cannot delete system roles' });
     }
 
-    // Check if any users have this role
+    // Check if any users have this role (check both user_roles and legacy role_id)
     const { rows: userRows } = await pool.query(
-      'SELECT COUNT(*) as count FROM users WHERE role_id = $1',
+      'SELECT COUNT(*) as count FROM user_roles WHERE role_id = $1',
       [id]
     );
 
@@ -9712,19 +10068,38 @@ app.delete('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, 
       });
     }
 
-    // Log the action before deletion
-    await pool.query(`
-      INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
-      VALUES ($1, $2, $3, $4)
-    `, [
-      'role_deleted',
-      id,
-      req.user.member_id,
-      JSON.stringify({ role_name: roleRows[0].role_name })
-    ]);
+    // Begin transaction for safe deletion
+    await pool.query('BEGIN');
 
-    // Delete role (CASCADE will delete role_permissions)
-    await pool.query('DELETE FROM roles WHERE id = $1', [id]);
+    try {
+      // Delete role permissions first
+      await pool.query('DELETE FROM role_permissions WHERE role_id = $1', [id]);
+
+      // Delete any user_roles entries (should be 0 based on check above, but just in case)
+      await pool.query('DELETE FROM user_roles WHERE role_id = $1', [id]);
+
+      // Update any existing audit log entries to remove the role_id reference
+      await pool.query('UPDATE permission_audit_log SET role_id = NULL WHERE role_id = $1', [id]);
+
+      // Delete the role
+      await pool.query('DELETE FROM roles WHERE id = $1', [id]);
+
+      // Log the action after deletion (with NULL role_id since role no longer exists)
+      await pool.query(`
+        INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
+        VALUES ($1, $2, $3, $4)
+      `, [
+        'role_deleted',
+        null,
+        req.user.member_id,
+        JSON.stringify({ role_id: id, role_name: roleRows[0].role_name })
+      ]);
+
+      await pool.query('COMMIT');
+    } catch (deleteErr) {
+      await pool.query('ROLLBACK');
+      throw deleteErr;
+    }
 
     res.json({ message: 'Role deleted successfully' });
   } catch (err) {
@@ -9734,7 +10109,7 @@ app.delete('/api/admin/roles/:id', authenticateToken, requireAdmin, async (req, 
 });
 
 // Update role permissions
-app.put('/api/admin/roles/:id/permissions', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/admin/roles/:id/permissions', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
     const { id } = req.params;
     const { permissions } = req.body;
@@ -9814,7 +10189,7 @@ app.put('/api/admin/roles/:id/permissions', authenticateToken, requireAdmin, asy
 });
 
 // Get permission audit log
-app.get('/api/admin/permission-audit-log', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/permission-audit-log', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
   try {
     const { limit = 50 } = req.query;
 
@@ -9840,6 +10215,222 @@ app.get('/api/admin/permission-audit-log', authenticateToken, requireAdmin, asyn
   } catch (err) {
     console.error('Error fetching audit log:', err);
     res.status(500).json({ error: 'Failed to fetch audit log' });
+  }
+});
+
+// ============================================================================
+// USER ROLE MANAGEMENT API ENDPOINTS
+// ============================================================================
+
+// Get all users with their role assignments
+app.get('/api/admin/users-with-roles', authenticateToken, requirePermission('manage_permissions'), async (req, res) => {
+  try {
+    const { search, club } = req.query;
+
+    let query = `
+      SELECT
+        u.member_id,
+        u.first_name,
+        u.last_name,
+        u.email_address,
+        u.club,
+        u.role as legacy_role,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'role_id', r.id,
+              'role_name', r.role_name,
+              'role_key', r.role_key,
+              'is_primary', ur.is_primary
+            )
+          ) FILTER (WHERE r.id IS NOT NULL),
+          '[]'
+        ) as roles
+      FROM users u
+      LEFT JOIN user_roles ur ON u.member_id = ur.member_id
+      LEFT JOIN roles r ON ur.role_id = r.id
+      WHERE 1=1
+    `;
+
+    const params = [];
+    let paramIndex = 1;
+
+    if (search) {
+      query += ` AND (
+        u.first_name ILIKE $${paramIndex} OR
+        u.last_name ILIKE $${paramIndex} OR
+        u.email_address ILIKE $${paramIndex}
+      )`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    if (club) {
+      query += ` AND u.club = $${paramIndex}`;
+      params.push(club);
+      paramIndex++;
+    }
+
+    query += `
+      GROUP BY u.member_id, u.first_name, u.last_name, u.email_address, u.club, u.role
+      ORDER BY u.last_name, u.first_name
+      LIMIT 100
+    `;
+
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching users with roles:', err);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// Assign a role to a user
+app.post('/api/admin/users/:userId/roles', authenticateToken, requirePermission('assign_roles'), async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { role_id, is_primary = false } = req.body;
+    const adminId = req.user.member_id;
+
+    if (!role_id) {
+      return res.status(400).json({ error: 'role_id is required' });
+    }
+
+    // Check if user exists
+    const userCheck = await pool.query('SELECT member_id FROM users WHERE member_id = $1', [userId]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if role exists
+    const roleCheck = await pool.query('SELECT id, role_name FROM roles WHERE id = $1', [role_id]);
+    if (roleCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Role not found' });
+    }
+
+    // If setting as primary, unset other primary roles for this user
+    if (is_primary) {
+      await pool.query(
+        'UPDATE user_roles SET is_primary = FALSE WHERE member_id = $1',
+        [userId]
+      );
+    }
+
+    // Insert or update the role assignment
+    const result = await pool.query(`
+      INSERT INTO user_roles (member_id, role_id, is_primary, assigned_by)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (member_id, role_id)
+      DO UPDATE SET is_primary = $3, assigned_by = $4, assigned_at = CURRENT_TIMESTAMP
+      RETURNING *
+    `, [userId, role_id, is_primary, adminId]);
+
+    // Log the action
+    await pool.query(`
+      INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
+      VALUES ($1, $2, $3, $4)
+    `, ['assign_role', role_id, adminId, JSON.stringify({ user_id: userId, is_primary })]);
+
+    res.json({
+      message: 'Role assigned successfully',
+      assignment: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error assigning role:', err);
+    res.status(500).json({ error: 'Failed to assign role' });
+  }
+});
+
+// Remove a role from a user
+app.delete('/api/admin/users/:userId/roles/:roleId', authenticateToken, requirePermission('assign_roles'), async (req, res) => {
+  try {
+    const { userId, roleId } = req.params;
+    const adminId = req.user.member_id;
+
+    // Check if assignment exists
+    const checkResult = await pool.query(
+      'SELECT * FROM user_roles WHERE member_id = $1 AND role_id = $2',
+      [userId, roleId]
+    );
+
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Role assignment not found' });
+    }
+
+    const wasPrimary = checkResult.rows[0].is_primary;
+
+    // Delete the assignment
+    await pool.query(
+      'DELETE FROM user_roles WHERE member_id = $1 AND role_id = $2',
+      [userId, roleId]
+    );
+
+    // If this was the primary role, set another role as primary if exists
+    if (wasPrimary) {
+      await pool.query(`
+        UPDATE user_roles
+        SET is_primary = TRUE
+        WHERE member_id = $1
+        AND role_id = (SELECT role_id FROM user_roles WHERE member_id = $1 LIMIT 1)
+      `, [userId]);
+    }
+
+    // Log the action
+    await pool.query(`
+      INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
+      VALUES ($1, $2, $3, $4)
+    `, ['remove_role', roleId, adminId, JSON.stringify({ user_id: userId })]);
+
+    res.json({ message: 'Role removed successfully' });
+  } catch (err) {
+    console.error('Error removing role:', err);
+    res.status(500).json({ error: 'Failed to remove role' });
+  }
+});
+
+// Set primary role for a user
+app.put('/api/admin/users/:userId/primary-role', authenticateToken, requirePermission('assign_roles'), async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { role_id } = req.body;
+    const adminId = req.user.member_id;
+
+    if (!role_id) {
+      return res.status(400).json({ error: 'role_id is required' });
+    }
+
+    // Check if user has this role
+    const checkResult = await pool.query(
+      'SELECT * FROM user_roles WHERE member_id = $1 AND role_id = $2',
+      [userId, role_id]
+    );
+
+    if (checkResult.rows.length === 0) {
+      return res.status(400).json({ error: 'User does not have this role assigned' });
+    }
+
+    // Unset all primary flags for this user
+    await pool.query(
+      'UPDATE user_roles SET is_primary = FALSE WHERE member_id = $1',
+      [userId]
+    );
+
+    // Set the specified role as primary
+    await pool.query(
+      'UPDATE user_roles SET is_primary = TRUE WHERE member_id = $1 AND role_id = $2',
+      [userId, role_id]
+    );
+
+    // Log the action
+    await pool.query(`
+      INSERT INTO permission_audit_log (action, role_id, admin_user_id, details)
+      VALUES ($1, $2, $3, $4)
+    `, ['set_primary_role', role_id, adminId, JSON.stringify({ user_id: userId })]);
+
+    res.json({ message: 'Primary role updated successfully' });
+  } catch (err) {
+    console.error('Error setting primary role:', err);
+    res.status(500).json({ error: 'Failed to set primary role' });
   }
 });
 
@@ -12030,11 +12621,11 @@ app.put('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', authent
 });
 
 // Admin endpoint: Delete a strokeplay scorecard (admin only)
-app.delete('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', authenticateToken, requireAdmin, async (req, res) => {
+app.delete('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', authenticateToken, requirePermission('manage_scores'), async (req, res) => {
   const { id, scorecardId } = req.params;
 
   try {
-    // Admin check is now handled by requireAdmin middleware
+    // Access check is now handled by requirePermission middleware
     // Validate scorecard exists and belongs to the tournament
     const scorecardResult = await pool.query(
       'SELECT * FROM scorecards WHERE id = $1 AND tournament_id = $2 AND type = $3',
@@ -12064,11 +12655,11 @@ app.delete('/api/tournaments/:id/admin/strokeplay-scorecards/:scorecardId', auth
 
 
 // Admin endpoint: Add regular scorecards for handicap tracking (admin only)
-app.post('/api/admin/scorecards', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/admin/scorecards', authenticateToken, requirePermission('manage_scores'), async (req, res) => {
   const { user_id, hole_scores, total_score, notes, round_type, course_id, course_name, teebox, course_rating, course_slope, handicap, date_played } = req.body;
 
   try {
-    // Admin check is now handled by requireAdmin middleware
+    // Access check is now handled by requirePermission middleware
     // Validate required fields
     if (!user_id) {
       return res.status(400).json({ error: 'user_id is required' });
@@ -12600,23 +13191,26 @@ async function requireAdmin(req, res, next) {
   }
 }
 
-// Get bookings (all or for a specific date)
+// Get bookings (all or for a specific date/club)
 app.get('/api/simulator-bookings', authenticateToken, requireAdminForBooking, async (req, res) => {
-  const { date } = req.query;
+  const { date, club_name } = req.query;
+  const clubName = club_name || req.user.club || 'No. 5';
+
   try {
-    let query = 'SELECT b.*, u.first_name, u.last_name FROM simulator_bookings b JOIN users u ON b.user_id = u.member_id';
-    let params = [];
-    
+    let query = 'SELECT b.*, u.first_name, u.last_name FROM simulator_bookings b JOIN users u ON b.user_id = u.member_id WHERE b.club_name = $1';
+    let params = [clubName];
+
     if (date) {
-      query += ' WHERE b.date = $1 ORDER BY b.start_time';
-      params = [date];
+      query += ' AND b.date = $2 ORDER BY b.start_time';
+      params.push(date);
     } else {
       query += ' ORDER BY b.date, b.start_time';
     }
-    
+
     const { rows } = await pool.query(query, params);
     res.json(rows);
   } catch (err) {
+    console.error('Error fetching bookings:', err);
     res.status(500).json({ error: 'Failed to fetch bookings' });
   }
 });
@@ -12624,23 +13218,42 @@ app.get('/api/simulator-bookings', authenticateToken, requireAdminForBooking, as
 // Create a booking
 app.post('/api/simulator-bookings', authenticateToken, requireAdminForBooking, async (req, res) => {
   const userId = req.user?.member_id || req.user?.user_id;
-  const { date, start_time, end_time, type, bay } = req.body;
+  const { date, start_time, end_time, type, bay, club_name } = req.body;
+  const clubName = club_name || req.user.club || 'No. 5';
+
   if (!date || !start_time || !end_time) return res.status(400).json({ error: 'Missing fields' });
+
   try {
-    // Prevent double booking for the same bay
+    // Check if booking is enabled for this club
+    const settingsCheck = await pool.query(
+      'SELECT enabled FROM club_booking_settings WHERE club_name = $1',
+      [clubName]
+    );
+
+    if (settingsCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Booking settings not found for this club' });
+    }
+
+    if (!settingsCheck.rows[0].enabled) {
+      return res.status(403).json({ error: 'Booking is currently disabled for this club' });
+    }
+
+    // Prevent double booking for the same bay at same club
     const conflict = await pool.query(
-      'SELECT 1 FROM simulator_bookings WHERE date = $1 AND bay = $2 AND ((start_time, end_time) OVERLAPS ($3::time, $4::time))',
-      [date, bay || 1, start_time, end_time]
+      'SELECT 1 FROM simulator_bookings WHERE club_name = $1 AND date = $2 AND bay = $3 AND ((start_time, end_time) OVERLAPS ($4::time, $5::time))',
+      [clubName, date, bay || 1, start_time, end_time]
     );
     if (conflict.rows.length > 0) {
       return res.status(409).json({ error: 'Time slot already booked for this bay' });
     }
+
     const { rows } = await pool.query(
-      'INSERT INTO simulator_bookings (user_id, date, start_time, end_time, type, participants, bay) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-      [userId, date, start_time, end_time, type || 'solo', type === 'social' ? [userId] : [], bay || 1]
+      'INSERT INTO simulator_bookings (user_id, date, start_time, end_time, type, participants, bay, club_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+      [userId, date, start_time, end_time, type || 'solo', type === 'social' ? [userId] : [], bay || 1, clubName]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
+    console.error('Error creating booking:', err);
     res.status(500).json({ error: 'Failed to create booking' });
   }
 });
@@ -12670,10 +13283,23 @@ app.put('/api/simulator-bookings/:id', authenticateToken, requireAdminForBooking
     const { rows } = await pool.query('SELECT * FROM simulator_bookings WHERE id = $1', [id]);
     if (!rows[0]) return res.status(404).json({ error: 'Booking not found' });
     if (rows[0].user_id !== userId) return res.status(403).json({ error: 'Can only reschedule your own bookings' });
-    // Prevent double booking for the same bay
+
+    const clubName = rows[0].club_name || req.user.club || 'No. 5';
+
+    // Check if booking is still enabled for this club
+    const settingsCheck = await pool.query(
+      'SELECT enabled FROM club_booking_settings WHERE club_name = $1',
+      [clubName]
+    );
+
+    if (settingsCheck.rows.length > 0 && !settingsCheck.rows[0].enabled) {
+      return res.status(403).json({ error: 'Booking is currently disabled for this club' });
+    }
+
+    // Prevent double booking for the same bay at same club
     const conflict = await pool.query(
-      'SELECT 1 FROM simulator_bookings WHERE id != $1 AND date = $2 AND bay = $3 AND ((start_time, end_time) OVERLAPS ($4::time, $5::time))',
-      [id, date, bay || rows[0].bay || 1, start_time, end_time]
+      'SELECT 1 FROM simulator_bookings WHERE id != $1 AND club_name = $2 AND date = $3 AND bay = $4 AND ((start_time, end_time) OVERLAPS ($5::time, $6::time))',
+      [id, clubName, date, bay || rows[0].bay || 1, start_time, end_time]
     );
     if (conflict.rows.length > 0) {
       return res.status(409).json({ error: 'Time slot already booked for this bay' });
@@ -12684,6 +13310,7 @@ app.put('/api/simulator-bookings/:id', authenticateToken, requireAdminForBooking
     );
     res.json(updated.rows[0]);
   } catch (err) {
+    console.error('Error rescheduling booking:', err);
     res.status(500).json({ error: 'Failed to reschedule booking' });
   }
 });
@@ -12736,7 +13363,9 @@ app.get('/api/club-booking-settings', authenticateToken, requireAdminForBooking,
 });
 
 // Get booking settings for a specific club
-app.get('/api/club-booking-settings/:clubName', authenticateToken, requireAdminForBooking, async (req, res) => {
+// NOTE: Removed requireAdminForBooking - any authenticated user can READ settings
+// (only POST/PUT/DELETE require admin permissions)
+app.get('/api/club-booking-settings/:clubName', authenticateToken, async (req, res) => {
   const { clubName } = req.params;
   try {
     const { rows } = await pool.query('SELECT * FROM club_booking_settings WHERE club_name = $1', [clubName]);
@@ -12888,7 +13517,7 @@ app.delete('/api/club-booking-settings/:id', authenticateToken, requireAdminForB
 // --------------------------------------------
 
 // POST /api/leagues - Create a new league (Admin only)
-app.post('/api/leagues', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/leagues', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const {
       name,
@@ -13009,7 +13638,7 @@ app.get('/api/leagues/:id', async (req, res) => {
 });
 
 // PUT /api/leagues/:id - Update league (Admin only)
-app.put('/api/leagues/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/leagues/:id', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -13110,7 +13739,7 @@ app.put('/api/leagues/:id', authenticateToken, requireAdmin, async (req, res) =>
 });
 
 // DELETE /api/leagues/:id - Delete league (Admin only)
-app.delete('/api/leagues/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.delete('/api/leagues/:id', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -13132,7 +13761,7 @@ app.delete('/api/leagues/:id', authenticateToken, requireAdmin, async (req, res)
 // --------------------------------------------
 
 // POST /api/leagues/:id/divisions - Create division (Admin only)
-app.post('/api/leagues/:leagueId/divisions', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/leagues/:leagueId/divisions', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { leagueId } = req.params;
     const { division_name, division_order = 1 } = req.body;
@@ -13189,7 +13818,7 @@ app.get('/api/leagues/:leagueId/divisions', async (req, res) => {
 });
 
 // PUT /api/leagues/:leagueId/divisions/:divisionId - Update division (Admin only)
-app.put('/api/leagues/:leagueId/divisions/:divisionId', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/leagues/:leagueId/divisions/:divisionId', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { leagueId, divisionId } = req.params;
     const { division_name, division_order } = req.body;
@@ -13232,7 +13861,7 @@ app.put('/api/leagues/:leagueId/divisions/:divisionId', authenticateToken, requi
 });
 
 // DELETE /api/leagues/:leagueId/divisions/:divisionId - Delete division (Admin only)
-app.delete('/api/leagues/:leagueId/divisions/:divisionId', authenticateToken, requireAdmin, async (req, res) => {
+app.delete('/api/leagues/:leagueId/divisions/:divisionId', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { leagueId, divisionId } = req.params;
 
@@ -13426,7 +14055,7 @@ app.put('/api/leagues/:leagueId/teams/:teamId', authenticateToken, async (req, r
 // --------------------------------------------
 
 // POST /api/leagues/:id/schedule/generate - Generate weekly schedule (Admin only)
-app.post('/api/leagues/:leagueId/schedule/generate', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/leagues/:leagueId/schedule/generate', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { leagueId } = req.params;
     const { weeks, start_date } = req.body;
@@ -13532,7 +14161,7 @@ app.get('/api/leagues/:leagueId/schedule/week/:weekNumber', async (req, res) => 
 // --------------------------------------------
 
 // POST /api/leagues/:id/matchups/generate - Generate round-robin matchups (Admin only)
-app.post('/api/leagues/:leagueId/matchups/generate', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/leagues/:leagueId/matchups/generate', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { leagueId } = req.params;
 
@@ -13779,7 +14408,7 @@ app.get('/api/matchups/:matchupId', async (req, res) => {
 });
 
 // PUT /api/matchups/:id - Update matchup (Admin only)
-app.put('/api/matchups/:matchupId', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/matchups/:matchupId', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { matchupId } = req.params;
     const { course_id, course_name, course_rating, course_slope, course_par, hole_indexes, match_date, status } = req.body;
@@ -13845,7 +14474,7 @@ app.put('/api/matchups/:matchupId', authenticateToken, requireAdmin, async (req,
 });
 
 // DELETE /api/matchups/:id - Delete matchup (Admin only)
-app.delete('/api/matchups/:matchupId', authenticateToken, requireAdmin, async (req, res) => {
+app.delete('/api/matchups/:matchupId', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { matchupId } = req.params;
 
@@ -14404,1311 +15033,2419 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
   }
 });
 
-// ============================================
-// PHASE 5: SCORING ENDPOINTS
-// ============================================
+// ============================================================
+// WEEKLY HOLE-IN-ONE CHALLENGE ENDPOINTS
+// ============================================================
 
-// --------------------------------------------
-// Score Submission - Individual 9 Holes
-// --------------------------------------------
+// Helper function to calculate pot logic
+async function calculatePotAmounts(challengeId, totalEntryFees, hasHoleInOne) {
+  // Get current challenge pot
+  const potResult = await pool.query('SELECT * FROM challenge_pot LIMIT 1');
+  const currentPot = potResult.rows[0];
 
-// POST /api/matchups/:matchupId/scores/individual - Submit individual 9-hole scores
-app.post('/api/matchups/:matchupId/scores/individual', authenticateToken, async (req, res) => {
-  try {
-    const { matchupId } = req.params;
-    const {
-      team_id,
-      player_id,
-      lineup_id,
-      assigned_holes,
-      hole_scores, // JSONB: {1: {gross: 4, par: 4}, 2: {gross: 5, par: 4}, ...}
-      player_handicap,
-      course_handicap
-    } = req.body;
+  const startingPot = parseFloat(currentPot.current_amount);
+  const weekEntryContribution = parseFloat(totalEntryFees) * 0.5; // 50% of entries
+  const finalPot = startingPot + weekEntryContribution;
 
-    // Validate required fields
-    if (!team_id || !player_id || !lineup_id || !hole_scores) {
-      return res.status(400).json({
-        error: 'Missing required fields: team_id, player_id, lineup_id, hole_scores'
-      });
-    }
+  let payoutAmount = 0;
+  let rolloverAmount = 0;
 
-    // Get matchup details
-    const matchup = await pool.query('SELECT * FROM league_matchups WHERE id = $1', [matchupId]);
-    if (matchup.rows.length === 0) {
-      return res.status(404).json({ error: 'Matchup not found' });
-    }
-
-    const matchupData = matchup.rows[0];
-
-    // Verify team is in this matchup
-    if (team_id !== matchupData.team1_id && team_id !== matchupData.team2_id) {
-      return res.status(400).json({ error: 'Team is not part of this matchup' });
-    }
-
-    // Verify lineup exists and belongs to this matchup and team
-    const lineup = await pool.query(
-      'SELECT * FROM weekly_lineups WHERE id = $1 AND matchup_id = $2 AND team_id = $3',
-      [lineup_id, matchupId, team_id]
-    );
-    if (lineup.rows.length === 0) {
-      return res.status(404).json({ error: 'Lineup not found for this matchup and team' });
-    }
-
-    const lineupData = lineup.rows[0];
-
-    // Verify player is in the lineup
-    const playerInLineup = [lineupData.player1_id, lineupData.player2_id, lineupData.player3_id].includes(player_id);
-    if (!playerInLineup) {
-      return res.status(400).json({ error: 'Player is not in the lineup for this matchup' });
-    }
-
-    // Verify user is authorized (captain, player themselves, or admin)
-    const team = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [team_id]);
-    const isAdmin = req.user.role === 'Admin';
-    const isCaptain = team.rows[0]?.captain_id === req.user.member_id;
-    const isPlayer = player_id === req.user.member_id;
-
-    if (!isAdmin && !isCaptain && !isPlayer) {
-      return res.status(403).json({ error: 'Only team captain, the player, or admin can submit scores' });
-    }
-
-    // Calculate gross total from hole_scores
-    let gross_total = 0;
-    const holeScoresObj = typeof hole_scores === 'string' ? JSON.parse(hole_scores) : hole_scores;
-    Object.values(holeScoresObj).forEach(hole => {
-      if (hole.gross) {
-        gross_total += hole.gross;
-      }
-    });
-
-    // Note: Net calculation will be done in the calculate endpoint
-    // For now, we store gross scores and will calculate net later with proper stroke allocation
-
-    // Insert or update individual scores
-    const result = await pool.query(
-      `INSERT INTO match_individual_scores
-        (matchup_id, lineup_id, team_id, player_id, assigned_holes, hole_scores,
-         gross_total, player_handicap, course_handicap, submitted_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
-       ON CONFLICT (matchup_id, player_id)
-       DO UPDATE SET
-         lineup_id = EXCLUDED.lineup_id,
-         team_id = EXCLUDED.team_id,
-         assigned_holes = EXCLUDED.assigned_holes,
-         hole_scores = EXCLUDED.hole_scores,
-         gross_total = EXCLUDED.gross_total,
-         player_handicap = EXCLUDED.player_handicap,
-         course_handicap = EXCLUDED.course_handicap,
-         updated_at = CURRENT_TIMESTAMP
-       RETURNING *`,
-      [
-        matchupId,
-        lineup_id,
-        team_id,
-        player_id,
-        assigned_holes || [],
-        JSON.stringify(holeScoresObj),
-        gross_total,
-        player_handicap,
-        course_handicap
-      ]
-    );
-
-    // Update matchup status to 'in_progress' or 'scores_submitted'
-    if (matchupData.status === 'scheduled' || matchupData.status === 'lineup_submitted') {
-      await pool.query(
-        `UPDATE league_matchups SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-        [matchupId]
-      );
-    }
-
-    res.status(201).json({
-      message: 'Individual scores submitted successfully',
-      score: result.rows[0]
-    });
-  } catch (err) {
-    console.error('Error submitting individual scores:', err);
-    res.status(500).json({ error: 'Failed to submit individual scores', details: err.message });
+  if (hasHoleInOne) {
+    // Hole-in-one: Pay out entire pot + full week entries
+    payoutAmount = finalPot + parseFloat(totalEntryFees);
+    rolloverAmount = 0;
+  } else {
+    // No hole-in-one: Pay 50% of week entries, rollover pot + 50% of entries
+    payoutAmount = parseFloat(totalEntryFees) * 0.5;
+    rolloverAmount = finalPot;
   }
-});
 
-// --------------------------------------------
-// Score Submission - Alternate Shot 9 Holes
-// --------------------------------------------
-
-// POST /api/matchups/:matchupId/scores/alternate-shot - Submit alternate shot 9-hole scores
-app.post('/api/matchups/:matchupId/scores/alternate-shot', authenticateToken, async (req, res) => {
-  try {
-    const { matchupId } = req.params;
-    const {
-      team_id,
-      lineup_id,
-      hole_scores, // JSONB: {10: {gross: 4, par: 4}, 11: {gross: 5, par: 4}, ...}
-      team_handicap,
-      team_course_handicap
-    } = req.body;
-
-    // Validate required fields
-    if (!team_id || !lineup_id || !hole_scores) {
-      return res.status(400).json({
-        error: 'Missing required fields: team_id, lineup_id, hole_scores'
-      });
-    }
-
-    // Get matchup details
-    const matchup = await pool.query('SELECT * FROM league_matchups WHERE id = $1', [matchupId]);
-    if (matchup.rows.length === 0) {
-      return res.status(404).json({ error: 'Matchup not found' });
-    }
-
-    const matchupData = matchup.rows[0];
-
-    // Verify team is in this matchup
-    if (team_id !== matchupData.team1_id && team_id !== matchupData.team2_id) {
-      return res.status(400).json({ error: 'Team is not part of this matchup' });
-    }
-
-    // Verify lineup exists and belongs to this matchup and team
-    const lineup = await pool.query(
-      'SELECT * FROM weekly_lineups WHERE id = $1 AND matchup_id = $2 AND team_id = $3',
-      [lineup_id, matchupId, team_id]
-    );
-    if (lineup.rows.length === 0) {
-      return res.status(404).json({ error: 'Lineup not found for this matchup and team' });
-    }
-
-    // Verify user is authorized (captain or admin)
-    const team = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [team_id]);
-    const isAdmin = req.user.role === 'Admin';
-    const isCaptain = team.rows[0]?.captain_id === req.user.member_id;
-
-    if (!isAdmin && !isCaptain) {
-      return res.status(403).json({ error: 'Only team captain or admin can submit alternate shot scores' });
-    }
-
-    // Calculate gross total from hole_scores
-    let gross_total = 0;
-    const holeScoresObj = typeof hole_scores === 'string' ? JSON.parse(hole_scores) : hole_scores;
-    Object.values(holeScoresObj).forEach(hole => {
-      if (hole.gross) {
-        gross_total += hole.gross;
-      }
-    });
-
-    // Note: Net calculation will be done in the calculate endpoint
-    // For now, we store gross scores and will calculate net later with proper stroke allocation
-
-    // Insert or update alternate shot scores
-    const result = await pool.query(
-      `INSERT INTO match_alternate_shot_scores
-        (matchup_id, lineup_id, team_id, hole_scores, gross_total,
-         team_handicap, team_course_handicap, submitted_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-       ON CONFLICT (matchup_id, team_id)
-       DO UPDATE SET
-         lineup_id = EXCLUDED.lineup_id,
-         hole_scores = EXCLUDED.hole_scores,
-         gross_total = EXCLUDED.gross_total,
-         team_handicap = EXCLUDED.team_handicap,
-         team_course_handicap = EXCLUDED.team_course_handicap,
-         updated_at = CURRENT_TIMESTAMP
-       RETURNING *`,
-      [
-        matchupId,
-        lineup_id,
-        team_id,
-        JSON.stringify(holeScoresObj),
-        gross_total,
-        team_handicap,
-        team_course_handicap
-      ]
-    );
-
-    // Update matchup status
-    if (matchupData.status === 'scheduled' || matchupData.status === 'lineup_submitted') {
-      await pool.query(
-        `UPDATE league_matchups SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-        [matchupId]
-      );
-    }
-
-    res.status(201).json({
-      message: 'Alternate shot scores submitted successfully',
-      score: result.rows[0]
-    });
-  } catch (err) {
-    console.error('Error submitting alternate shot scores:', err);
-    res.status(500).json({ error: 'Failed to submit alternate shot scores', details: err.message });
-  }
-});
-
-// --------------------------------------------
-// Get Scores for Matchup
-// --------------------------------------------
-
-// GET /api/matchups/:matchupId/scores - Get all scores for a matchup
-app.get('/api/matchups/:matchupId/scores', async (req, res) => {
-  try {
-    const { matchupId } = req.params;
-
-    // Get matchup details
-    const matchup = await pool.query(
-      `SELECT lm.*,
-        t1.name as team1_name, t2.name as team2_name,
-        l.name as league_name
-       FROM league_matchups lm
-       LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
-       LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
-       LEFT JOIN leagues l ON lm.league_id = l.id
-       WHERE lm.id = $1`,
-      [matchupId]
-    );
-
-    if (matchup.rows.length === 0) {
-      return res.status(404).json({ error: 'Matchup not found' });
-    }
-
-    // Get individual scores for all players
-    const individualScores = await pool.query(
-      `SELECT mis.*,
-        u.first_name || ' ' || u.last_name as player_name,
-        tt.name as team_name
-       FROM match_individual_scores mis
-       LEFT JOIN users u ON mis.player_id = u.member_id
-       LEFT JOIN tournament_teams tt ON mis.team_id = tt.id
-       WHERE mis.matchup_id = $1
-       ORDER BY mis.team_id, mis.player_id`,
-      [matchupId]
-    );
-
-    // Get alternate shot scores for both teams
-    const alternateShotScores = await pool.query(
-      `SELECT mass.*,
-        tt.name as team_name
-       FROM match_alternate_shot_scores mass
-       LEFT JOIN tournament_teams tt ON mass.team_id = tt.id
-       WHERE mass.matchup_id = $1
-       ORDER BY mass.team_id`,
-      [matchupId]
-    );
-
-    // Get lineups for context
-    const lineups = await pool.query(
-      `SELECT wl.*,
-        tt.name as team_name,
-        u1.first_name || ' ' || u1.last_name as player1_name,
-        u2.first_name || ' ' || u2.last_name as player2_name,
-        u3.first_name || ' ' || u3.last_name as player3_name
-       FROM weekly_lineups wl
-       LEFT JOIN tournament_teams tt ON wl.team_id = tt.id
-       LEFT JOIN users u1 ON wl.player1_id = u1.member_id
-       LEFT JOIN users u2 ON wl.player2_id = u2.member_id
-       LEFT JOIN users u3 ON wl.player3_id = u3.member_id
-       WHERE wl.matchup_id = $1`,
-      [matchupId]
-    );
-
-    res.json({
-      matchup: matchup.rows[0],
-      lineups: lineups.rows,
-      individualScores: individualScores.rows,
-      alternateShotScores: alternateShotScores.rows
-    });
-  } catch (err) {
-    console.error('Error fetching matchup scores:', err);
-    res.status(500).json({ error: 'Failed to fetch matchup scores' });
-  }
-});
-
-// --------------------------------------------
-// Update Scores (Before Verification)
-// --------------------------------------------
-
-// PUT /api/matchups/:matchupId/scores/individual/:scoreId - Update individual scores
-app.put('/api/matchups/:matchupId/scores/individual/:scoreId', authenticateToken, async (req, res) => {
-  try {
-    const { matchupId, scoreId } = req.params;
-    const {
-      hole_scores,
-      assigned_holes,
-      player_handicap,
-      course_handicap
-    } = req.body;
-
-    // Get score record
-    const score = await pool.query(
-      'SELECT * FROM match_individual_scores WHERE id = $1 AND matchup_id = $2',
-      [scoreId, matchupId]
-    );
-
-    if (score.rows.length === 0) {
-      return res.status(404).json({ error: 'Score record not found' });
-    }
-
-    const scoreData = score.rows[0];
-
-    // Get matchup to check verification status
-    const matchup = await pool.query('SELECT status FROM league_matchups WHERE id = $1', [matchupId]);
-    if (matchup.rows[0].status === 'verified' || matchup.rows[0].status === 'completed') {
-      return res.status(400).json({ error: 'Cannot update scores after verification' });
-    }
-
-    // Verify authorization (captain, player, or admin)
-    const team = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [scoreData.team_id]);
-    const isAdmin = req.user.role === 'Admin';
-    const isCaptain = team.rows[0]?.captain_id === req.user.member_id;
-    const isPlayer = scoreData.player_id === req.user.member_id;
-
-    if (!isAdmin && !isCaptain && !isPlayer) {
-      return res.status(403).json({ error: 'Only team captain, the player, or admin can update scores' });
-    }
-
-    // Build update query
-    const updates = [];
-    const values = [];
-    let paramCount = 1;
-
-    if (hole_scores !== undefined) {
-      const holeScoresObj = typeof hole_scores === 'string' ? JSON.parse(hole_scores) : hole_scores;
-      updates.push(`hole_scores = $${paramCount++}`);
-      values.push(JSON.stringify(holeScoresObj));
-
-      // Recalculate gross total
-      let gross_total = 0;
-      Object.values(holeScoresObj).forEach(hole => {
-        if (hole.gross) gross_total += hole.gross;
-      });
-      updates.push(`gross_total = $${paramCount++}`);
-      values.push(gross_total);
-    }
-
-    if (assigned_holes !== undefined) {
-      updates.push(`assigned_holes = $${paramCount++}`);
-      values.push(assigned_holes);
-    }
-
-    if (player_handicap !== undefined) {
-      updates.push(`player_handicap = $${paramCount++}`);
-      values.push(player_handicap);
-    }
-
-    if (course_handicap !== undefined) {
-      updates.push(`course_handicap = $${paramCount++}`);
-      values.push(course_handicap);
-    }
-
-    if (updates.length === 0) {
-      return res.status(400).json({ error: 'No fields to update' });
-    }
-
-    updates.push(`updated_at = CURRENT_TIMESTAMP`);
-    values.push(scoreId);
-    values.push(matchupId);
-
-    const result = await pool.query(
-      `UPDATE match_individual_scores
-       SET ${updates.join(', ')}
-       WHERE id = $${paramCount++} AND matchup_id = $${paramCount++}
-       RETURNING *`,
-      values
-    );
-
-    res.json({
-      message: 'Individual scores updated successfully',
-      score: result.rows[0]
-    });
-  } catch (err) {
-    console.error('Error updating individual scores:', err);
-    res.status(500).json({ error: 'Failed to update individual scores', details: err.message });
-  }
-});
-
-// PUT /api/matchups/:matchupId/scores/alternate-shot/:scoreId - Update alternate shot scores
-app.put('/api/matchups/:matchupId/scores/alternate-shot/:scoreId', authenticateToken, async (req, res) => {
-  try {
-    const { matchupId, scoreId } = req.params;
-    const {
-      hole_scores,
-      team_handicap,
-      team_course_handicap
-    } = req.body;
-
-    // Get score record
-    const score = await pool.query(
-      'SELECT * FROM match_alternate_shot_scores WHERE id = $1 AND matchup_id = $2',
-      [scoreId, matchupId]
-    );
-
-    if (score.rows.length === 0) {
-      return res.status(404).json({ error: 'Score record not found' });
-    }
-
-    const scoreData = score.rows[0];
-
-    // Get matchup to check verification status
-    const matchup = await pool.query('SELECT status FROM league_matchups WHERE id = $1', [matchupId]);
-    if (matchup.rows[0].status === 'verified' || matchup.rows[0].status === 'completed') {
-      return res.status(400).json({ error: 'Cannot update scores after verification' });
-    }
-
-    // Verify authorization (captain or admin)
-    const team = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [scoreData.team_id]);
-    const isAdmin = req.user.role === 'Admin';
-    const isCaptain = team.rows[0]?.captain_id === req.user.member_id;
-
-    if (!isAdmin && !isCaptain) {
-      return res.status(403).json({ error: 'Only team captain or admin can update alternate shot scores' });
-    }
-
-    // Build update query
-    const updates = [];
-    const values = [];
-    let paramCount = 1;
-
-    if (hole_scores !== undefined) {
-      const holeScoresObj = typeof hole_scores === 'string' ? JSON.parse(hole_scores) : hole_scores;
-      updates.push(`hole_scores = $${paramCount++}`);
-      values.push(JSON.stringify(holeScoresObj));
-
-      // Recalculate gross total
-      let gross_total = 0;
-      Object.values(holeScoresObj).forEach(hole => {
-        if (hole.gross) gross_total += hole.gross;
-      });
-      updates.push(`gross_total = $${paramCount++}`);
-      values.push(gross_total);
-    }
-
-    if (team_handicap !== undefined) {
-      updates.push(`team_handicap = $${paramCount++}`);
-      values.push(team_handicap);
-    }
-
-    if (team_course_handicap !== undefined) {
-      updates.push(`team_course_handicap = $${paramCount++}`);
-      values.push(team_course_handicap);
-    }
-
-    if (updates.length === 0) {
-      return res.status(400).json({ error: 'No fields to update' });
-    }
-
-    updates.push(`updated_at = CURRENT_TIMESTAMP`);
-    values.push(scoreId);
-    values.push(matchupId);
-
-    const result = await pool.query(
-      `UPDATE match_alternate_shot_scores
-       SET ${updates.join(', ')}
-       WHERE id = $${paramCount++} AND matchup_id = $${paramCount++}
-       RETURNING *`,
-      values
-    );
-
-    res.json({
-      message: 'Alternate shot scores updated successfully',
-      score: result.rows[0]
-    });
-  } catch (err) {
-    console.error('Error updating alternate shot scores:', err);
-    res.status(500).json({ error: 'Failed to update alternate shot scores', details: err.message });
-  }
-});
-
-// --------------------------------------------
-// Score Verification
-// --------------------------------------------
-
-// POST /api/matchups/:matchupId/verify - Verify/approve scores (opponent captain or admin)
-app.post('/api/matchups/:matchupId/verify', authenticateToken, async (req, res) => {
-  try {
-    const { matchupId } = req.params;
-    const { notes } = req.body;
-
-    // Get matchup details
-    const matchup = await pool.query('SELECT * FROM league_matchups WHERE id = $1', [matchupId]);
-    if (matchup.rows.length === 0) {
-      return res.status(404).json({ error: 'Matchup not found' });
-    }
-
-    const matchupData = matchup.rows[0];
-
-    // Check if already verified
-    if (matchupData.status === 'verified' || matchupData.status === 'completed') {
-      return res.status(400).json({ error: 'Matchup has already been verified' });
-    }
-
-    // Verify user is captain of one of the teams or admin
-    const team1 = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [matchupData.team1_id]);
-    const team2 = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [matchupData.team2_id]);
-
-    const isAdmin = req.user.role === 'Admin';
-    const isCaptain1 = team1.rows[0]?.captain_id === req.user.member_id;
-    const isCaptain2 = team2.rows[0]?.captain_id === req.user.member_id;
-
-    if (!isAdmin && !isCaptain1 && !isCaptain2) {
-      return res.status(403).json({ error: 'Only team captains or admin can verify scores' });
-    }
-
-    // Check if all scores are submitted
-    const individualScoresCount = await pool.query(
-      'SELECT COUNT(*) as count FROM match_individual_scores WHERE matchup_id = $1',
-      [matchupId]
-    );
-    const alternateShotScoresCount = await pool.query(
-      'SELECT COUNT(*) as count FROM match_alternate_shot_scores WHERE matchup_id = $1',
-      [matchupId]
-    );
-
-    // Expect 6 individual scores (3 players per team × 2 teams) and 2 alternate shot scores (1 per team)
-    if (parseInt(individualScoresCount.rows[0].count) < 6) {
-      return res.status(400).json({
-        error: 'Cannot verify: Not all individual scores have been submitted',
-        expected: 6,
-        received: parseInt(individualScoresCount.rows[0].count)
-      });
-    }
-
-    if (parseInt(alternateShotScoresCount.rows[0].count) < 2) {
-      return res.status(400).json({
-        error: 'Cannot verify: Not all alternate shot scores have been submitted',
-        expected: 2,
-        received: parseInt(alternateShotScoresCount.rows[0].count)
-      });
-    }
-
-    // Update matchup status to verified
-    const result = await pool.query(
-      `UPDATE league_matchups
-       SET status = 'verified',
-           verified_at = CURRENT_TIMESTAMP,
-           verified_by = $1,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $2
-       RETURNING *`,
-      [req.user.member_id, matchupId]
-    );
-
-    res.json({
-      message: 'Scores verified successfully',
-      matchup: result.rows[0],
-      note: 'Scores are now locked and ready for calculation'
-    });
-  } catch (err) {
-    console.error('Error verifying scores:', err);
-    res.status(500).json({ error: 'Failed to verify scores', details: err.message });
-  }
-});
-
-// POST /api/matchups/:matchupId/dispute - Dispute scores (flag for review)
-app.post('/api/matchups/:matchupId/dispute', authenticateToken, async (req, res) => {
-  try {
-    const { matchupId } = req.params;
-    const { reason } = req.body;
-
-    if (!reason) {
-      return res.status(400).json({ error: 'Dispute reason is required' });
-    }
-
-    // Get matchup details
-    const matchup = await pool.query('SELECT * FROM league_matchups WHERE id = $1', [matchupId]);
-    if (matchup.rows.length === 0) {
-      return res.status(404).json({ error: 'Matchup not found' });
-    }
-
-    const matchupData = matchup.rows[0];
-
-    // Verify user is captain of one of the teams
-    const team1 = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [matchupData.team1_id]);
-    const team2 = await pool.query('SELECT captain_id FROM tournament_teams WHERE id = $1', [matchupData.team2_id]);
-
-    const isCaptain1 = team1.rows[0]?.captain_id === req.user.member_id;
-    const isCaptain2 = team2.rows[0]?.captain_id === req.user.member_id;
-
-    if (!isCaptain1 && !isCaptain2) {
-      return res.status(403).json({ error: 'Only team captains can dispute scores' });
-    }
-
-    // Update matchup status to disputed
-    const result = await pool.query(
-      `UPDATE league_matchups
-       SET status = 'disputed',
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1
-       RETURNING *`,
-      [matchupId]
-    );
-
-    // In a full implementation, you might want to:
-    // - Store the dispute reason in a disputes table
-    // - Send notifications to admin
-    // - Log the dispute event
-
-    res.json({
-      message: 'Scores have been disputed and flagged for admin review',
-      matchup: result.rows[0],
-      reason: reason
-    });
-  } catch (err) {
-    console.error('Error disputing scores:', err);
-    res.status(500).json({ error: 'Failed to dispute scores', details: err.message });
-  }
-});
-
-// ============================================
-// PHASE 6: LEADERBOARDS & STANDINGS ENDPOINTS
-// ============================================
-
-// --------------------------------------------
-// League Standings
-// --------------------------------------------
-
-// GET /api/leagues/:id/standings - Overall league standings (all divisions)
-app.get('/api/leagues/:id/standings', async (req, res) => {
-  try {
-    const { id: leagueId } = req.params;
-    const { include_stats } = req.query;
-
-    // Verify league exists
-    const league = await pool.query('SELECT * FROM leagues WHERE id = $1', [leagueId]);
-    if (league.rows.length === 0) {
-      return res.status(404).json({ error: 'League not found' });
-    }
-
-    const leagueData = league.rows[0];
-
-    // Get standings from the league_standings view
-    const standings = await pool.query(
-      `SELECT * FROM league_standings WHERE league_id = $1 ORDER BY division_id, rank_in_division`,
-      [leagueId]
-    );
-
-    // Get playoff configuration
-    const playoffFormat = leagueData.playoff_format;
-    const divisionsCount = leagueData.divisions_count;
-
-    // Mark playoff qualifiers based on playoff format
-    const standingsWithPlayoffStatus = standings.rows.map(team => {
-      let qualified = false;
-
-      if (playoffFormat === 'top_per_division') {
-        // Top team from each division qualifies
-        qualified = team.rank_in_division === 1;
-      } else if (playoffFormat === 'top_overall') {
-        // Top N teams overall (regardless of division)
-        const overallRank = standings.rows
-          .sort((a, b) => {
-            if (b.league_points !== a.league_points) return b.league_points - a.league_points;
-            if (a.aggregate_net_score !== b.aggregate_net_score) return a.aggregate_net_score - b.aggregate_net_score;
-            if (a.second_half_net_score !== b.second_half_net_score) return a.second_half_net_score - b.second_half_net_score;
-            return a.final_week_net_score - b.final_week_net_score;
-          })
-          .findIndex(t => t.team_id === team.team_id) + 1;
-        qualified = overallRank <= divisionsCount;
-      } else if (playoffFormat === 'bracket') {
-        // Top 2 from each division
-        qualified = team.rank_in_division <= 2;
-      }
-
-      return {
-        ...team,
-        playoff_qualified: qualified
-      };
-    });
-
-    // Optionally include detailed stats
-    let detailedStandings = standingsWithPlayoffStatus;
-    if (include_stats === 'true') {
-      detailedStandings = await Promise.all(standingsWithPlayoffStatus.map(async (team) => {
-        // Get recent matches
-        const recentMatches = await pool.query(
-          `SELECT lm.*,
-            CASE
-              WHEN lm.team1_id = $1 THEN t2.name
-              ELSE t1.name
-            END as opponent_name,
-            CASE
-              WHEN lm.winner_team_id = $1 THEN 'W'
-              WHEN lm.winner_team_id IS NULL THEN 'T'
-              ELSE 'L'
-            END as result
-           FROM league_matchups lm
-           LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
-           LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
-           WHERE lm.league_id = $2
-             AND (lm.team1_id = $1 OR lm.team2_id = $1)
-             AND lm.status = 'completed'
-           ORDER BY lm.week_number DESC
-           LIMIT 5`,
-          [team.team_id, leagueId]
-        );
-
-        return {
-          ...team,
-          recent_form: recentMatches.rows.map(m => m.result).join('')
-        };
-      }));
-    }
-
-    // Group by division
-    const divisions = {};
-    detailedStandings.forEach(team => {
-      const divName = team.division_name || 'No Division';
-      if (!divisions[divName]) {
-        divisions[divName] = [];
-      }
-      divisions[divName].push(team);
-    });
-
-    res.json({
-      league: leagueData,
-      standings: detailedStandings,
-      divisions: divisions,
-      playoff_format: playoffFormat
-    });
-  } catch (err) {
-    console.error('Error fetching league standings:', err);
-    res.status(500).json({ error: 'Failed to fetch league standings', details: err.message });
-  }
-});
-
-// GET /api/leagues/:id/standings/division/:divId - Division-specific standings
-app.get('/api/leagues/:id/standings/division/:divId', async (req, res) => {
-  try {
-    const { id: leagueId, divId } = req.params;
-
-    // Verify league and division exist
-    const league = await pool.query('SELECT * FROM leagues WHERE id = $1', [leagueId]);
-    if (league.rows.length === 0) {
-      return res.status(404).json({ error: 'League not found' });
-    }
-
-    const division = await pool.query(
-      'SELECT * FROM league_divisions WHERE id = $1 AND league_id = $2',
-      [divId, leagueId]
-    );
-    if (division.rows.length === 0) {
-      return res.status(404).json({ error: 'Division not found' });
-    }
-
-    // Get standings for this division
-    const standings = await pool.query(
-      `SELECT * FROM league_standings
-       WHERE league_id = $1 AND division_id = $2
-       ORDER BY rank_in_division`,
-      [leagueId, divId]
-    );
-
-    // Get all matchups for this division
-    const matchups = await pool.query(
-      `SELECT lm.*,
-        t1.name as team1_name, t2.name as team2_name,
-        ls.week_start_date, ls.week_end_date
-       FROM league_matchups lm
-       LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
-       LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
-       LEFT JOIN league_schedule ls ON lm.schedule_id = ls.id
-       WHERE lm.league_id = $1 AND lm.division_id = $2
-       ORDER BY lm.week_number`,
-      [leagueId, divId]
-    );
-
-    // Create head-to-head matrix
-    const teams = standings.rows;
-    const headToHead = {};
-
-    teams.forEach(team => {
-      headToHead[team.team_id] = {};
-      teams.forEach(opponent => {
-        if (team.team_id !== opponent.team_id) {
-          headToHead[team.team_id][opponent.team_id] = null; // Will fill with result
-        }
-      });
-    });
-
-    // Fill head-to-head results
-    matchups.rows.forEach(match => {
-      if (match.status === 'completed' && match.winner_team_id) {
-        const loserTeamId = match.winner_team_id === match.team1_id ? match.team2_id : match.team1_id;
-        headToHead[match.winner_team_id][loserTeamId] = 'W';
-        headToHead[loserTeamId][match.winner_team_id] = 'L';
-      } else if (match.status === 'completed' && !match.winner_team_id) {
-        // Tie
-        headToHead[match.team1_id][match.team2_id] = 'T';
-        headToHead[match.team2_id][match.team1_id] = 'T';
-      }
-    });
-
-    res.json({
-      league: league.rows[0],
-      division: division.rows[0],
-      standings: standings.rows,
-      matchups: matchups.rows,
-      headToHead: headToHead
-    });
-  } catch (err) {
-    console.error('Error fetching division standings:', err);
-    res.status(500).json({ error: 'Failed to fetch division standings', details: err.message });
-  }
-});
-
-// GET /api/leagues/:id/standings/tiebreakers - Show tiebreaker details
-app.get('/api/leagues/:id/standings/tiebreakers', async (req, res) => {
-  try {
-    const { id: leagueId } = req.params;
-
-    // Get league with tiebreaker rules
-    const league = await pool.query('SELECT * FROM leagues WHERE id = $1', [leagueId]);
-    if (league.rows.length === 0) {
-      return res.status(404).json({ error: 'League not found' });
-    }
-
-    const leagueData = league.rows[0];
-    const tiebreakerRules = leagueData.tiebreaker_rules;
-
-    // Get all standings
-    const standings = await pool.query(
-      `SELECT * FROM league_standings WHERE league_id = $1 ORDER BY division_id, rank_in_division`,
-      [leagueId]
-    );
-
-    // Find tied teams (same points within division)
-    const tiedGroups = {};
-    standings.rows.forEach(team => {
-      const key = `${team.division_id}_${team.league_points}`;
-      if (!tiedGroups[key]) {
-        tiedGroups[key] = [];
-      }
-      tiedGroups[key].push(team);
-    });
-
-    // Filter to only groups with 2+ teams (actual ties)
-    const actualTies = Object.entries(tiedGroups)
-      .filter(([key, teams]) => teams.length > 1)
-      .map(([key, teams]) => ({
-        division_id: teams[0].division_id,
-        division_name: teams[0].division_name,
-        points: teams[0].league_points,
-        teams: teams.map(t => ({
-          team_id: t.team_id,
-          team_name: t.team_name,
-          rank_in_division: t.rank_in_division,
-          league_points: t.league_points,
-          aggregate_net_score: t.aggregate_net_score,
-          second_half_net_score: t.second_half_net_score,
-          final_week_net_score: t.final_week_net_score,
-          tiebreaker_applied: determineTiebreakerLevel(teams, t)
-        }))
-      }));
-
-    // Get tiebreaker log
-    const tiebreakerLog = await pool.query(
-      `SELECT tl.*,
-        t1.name as team1_name,
-        t2.name as team2_name,
-        tw.name as winner_name
-       FROM tiebreaker_log tl
-       LEFT JOIN tournament_teams t1 ON tl.team1_id = t1.id
-       LEFT JOIN tournament_teams t2 ON tl.team2_id = t2.id
-       LEFT JOIN tournament_teams tw ON tl.winner_team_id = tw.id
-       WHERE tl.league_id = $1
-       ORDER BY tl.applied_at DESC`,
-      [leagueId]
-    );
-
-    res.json({
-      league: {
-        id: leagueData.id,
-        name: leagueData.name,
-        tiebreaker_rules: tiebreakerRules
-      },
-      tiebreaker_explanation: {
-        "1": "Total Points (most wins)",
-        "2": "Lowest Aggregate Net Score (cumulative net for all matches)",
-        "3": "Lowest Second Half Aggregate Net (second half of season)",
-        "4": "Lowest Final Week Net Score",
-        "5": "Coin Flip (admin determines)"
-      },
-      tied_teams: actualTies,
-      tiebreaker_history: tiebreakerLog.rows
-    });
-  } catch (err) {
-    console.error('Error fetching tiebreaker details:', err);
-    res.status(500).json({ error: 'Failed to fetch tiebreaker details', details: err.message });
-  }
-});
-
-// Helper function to determine which tiebreaker was used
-function determineTiebreakerLevel(tiedTeams, currentTeam) {
-  // If only one team, no tiebreaker needed
-  if (tiedTeams.length === 1) return null;
-
-  // Check if points differ (shouldn't in a tied group, but sanity check)
-  const samePoints = tiedTeams.every(t => t.league_points === currentTeam.league_points);
-  if (!samePoints) return 1; // Points tiebreaker
-
-  // Check aggregate net
-  const sameAggregateNet = tiedTeams.every(t => t.aggregate_net_score === currentTeam.aggregate_net_score);
-  if (!sameAggregateNet) return 2; // Aggregate net tiebreaker
-
-  // Check second half net
-  const sameSecondHalfNet = tiedTeams.every(t => t.second_half_net_score === currentTeam.second_half_net_score);
-  if (!sameSecondHalfNet) return 3; // Second half tiebreaker
-
-  // Check final week net
-  const sameFinalWeekNet = tiedTeams.every(t => t.final_week_net_score === currentTeam.final_week_net_score);
-  if (!sameFinalWeekNet) return 4; // Final week tiebreaker
-
-  // Still tied - would need coin flip (level 5)
-  return 5;
+  return {
+    startingPot,
+    weekEntryContribution,
+    finalPot,
+    payoutAmount,
+    rolloverAmount
+  };
 }
 
-// --------------------------------------------
-// Team Statistics
-// --------------------------------------------
+// Helper function to update challenge pot
+async function updateChallengePot(payoutAmount, rolloverAmount, challengeId) {
+  const potResult = await pool.query('SELECT * FROM challenge_pot LIMIT 1');
+  const currentPot = potResult.rows[0];
 
-// GET /api/teams/:teamId/stats - Team statistics
-app.get('/api/teams/:teamId/stats', async (req, res) => {
+  const newTotalContributions = parseFloat(currentPot.total_contributions) + payoutAmount;
+  const weeksAccumulated = rolloverAmount > 0 ? currentPot.weeks_accumulated + 1 : 0;
+
+  await pool.query(
+    `UPDATE challenge_pot
+     SET current_amount = $1,
+         total_contributions = $2,
+         last_payout_amount = $3,
+         last_payout_date = CURRENT_TIMESTAMP,
+         weeks_accumulated = $4
+     WHERE id = $5`,
+    [rolloverAmount, newTotalContributions, payoutAmount, weeksAccumulated, currentPot.id]
+  );
+}
+
+// GET /api/challenges/pot - Get current challenge pot status
+app.get('/api/challenges/pot', async (req, res) => {
   try {
-    const { teamId } = req.params;
-    const { league_id } = req.query;
+    const potResult = await pool.query('SELECT * FROM challenge_pot LIMIT 1');
 
-    // Get team details
-    const team = await pool.query(
-      `SELECT tt.*,
-        u.first_name || ' ' || u.last_name as captain_name,
-        l.name as league_name,
-        ld.division_name
-       FROM tournament_teams tt
-       LEFT JOIN users u ON tt.captain_id = u.member_id
-       LEFT JOIN leagues l ON tt.league_id = l.id
-       LEFT JOIN league_divisions ld ON tt.division_id = ld.id
-       WHERE tt.id = $1`,
-      [teamId]
-    );
-
-    if (team.rows.length === 0) {
-      return res.status(404).json({ error: 'Team not found' });
+    if (potResult.rows.length === 0) {
+      return res.json({
+        current_amount: 0,
+        total_contributions: 0,
+        weeks_accumulated: 0
+      });
     }
 
-    const teamData = team.rows[0];
-
-    // Build query filter
-    let leagueFilter = '';
-    const queryParams = [teamId];
-    if (league_id) {
-      leagueFilter = ' AND lm.league_id = $2';
-      queryParams.push(league_id);
-    }
-
-    // Get match statistics
-    const matchStats = await pool.query(
-      `SELECT
-        COUNT(*) as total_matches,
-        SUM(CASE WHEN lm.winner_team_id = $1 THEN 1 ELSE 0 END) as wins,
-        SUM(CASE WHEN lm.winner_team_id IS NULL AND lm.status = 'completed' THEN 1 ELSE 0 END) as ties,
-        SUM(CASE WHEN lm.winner_team_id IS NOT NULL AND lm.winner_team_id != $1 THEN 1 ELSE 0 END) as losses,
-        SUM(CASE
-          WHEN lm.team1_id = $1 THEN lm.team1_points
-          ELSE lm.team2_points
-        END) as total_points,
-        AVG(CASE
-          WHEN lm.team1_id = $1 THEN lm.team1_total_net
-          ELSE lm.team2_total_net
-        END) as avg_total_net,
-        MIN(CASE
-          WHEN lm.team1_id = $1 THEN lm.team1_total_net
-          ELSE lm.team2_total_net
-        END) as best_total_net,
-        MAX(CASE
-          WHEN lm.team1_id = $1 THEN lm.team1_total_net
-          ELSE lm.team2_total_net
-        END) as worst_total_net
-       FROM league_matchups lm
-       WHERE (lm.team1_id = $1 OR lm.team2_id = $1)
-         AND lm.status = 'completed'${leagueFilter}`,
-      queryParams
-    );
-
-    // Get individual player statistics
-    const playerStats = await pool.query(
-      `SELECT
-        u.member_id,
-        u.first_name || ' ' || u.last_name as player_name,
-        COUNT(DISTINCT mis.matchup_id) as matches_played,
-        AVG(mis.gross_total) as avg_gross,
-        MIN(mis.gross_total) as best_gross,
-        AVG(mis.net_total) as avg_net,
-        MIN(mis.net_total) as best_net
-       FROM match_individual_scores mis
-       JOIN users u ON mis.player_id = u.member_id
-       JOIN league_matchups lm ON mis.matchup_id = lm.id
-       WHERE mis.team_id = $1${leagueFilter}
-       GROUP BY u.member_id, u.first_name, u.last_name
-       ORDER BY matches_played DESC, avg_net ASC`,
-      queryParams
-    );
-
-    // Get team standings
-    let standings = null;
-    if (league_id || teamData.league_id) {
-      const standingsQuery = await pool.query(
-        'SELECT * FROM league_standings WHERE team_id = $1 AND league_id = $2',
-        [teamId, league_id || teamData.league_id]
-      );
-      standings = standingsQuery.rows[0] || null;
-    }
-
-    // Calculate win percentage
-    const stats = matchStats.rows[0];
-    const winPct = stats.total_matches > 0
-      ? ((parseInt(stats.wins) + parseInt(stats.ties) * 0.5) / parseInt(stats.total_matches) * 100).toFixed(1)
-      : 0;
-
-    res.json({
-      team: teamData,
-      statistics: {
-        ...stats,
-        win_percentage: winPct
-      },
-      player_statistics: playerStats.rows,
-      standings: standings
-    });
+    res.json(potResult.rows[0]);
   } catch (err) {
-    console.error('Error fetching team stats:', err);
-    res.status(500).json({ error: 'Failed to fetch team statistics', details: err.message });
+    console.error('Error fetching challenge pot:', err);
+    res.status(500).json({ error: 'Failed to fetch challenge pot' });
   }
 });
 
-// GET /api/teams/:teamId/matches - Match history
-app.get('/api/teams/:teamId/matches', async (req, res) => {
+// ============================================================
+// FIVE-SHOT CHALLENGE SYSTEM ENDPOINTS
+// ============================================================
+
+// GET /api/challenges/types - List all challenge types
+app.get('/api/challenges/types', async (req, res) => {
   try {
-    const { teamId } = req.params;
-    const { league_id, status, limit = 50 } = req.query;
+    const result = await pool.query(
+      'SELECT * FROM challenge_types WHERE is_active = TRUE ORDER BY type_name'
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching challenge types:', err);
+    res.status(500).json({ error: 'Failed to fetch challenge types' });
+  }
+});
 
-    // Verify team exists
-    const team = await pool.query('SELECT * FROM tournament_teams WHERE id = $1', [teamId]);
-    if (team.rows.length === 0) {
-      return res.status(404).json({ error: 'Team not found' });
+// GET /api/challenges/hio-jackpot - Get HIO jackpot status
+app.get('/api/challenges/hio-jackpot', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM challenge_hio_jackpot LIMIT 1');
+
+    if (result.rows.length === 0) {
+      return res.json({
+        current_amount: 0,
+        total_contributions: 0,
+        weeks_accumulated: 0
+      });
     }
 
-    // Build query
-    let query = `
-      SELECT lm.*,
-        CASE WHEN lm.team1_id = $1 THEN t2.name ELSE t1.name END as opponent_name,
-        CASE WHEN lm.team1_id = $1 THEN t2.id ELSE t1.id END as opponent_id,
-        CASE WHEN lm.team1_id = $1 THEN lm.team1_total_net ELSE lm.team2_total_net END as team_score,
-        CASE WHEN lm.team1_id = $1 THEN lm.team2_total_net ELSE lm.team1_total_net END as opponent_score,
-        CASE
-          WHEN lm.winner_team_id = $1 THEN 'W'
-          WHEN lm.winner_team_id IS NULL AND lm.status = 'completed' THEN 'T'
-          WHEN lm.winner_team_id IS NOT NULL THEN 'L'
-          ELSE '-'
-        END as result,
-        ls.week_start_date, ls.week_end_date,
-        l.name as league_name,
-        ld.division_name
-      FROM league_matchups lm
-      LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
-      LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
-      LEFT JOIN league_schedule ls ON lm.schedule_id = ls.id
-      LEFT JOIN leagues l ON lm.league_id = l.id
-      LEFT JOIN league_divisions ld ON lm.division_id = ld.id
-      WHERE (lm.team1_id = $1 OR lm.team2_id = $1)
-    `;
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error fetching HIO jackpot:', err);
+    res.status(500).json({ error: 'Failed to fetch HIO jackpot' });
+  }
+});
 
-    const params = [teamId];
-    let paramCount = 2;
+// POST /api/challenges/:id/reup - Purchase additional shot group
+app.post('/api/challenges/:id/reup', authenticateToken, async (req, res) => {
+  try {
+    const challengeId = req.params.id;
+    const userId = req.user.member_id;
+    const { payment_method, payment_reference } = req.body;
 
-    if (league_id) {
-      query += ` AND lm.league_id = $${paramCount++}`;
-      params.push(league_id);
+    // Get challenge with type info
+    const challengeResult = await pool.query(
+      `SELECT wc.*, ct.default_reup_fee, ct.shots_per_group, ct.max_reups
+       FROM weekly_challenges wc
+       LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
+       WHERE wc.id = $1`,
+      [challengeId]
+    );
+
+    if (challengeResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Challenge not found' });
     }
+
+    const challenge = challengeResult.rows[0];
+
+    if (challenge.status !== 'active') {
+      return res.status(400).json({ error: 'Challenge is not active' });
+    }
+
+    // Check if user has an entry
+    const entryResult = await pool.query(
+      'SELECT * FROM weekly_challenge_entries WHERE challenge_id = $1 AND user_id = $2',
+      [challengeId, userId]
+    );
+
+    if (entryResult.rows.length === 0) {
+      return res.status(400).json({ error: 'You must enter the challenge first' });
+    }
+
+    const entry = entryResult.rows[0];
+
+    // Check max reups if configured
+    if (challenge.max_reups && entry.groups_purchased >= challenge.max_reups + 1) {
+      return res.status(400).json({
+        error: `Maximum ${challenge.max_reups} re-ups allowed`
+      });
+    }
+
+    const reupFee = challenge.default_reup_fee || 3.00;
+    const newGroupNumber = entry.groups_purchased + 1;
+
+    // Create payment record
+    const paymentResult = await pool.query(
+      `INSERT INTO challenge_payments
+       (entry_id, payment_type, amount, payment_method, payment_reference, covers_group_number)
+       VALUES ($1, 'reup', $2, $3, $4, $5)
+       RETURNING *`,
+      [entry.id, reupFee, payment_method, payment_reference, newGroupNumber]
+    );
+
+    const payment = paymentResult.rows[0];
+
+    // Create shot group
+    const groupResult = await pool.query(
+      `INSERT INTO challenge_shot_groups (entry_id, payment_id, group_number)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [entry.id, payment.id, newGroupNumber]
+    );
+
+    const group = groupResult.rows[0];
+
+    // Update entry counts
+    await pool.query(
+      `UPDATE weekly_challenge_entries
+       SET groups_purchased = groups_purchased + 1,
+           total_paid = total_paid + $1
+       WHERE id = $2`,
+      [reupFee, entry.id]
+    );
+
+    // Update challenge totals
+    await pool.query(
+      `UPDATE weekly_challenges
+       SET total_entries = total_entries + 1,
+           total_entry_fees = total_entry_fees + $1
+       WHERE id = $2`,
+      [reupFee, challengeId]
+    );
+
+    // Get updated entry
+    const updatedEntry = await pool.query(
+      `SELECT e.*,
+              array_agg(DISTINCT g.id) as group_ids
+       FROM weekly_challenge_entries e
+       LEFT JOIN challenge_shot_groups g ON g.entry_id = e.id
+       WHERE e.id = $1
+       GROUP BY e.id`,
+      [entry.id]
+    );
+
+    res.json({
+      payment,
+      group,
+      entry: updatedEntry.rows[0]
+    });
+
+  } catch (err) {
+    console.error('Error purchasing re-up:', err);
+    res.status(500).json({ error: 'Failed to purchase re-up' });
+  }
+});
+
+// POST /api/challenges/:id/groups/:groupId/screenshot - Upload group screenshot
+app.post('/api/challenges/:id/groups/:groupId/screenshot',
+  authenticateToken,
+  upload.single('groupScreenshot'),
+  async (req, res) => {
+    try {
+      const { id: challengeId, groupId } = req.params;
+      const userId = req.user.member_id;
+      const { screenshot_date } = req.body;
+
+      // Verify ownership
+      const groupResult = await pool.query(
+        `SELECT g.*, e.user_id
+         FROM challenge_shot_groups g
+         JOIN weekly_challenge_entries e ON g.entry_id = e.id
+         WHERE g.id = $1 AND e.challenge_id = $2`,
+        [groupId, challengeId]
+      );
+
+      if (groupResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Group not found' });
+      }
+
+      const group = groupResult.rows[0];
+
+      if (group.user_id !== userId) {
+        return res.status(403).json({ error: 'Not authorized to upload to this group' });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      let screenshotUrl;
+
+      // Try GCS first, fallback to local
+      if (storage && bucketName) {
+        try {
+          const bucket = storage.bucket(bucketName);
+          const fileName = `challenges/${challengeId}/groups/${groupId}_${Date.now()}_${req.file.originalname}`;
+          const file = bucket.file(fileName);
+
+          await file.save(req.file.buffer, {
+            metadata: { contentType: req.file.mimetype }
+          });
+
+          screenshotUrl = `https://storage.googleapis.com/${bucketName}/${fileName}`;
+        } catch (gcsErr) {
+          console.error('GCS upload failed, using local storage:', gcsErr);
+          // Fallback to local
+          const uploadDir = path.join(__dirname, 'uploads', 'challenges', challengeId.toString(), 'groups');
+          if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+          }
+          const fileName = `${groupId}_${Date.now()}_${req.file.originalname}`;
+          fs.writeFileSync(path.join(uploadDir, fileName), req.file.buffer);
+          screenshotUrl = `/uploads/challenges/${challengeId}/groups/${fileName}`;
+        }
+      } else {
+        // Local storage
+        const uploadDir = path.join(__dirname, 'uploads', 'challenges', challengeId.toString(), 'groups');
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        const fileName = `${groupId}_${Date.now()}_${req.file.originalname}`;
+        fs.writeFileSync(path.join(uploadDir, fileName), req.file.buffer);
+        screenshotUrl = `/uploads/challenges/${challengeId}/groups/${fileName}`;
+      }
+
+      // Update group
+      const updatedGroup = await pool.query(
+        `UPDATE challenge_shot_groups
+         SET group_screenshot_url = $1,
+             screenshot_date = $2,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3
+         RETURNING *`,
+        [screenshotUrl, screenshot_date || null, groupId]
+      );
+
+      res.json({
+        message: 'Screenshot uploaded successfully',
+        group: updatedGroup.rows[0]
+      });
+
+    } catch (err) {
+      console.error('Error uploading group screenshot:', err);
+      res.status(500).json({ error: 'Failed to upload screenshot' });
+    }
+});
+
+// POST /api/challenges/:id/groups/:groupId/shots - Submit shots for a group
+app.post('/api/challenges/:id/groups/:groupId/shots', authenticateToken, async (req, res) => {
+  try {
+    const { id: challengeId, groupId } = req.params;
+    const userId = req.user.member_id;
+    const { shots } = req.body;
+
+    if (!shots || !Array.isArray(shots) || shots.length === 0) {
+      return res.status(400).json({ error: 'Shots array is required' });
+    }
+
+    // Verify ownership and get challenge info
+    const groupResult = await pool.query(
+      `SELECT g.*, e.user_id, e.challenge_id, ct.shots_per_group
+       FROM challenge_shot_groups g
+       JOIN weekly_challenge_entries e ON g.entry_id = e.id
+       JOIN weekly_challenges wc ON e.challenge_id = wc.id
+       LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
+       WHERE g.id = $1 AND e.challenge_id = $2`,
+      [groupId, challengeId]
+    );
+
+    if (groupResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    const group = groupResult.rows[0];
+
+    if (group.user_id !== userId) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    const maxShots = group.shots_per_group || 5;
+
+    // Validate shot numbers
+    for (const shot of shots) {
+      if (shot.shot_number < 1 || shot.shot_number > maxShots) {
+        return res.status(400).json({
+          error: `Shot number must be between 1 and ${maxShots}`
+        });
+      }
+    }
+
+    // Insert or update shots
+    const insertedShots = [];
+    for (const shot of shots) {
+      const result = await pool.query(
+        `INSERT INTO challenge_shots
+         (group_id, shot_number, distance_from_pin_inches, is_hole_in_one, submitted_at)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+         ON CONFLICT (group_id, shot_number)
+         DO UPDATE SET
+           distance_from_pin_inches = EXCLUDED.distance_from_pin_inches,
+           is_hole_in_one = EXCLUDED.is_hole_in_one,
+           submitted_at = CURRENT_TIMESTAMP
+         RETURNING *`,
+        [
+          groupId,
+          shot.shot_number,
+          shot.is_hole_in_one ? 0 : shot.distance_from_pin_inches,
+          shot.is_hole_in_one
+        ]
+      );
+      insertedShots.push(result.rows[0]);
+    }
+
+    // Update group status
+    await pool.query(
+      `UPDATE challenge_shot_groups
+       SET status = 'submitted', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [groupId]
+    );
+
+    // Get updated group with shots
+    const updatedGroup = await pool.query(
+      `SELECT g.*,
+              json_agg(s ORDER BY s.shot_number) as shots
+       FROM challenge_shot_groups g
+       LEFT JOIN challenge_shots s ON s.group_id = g.id
+       WHERE g.id = $1
+       GROUP BY g.id`,
+      [groupId]
+    );
+
+    res.json({
+      message: 'Shots submitted successfully',
+      shots: insertedShots,
+      group: updatedGroup.rows[0]
+    });
+
+  } catch (err) {
+    console.error('Error submitting shots:', err);
+    res.status(500).json({ error: 'Failed to submit shots' });
+  }
+});
+
+// GET /api/challenges/:id/groups/:groupId - Get group with shots
+app.get('/api/challenges/:id/groups/:groupId', authenticateToken, async (req, res) => {
+  try {
+    const { id: challengeId, groupId } = req.params;
+
+    const result = await pool.query(
+      `SELECT g.*,
+              json_agg(s ORDER BY s.shot_number) FILTER (WHERE s.id IS NOT NULL) as shots,
+              p.payment_type, p.amount, p.payment_status, p.payment_timestamp
+       FROM challenge_shot_groups g
+       JOIN weekly_challenge_entries e ON g.entry_id = e.id
+       LEFT JOIN challenge_shots s ON s.group_id = g.id
+       LEFT JOIN challenge_payments p ON g.payment_id = p.id
+       WHERE g.id = $1 AND e.challenge_id = $2
+       GROUP BY g.id, p.id`,
+      [groupId, challengeId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error fetching group:', err);
+    res.status(500).json({ error: 'Failed to fetch group' });
+  }
+});
+
+// GET /api/challenges/:id/leaderboard/ctp - CTP leaderboard
+app.get('/api/challenges/:id/leaderboard/ctp', async (req, res) => {
+  try {
+    const challengeId = req.params.id;
+
+    // Show all shots from all users, ranked by distance
+    const result = await pool.query(
+      `SELECT
+         ROW_NUMBER() OVER (
+           ORDER BY s.is_hole_in_one DESC,
+                    COALESCE(s.override_distance_inches, s.distance_from_pin_inches) ASC,
+                    s.submitted_at ASC
+         ) as rank,
+         e.user_id,
+         e.id as entry_id,
+         s.id as shot_id,
+         COALESCE(s.override_distance_inches, s.distance_from_pin_inches) as distance_inches,
+         s.is_hole_in_one,
+         s.submitted_at,
+         s.verified,
+         u.first_name,
+         u.last_name,
+         u.club,
+         u.profile_photo_url
+       FROM weekly_challenge_entries e
+       JOIN challenge_shot_groups g ON g.entry_id = e.id
+       JOIN challenge_shots s ON s.group_id = g.id
+       JOIN users u ON u.member_id = e.user_id
+       WHERE e.challenge_id = $1
+         AND s.distance_from_pin_inches IS NOT NULL
+       ORDER BY s.is_hole_in_one DESC,
+                COALESCE(s.override_distance_inches, s.distance_from_pin_inches) ASC,
+                s.submitted_at ASC`,
+      [challengeId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching CTP leaderboard:', err);
+    res.status(500).json({ error: 'Failed to fetch leaderboard' });
+  }
+});
+
+// GET /api/challenges/:id/leaderboard/hio - HIO entries
+app.get('/api/challenges/:id/leaderboard/hio', async (req, res) => {
+  try {
+    const challengeId = req.params.id;
+
+    const result = await pool.query(
+      `SELECT
+         e.user_id,
+         e.id as entry_id,
+         s.id as shot_id,
+         g.group_number,
+         s.shot_number,
+         s.submitted_at,
+         s.verified,
+         s.detail_screenshot_url,
+         u.first_name,
+         u.last_name,
+         u.club,
+         u.profile_photo_url
+       FROM weekly_challenge_entries e
+       JOIN challenge_shot_groups g ON g.entry_id = e.id
+       JOIN challenge_shots s ON s.group_id = g.id
+       JOIN users u ON u.member_id = e.user_id
+       WHERE e.challenge_id = $1 AND s.is_hole_in_one = TRUE
+       ORDER BY s.submitted_at ASC`,
+      [challengeId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching HIO leaderboard:', err);
+    res.status(500).json({ error: 'Failed to fetch HIO entries' });
+  }
+});
+
+// GET /api/challenges/:id/payments - Get all payments for challenge (Admin)
+app.get('/api/challenges/:id/payments', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  try {
+    const challengeId = req.params.id;
+
+    const result = await pool.query(
+      `SELECT p.*, e.user_id, u.first_name, u.last_name
+       FROM challenge_payments p
+       JOIN weekly_challenge_entries e ON p.entry_id = e.id
+       JOIN users u ON u.member_id = e.user_id
+       WHERE e.challenge_id = $1
+       ORDER BY p.created_at DESC`,
+      [challengeId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching payments:', err);
+    res.status(500).json({ error: 'Failed to fetch payments' });
+  }
+});
+
+// PUT /api/challenges/:id/payments/:paymentId/verify - Verify payment (Admin)
+app.put('/api/challenges/:id/payments/:paymentId/verify',
+  authenticateToken,
+  requirePermission('manage_tournaments'),
+  async (req, res) => {
+    try {
+      const { paymentId } = req.params;
+      const adminId = req.user.member_id;
+
+      const result = await pool.query(
+        `UPDATE challenge_payments
+         SET payment_status = 'completed',
+             verified_by = $1,
+             verified_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING *`,
+        [adminId, paymentId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Payment not found' });
+      }
+
+      res.json(result.rows[0]);
+    } catch (err) {
+      console.error('Error verifying payment:', err);
+      res.status(500).json({ error: 'Failed to verify payment' });
+    }
+});
+
+// PUT /api/challenges/:id/shots/:shotId/verify - Verify shot (Admin)
+app.put('/api/challenges/:id/shots/:shotId/verify',
+  authenticateToken,
+  requirePermission('manage_tournaments'),
+  async (req, res) => {
+    try {
+      const { shotId } = req.params;
+      const adminId = req.user.member_id;
+      const { override_distance_inches, override_reason } = req.body;
+
+      const updateFields = ['verified = TRUE', 'verified_by = $1', 'verified_at = CURRENT_TIMESTAMP'];
+      const values = [adminId];
+      let paramIndex = 2;
+
+      if (override_distance_inches !== undefined) {
+        updateFields.push(`override_distance_inches = $${paramIndex}`);
+        values.push(override_distance_inches);
+        paramIndex++;
+      }
+
+      if (override_reason) {
+        updateFields.push(`override_reason = $${paramIndex}`);
+        values.push(override_reason);
+        paramIndex++;
+      }
+
+      values.push(shotId);
+
+      const result = await pool.query(
+        `UPDATE challenge_shots
+         SET ${updateFields.join(', ')}
+         WHERE id = $${paramIndex}
+         RETURNING *`,
+        values
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Shot not found' });
+      }
+
+      res.json(result.rows[0]);
+    } catch (err) {
+      console.error('Error verifying shot:', err);
+      res.status(500).json({ error: 'Failed to verify shot' });
+    }
+});
+
+// POST /api/challenges/:id/shots/:shotId/detail - Upload detail screenshot for shot
+app.post('/api/challenges/:id/shots/:shotId/detail',
+  authenticateToken,
+  upload.single('shotDetail'),
+  async (req, res) => {
+    try {
+      const { id: challengeId, shotId } = req.params;
+      const userId = req.user.member_id;
+
+      // Verify ownership
+      const shotResult = await pool.query(
+        `SELECT s.*, g.entry_id, e.user_id
+         FROM challenge_shots s
+         JOIN challenge_shot_groups g ON s.group_id = g.id
+         JOIN weekly_challenge_entries e ON g.entry_id = e.id
+         WHERE s.id = $1 AND e.challenge_id = $2`,
+        [shotId, challengeId]
+      );
+
+      if (shotResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Shot not found' });
+      }
+
+      const shot = shotResult.rows[0];
+
+      if (shot.user_id !== userId) {
+        return res.status(403).json({ error: 'Not authorized' });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      let detailUrl;
+
+      // Try GCS first, fallback to local
+      if (storage && bucketName) {
+        try {
+          const bucket = storage.bucket(bucketName);
+          const fileName = `challenges/${challengeId}/shots/${shotId}_${Date.now()}_${req.file.originalname}`;
+          const file = bucket.file(fileName);
+
+          await file.save(req.file.buffer, {
+            metadata: { contentType: req.file.mimetype }
+          });
+
+          detailUrl = `https://storage.googleapis.com/${bucketName}/${fileName}`;
+        } catch (gcsErr) {
+          console.error('GCS upload failed, using local storage:', gcsErr);
+          const uploadDir = path.join(__dirname, 'uploads', 'challenges', challengeId.toString(), 'shots');
+          if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+          }
+          const fileName = `${shotId}_${Date.now()}_${req.file.originalname}`;
+          fs.writeFileSync(path.join(uploadDir, fileName), req.file.buffer);
+          detailUrl = `/uploads/challenges/${challengeId}/shots/${fileName}`;
+        }
+      } else {
+        const uploadDir = path.join(__dirname, 'uploads', 'challenges', challengeId.toString(), 'shots');
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        const fileName = `${shotId}_${Date.now()}_${req.file.originalname}`;
+        fs.writeFileSync(path.join(uploadDir, fileName), req.file.buffer);
+        detailUrl = `/uploads/challenges/${challengeId}/shots/${fileName}`;
+      }
+
+      // Update shot
+      const updatedShot = await pool.query(
+        `UPDATE challenge_shots
+         SET detail_screenshot_url = $1
+         WHERE id = $2
+         RETURNING *`,
+        [detailUrl, shotId]
+      );
+
+      res.json({
+        message: 'Detail screenshot uploaded successfully',
+        shot: updatedShot.rows[0]
+      });
+
+    } catch (err) {
+      console.error('Error uploading shot detail:', err);
+      res.status(500).json({ error: 'Failed to upload detail screenshot' });
+    }
+});
+
+// POST /api/challenges - Create new weekly challenge (Admin only)
+app.post('/api/challenges', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  try {
+    const {
+      challenge_name,
+      designated_hole,
+      entry_fee,
+      week_start_date,
+      week_end_date,
+      // New Five-Shot fields
+      challenge_type_id,
+      course_id,
+      required_distance_yards
+    } = req.body;
+
+    if (!designated_hole || designated_hole < 1 || designated_hole > 18) {
+      return res.status(400).json({ error: 'Designated hole must be between 1 and 18' });
+    }
+
+    // Get challenge type defaults if provided
+    let finalEntryFee = entry_fee;
+    if (challenge_type_id && !entry_fee) {
+      const typeResult = await pool.query(
+        'SELECT default_entry_fee FROM challenge_types WHERE id = $1',
+        [challenge_type_id]
+      );
+      if (typeResult.rows.length > 0) {
+        finalEntryFee = typeResult.rows[0].default_entry_fee;
+      }
+    }
+
+    if (!finalEntryFee || finalEntryFee <= 0) {
+      return res.status(400).json({ error: 'Entry fee must be greater than 0' });
+    }
+
+    // Get current pot for starting_pot
+    const potResult = await pool.query('SELECT current_amount FROM challenge_pot LIMIT 1');
+    const startingPot = potResult.rows[0]?.current_amount || 0;
+
+    // Get HIO jackpot
+    const hioResult = await pool.query('SELECT current_amount FROM challenge_hio_jackpot LIMIT 1');
+    const hioJackpot = hioResult.rows[0]?.current_amount || 0;
+
+    const result = await pool.query(
+      `INSERT INTO weekly_challenges
+       (challenge_name, designated_hole, entry_fee, week_start_date, week_end_date,
+        starting_pot, status, challenge_type_id, course_id, required_distance_yards, hio_jackpot_amount)
+       VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10)
+       RETURNING *`,
+      [challenge_name, designated_hole, finalEntryFee, week_start_date, week_end_date,
+       startingPot, challenge_type_id || null, course_id || null, required_distance_yards || null, hioJackpot]
+    );
+
+    // If challenge has a type, return with type and course info
+    if (challenge_type_id || course_id) {
+      const extendedResult = await pool.query(
+        `SELECT wc.*,
+                ct.type_key, ct.type_name, ct.shots_per_group, ct.default_reup_fee, ct.payout_config,
+                sc.name as course_name
+         FROM weekly_challenges wc
+         LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
+         LEFT JOIN simulator_courses_combined sc ON wc.course_id = sc.id
+         WHERE wc.id = $1`,
+        [result.rows[0].id]
+      );
+      return res.status(201).json(extendedResult.rows[0]);
+    }
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error creating challenge:', err);
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'Challenge already exists for this week' });
+    }
+    res.status(500).json({ error: 'Failed to create challenge' });
+  }
+});
+
+// GET /api/challenges - List all challenges
+app.get('/api/challenges', async (req, res) => {
+  try {
+    const { status, limit = 20, offset = 0 } = req.query;
+
+    let query = 'SELECT * FROM weekly_challenges';
+    const params = [];
 
     if (status) {
-      query += ` AND lm.status = $${paramCount++}`;
+      query += ' WHERE status = $1';
       params.push(status);
     }
 
-    query += ` ORDER BY lm.week_number DESC LIMIT $${paramCount}`;
-    params.push(limit);
+    query += ' ORDER BY week_start_date DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
+    params.push(limit, offset);
 
-    const matches = await pool.query(query, params);
-
-    // Get summary statistics
-    const summary = {
-      total_matches: 0,
-      wins: 0,
-      ties: 0,
-      losses: 0,
-      pending: 0
-    };
-
-    matches.rows.forEach(match => {
-      summary.total_matches++;
-      if (match.result === 'W') summary.wins++;
-      else if (match.result === 'T') summary.ties++;
-      else if (match.result === 'L') summary.losses++;
-      else summary.pending++;
-    });
-
-    res.json({
-      team: team.rows[0],
-      matches: matches.rows,
-      summary: summary
-    });
+    const result = await pool.query(query, params);
+    res.json(result.rows);
   } catch (err) {
-    console.error('Error fetching team matches:', err);
-    res.status(500).json({ error: 'Failed to fetch team matches', details: err.message });
+    console.error('Error fetching challenges:', err);
+    res.status(500).json({ error: 'Failed to fetch challenges' });
   }
 });
 
-// --------------------------------------------
-// Player Statistics (within league)
-// --------------------------------------------
-
-// GET /api/leagues/:id/player-stats/:userId - Player performance within league
-app.get('/api/leagues/:id/player-stats/:userId', async (req, res) => {
+// GET /api/challenges/active - Get current active challenge
+app.get('/api/challenges/active', async (req, res) => {
   try {
-    const { id: leagueId, userId } = req.params;
+    // First try to find a challenge within the date range
+    let result = await pool.query(
+      `SELECT wc.*,
+              ct.type_key, ct.type_name, ct.shots_per_group, ct.default_reup_fee, ct.payout_config,
+              sc.name as course_name
+       FROM weekly_challenges wc
+       LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
+       LEFT JOIN simulator_courses_combined sc ON wc.course_id = sc.id
+       WHERE wc.status = 'active'
+       AND wc.week_start_date <= CURRENT_DATE
+       AND wc.week_end_date >= CURRENT_DATE
+       ORDER BY wc.week_start_date DESC
+       LIMIT 1`
+    );
 
-    // Verify league exists
-    const league = await pool.query('SELECT * FROM leagues WHERE id = $1', [leagueId]);
-    if (league.rows.length === 0) {
-      return res.status(404).json({ error: 'League not found' });
+    // If no challenge in date range, get any active challenge (for testing/flexibility)
+    if (result.rows.length === 0) {
+      result = await pool.query(
+        `SELECT wc.*,
+                ct.type_key, ct.type_name, ct.shots_per_group, ct.default_reup_fee, ct.payout_config,
+                sc.name as course_name
+         FROM weekly_challenges wc
+         LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
+         LEFT JOIN simulator_courses_combined sc ON wc.course_id = sc.id
+         WHERE wc.status = 'active'
+         ORDER BY wc.created_at DESC
+         LIMIT 1`
+      );
     }
 
-    // Get player details
-    const player = await pool.query(
-      'SELECT member_id, first_name, last_name, email_address, handicap FROM users WHERE member_id = $1',
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No active challenge found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error fetching active challenge:', err);
+    res.status(500).json({ error: 'Failed to fetch active challenge' });
+  }
+});
+
+// GET /api/challenges/:id - Get specific challenge
+app.get('/api/challenges/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query('SELECT * FROM weekly_challenges WHERE id = $1', [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Challenge not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error fetching challenge:', err);
+    res.status(500).json({ error: 'Failed to fetch challenge' });
+  }
+});
+
+// PUT /api/challenges/:id - Update challenge (Admin only)
+app.put('/api/challenges/:id', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      challenge_name,
+      designated_hole,
+      entry_fee,
+      week_start_date,
+      week_end_date,
+      status
+    } = req.body;
+
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (challenge_name !== undefined) {
+      updates.push(`challenge_name = $${paramCount++}`);
+      values.push(challenge_name);
+    }
+    if (designated_hole !== undefined) {
+      updates.push(`designated_hole = $${paramCount++}`);
+      values.push(designated_hole);
+    }
+    if (entry_fee !== undefined) {
+      updates.push(`entry_fee = $${paramCount++}`);
+      values.push(entry_fee);
+    }
+    if (week_start_date !== undefined) {
+      updates.push(`week_start_date = $${paramCount++}`);
+      values.push(week_start_date);
+    }
+    if (week_end_date !== undefined) {
+      updates.push(`week_end_date = $${paramCount++}`);
+      values.push(week_end_date);
+    }
+    if (status !== undefined) {
+      updates.push(`status = $${paramCount++}`);
+      values.push(status);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    values.push(id);
+    const result = await pool.query(
+      `UPDATE weekly_challenges SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $${paramCount} RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Challenge not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating challenge:', err);
+    res.status(500).json({ error: 'Failed to update challenge' });
+  }
+});
+
+// DELETE /api/challenges/:id - Delete challenge and all related data (Admin only)
+app.delete('/api/challenges/:id', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+
+    await client.query('BEGIN');
+
+    // Check if challenge exists
+    const challengeCheck = await client.query(
+      'SELECT id, challenge_name FROM weekly_challenges WHERE id = $1',
+      [id]
+    );
+
+    if (challengeCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Challenge not found' });
+    }
+
+    const challengeName = challengeCheck.rows[0].challenge_name;
+
+    // Delete in order of dependencies:
+    // 1. Delete shots
+    await client.query(
+      `DELETE FROM challenge_shots
+       WHERE group_id IN (
+         SELECT g.id FROM challenge_shot_groups g
+         JOIN weekly_challenge_entries e ON g.entry_id = e.id
+         WHERE e.challenge_id = $1
+       )`,
+      [id]
+    );
+
+    // 2. Delete shot groups
+    await client.query(
+      `DELETE FROM challenge_shot_groups
+       WHERE entry_id IN (
+         SELECT id FROM weekly_challenge_entries WHERE challenge_id = $1
+       )`,
+      [id]
+    );
+
+    // 3. Delete payments
+    await client.query(
+      `DELETE FROM challenge_payments
+       WHERE entry_id IN (
+         SELECT id FROM weekly_challenge_entries WHERE challenge_id = $1
+       )`,
+      [id]
+    );
+
+    // 4. Delete entries
+    await client.query(
+      'DELETE FROM weekly_challenge_entries WHERE challenge_id = $1',
+      [id]
+    );
+
+    // 5. Delete the challenge
+    await client.query(
+      'DELETE FROM weekly_challenges WHERE id = $1',
+      [id]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      message: 'Challenge deleted successfully',
+      deleted: { id: parseInt(id), challenge_name: challengeName }
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error deleting challenge:', err);
+    res.status(500).json({ error: 'Failed to delete challenge' });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/challenges/:id/create-payment-intent - Create Stripe payment intent
+app.post('/api/challenges/:id/create-payment-intent', authenticateToken, async (req, res) => {
+  try {
+    const { id: challengeId } = req.params;
+    const { is_reup } = req.body;
+    const userId = req.user.member_id;
+
+    // Get challenge and type info
+    const challengeResult = await pool.query(
+      `SELECT wc.*, ct.default_entry_fee, ct.default_reup_fee
+       FROM weekly_challenges wc
+       LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
+       WHERE wc.id = $1 AND wc.status = 'active'`,
+      [challengeId]
+    );
+
+    if (challengeResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Challenge not found or not active' });
+    }
+
+    const challenge = challengeResult.rows[0];
+
+    // Determine amount based on entry or reup
+    let amount;
+    let description;
+    if (is_reup) {
+      amount = challenge.default_reup_fee || 3;
+      description = `Re-up for ${challenge.challenge_name}`;
+    } else {
+      // Check if already entered
+      const existingEntry = await pool.query(
+        'SELECT id FROM weekly_challenge_entries WHERE challenge_id = $1 AND user_id = $2',
+        [challengeId, userId]
+      );
+      if (existingEntry.rows.length > 0) {
+        return res.status(400).json({ error: 'Already entered this challenge. Use re-up to purchase additional groups.' });
+      }
+      amount = challenge.entry_fee || challenge.default_entry_fee || 5;
+      description = `Entry for ${challenge.challenge_name}`;
+    }
+
+    // Get user info for Stripe
+    const userResult = await pool.query(
+      'SELECT email_address, first_name, last_name FROM users WHERE member_id = $1',
       [userId]
     );
-    if (player.rows.length === 0) {
-      return res.status(404).json({ error: 'Player not found' });
-    }
+    const user = userResult.rows[0];
 
-    // Get player's team(s) in this league
-    const teams = await pool.query(
-      `SELECT DISTINCT tt.id, tt.name, tt.captain_id, ld.division_name
-       FROM tournament_teams tt
-       LEFT JOIN team_members tm ON tt.id = tm.team_id
-       LEFT JOIN league_divisions ld ON tt.division_id = ld.id
-       WHERE tt.league_id = $1 AND tm.user_member_id = $2`,
-      [leagueId, userId]
-    );
-
-    if (teams.rows.length === 0) {
-      return res.status(404).json({ error: 'Player is not part of any team in this league' });
-    }
-
-    // Get individual scoring statistics
-    const individualStats = await pool.query(
-      `SELECT
-        COUNT(DISTINCT mis.matchup_id) as matches_played,
-        COUNT(DISTINCT lm.week_number) as weeks_played,
-        SUM(array_length(mis.assigned_holes, 1)) as total_holes_played,
-        AVG(mis.gross_total) as avg_gross_score,
-        MIN(mis.gross_total) as best_gross_score,
-        MAX(mis.gross_total) as worst_gross_score,
-        AVG(mis.net_total) as avg_net_score,
-        MIN(mis.net_total) as best_net_score,
-        MAX(mis.net_total) as worst_net_score,
-        AVG(mis.player_handicap) as avg_handicap
-       FROM match_individual_scores mis
-       JOIN league_matchups lm ON mis.matchup_id = lm.id
-       WHERE mis.player_id = $1 AND lm.league_id = $2`,
-      [userId, leagueId]
-    );
-
-    // Get lineup participation (how many times selected)
-    const lineupStats = await pool.query(
-      `SELECT
-        COUNT(*) as times_selected,
-        SUM(CASE WHEN locked = true THEN 1 ELSE 0 END) as times_locked
-       FROM weekly_lineups
-       WHERE league_id = $1
-         AND (player1_id = $2 OR player2_id = $2 OR player3_id = $2)`,
-      [leagueId, userId]
-    );
-
-    // Get availability submission rate
-    const availabilityStats = await pool.query(
-      `SELECT
-        COUNT(*) as weeks_submitted,
-        SUM(CASE WHEN is_available = true THEN 1 ELSE 0 END) as weeks_available,
-        SUM(CASE WHEN is_available = false THEN 1 ELSE 0 END) as weeks_unavailable
-       FROM team_member_availability
-       WHERE league_id = $1 AND user_id = $2`,
-      [leagueId, userId]
-    );
-
-    // Get hole-by-hole performance (holes 1-9 for individual play)
-    const holePerformance = await pool.query(
-      `SELECT
-        mis.assigned_holes,
-        mis.hole_scores,
-        lm.week_number
-       FROM match_individual_scores mis
-       JOIN league_matchups lm ON mis.matchup_id = lm.id
-       WHERE mis.player_id = $1 AND lm.league_id = $2
-       ORDER BY lm.week_number`,
-      [userId, leagueId]
-    );
-
-    // Aggregate hole statistics
-    const holeStats = {};
-    holePerformance.rows.forEach(match => {
-      const holeScores = typeof match.hole_scores === 'string'
-        ? JSON.parse(match.hole_scores)
-        : match.hole_scores;
-
-      Object.entries(holeScores).forEach(([hole, data]) => {
-        if (!holeStats[hole]) {
-          holeStats[hole] = {
-            hole_number: parseInt(hole),
-            times_played: 0,
-            gross_total: 0,
-            net_total: 0,
-            pars: 0,
-            birdies: 0,
-            bogeys: 0,
-            double_bogeys_or_worse: 0
-          };
-        }
-
-        holeStats[hole].times_played++;
-        holeStats[hole].gross_total += data.gross || 0;
-        if (data.net) holeStats[hole].net_total += data.net;
-
-        const scoreToPar = (data.gross || 0) - (data.par || 4);
-        if (scoreToPar === 0) holeStats[hole].pars++;
-        else if (scoreToPar === -1) holeStats[hole].birdies++;
-        else if (scoreToPar === 1) holeStats[hole].bogeys++;
-        else if (scoreToPar >= 2) holeStats[hole].double_bogeys_or_worse++;
-      });
-    });
-
-    // Calculate averages for each hole
-    Object.values(holeStats).forEach(hole => {
-      hole.avg_gross = (hole.gross_total / hole.times_played).toFixed(2);
-      hole.avg_net = hole.net_total > 0 ? (hole.net_total / hole.times_played).toFixed(2) : null;
+    // Create Stripe payment intent
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100), // Convert to cents
+      currency: 'usd',
+      description: description,
+      metadata: {
+        challenge_id: challengeId.toString(),
+        user_id: userId.toString(),
+        is_reup: is_reup ? 'true' : 'false'
+      },
+      receipt_email: user.email_address
     });
 
     res.json({
-      league: league.rows[0],
-      player: player.rows[0],
-      teams: teams.rows,
-      statistics: {
-        individual_scoring: individualStats.rows[0],
-        lineup_participation: lineupStats.rows[0],
-        availability: availabilityStats.rows[0],
-        hole_by_hole: Object.values(holeStats).sort((a, b) => a.hole_number - b.hole_number)
+      clientSecret: paymentIntent.client_secret,
+      amount: amount,
+      paymentIntentId: paymentIntent.id
+    });
+
+  } catch (err) {
+    console.error('Error creating payment intent:', err);
+    res.status(500).json({ error: 'Failed to create payment intent' });
+  }
+});
+
+// POST /api/challenges/:id/confirm-stripe-payment - Confirm Stripe payment and create entry
+app.post('/api/challenges/:id/confirm-stripe-payment', authenticateToken, async (req, res) => {
+  try {
+    const { id: challengeId } = req.params;
+    const { payment_intent_id, is_reup } = req.body;
+    const userId = req.user.member_id;
+
+    // Verify payment intent succeeded
+    const paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
+
+    if (paymentIntent.status !== 'succeeded') {
+      return res.status(400).json({ error: 'Payment not completed' });
+    }
+
+    // Get challenge info
+    const challengeResult = await pool.query(
+      `SELECT wc.*, ct.default_entry_fee, ct.default_reup_fee, ct.shots_per_group
+       FROM weekly_challenges wc
+       LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
+       WHERE wc.id = $1`,
+      [challengeId]
+    );
+
+    if (challengeResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Challenge not found' });
+    }
+
+    const challenge = challengeResult.rows[0];
+    const amount = paymentIntent.amount / 100; // Convert from cents
+
+    if (is_reup) {
+      // Handle re-up (similar to purchaseReup logic)
+      const entryResult = await pool.query(
+        'SELECT * FROM weekly_challenge_entries WHERE challenge_id = $1 AND user_id = $2',
+        [challengeId, userId]
+      );
+
+      if (entryResult.rows.length === 0) {
+        return res.status(400).json({ error: 'Must enter challenge before re-up' });
       }
+
+      const entry = entryResult.rows[0];
+
+      // Create payment record
+      const paymentResult = await pool.query(
+        `INSERT INTO challenge_payments (entry_id, amount, payment_type, payment_method, payment_reference, payment_status, covers_group_number)
+         VALUES ($1, $2, 'reup', 'stripe', $3, 'completed', (SELECT COALESCE(MAX(group_number), 0) + 1 FROM challenge_shot_groups WHERE entry_id = $1))
+         RETURNING *`,
+        [entry.id, amount, payment_intent_id]
+      );
+
+      // Create new shot group
+      const groupResult = await pool.query(
+        `INSERT INTO challenge_shot_groups (entry_id, payment_id, group_number)
+         VALUES ($1, $2, (SELECT COALESCE(MAX(group_number), 0) + 1 FROM challenge_shot_groups WHERE entry_id = $1))
+         RETURNING *`,
+        [entry.id, paymentResult.rows[0].id]
+      );
+
+      // Update entry totals
+      await pool.query(
+        `UPDATE weekly_challenge_entries
+         SET groups_purchased = groups_purchased + 1,
+             total_paid = total_paid + $1
+         WHERE id = $2`,
+        [amount, entry.id]
+      );
+
+      // Update challenge totals
+      await pool.query(
+        `UPDATE weekly_challenges
+         SET total_entry_fees = total_entry_fees + $1,
+             total_entries = total_entries + 1
+         WHERE id = $2`,
+        [amount, challengeId]
+      );
+
+      // Add 30% to HIO jackpot
+      const hioContribution = amount * 0.30;
+      const jackpotCheck = await pool.query('SELECT id FROM challenge_hio_jackpot LIMIT 1');
+      if (jackpotCheck.rows.length > 0) {
+        await pool.query(
+          `UPDATE challenge_hio_jackpot
+           SET current_amount = current_amount + $1,
+               total_contributions = total_contributions + $1,
+               updated_at = CURRENT_TIMESTAMP`,
+          [hioContribution]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO challenge_hio_jackpot (current_amount, total_contributions, weeks_accumulated)
+           VALUES ($1, $1, 0)`,
+          [hioContribution]
+        );
+      }
+
+      res.json({
+        message: 'Re-up successful',
+        group: groupResult.rows[0],
+        payment: paymentResult.rows[0]
+      });
+
+    } else {
+      // Handle initial entry
+      // Create entry
+      const entryResult = await pool.query(
+        `INSERT INTO weekly_challenge_entries
+         (challenge_id, user_id, payment_method, payment_amount, payment_notes, status, groups_purchased, total_paid)
+         VALUES ($1, $2, 'stripe', $3, $4, 'pending', 1, $3)
+         RETURNING *`,
+        [challengeId, userId, amount, `Stripe: ${payment_intent_id}`]
+      );
+
+      const entry = entryResult.rows[0];
+
+      // Create payment record
+      const paymentResult = await pool.query(
+        `INSERT INTO challenge_payments (entry_id, amount, payment_type, payment_method, payment_reference, payment_status, covers_group_number)
+         VALUES ($1, $2, 'entry', 'stripe', $3, 'completed', 1)
+         RETURNING *`,
+        [entry.id, amount, payment_intent_id]
+      );
+
+      // Create initial shot group
+      const groupResult = await pool.query(
+        `INSERT INTO challenge_shot_groups (entry_id, payment_id, group_number)
+         VALUES ($1, $2, 1)
+         RETURNING *`,
+        [entry.id, paymentResult.rows[0].id]
+      );
+
+      // Update challenge totals
+      await pool.query(
+        `UPDATE weekly_challenges
+         SET total_entries = total_entries + 1,
+             total_entry_fees = total_entry_fees + $1
+         WHERE id = $2`,
+        [amount, challengeId]
+      );
+
+      // Add 30% to HIO jackpot
+      const hioContribution = amount * 0.30;
+      const jackpotCheck = await pool.query('SELECT id FROM challenge_hio_jackpot LIMIT 1');
+      if (jackpotCheck.rows.length > 0) {
+        await pool.query(
+          `UPDATE challenge_hio_jackpot
+           SET current_amount = current_amount + $1,
+               total_contributions = total_contributions + $1,
+               updated_at = CURRENT_TIMESTAMP`,
+          [hioContribution]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO challenge_hio_jackpot (current_amount, total_contributions, weeks_accumulated)
+           VALUES ($1, $1, 0)`,
+          [hioContribution]
+        );
+      }
+
+      res.json({
+        message: 'Entry successful',
+        entry: entry,
+        group: groupResult.rows[0],
+        payment: paymentResult.rows[0]
+      });
+    }
+
+  } catch (err) {
+    console.error('Error confirming payment:', err);
+    res.status(500).json({ error: 'Failed to confirm payment' });
+  }
+});
+
+// POST /api/challenges/:id/enter - Enter a challenge
+app.post('/api/challenges/:id/enter', authenticateToken, async (req, res) => {
+  try {
+    const { id: challengeId } = req.params;
+    const { payment_method, payment_amount, payment_notes, payment_reference } = req.body;
+    const userId = req.user.member_id;
+
+    // Check if challenge exists and is active, get type info
+    const challengeResult = await pool.query(
+      `SELECT wc.*, ct.default_entry_fee
+       FROM weekly_challenges wc
+       LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
+       WHERE wc.id = $1 AND wc.status = $2`,
+      [challengeId, 'active']
+    );
+
+    if (challengeResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Active challenge not found' });
+    }
+
+    const challenge = challengeResult.rows[0];
+
+    // Check if user already entered
+    const existingEntry = await pool.query(
+      'SELECT * FROM weekly_challenge_entries WHERE challenge_id = $1 AND user_id = $2',
+      [challengeId, userId]
+    );
+
+    if (existingEntry.rows.length > 0) {
+      return res.status(400).json({ error: 'Already entered this challenge' });
+    }
+
+    // Determine entry fee
+    const entryFee = payment_amount || challenge.default_entry_fee || challenge.entry_fee;
+
+    // Create entry with Five-Shot fields
+    const result = await pool.query(
+      `INSERT INTO weekly_challenge_entries
+       (challenge_id, user_id, entry_paid, payment_method, payment_amount, payment_notes,
+        payment_submitted_at, status, groups_purchased, total_paid)
+       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, 'pending', 1, $5)
+       RETURNING *`,
+      [challengeId, userId, true, payment_method, entryFee, payment_notes]
+    );
+
+    const entry = result.rows[0];
+
+    // Create payment record for Five-Shot system
+    const paymentResult = await pool.query(
+      `INSERT INTO challenge_payments
+       (entry_id, payment_type, amount, payment_method, payment_reference, covers_group_number)
+       VALUES ($1, 'entry', $2, $3, $4, 1)
+       RETURNING *`,
+      [entry.id, entryFee, payment_method, payment_reference || payment_notes]
+    );
+
+    const payment = paymentResult.rows[0];
+
+    // Create first shot group
+    const groupResult = await pool.query(
+      `INSERT INTO challenge_shot_groups (entry_id, payment_id, group_number)
+       VALUES ($1, $2, 1)
+       RETURNING *`,
+      [entry.id, payment.id]
+    );
+
+    const group = groupResult.rows[0];
+
+    // Update challenge entry counts
+    await pool.query(
+      `UPDATE weekly_challenges
+       SET total_entries = total_entries + 1,
+           total_entry_fees = total_entry_fees + $1
+       WHERE id = $2`,
+      [entryFee, challengeId]
+    );
+
+    // Return extended response for Five-Shot challenges
+    if (challenge.challenge_type_id) {
+      return res.status(201).json({
+        entry: { ...entry, groups: [group], payments: [payment] },
+        payment,
+        group
+      });
+    }
+
+    // Legacy response for old-style challenges
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error entering challenge:', err);
+    res.status(500).json({ error: 'Failed to enter challenge' });
+  }
+});
+
+// GET /api/challenges/:id/entries - Get all entries for a challenge
+app.get('/api/challenges/:id/entries', async (req, res) => {
+  try {
+    const { id: challengeId } = req.params;
+
+    // Check if this is a Five-Shot challenge
+    const challengeResult = await pool.query(
+      'SELECT challenge_type_id FROM weekly_challenges WHERE id = $1',
+      [challengeId]
+    );
+
+    const isFiveShotChallenge = challengeResult.rows[0]?.challenge_type_id;
+
+    if (isFiveShotChallenge) {
+      // Get entries with groups and shots for Five-Shot challenges
+      const entriesResult = await pool.query(
+        `SELECT
+          wce.*,
+          u.first_name,
+          u.last_name,
+          u.email_address,
+          u.club,
+          u.profile_photo_url
+         FROM weekly_challenge_entries wce
+         JOIN users u ON wce.user_id = u.member_id
+         WHERE wce.challenge_id = $1
+         ORDER BY wce.created_at ASC`,
+        [challengeId]
+      );
+
+      // Get groups and shots for each entry
+      const entries = await Promise.all(entriesResult.rows.map(async (entry) => {
+        // Get groups
+        const groupsResult = await pool.query(
+          `SELECT * FROM challenge_shot_groups
+           WHERE entry_id = $1
+           ORDER BY group_number`,
+          [entry.id]
+        );
+
+        // Get shots for all groups
+        const groups = await Promise.all(groupsResult.rows.map(async (group) => {
+          const shotsResult = await pool.query(
+            `SELECT * FROM challenge_shots
+             WHERE group_id = $1
+             ORDER BY shot_number`,
+            [group.id]
+          );
+          return {
+            ...group,
+            shots: shotsResult.rows
+          };
+        }));
+
+        // Calculate best shot for this entry
+        const allShots = groups.flatMap(g => g.shots);
+        const bestShot = allShots.length > 0
+          ? allShots.reduce((best, shot) => {
+              if (shot.is_hole_in_one) return shot;
+              if (!best || shot.distance_from_pin_inches < best.distance_from_pin_inches) return shot;
+              return best;
+            }, null)
+          : null;
+
+        return {
+          ...entry,
+          groups,
+          best_shot: bestShot,
+          total_shots: allShots.length,
+          verified_shots: allShots.filter(s => s.verified).length,
+          pending_shots: allShots.filter(s => !s.verified).length
+        };
+      }));
+
+      // Sort by best shot distance
+      entries.sort((a, b) => {
+        if (!a.best_shot && !b.best_shot) return 0;
+        if (!a.best_shot) return 1;
+        if (!b.best_shot) return -1;
+        if (a.best_shot.is_hole_in_one && !b.best_shot.is_hole_in_one) return -1;
+        if (!a.best_shot.is_hole_in_one && b.best_shot.is_hole_in_one) return 1;
+        return a.best_shot.distance_from_pin_inches - b.best_shot.distance_from_pin_inches;
+      });
+
+      res.json(entries);
+    } else {
+      // Legacy challenge - return basic entries
+      const result = await pool.query(
+        `SELECT
+          wce.*,
+          u.first_name,
+          u.last_name,
+          u.email_address,
+          u.club
+         FROM weekly_challenge_entries wce
+         JOIN users u ON wce.user_id = u.member_id
+         WHERE wce.challenge_id = $1
+         ORDER BY
+           wce.hole_in_one DESC,
+           wce.distance_from_pin_inches ASC NULLS LAST,
+           wce.created_at ASC`,
+        [challengeId]
+      );
+
+      res.json(result.rows);
+    }
+  } catch (err) {
+    console.error('Error fetching challenge entries:', err);
+    res.status(500).json({ error: 'Failed to fetch challenge entries' });
+  }
+});
+
+// GET /api/challenges/:id/my-entry - Get current user's entry
+app.get('/api/challenges/:id/my-entry', authenticateToken, async (req, res) => {
+  try {
+    const { id: challengeId } = req.params;
+    const userId = req.user.member_id;
+
+    const result = await pool.query(
+      'SELECT * FROM weekly_challenge_entries WHERE challenge_id = $1 AND user_id = $2',
+      [challengeId, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Entry not found' });
+    }
+
+    const entry = result.rows[0];
+
+    // Get groups with shots for Five-Shot system
+    const groupsResult = await pool.query(
+      `SELECT g.*,
+              json_agg(s ORDER BY s.shot_number) FILTER (WHERE s.id IS NOT NULL) as shots
+       FROM challenge_shot_groups g
+       LEFT JOIN challenge_shots s ON s.group_id = g.id
+       WHERE g.entry_id = $1
+       GROUP BY g.id
+       ORDER BY g.group_number`,
+      [entry.id]
+    );
+
+    // Get payments
+    const paymentsResult = await pool.query(
+      'SELECT * FROM challenge_payments WHERE entry_id = $1 ORDER BY created_at',
+      [entry.id]
+    );
+
+    // Get best shot for this user
+    const bestShotResult = await pool.query(
+      `SELECT s.*
+       FROM challenge_shots s
+       JOIN challenge_shot_groups g ON s.group_id = g.id
+       WHERE g.entry_id = $1 AND s.distance_from_pin_inches IS NOT NULL
+       ORDER BY s.is_hole_in_one DESC,
+                COALESCE(s.override_distance_inches, s.distance_from_pin_inches) ASC
+       LIMIT 1`,
+      [entry.id]
+    );
+
+    res.json({
+      ...entry,
+      groups: groupsResult.rows,
+      payments: paymentsResult.rows,
+      best_shot: bestShotResult.rows[0] || null
     });
   } catch (err) {
-    console.error('Error fetching player stats:', err);
-    res.status(500).json({ error: 'Failed to fetch player statistics', details: err.message });
+    console.error('Error fetching user entry:', err);
+    res.status(500).json({ error: 'Failed to fetch entry' });
+  }
+});
+
+// POST /api/challenges/:id/entries/:entryId/distance - Submit distance from pin
+app.post('/api/challenges/:id/entries/:entryId/distance', authenticateToken, async (req, res) => {
+  try {
+    const { id: challengeId, entryId } = req.params;
+    const { distance_from_pin_inches, hole_in_one, score_on_hole } = req.body;
+    const userId = req.user.member_id;
+
+    // Verify entry belongs to user or user is admin
+    const entryResult = await pool.query(
+      'SELECT * FROM weekly_challenge_entries WHERE id = $1 AND challenge_id = $2',
+      [entryId, challengeId]
+    );
+
+    if (entryResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Entry not found' });
+    }
+
+    const entry = entryResult.rows[0];
+    const isAdmin = req.user.role === 'Admin';
+
+    if (entry.user_id !== userId && !isAdmin) {
+      return res.status(403).json({ error: 'Not authorized to update this entry' });
+    }
+
+    // Validate distance
+    if (!hole_in_one && (distance_from_pin_inches === null || distance_from_pin_inches < 0 || distance_from_pin_inches > 600)) {
+      return res.status(400).json({ error: 'Invalid distance (must be 0-600 inches)' });
+    }
+
+    const result = await pool.query(
+      `UPDATE weekly_challenge_entries
+       SET distance_from_pin_inches = $1,
+           hole_in_one = $2,
+           score_on_hole = $3,
+           status = 'submitted',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $4
+       RETURNING *`,
+      [hole_in_one ? 0 : distance_from_pin_inches, hole_in_one, score_on_hole, entryId]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error submitting distance:', err);
+    res.status(500).json({ error: 'Failed to submit distance' });
+  }
+});
+
+// POST /api/challenges/:id/entries/:entryId/photo - Upload photo
+app.post('/api/challenges/:id/entries/:entryId/photo', authenticateToken, upload.single('challengePhoto'), async (req, res) => {
+  try {
+    const { id: challengeId, entryId } = req.params;
+    const userId = req.user.member_id;
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Verify entry belongs to user or user is admin
+    const entryResult = await pool.query(
+      'SELECT * FROM weekly_challenge_entries WHERE id = $1 AND challenge_id = $2',
+      [entryId, challengeId]
+    );
+
+    if (entryResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Entry not found' });
+    }
+
+    const entry = entryResult.rows[0];
+    const isAdmin = req.user.role === 'Admin';
+
+    if (entry.user_id !== userId && !isAdmin) {
+      return res.status(403).json({ error: 'Not authorized to update this entry' });
+    }
+
+    // Check if Google Cloud Storage is configured
+    if (!bucket) {
+      // Fallback: Save locally for development
+      console.log('GCS not configured, storing photo locally');
+      const fs = require('fs').promises;
+      const path = require('path');
+
+      const uploadsDir = path.join(__dirname, 'uploads', 'challenges', challengeId.toString());
+      await fs.mkdir(uploadsDir, { recursive: true });
+
+      const fileName = `entry_${entryId}_${Date.now()}.${req.file.mimetype.split('/')[1]}`;
+      const filePath = path.join(uploadsDir, fileName);
+
+      await fs.writeFile(filePath, req.file.buffer);
+
+      const localUrl = `/uploads/challenges/${challengeId}/${fileName}`;
+
+      // Update entry with local photo URL
+      const result = await pool.query(
+        `UPDATE weekly_challenge_entries
+         SET photo_url = $1,
+             photo_uploaded_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING *`,
+        [localUrl, entryId]
+      );
+
+      return res.json({
+        message: 'Photo uploaded successfully (local storage)',
+        photo_url: localUrl,
+        entry: result.rows[0]
+      });
+    }
+
+    // Upload to Google Cloud Storage
+    const fileName = `challenges/${challengeId}/entry_${entryId}_${Date.now()}.${req.file.mimetype.split('/')[1]}`;
+    const blob = bucket.file(fileName);
+    const blobStream = blob.createWriteStream({
+      resumable: false,
+      contentType: req.file.mimetype,
+      predefinedAcl: 'publicRead', // Make file public during upload (works with uniform bucket-level access)
+      metadata: {
+        metadata: {
+          challengeId: challengeId,
+          entryId: entryId,
+          userId: userId
+        }
+      }
+    });
+
+    blobStream.on('error', (err) => {
+      console.error('Error uploading to GCS:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to upload photo to storage', details: err.message });
+      }
+    });
+
+    blobStream.on('finish', async () => {
+      try {
+        // File is already public due to predefinedAcl: 'publicRead' in createWriteStream
+        // Get the public URL
+        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
+
+        // Update entry with photo URL
+        const result = await pool.query(
+          `UPDATE weekly_challenge_entries
+           SET photo_url = $1,
+               photo_uploaded_at = CURRENT_TIMESTAMP,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2
+           RETURNING *`,
+          [publicUrl, entryId]
+        );
+
+        res.json({
+          message: 'Photo uploaded successfully',
+          photo_url: publicUrl,
+          entry: result.rows[0]
+        });
+      } catch (finishErr) {
+        console.error('Error in upload finish handler:', finishErr);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to process uploaded photo', details: finishErr.message });
+        }
+      }
+    });
+
+    blobStream.end(req.file.buffer);
+  } catch (err) {
+    console.error('Error uploading challenge photo:', err);
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Failed to upload photo',
+        details: err.message,
+        hint: 'Check if Google Cloud Storage is properly configured'
+      });
+    }
+  }
+});
+
+// PUT /api/challenges/:id/entries/:entryId/photo/verify - Verify photo (Admin only)
+app.put('/api/challenges/:id/entries/:entryId/photo/verify', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  try {
+    const { entryId } = req.params;
+    const adminId = req.user.member_id;
+
+    const result = await pool.query(
+      `UPDATE weekly_challenge_entries
+       SET photo_verified = true,
+           photo_verified_by = $1,
+           photo_verified_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING *`,
+      [adminId, entryId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Entry not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error verifying photo:', err);
+    res.status(500).json({ error: 'Failed to verify photo' });
+  }
+});
+
+// PUT /api/challenges/:id/entries/:entryId/verify - Verify entry (Admin only)
+app.put('/api/challenges/:id/entries/:entryId/verify', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  try {
+    const { entryId } = req.params;
+    const { distance_from_pin_inches, distance_override_reason } = req.body;
+    const adminId = req.user.member_id;
+
+    const entry = await pool.query(
+      'SELECT * FROM weekly_challenge_entries WHERE id = $1',
+      [entryId]
+    );
+
+    if (entry.rows.length === 0) {
+      return res.status(404).json({ error: 'Entry not found' });
+    }
+
+    const originalDistance = entry.rows[0].distance_from_pin_inches;
+
+    const result = await pool.query(
+      `UPDATE weekly_challenge_entries
+       SET distance_from_pin_inches = $1,
+           original_distance_inches = $2,
+           distance_override_reason = $3,
+           distance_verified = true,
+           distance_verified_by = $4,
+           distance_verified_at = CURRENT_TIMESTAMP,
+           status = 'verified',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5
+       RETURNING *`,
+      [distance_from_pin_inches, originalDistance, distance_override_reason, adminId, entryId]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error verifying entry:', err);
+    res.status(500).json({ error: 'Failed to verify entry' });
+  }
+});
+
+// GET /api/challenges/:id/leaderboard - Get challenge leaderboard
+app.get('/api/challenges/:id/leaderboard', async (req, res) => {
+  try {
+    const { id: challengeId } = req.params;
+
+    const result = await pool.query(
+      `SELECT
+        wce.*,
+        u.first_name,
+        u.last_name,
+        u.club,
+        u.profile_photo_url,
+        ROW_NUMBER() OVER (
+          ORDER BY
+            wce.hole_in_one DESC,
+            wce.distance_from_pin_inches ASC NULLS LAST
+        ) as rank
+       FROM weekly_challenge_entries wce
+       JOIN users u ON wce.user_id = u.member_id
+       WHERE wce.challenge_id = $1
+         AND wce.status IN ('submitted', 'verified', 'winner')
+       ORDER BY
+         wce.hole_in_one DESC,
+         wce.distance_from_pin_inches ASC NULLS LAST`,
+      [challengeId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching leaderboard:', err);
+    res.status(500).json({ error: 'Failed to fetch leaderboard' });
+  }
+});
+
+// POST /api/challenges/:id/finalize - Finalize challenge and determine winner (Admin only)
+app.post('/api/challenges/:id/finalize', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const { id: challengeId } = req.params;
+    const { payout_notes } = req.body;
+    const adminId = req.user.member_id;
+
+    // Get challenge with type info
+    const challengeResult = await client.query(
+      `SELECT wc.*, ct.payout_config
+       FROM weekly_challenges wc
+       LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
+       WHERE wc.id = $1`,
+      [challengeId]
+    );
+
+    if (challengeResult.rows.length === 0) {
+      throw new Error('Challenge not found');
+    }
+
+    const challenge = challengeResult.rows[0];
+
+    if (challenge.status === 'completed') {
+      throw new Error('Challenge already finalized');
+    }
+
+    // Check if this is a Five-Shot Challenge (has challenge_type_id)
+    if (challenge.challenge_type_id && challenge.payout_config) {
+      // NEW FIVE-SHOT CHALLENGE FINALIZATION
+      const payoutConfig = challenge.payout_config;
+      const totalCollected = Number(challenge.total_entry_fees) || 0;
+
+      // Calculate pot breakdown from payout_config
+      const ctpPercentage = payoutConfig.ctp?.pot_percentage || 50;
+      const hioPercentage = payoutConfig.hio?.pot_percentage || 30;
+      const adminPercentage = payoutConfig.admin_fee_percentage || 20;
+
+      const ctpPot = totalCollected * (ctpPercentage / 100);
+      const hioContribution = totalCollected * (hioPercentage / 100);
+      const adminFee = totalCollected * (adminPercentage / 100);
+
+      // Get CTP leaderboard (best shot per user, ranked by distance)
+      const ctpResult = await client.query(
+        `SELECT DISTINCT ON (e.user_id)
+                s.id as shot_id,
+                e.user_id,
+                s.distance_from_pin_inches,
+                s.is_hole_in_one,
+                m.first_name,
+                m.last_name
+         FROM challenge_shots s
+         JOIN challenge_shot_groups g ON s.group_id = g.id
+         JOIN weekly_challenge_entries e ON g.entry_id = e.id
+         JOIN users m ON e.user_id = m.member_id
+         WHERE e.challenge_id = $1 AND s.verified = true
+         ORDER BY e.user_id, s.is_hole_in_one DESC, s.distance_from_pin_inches ASC`,
+        [challengeId]
+      );
+
+      // Rank by distance
+      const rankedCTP = ctpResult.rows
+        .sort((a, b) => {
+          if (a.is_hole_in_one && !b.is_hole_in_one) return -1;
+          if (!a.is_hole_in_one && b.is_hole_in_one) return 1;
+          return a.distance_from_pin_inches - b.distance_from_pin_inches;
+        })
+        .map((entry, idx) => ({ ...entry, rank: idx + 1 }));
+
+      if (rankedCTP.length === 0) {
+        throw new Error('No verified shots to finalize');
+      }
+
+      // Get HIO winners
+      const hioResult = await client.query(
+        `SELECT DISTINCT e.user_id, m.first_name, m.last_name
+         FROM challenge_shots s
+         JOIN challenge_shot_groups g ON s.group_id = g.id
+         JOIN weekly_challenge_entries e ON g.entry_id = e.id
+         JOIN users m ON e.user_id = m.member_id
+         WHERE e.challenge_id = $1 AND s.is_hole_in_one = true AND s.verified = true`,
+        [challengeId]
+      );
+
+      const hioWinners = hioResult.rows;
+      const hasHIO = hioWinners.length > 0;
+
+      // Calculate CTP payouts (top 3 get 50/30/20 split)
+      const ctpSplit = payoutConfig.ctp?.payout_split || [50, 30, 20];
+      const ctpWinners = [];
+
+      for (let i = 0; i < Math.min(rankedCTP.length, ctpSplit.length); i++) {
+        const payout = ctpPot * (ctpSplit[i] / 100);
+        ctpWinners.push({
+          rank: i + 1,
+          user_id: rankedCTP[i].user_id,
+          first_name: rankedCTP[i].first_name,
+          last_name: rankedCTP[i].last_name,
+          distance_inches: rankedCTP[i].distance_from_pin_inches,
+          payout: payout
+        });
+      }
+
+      const ctpPayoutTotal = ctpWinners.reduce((sum, w) => sum + w.payout, 0);
+
+      // Get current HIO jackpot
+      const jackpotResult = await client.query(
+        'SELECT current_amount, weeks_accumulated FROM challenge_hio_jackpot LIMIT 1'
+      );
+      const currentJackpot = Number(jackpotResult.rows[0]?.current_amount) || 0;
+      const weeksAccumulated = Number(jackpotResult.rows[0]?.weeks_accumulated) || 0;
+
+      // Calculate HIO payout
+      let hioPayoutTotal = 0;
+      let hioPayoutPerWinner = 0;
+      let newJackpotTotal = currentJackpot + hioContribution;
+
+      if (hasHIO) {
+        // Split jackpot among HIO winners
+        hioPayoutTotal = newJackpotTotal;
+        hioPayoutPerWinner = hioPayoutTotal / hioWinners.length;
+        newJackpotTotal = 0;
+      }
+
+      // Update HIO jackpot
+      if (jackpotResult.rows.length > 0) {
+        await client.query(
+          `UPDATE challenge_hio_jackpot
+           SET current_amount = $1,
+               weeks_accumulated = $2,
+               updated_at = CURRENT_TIMESTAMP`,
+          [newJackpotTotal, hasHIO ? 0 : weeksAccumulated + 1]
+        );
+      } else {
+        await client.query(
+          `INSERT INTO challenge_hio_jackpot (current_amount, weeks_accumulated)
+           VALUES ($1, $2)`,
+          [newJackpotTotal, hasHIO ? 0 : 1]
+        );
+      }
+
+      // Update challenge
+      await client.query(
+        `UPDATE weekly_challenges
+         SET status = 'completed',
+             has_hole_in_one = $1,
+             hole_in_one_winners = $2,
+             closest_to_pin_winner_id = $3,
+             closest_distance_inches = $4,
+             payout_amount = $5,
+             finalized_by = $6,
+             finalized_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $7`,
+        [
+          hasHIO,
+          hasHIO ? hioWinners.map(w => w.user_id) : [],
+          rankedCTP[0].user_id,
+          rankedCTP[0].distance_from_pin_inches,
+          ctpPayoutTotal + hioPayoutTotal,
+          adminId,
+          challengeId
+        ]
+      );
+
+      // Mark CTP winners in entries
+      for (const winner of ctpWinners) {
+        await client.query(
+          `UPDATE weekly_challenge_entries
+           SET status = 'winner'
+           WHERE challenge_id = $1 AND user_id = $2`,
+          [challengeId, winner.user_id]
+        );
+      }
+
+      // Create payout history for CTP
+      if (ctpWinners.length > 0) {
+        await client.query(
+          `INSERT INTO challenge_payout_history
+           (challenge_id, payout_type, winner_ids, payout_amount_per_winner, total_payout, pot_after_payout, payout_notes)
+           VALUES ($1, 'closest_to_pin', $2, $3, $4, 0, $5)`,
+          [
+            challengeId,
+            ctpWinners.map(w => w.user_id),
+            ctpWinners[0].payout, // First place payout
+            ctpPayoutTotal,
+            payout_notes
+          ]
+        );
+      }
+
+      // Create payout history for HIO if applicable
+      if (hasHIO) {
+        await client.query(
+          `INSERT INTO challenge_payout_history
+           (challenge_id, payout_type, winner_ids, payout_amount_per_winner, total_payout, pot_after_payout, payout_notes)
+           VALUES ($1, 'hole_in_one', $2, $3, $4, 0, $5)`,
+          [
+            challengeId,
+            hioWinners.map(w => w.user_id),
+            hioPayoutPerWinner,
+            hioPayoutTotal,
+            payout_notes
+          ]
+        );
+      }
+
+      await client.query('COMMIT');
+
+      // Fetch updated challenge
+      const updatedChallenge = await client.query(
+        `SELECT wc.*, ct.type_key, ct.type_name, ct.shots_per_group, ct.payout_config
+         FROM weekly_challenges wc
+         LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
+         WHERE wc.id = $1`,
+        [challengeId]
+      );
+
+      res.json({
+        message: 'Challenge finalized successfully',
+        challenge: updatedChallenge.rows[0],
+        ctp_winners: ctpWinners,
+        hio_winners: hioWinners.map(w => ({
+          user_id: w.user_id,
+          first_name: w.first_name,
+          last_name: w.last_name,
+          payout: hioPayoutPerWinner
+        })),
+        pot_breakdown: {
+          total_collected: totalCollected,
+          ctp_pot: ctpPot,
+          hio_contribution: hioContribution,
+          admin_fee: adminFee,
+          ctp_payout_total: ctpPayoutTotal,
+          hio_payout_total: hioPayoutTotal,
+          hio_jackpot_new_total: newJackpotTotal
+        }
+      });
+
+    } else {
+      // LEGACY CHALLENGE FINALIZATION (no challenge_type_id)
+      // Get all verified entries
+      const entriesResult = await client.query(
+        `SELECT * FROM weekly_challenge_entries
+         WHERE challenge_id = $1
+           AND status IN ('submitted', 'verified')
+         ORDER BY hole_in_one DESC, distance_from_pin_inches ASC NULLS LAST`,
+        [challengeId]
+      );
+
+      const entries = entriesResult.rows;
+
+      if (entries.length === 0) {
+        throw new Error('No entries to finalize');
+      }
+
+      // Determine winners
+      const holeInOneWinners = entries.filter(e => e.hole_in_one);
+      const hasHoleInOne = holeInOneWinners.length > 0;
+
+      let winners = [];
+      let payoutType = '';
+
+      if (hasHoleInOne) {
+        winners = holeInOneWinners;
+        payoutType = 'hole_in_one';
+      } else {
+        // Find closest to pin
+        const closestEntry = entries.find(e => e.distance_from_pin_inches !== null);
+        if (closestEntry) {
+          winners = [closestEntry];
+          payoutType = 'closest_to_pin';
+        }
+      }
+
+      if (winners.length === 0) {
+        throw new Error('No valid winner found');
+      }
+
+      // Calculate pot amounts
+      const potAmounts = await calculatePotAmounts(
+        challengeId,
+        challenge.total_entry_fees,
+        hasHoleInOne
+      );
+
+      const payoutPerWinner = potAmounts.payoutAmount / winners.length;
+
+      // Update challenge
+      await client.query(
+        `UPDATE weekly_challenges
+         SET status = 'completed',
+             has_hole_in_one = $1,
+             hole_in_one_winners = $2,
+             closest_to_pin_winner_id = $3,
+             closest_distance_inches = $4,
+             starting_pot = $5,
+             week_entry_contribution = $6,
+             final_pot = $7,
+             payout_amount = $8,
+             rollover_amount = $9,
+             finalized_by = $10,
+             finalized_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $11`,
+        [
+          hasHoleInOne,
+          hasHoleInOne ? winners.map(w => w.user_id) : [],
+          !hasHoleInOne ? winners[0].user_id : null,
+          !hasHoleInOne ? winners[0].distance_from_pin_inches : null,
+          potAmounts.startingPot,
+          potAmounts.weekEntryContribution,
+          potAmounts.finalPot,
+          potAmounts.payoutAmount,
+          potAmounts.rolloverAmount,
+          adminId,
+          challengeId
+        ]
+      );
+
+      // Mark winners
+      for (const winner of winners) {
+        await client.query(
+          `UPDATE weekly_challenge_entries
+           SET status = 'winner'
+           WHERE id = $1`,
+          [winner.id]
+        );
+      }
+
+      // Create payout history
+      await client.query(
+        `INSERT INTO challenge_payout_history
+         (challenge_id, payout_type, winner_ids, payout_amount_per_winner, total_payout, pot_after_payout, payout_notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          challengeId,
+          payoutType,
+          winners.map(w => w.user_id),
+          payoutPerWinner,
+          potAmounts.payoutAmount,
+          potAmounts.rolloverAmount,
+          payout_notes
+        ]
+      );
+
+      // Update challenge pot
+      await updateChallengePot(potAmounts.payoutAmount, potAmounts.rolloverAmount, challengeId);
+
+      await client.query('COMMIT');
+
+      // Fetch updated challenge
+      const updatedChallenge = await pool.query(
+        'SELECT * FROM weekly_challenges WHERE id = $1',
+        [challengeId]
+      );
+
+      res.json({
+        message: 'Challenge finalized successfully',
+        challenge: updatedChallenge.rows[0],
+        winners: winners.map(w => ({
+          user_id: w.user_id,
+          payout: payoutPerWinner
+        })),
+        potAmounts
+      });
+    }
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error finalizing challenge:', err);
+    res.status(500).json({ error: err.message || 'Failed to finalize challenge' });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/challenges/:id/payout-complete - Mark payout as completed (Admin only)
+app.post('/api/challenges/:id/payout-complete', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  try {
+    const { id: challengeId } = req.params;
+    const { payout_notes } = req.body;
+
+    const result = await pool.query(
+      `UPDATE weekly_challenges
+       SET payout_completed = true,
+           payout_notes = $1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING *`,
+      [payout_notes, challengeId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Challenge not found' });
+    }
+
+    // Update payout history
+    await pool.query(
+      `UPDATE challenge_payout_history
+       SET payout_completed = true,
+           payout_completed_at = CURRENT_TIMESTAMP
+       WHERE challenge_id = $1`,
+      [challengeId]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error marking payout complete:', err);
+    res.status(500).json({ error: 'Failed to mark payout complete' });
+  }
+});
+
+// GET /api/challenges/history - Get challenge history
+app.get('/api/challenges/history', async (req, res) => {
+  try {
+    const { limit = 10, offset = 0 } = req.query;
+
+    const result = await pool.query(
+      `SELECT
+        wc.*,
+        (SELECT COUNT(*) FROM weekly_challenge_entries WHERE challenge_id = wc.id) as entry_count
+       FROM weekly_challenges wc
+       WHERE wc.status = 'completed'
+       ORDER BY wc.week_start_date DESC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching challenge history:', err);
+    res.status(500).json({ error: 'Failed to fetch challenge history' });
+  }
+});
+
+// ============================================================================
+// USER ONBOARDING ENDPOINTS
+// ============================================================================
+
+// DELETE /api/user/onboarding - Reset onboarding progress (for testing)
+app.delete('/api/user/onboarding', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.member_id;
+    const clubName = req.query.club || req.user.club || 'No. 5';
+
+    await pool.query(
+      `DELETE FROM user_onboarding WHERE user_id = $1 AND club_name = $2`,
+      [userId, clubName]
+    );
+
+    res.json({ success: true, message: 'Onboarding progress reset' });
+  } catch (err) {
+    console.error('Error resetting onboarding:', err);
+    res.status(500).json({ error: 'Failed to reset onboarding' });
+  }
+});
+
+// GET /api/user/onboarding-status - Get user's onboarding status
+app.get('/api/user/onboarding-status', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.member_id;
+    const clubName = req.query.club || req.user.club || 'No. 5';
+
+    const result = await pool.query(
+      `SELECT
+        welcome_completed,
+        welcome_completed_at,
+        quiz_score,
+        waiver_acknowledged,
+        waiver_acknowledged_at,
+        (welcome_completed AND waiver_acknowledged) as onboarding_complete
+       FROM user_onboarding
+       WHERE user_id = $1 AND club_name = $2`,
+      [userId, clubName]
+    );
+
+    if (result.rows.length === 0) {
+      // No record exists - return default status
+      return res.json({
+        welcome_completed: false,
+        waiver_acknowledged: false,
+        onboarding_complete: false
+      });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error fetching onboarding status:', err);
+    res.status(500).json({ error: 'Failed to fetch onboarding status' });
+  }
+});
+
+// POST /api/user/onboarding/welcome - Complete welcome video + quiz step
+app.post('/api/user/onboarding/welcome', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.member_id;
+    const { quiz_score } = req.body;
+    const clubName = req.body.club || req.user.club || 'No. 5';
+
+    // Validate quiz score (must be 3/3 to pass)
+    if (quiz_score !== 3) {
+      return res.status(400).json({ error: 'Quiz score must be 3/3 to proceed' });
+    }
+
+    // Upsert the onboarding record
+    const result = await pool.query(
+      `INSERT INTO user_onboarding (user_id, club_name, welcome_completed, welcome_completed_at, quiz_score)
+       VALUES ($1, $2, TRUE, NOW(), $3)
+       ON CONFLICT (user_id, club_name)
+       DO UPDATE SET
+         welcome_completed = TRUE,
+         welcome_completed_at = NOW(),
+         quiz_score = $3
+       RETURNING *`,
+      [userId, clubName, quiz_score]
+    );
+
+    res.json({
+      success: true,
+      message: 'Welcome step completed successfully',
+      data: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error saving welcome completion:', err);
+    res.status(500).json({ error: 'Failed to save progress' });
+  }
+});
+
+// POST /api/user/onboarding/waiver - Complete waiver acknowledgement step
+app.post('/api/user/onboarding/waiver', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.member_id;
+    const clubName = req.body?.club || req.user.club || 'No. 5';
+
+    // Get client IP address for legal record-keeping
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+
+    // Check that welcome step is completed first
+    const checkResult = await pool.query(
+      `SELECT welcome_completed FROM user_onboarding WHERE user_id = $1 AND club_name = $2`,
+      [userId, clubName]
+    );
+
+    if (checkResult.rows.length === 0 || !checkResult.rows[0].welcome_completed) {
+      return res.status(400).json({ error: 'Please complete the welcome step first' });
+    }
+
+    // Update waiver acknowledgement
+    await pool.query(
+      `UPDATE user_onboarding
+       SET waiver_acknowledged = TRUE,
+           waiver_acknowledged_at = NOW(),
+           waiver_ip_address = $3
+       WHERE user_id = $1 AND club_name = $2`,
+      [userId, clubName, ipAddress]
+    );
+
+    // Fetch the updated record
+    const result = await pool.query(
+      `SELECT welcome_completed, waiver_acknowledged,
+              (welcome_completed AND waiver_acknowledged) as onboarding_complete
+       FROM user_onboarding WHERE user_id = $1 AND club_name = $2`,
+      [userId, clubName]
+    );
+
+    res.json({
+      success: true,
+      message: 'Waiver acknowledged successfully. Booking access unlocked!',
+      data: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error saving waiver acknowledgement:', err);
+    res.status(500).json({ error: 'Failed to save waiver acknowledgement' });
+  }
+});
+
+// GET /api/user/can-book - Check if user can access booking (has beta + completed onboarding)
+app.get('/api/user/can-book', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.member_id;
+    const clubName = req.query.club || req.user.club || 'No. 5';
+
+    // Check onboarding status
+    const onboardingResult = await pool.query(
+      `SELECT welcome_completed, waiver_acknowledged,
+              (welcome_completed AND waiver_acknowledged) as onboarding_complete
+       FROM user_onboarding WHERE user_id = $1 AND club_name = $2`,
+      [userId, clubName]
+    );
+
+    const onboardingComplete = onboardingResult.rows.length > 0 && onboardingResult.rows[0].onboarding_complete;
+
+    // Check if user has beta feature access
+    const permissionResult = await pool.query(
+      `SELECT 1 FROM users u
+       JOIN role_permissions rp ON u.role_id = rp.role_id
+       JOIN permissions p ON rp.permission_id = p.id
+       WHERE u.member_id = $1 AND p.permission_key = 'access_beta_features'`,
+      [userId]
+    );
+
+    const hasBetaAccess = permissionResult.rows.length > 0;
+
+    res.json({
+      can_book: onboardingComplete && hasBetaAccess,
+      onboarding_complete: onboardingComplete,
+      has_beta_access: hasBetaAccess,
+      needs_onboarding: hasBetaAccess && !onboardingComplete
+    });
+  } catch (err) {
+    console.error('Error checking booking access:', err);
+    res.status(500).json({ error: 'Failed to check booking access' });
   }
 });
 

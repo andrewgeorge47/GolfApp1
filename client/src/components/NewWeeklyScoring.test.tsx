@@ -53,7 +53,9 @@ describe('NewWeeklyScoring', () => {
       viewAsMode: {
         isActive: false,
         originalUser: null,
-        viewAsRole: '',
+        viewAsPermissions: [],
+        viewAsRoles: [],
+        viewAsPrimaryRole: '',
         viewAsClub: ''
       },
       enterViewAsMode: jest.fn(),

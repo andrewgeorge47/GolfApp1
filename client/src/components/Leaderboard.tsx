@@ -20,6 +20,7 @@ import {
   Share2
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
+import { usePermissions } from '../hooks/usePermissions';
 import { getGlobalLeaderboard, getClubLeaderboard, getAllClubs, GlobalLeaderboardData, getTournaments, getSimulatorCourse } from '../services/api';
 import api from '../services/api';
 import ClubLeaderboard from './ClubLeaderboard';
@@ -99,6 +100,10 @@ const Leaderboard: React.FC = () => {
   const [tournamentsLoading, setTournamentsLoading] = useState(false);
   const [selectedTournament, setSelectedTournament] = useState<any | null>(null);
   const [courseData, setCourseData] = useState<any>(null);
+
+  // Check if user has admin access
+  const { hasPermission } = usePermissions();
+  const hasAdminAccess = hasPermission('access_admin_panel');
 
   // Handle URL parameters for direct tournament navigation
   useEffect(() => {
@@ -275,7 +280,7 @@ const Leaderboard: React.FC = () => {
     };
 
     fetchData();
-  }, [user?.club, isAdmin, location.pathname]);
+  }, [user?.club, hasAdminAccess, location.pathname]);
 
   // Fetch club data when needed
   useEffect(() => {

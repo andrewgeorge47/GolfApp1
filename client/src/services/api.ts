@@ -54,6 +54,23 @@ api.interceptors.response.use(
   }
 );
 
+export interface UserRole {
+  role_id: number;
+  role_name: string;
+  role_key: string;
+  role_description: string;
+  is_primary: boolean;
+  assigned_at: string;
+  assigned_by: number | null;
+}
+
+export interface UserPermissions {
+  roles: UserRole[];
+  permissions: string[];
+  permission_details: { permission_key: string; permission_name: string; category: string }[];
+  primary_role: string;
+}
+
 export interface User {
   member_id: number;
   first_name: string;
@@ -66,6 +83,10 @@ export interface User {
   profile_photo_url?: string;
   role: string;
   created_at: string;
+  // Multi-role support
+  roles?: UserRole[];
+  permissions?: string[];
+  primary_role?: string;
 }
 
 export interface Tournament {
@@ -528,6 +549,7 @@ export const claimAccount = (email: string, password: string) => api.post('/auth
 export const resetPassword = (email: string, password: string) => api.post('/auth/reset-password', { email, password });
 export const getCurrentUser = (token: string) => api.get('/auth/me', { headers: { Authorization: `Bearer ${token}` } });
 export const setupPassword = (password: string) => api.post('/auth/setup-password', { password });
+export const getUserPermissions = (userId: number) => api.get<UserPermissions>(`/users/${userId}/permissions`);
 
 export const createTournament = (data: { 
   name: string; 
@@ -1029,176 +1051,6 @@ export const getClubProWeeklyMatches = (tournamentId: number, weekStartDate?: st
   return api.get<{ club: string; matches: WeeklyMatch[] }>(`/club-pro/tournaments/${tournamentId}/weekly-matches${qs}`);
 };
 
-// ============================================================================
-// LEAGUE SCORING API FUNCTIONS
-// ============================================================================
-
-// League Matchup Interfaces
-export interface LeagueMatchup {
-  id: number;
-  league_id: number;
-  week_number: number;
-  division_id: number;
-  team1_id: number;
-  team1_name: string;
-  team2_id: number;
-  team2_name: string;
-  course_id: number;
-  course_name: string;
-  course_rating: number;
-  course_slope: number;
-  course_par: number;
-  hole_indexes: number[];
-  status: string;
-  winner_team_id: number;
-  team1_individual_net: number;
-  team2_individual_net: number;
-  team1_alternate_shot_net: number;
-  team2_alternate_shot_net: number;
-  team1_total_net: number;
-  team2_total_net: number;
-  team1_points: number;
-  team2_points: number;
-  match_date: string;
-  completed_at: string;
-  verified_at: string;
-  verified_by: number;
-}
-
-export interface WeeklyLineup {
-  id: number;
-  matchup_id: number;
-  team_id: number;
-  team_name: string;
-  player1_id: number;
-  player1_name: string;
-  player2_id: number;
-  player2_name: string;
-  player3_id: number;
-  player3_name: string;
-  player1_handicap: number;
-  player2_handicap: number;
-  player3_handicap: number;
-  week_number: number;
-  league_id: number;
-  is_locked: boolean;
-  submitted_at: string;
-  submitted_by: number;
-}
-
-export interface IndividualScore {
-  id: number;
-  matchup_id: number;
-  lineup_id: number;
-  team_id: number;
-  player_id: number;
-  assigned_holes: number[];
-  hole_scores: { [hole: string]: { gross: number; net: number; par: number; strokes_received: number } };
-  gross_total: number;
-  net_total: number;
-  player_handicap: number;
-  course_handicap: number;
-  submitted_at: string;
-}
-
-export interface AlternateShotScore {
-  id: number;
-  matchup_id: number;
-  lineup_id: number;
-  team_id: number;
-  hole_scores: { [hole: string]: { gross: number; net: number; par: number; strokes_received: number } };
-  gross_total: number;
-  net_total: number;
-  team_handicap: number;
-  team_course_handicap: number;
-  submitted_at: string;
-}
-
-// League Matchup API Functions
-export const getLeagueMatchups = (leagueId: number, params?: {
-  week_number?: number;
-  division_id?: number;
-  status?: string;
-}) => {
-  const queryParams = new URLSearchParams();
-  if (params?.week_number) queryParams.append('week_number', params.week_number.toString());
-  if (params?.division_id) queryParams.append('division_id', params.division_id.toString());
-  if (params?.status) queryParams.append('status', params.status);
-  
-  const queryString = queryParams.toString();
-  const url = `/api/leagues/${leagueId}/matchups${queryString ? `?${queryString}` : ''}`;
-  return api.get<LeagueMatchup[]>(url);
-};
-
-export const getMatchupScores = (matchupId: number) => {
-  return api.get<{
-    matchup: LeagueMatchup;
-    lineups: WeeklyLineup[];
-    individualScores: IndividualScore[];
-    alternateShotScores: AlternateShotScore[];
-  }>(`/api/matchups/${matchupId}/scores`);
-};
-
-export const submitIndividualScores = (matchupId: number, data: {
-  team_id: number;
-  player_id: number;
-  lineup_id: number;
-  assigned_holes: number[];
-  hole_scores: { [hole: string]: { gross: number; par: number } };
-  player_handicap: number;
-  course_handicap: number;
-}) => {
-  return api.post<IndividualScore>(`/api/matchups/${matchupId}/scores/individual`, data);
-};
-
-export const submitAlternateShotScores = (matchupId: number, data: {
-  team_id: number;
-  lineup_id: number;
-  hole_scores: { [hole: string]: { gross: number; par: number } };
-  team_handicap: number;
-  team_course_handicap: number;
-}) => {
-  return api.post<AlternateShotScore>(`/api/matchups/${matchupId}/scores/alternate-shot`, data);
-};
-
-export const updateIndividualScores = (matchupId: number, scoreId: number, data: {
-  hole_scores: { [hole: string]: { gross: number; par: number } };
-  player_handicap?: number;
-  course_handicap?: number;
-}) => {
-  return api.put<IndividualScore>(`/api/matchups/${matchupId}/scores/individual/${scoreId}`, data);
-};
-
-export const updateAlternateShotScores = (matchupId: number, scoreId: number, data: {
-  hole_scores: { [hole: string]: { gross: number; par: number } };
-  team_handicap?: number;
-  team_course_handicap?: number;
-}) => {
-  return api.put<AlternateShotScore>(`/api/matchups/${matchupId}/scores/alternate-shot/${scoreId}`, data);
-};
-
-export const verifyMatchupScores = (matchupId: number, data: {
-  action: 'approve' | 'dispute';
-  notes?: string;
-  reason?: string;
-  verified_by: number;
-}) => {
-  if (data.action === 'approve') {
-    return api.post(`/api/matchups/${matchupId}/verify`, data);
-  } else {
-    return api.post(`/api/matchups/${matchupId}/dispute`, data);
-  }
-};
-
-export const getMatchupLineups = (matchupId: number) => {
-  return api.get<WeeklyLineup[]>(`/api/matchups/${matchupId}/lineups`);
-};
-
-export const getTeamLineups = (teamId: number, leagueId?: number) => {
-  const params = leagueId ? `?league_id=${leagueId}` : '';
-  return api.get<WeeklyLineup[]>(`/api/teams/${teamId}/lineups${params}`);
-};
-
 export const getClubProPlayerTournaments = (club?: string) => {
   const params = club ? `?club=${encodeURIComponent(club)}` : '';
   return api.get<{ club: string; players: Array<{
@@ -1264,124 +1116,616 @@ export const getPermissionAuditLog = (limit: number = 50) => {
   return api.get<AuditLogEntry[]>(`/admin/permission-audit-log?limit=${limit}`);
 };
 
-// Player Availability API Functions
-export interface PlayerAvailability {
+// ============================================================================
+// USER ROLE MANAGEMENT API
+// ============================================================================
+
+export interface UserWithRoles {
+  member_id: number;
+  first_name: string;
+  last_name: string;
+  email_address: string;
+  club: string;
+  legacy_role: string;
+  roles: {
+    role_id: number;
+    role_name: string;
+    role_key: string;
+    is_primary: boolean;
+  }[];
+}
+
+// Get all users with their role assignments
+export const getUsersWithRoles = (search?: string, club?: string) => {
+  const params = new URLSearchParams();
+  if (search) params.append('search', search);
+  if (club) params.append('club', club);
+  return api.get<UserWithRoles[]>(`/admin/users-with-roles?${params.toString()}`);
+};
+
+// Assign a role to a user
+export const assignUserRole = (userId: number, roleId: number, isPrimary: boolean = false) => {
+  return api.post(`/admin/users/${userId}/roles`, { role_id: roleId, is_primary: isPrimary });
+};
+
+// Remove a role from a user
+export const removeUserRole = (userId: number, roleId: number) => {
+  return api.delete(`/admin/users/${userId}/roles/${roleId}`);
+};
+
+// Set primary role for a user
+export const setUserPrimaryRole = (userId: number, roleId: number) => {
+  return api.put(`/admin/users/${userId}/primary-role`, { role_id: roleId });
+};
+
+// ============================================================================
+// WEEKLY HOLE-IN-ONE CHALLENGE API
+// ============================================================================
+
+export interface ChallengeEntry {
   id: number;
-  team_id: number;
+  challenge_id: number;
   user_id: number;
-  league_id: number;
-  week_number: number;
-  is_available: boolean;
-  availability_notes: string;
+  scorecard_id?: number;
+  entry_paid: boolean;
+  payment_method?: string;
+  payment_amount?: number;
+  payment_notes?: string;
+  payment_submitted_at?: string;
+  hole_in_one: boolean;
+  distance_from_pin_inches?: number;
+  score_on_hole?: number;
+  photo_url?: string;
+  photo_uploaded_at?: string;
+  photo_verified: boolean;
+  photo_verified_by?: number;
+  photo_verified_at?: string;
+  distance_verified: boolean;
+  distance_verified_by?: number;
+  distance_verified_at?: string;
+  distance_override_reason?: string;
+  original_distance_inches?: number;
+  status: 'pending' | 'submitted' | 'verified' | 'winner';
+  created_at: string;
+  updated_at: string;
+  // Joined user fields (from GET entries)
+  first_name?: string;
+  last_name?: string;
+  email_address?: string;
+  club?: string;
+  profile_photo_url?: string;
+  rank?: number;
+}
+
+export interface WeeklyChallenge {
+  id: number;
+  challenge_name: string;
+  designated_hole: number;
+  entry_fee: number;
+  week_start_date: string;
+  week_end_date: string;
+  status: 'active' | 'completed' | 'cancelled';
+  total_entries: number;
+  total_entry_fees: number;
+  starting_pot: number;
+  week_entry_contribution: number;
+  final_pot: number;
+  payout_amount: number;
+  rollover_amount: number;
+  has_hole_in_one: boolean;
+  hole_in_one_winners?: number[];
+  closest_to_pin_winner_id?: number;
+  closest_distance_inches?: number;
+  payout_completed: boolean;
+  payout_notes?: string;
+  finalized_by?: number;
+  finalized_at?: string;
+  created_at: string;
+  updated_at: string;
+  entry_count?: number;
+}
+
+export interface ChallengePot {
+  id: number;
+  current_amount: number;
+  total_contributions: number;
+  last_payout_amount?: number;
+  last_payout_date?: string;
+  weeks_accumulated: number;
+  updated_at: string;
+}
+
+export interface ChallengePayoutHistory {
+  id: number;
+  challenge_id: number;
+  payout_type: 'hole_in_one' | 'closest_to_pin';
+  winner_ids: number[];
+  payout_amount_per_winner: number;
+  total_payout: number;
+  pot_after_payout: number;
+  payout_method?: string;
+  payout_notes?: string;
+  payout_completed: boolean;
+  payout_completed_at?: string;
+  created_at: string;
+}
+
+// ============================================================================
+// FIVE-SHOT CHALLENGE SYSTEM INTERFACES
+// ============================================================================
+
+export interface PayoutConfig {
+  ctp: {
+    enabled: boolean;
+    pot_percentage: number;
+    payout_split: number[]; // e.g., [50, 30, 20] for top 3
+    description?: string;
+  };
+  hio: {
+    enabled: boolean;
+    pot_percentage: number;
+    rolling_jackpot: boolean;
+    description?: string;
+  };
+  admin_fee_percentage: number;
+}
+
+export interface ChallengeType {
+  id: number;
+  type_key: string;
+  type_name: string;
+  description?: string;
+  shots_per_group: number;
+  max_reups?: number | null; // null = unlimited
+  default_entry_fee: number;
+  default_reup_fee: number;
+  payout_config: PayoutConfig;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
 
-export interface TeamMemberAvailability {
-  member_id: number;
-  first_name: string;
-  last_name: string;
-  handicap: number;
-  role: 'captain' | 'member';
-  availability_status: 'available' | 'unavailable' | 'pending';
-  last_updated?: string;
-  notes?: string;
-}
-
-export interface WeekAvailability {
-  week_start_date: string;
-  week_end_date: string;
-  members: TeamMemberAvailability[];
-}
-
-// Submit player availability
-export const submitPlayerAvailability = (teamId: number, data: {
-  league_id: number;
-  week_number: number;
-  is_available: boolean;
-  availability_notes?: string;
-}) => api.post<PlayerAvailability>(`/teams/${teamId}/availability`, data);
-
-// Get team availability for a specific week
-export const getTeamAvailability = (teamId: number, weekNumber: number, leagueId: number) => {
-  return api.get<WeekAvailability>(`/teams/${teamId}/availability/week/${weekNumber}?league_id=${leagueId}`);
-};
-
-// Update player availability
-export const updatePlayerAvailability = (teamId: number, availabilityId: number, data: {
-  is_available: boolean;
-  availability_notes?: string;
-}) => api.put<PlayerAvailability>(`/teams/${teamId}/availability/${availabilityId}`, data);
-
-// Player Team View API Functions
-export interface TeamMember {
-  user_member_id: number;
-  first_name: string;
-  last_name: string;
-  email_address: string;
-  handicap: number;
-  is_captain: boolean;
-  phone?: string;
-}
-
-export interface UpcomingMatch {
+export interface ChallengePayment {
   id: number;
-  week_number: number;
-  week_start_date: string;
-  week_end_date: string;
-  opponent_name: string;
-  opponent_captain_name: string;
+  entry_id: number;
+  payment_type: 'entry' | 'reup';
+  amount: number;
+  payment_method?: string;
+  payment_reference?: string;
+  payment_status: 'pending' | 'completed' | 'failed' | 'refunded';
+  payment_timestamp: string;
+  verified_by?: number;
+  verified_at?: string;
+  covers_group_number: number;
+  created_at: string;
+}
+
+export interface ChallengeShotGroup {
+  id: number;
+  entry_id: number;
+  payment_id?: number;
+  group_number: number;
+  group_screenshot_url?: string;
+  screenshot_date?: string;
+  status: 'purchased' | 'submitted' | 'verified' | 'disqualified';
+  admin_notes?: string;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  shots?: ChallengeShot[];
+  payment?: ChallengePayment;
+}
+
+export interface ChallengeShot {
+  id: number;
+  group_id: number;
+  shot_number: number;
+  distance_from_pin_inches?: number;
+  is_hole_in_one: boolean;
+  detail_screenshot_url?: string;
+  submitted_at?: string;
+  verified: boolean;
+  verified_by?: number;
+  verified_at?: string;
+  override_distance_inches?: number;
+  override_reason?: string;
+  created_at: string;
+  // Computed field
+  effective_distance?: number; // override_distance_inches || distance_from_pin_inches
+}
+
+export interface ChallengeHIOJackpot {
+  id: number;
+  current_amount: number;
+  total_contributions: number;
+  last_won_amount?: number;
+  last_won_date?: string;
+  last_winner_id?: number;
+  weeks_accumulated: number;
+  updated_at: string;
+}
+
+// Extended WeeklyChallenge with Five-Shot fields
+export interface WeeklyChallengeExtended extends WeeklyChallenge {
+  challenge_type_id?: number;
+  challenge_type?: ChallengeType;
+  course_id?: number;
   course_name?: string;
-  course_rating?: number;
-  course_slope?: number;
-  course_par?: number;
-  status: 'scheduled' | 'in_progress' | 'completed';
-  match_date?: string;
+  required_distance_yards?: number;
+  hio_jackpot_amount?: number;
+  admin_fee_collected?: number;
+  ctp_pot_amount?: number;
 }
 
-export interface TeamStats {
-  team_id: number;
-  wins: number;
-  losses: number;
-  ties: number;
-  total_points: number;
-  aggregate_net_total: number;
-  league_position: number;
-  total_teams: number;
+// Extended ChallengeEntry with Five-Shot fields
+export interface ChallengeEntryExtended extends ChallengeEntry {
+  groups_purchased: number;
+  total_paid: number;
+  groups?: ChallengeShotGroup[];
+  payments?: ChallengePayment[];
+  // Best shot for leaderboard
+  best_shot?: ChallengeShot;
 }
 
-export interface TeamData {
-  team: {
-    id: number;
-    name: string;
-    captain_id: number;
-    league_id: number;
-    division_id: number;
-    league_points: number;
-    aggregate_net_score: number;
-    created_at: string;
-  };
-  roster: TeamMember[];
-  upcomingMatches: UpcomingMatch[];
-  standings: TeamStats;
+// Leaderboard entry for CTP
+export interface CTPLeaderboardEntry {
+  rank: number;
+  user_id: number;
+  entry_id: number;
+  shot_id: number;
+  distance_inches: number;
+  is_hole_in_one: boolean;
+  submitted_at: string;
+  verified: boolean;
+  // User info
+  first_name: string;
+  last_name: string;
+  club?: string;
+  profile_photo_url?: string;
 }
 
-// Get user's teams
-export const getUserTeams = () => api.get<TeamData[]>('/user/teams');
+// HIO entry for jackpot leaderboard
+export interface HIOLeaderboardEntry {
+  user_id: number;
+  entry_id: number;
+  shot_id: number;
+  group_number: number;
+  shot_number: number;
+  submitted_at: string;
+  verified: boolean;
+  detail_screenshot_url?: string;
+  // User info
+  first_name: string;
+  last_name: string;
+  club?: string;
+  profile_photo_url?: string;
+}
 
-// Get team dashboard data
-export const getTeamDashboard = (teamId: number, leagueId: number) => {
-  return api.get<TeamData>(`/captain/team/${teamId}/dashboard?league_id=${leagueId}`);
+// Get current challenge pot
+export const getChallengePot = () => {
+  return api.get<ChallengePot>('/challenges/pot');
 };
 
-// Get available weeks for a league
-export const getLeagueAvailableWeeks = (leagueId: number) => {
-  return api.get<Array<{
-    week_number: number;
-    week_start_date: string;
-    week_end_date: string;
-    is_current_week: boolean;
-  }>>(`/leagues/${leagueId}/available-weeks`);
+// Create new weekly challenge (Admin only)
+export const createChallenge = (data: {
+  challenge_name: string;
+  designated_hole: number;
+  entry_fee: number;
+  week_start_date: string;
+  week_end_date: string;
+}) => {
+  return api.post<WeeklyChallenge>('/challenges', data);
+};
+
+// Get all challenges
+export const getChallenges = (params?: {
+  status?: 'active' | 'completed' | 'cancelled';
+  limit?: number;
+  offset?: number;
+}) => {
+  return api.get<WeeklyChallenge[]>('/challenges', { params });
+};
+
+// Get active challenge
+export const getActiveChallenge = () => {
+  return api.get<WeeklyChallenge>('/challenges/active');
+};
+
+// Get specific challenge
+export const getChallenge = (id: number) => {
+  return api.get<WeeklyChallenge>(`/challenges/${id}`);
+};
+
+// Update challenge (Admin only)
+export const updateChallenge = (id: number, data: Partial<WeeklyChallenge>) => {
+  return api.put<WeeklyChallenge>(`/challenges/${id}`, data);
+};
+
+// Delete/cancel challenge (Admin only)
+export const deleteChallenge = (id: number) => {
+  return api.delete<{ message: string; challenge: WeeklyChallenge }>(`/challenges/${id}`);
+};
+
+// Enter a challenge
+export const enterChallenge = (challengeId: number, data: {
+  payment_method: string;
+  payment_amount: number;
+  payment_notes?: string;
+}) => {
+  return api.post<ChallengeEntry>(`/challenges/${challengeId}/enter`, data);
+};
+
+// Get all entries for a challenge
+export const getChallengeEntries = (challengeId: number) => {
+  return api.get<ChallengeEntry[]>(`/challenges/${challengeId}/entries`);
+};
+
+// Get current user's entry
+export const getMyChallengeEntry = (challengeId: number) => {
+  return api.get<ChallengeEntry>(`/challenges/${challengeId}/my-entry`);
+};
+
+// Submit distance from pin
+export const submitChallengeDistance = (challengeId: number, entryId: number, data: {
+  distance_from_pin_inches?: number;
+  hole_in_one: boolean;
+  score_on_hole?: number;
+}) => {
+  return api.post<ChallengeEntry>(`/challenges/${challengeId}/entries/${entryId}/distance`, data);
+};
+
+// Upload photo for challenge entry
+export const uploadChallengePhoto = (challengeId: number, entryId: number, file: File) => {
+  const formData = new FormData();
+  formData.append('challengePhoto', file);
+
+  return api.post<{ message: string; photo_url: string; entry: ChallengeEntry }>(
+    `/challenges/${challengeId}/entries/${entryId}/photo`,
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+};
+
+// Verify photo (Admin only)
+export const verifyChallengePhoto = (challengeId: number, entryId: number) => {
+  return api.put<ChallengeEntry>(`/challenges/${challengeId}/entries/${entryId}/photo/verify`, {});
+};
+
+// Verify entry (Admin only)
+export const verifyChallengeEntry = (challengeId: number, entryId: number, data: {
+  distance_from_pin_inches: number;
+  distance_override_reason?: string;
+}) => {
+  return api.put<ChallengeEntry>(`/challenges/${challengeId}/entries/${entryId}/verify`, data);
+};
+
+// Get challenge leaderboard
+export const getChallengeLeaderboard = (challengeId: number) => {
+  return api.get<ChallengeEntry[]>(`/challenges/${challengeId}/leaderboard`);
+};
+
+// Finalize challenge and determine winner (Admin only)
+export const finalizeChallenge = (challengeId: number, payout_notes?: string) => {
+  return api.post<{
+    message: string;
+    challenge: WeeklyChallenge;
+    winners: { user_id: number; payout: number }[];
+    potAmounts: {
+      startingPot: number;
+      weekEntryContribution: number;
+      finalPot: number;
+      payoutAmount: number;
+      rolloverAmount: number;
+    };
+  }>(`/challenges/${challengeId}/finalize`, { payout_notes });
+};
+
+// Mark payout as completed (Admin only)
+export const markPayoutComplete = (challengeId: number, payout_notes?: string) => {
+  return api.post<WeeklyChallenge>(`/challenges/${challengeId}/payout-complete`, { payout_notes });
+};
+
+// Get challenge history
+export const getChallengeHistory = (params?: { limit?: number; offset?: number }) => {
+  return api.get<WeeklyChallenge[]>('/challenges/history', { params });
+};
+
+// ============================================================================
+// FIVE-SHOT CHALLENGE API FUNCTIONS
+// ============================================================================
+
+// Get all challenge types
+export const getChallengeTypes = () => {
+  return api.get<ChallengeType[]>('/challenges/types');
+};
+
+// Get HIO jackpot
+export const getHIOJackpot = () => {
+  return api.get<ChallengeHIOJackpot>('/challenges/hio-jackpot');
+};
+
+// Create challenge with type (Admin only)
+export const createChallengeWithType = (data: {
+  challenge_type_id: number;
+  challenge_name: string;
+  course_id: number;
+  designated_hole: number;
+  required_distance_yards: number;
+  entry_fee?: number; // override type default
+  week_start_date: string;
+  week_end_date: string;
+}) => {
+  return api.post<WeeklyChallengeExtended>('/challenges', data);
+};
+
+// Enter challenge (creates entry + first payment + first group)
+export const enterChallengeWithPayment = (challengeId: number, data: {
+  payment_method: string;
+  payment_reference?: string;
+}) => {
+  return api.post<{
+    entry: ChallengeEntryExtended;
+    payment: ChallengePayment;
+    group: ChallengeShotGroup;
+  }>(`/challenges/${challengeId}/enter`, data);
+};
+
+// Purchase re-up (additional group)
+export const purchaseReup = (challengeId: number, data: {
+  payment_method: string;
+  payment_reference?: string;
+}) => {
+  return api.post<{
+    payment: ChallengePayment;
+    group: ChallengeShotGroup;
+    entry: ChallengeEntryExtended;
+  }>(`/challenges/${challengeId}/reup`, data);
+};
+
+// Create Stripe payment intent for challenge entry/reup
+export const createChallengePaymentIntent = (challengeId: number, is_reup: boolean = false) => {
+  return api.post<{
+    clientSecret: string;
+    amount: number;
+    paymentIntentId: string;
+  }>(`/challenges/${challengeId}/create-payment-intent`, { is_reup });
+};
+
+// Confirm Stripe payment and create entry/reup
+export const confirmChallengeStripePayment = (challengeId: number, data: {
+  payment_intent_id: string;
+  is_reup: boolean;
+}) => {
+  return api.post<{
+    message: string;
+    entry?: ChallengeEntryExtended;
+    group: ChallengeShotGroup;
+    payment: ChallengePayment;
+  }>(`/challenges/${challengeId}/confirm-stripe-payment`, data);
+};
+
+// Get user's entry with groups and shots
+export const getMyChallengeEntryExtended = (challengeId: number) => {
+  return api.get<ChallengeEntryExtended>(`/challenges/${challengeId}/my-entry`);
+};
+
+// Upload group screenshot
+export const uploadGroupScreenshot = (
+  challengeId: number,
+  groupId: number,
+  file: File,
+  screenshot_date?: string
+) => {
+  const formData = new FormData();
+  formData.append('groupScreenshot', file);
+  if (screenshot_date) {
+    formData.append('screenshot_date', screenshot_date);
+  }
+
+  return api.post<{
+    message: string;
+    group: ChallengeShotGroup;
+  }>(`/challenges/${challengeId}/groups/${groupId}/screenshot`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
+
+// Submit shots for a group (1 to N shots)
+export const submitGroupShots = (
+  challengeId: number,
+  groupId: number,
+  shots: Array<{
+    shot_number: number;
+    distance_from_pin_inches?: number;
+    is_hole_in_one: boolean;
+  }>
+) => {
+  return api.post<{
+    message: string;
+    shots: ChallengeShot[];
+    group: ChallengeShotGroup;
+  }>(`/challenges/${challengeId}/groups/${groupId}/shots`, { shots });
+};
+
+// Upload detail screenshot for specific shot
+export const uploadShotDetail = (
+  challengeId: number,
+  shotId: number,
+  file: File
+) => {
+  const formData = new FormData();
+  formData.append('shotDetail', file);
+
+  return api.post<{
+    message: string;
+    shot: ChallengeShot;
+  }>(`/challenges/${challengeId}/shots/${shotId}/detail`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
+
+// Get group with shots
+export const getChallengeGroup = (challengeId: number, groupId: number) => {
+  return api.get<ChallengeShotGroup>(`/challenges/${challengeId}/groups/${groupId}`);
+};
+
+// Get CTP leaderboard
+export const getCTPLeaderboard = (challengeId: number) => {
+  return api.get<CTPLeaderboardEntry[]>(`/challenges/${challengeId}/leaderboard/ctp`);
+};
+
+// Get HIO leaderboard
+export const getHIOLeaderboard = (challengeId: number) => {
+  return api.get<HIOLeaderboardEntry[]>(`/challenges/${challengeId}/leaderboard/hio`);
+};
+
+// Admin: Verify payment
+export const verifyPayment = (challengeId: number, paymentId: number) => {
+  return api.put<ChallengePayment>(`/challenges/${challengeId}/payments/${paymentId}/verify`, {});
+};
+
+// Admin: Get all payments for challenge
+export const getChallengePayments = (challengeId: number) => {
+  return api.get<ChallengePayment[]>(`/challenges/${challengeId}/payments`);
+};
+
+// Admin: Verify shot
+export const verifyShot = (challengeId: number, shotId: number, data?: {
+  override_distance_inches?: number;
+  override_reason?: string;
+}) => {
+  return api.put<ChallengeShot>(`/challenges/${challengeId}/shots/${shotId}/verify`, data || {});
+};
+
+// Admin: Finalize with dual payouts
+export const finalizeChallengeWithPayouts = (challengeId: number, payout_notes?: string) => {
+  return api.post<{
+    message: string;
+    challenge: WeeklyChallengeExtended;
+    ctp_winners: Array<{
+      rank: number;
+      user_id: number;
+      distance_inches: number;
+      payout: number;
+    }>;
+    hio_winners: Array<{
+      user_id: number;
+      payout: number;
+    }>;
+    pot_breakdown: {
+      total_collected: number;
+      ctp_pot: number;
+      hio_contribution: number;
+      admin_fee: number;
+      ctp_payout_total: number;
+      hio_payout_total: number;
+      hio_jackpot_new_total: number;
+    };
+  }>(`/challenges/${challengeId}/finalize`, { payout_notes });
 };
 
 export default api; 
