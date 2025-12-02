@@ -12,12 +12,13 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 import { toast } from 'react-toastify';
-import { 
-  getUserTeams, 
-  getLeagueAvailableWeeks, 
-  submitPlayerAvailability,
-  getTeamAvailability 
-} from '../services/api';
+// TODO: Re-enable when league endpoints are rebuilt with permission system
+// import {
+//   getUserTeams,
+//   getLeagueAvailableWeeks,
+//   submitPlayerAvailability,
+//   getTeamAvailability
+// } from '../services/api';
 
 interface AvailabilityFormData {
   league_id: number;

@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Users, Trophy, Medal, BarChart3, User, Menu, X, MapPin, LogIn, Calendar, Target, TrendingUp, Crown } from 'lucide-react';
+import { Home, Users, Trophy, Medal, BarChart3, User, Menu, X, MapPin, LogIn, Calendar, Target, TrendingUp, Crown, Wrench } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Leaderboard from './components/Leaderboard';
 import Scoring from './components/Scoring';
 import TournamentScoring from './components/TournamentScoring';
 import Admin from './components/Admin';
+import AdminLanding from './components/AdminLanding';
+import AdminUsers from './components/AdminUsers';
+import AdminClubs from './components/AdminClubs';
+import AdminEngagement from './components/AdminEngagement';
+import AdminFeatureTesting from './components/AdminFeatureTesting';
 import TournamentManagement from './components/TournamentManagement';
 import Profile from './components/Profile';
 import SimulatorCourses from './components/SimulatorCourses';
@@ -43,6 +48,11 @@ import ChallengeLeaderboard from './components/ChallengeLeaderboard';
 import ChallengeDistanceSubmission from './components/ChallengeDistanceSubmission';
 import WeeklyChallengeAdmin from './components/WeeklyChallengeAdmin';
 import ComponentShowcase from './components/ComponentShowcase';
+import SignupManager from './components/SignupManager';
+import SignupDetails from './components/SignupDetails';
+import SignupList from './components/SignupList';
+import SignupRegistration from './components/SignupRegistration';
+import { SimulatorBuilder } from './components/SimulatorBuilder';
 
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -344,9 +354,6 @@ function Navigation() {
     { to: "/simulator-courses", icon: MapPin, label: "Neighborhood Courses" },
     { to: "https://neighborhood-national.mn.co/", icon: Users, label: "Community", external: true },
     ...(user ? [
-      { to: "/captain-dashboard", icon: Crown, label: "Captain Dashboard" },
-      { to: "/league-scoring", icon: Target, label: "League Scoring" },
-      { to: "/league-standings/1", icon: BarChart3, label: "League Standings" },
       { to: "/profile", icon: User, label: "Profile" }
     ] : []),
   ];
@@ -558,6 +565,11 @@ function AppContent() {
             <SimulatorCourses />
           </main>
         } />
+        <Route path="/simulator-builder" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <SimulatorBuilder />
+          </main>
+        } />
         <Route path="/profile" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <ProtectedRoute><Profile /></ProtectedRoute>
@@ -565,7 +577,32 @@ function AppContent() {
         } />
         <Route path="/admin" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-            <ProtectedRoute><Admin /></ProtectedRoute>
+            <AdminProtectedRoute><AdminLanding /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/users" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><AdminUsers /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/clubs" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><AdminClubs /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/engagement" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><AdminEngagement /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/feature-testing" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><AdminFeatureTesting /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/club-management" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><BookingSettingsAdmin /></AdminProtectedRoute>
           </main>
         } />
         <Route path="/tournament-management" element={
@@ -711,6 +748,30 @@ function AppContent() {
         <Route path="/challenges/admin" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <AdminProtectedRoute><WeeklyChallengeAdmin /></AdminProtectedRoute>
+          </main>
+        } />
+
+        {/* User-facing Signups */}
+        <Route path="/signups/:id" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <SignupRegistration />
+          </main>
+        } />
+        <Route path="/signups" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <SignupList />
+          </main>
+        } />
+
+        {/* Signup Management */}
+        <Route path="/admin/signups/:id" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><SignupDetails /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/signups" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><SignupManager /></AdminProtectedRoute>
           </main>
         } />
 

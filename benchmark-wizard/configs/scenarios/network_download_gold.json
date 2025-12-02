@@ -1,0 +1,22 @@
+{
+  "$schema": "../scenario.schema.json",
+  "id": "network_download_gold",
+  "name": "NN Network Readiness",
+  "description": "Downloads a 1 GB synthetic course file to classify NN host readiness.",
+  "version": "0.1.0",
+  "type": "network",
+  "tags": ["network", "nn"],
+  "network": {
+    "test_file_url": "https://nn-benchmark.example.com/gspro-course-test-1gb.bin",
+    "test_file_size_bytes": 1073741824,
+    "max_duration_seconds": 180
+  },
+  "instructions": [
+    "Optional: pause other large downloads before running.",
+    "Benchmark stores only aggregate throughput and deletes the test file after completion."
+  ],
+  "metrics_targets": {
+    "avg_fps": 0,
+    "p1_fps": 0
+  }
+}

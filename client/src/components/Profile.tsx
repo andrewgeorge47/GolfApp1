@@ -615,9 +615,18 @@ const Profile: React.FC = () => {
                     </button>
                   )}
                   {user?.role?.toLowerCase() === 'admin' && !isEditing && (
-                    <div className="ml-2 sm:ml-3">
-                      <ViewAsMode />
-                    </div>
+                    <>
+                      <button
+                        onClick={() => navigate('/admin')}
+                        className="ml-2 sm:ml-3 flex items-center justify-center p-1.5 sm:p-2 bg-white/10 backdrop-blur-sm text-white rounded-full hover:bg-white/20 transition-all duration-200 border border-white/20 hover:border-white/30 shadow-lg hover:shadow-xl"
+                        title="Admin Dashboard"
+                      >
+                        <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
+                      </button>
+                      <div className="ml-2 sm:ml-3">
+                        <ViewAsMode />
+                      </div>
+                    </>
                   )}
                 </h1>
                 <div className="bg-white/20 backdrop-blur-sm rounded-full px-2 sm:px-3 py-1 text-xs sm:text-sm font-medium">
@@ -671,22 +680,6 @@ const Profile: React.FC = () => {
               </div>
               {user?.role?.toLowerCase() === 'admin' && (
                 <div className="flex flex-col gap-2 w-full sm:w-auto">
-                  <button
-                    onClick={() => navigate('/user-tracking')}
-                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-3 sm:px-4 py-2 border border-brand-neon-green/40 flex items-center justify-center space-x-2 shadow-sm transition-colors font-medium text-sm sm:text-base"
-                  >
-                    <BarChart3 className="w-3 h-3 sm:w-4 sm:h-4" />
-                    <span className="hidden sm:inline">User Tracking Dashboard</span>
-                    <span className="sm:hidden">User Tracking</span>
-                  </button>
-                  <button
-                    onClick={() => navigate('/tournament-management')}
-                    className="bg-brand-neon-green/90 hover:bg-brand-neon-green text-brand-black rounded-full px-3 sm:px-4 py-2 border border-brand-neon-green/40 flex items-center justify-center space-x-2 shadow-sm transition-colors font-medium text-sm sm:text-base"
-                  >
-                    <Settings className="w-3 h-3 sm:w-4 sm:h-4" />
-                    <span className="hidden sm:inline">Tournament Management</span>
-                    <span className="sm:hidden">Tournaments</span>
-                  </button>
                   <a
                     href="https://docs.google.com/forms/d/e/1FAIpQLSdgJYkNMW4RzG8wZFVt8zS1sfe_m8Ejtvg23OSUUggOVtQOSw/viewform"
                     target="_blank"
@@ -1471,22 +1464,6 @@ const Profile: React.FC = () => {
         </div>
       )}
 
-      {user?.role?.toLowerCase() === 'admin' && (
-        <div className="mt-4 flex flex-col sm:flex-row gap-2">
-          <button
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium"
-            onClick={() => navigate('/simulator-booking')}
-          >
-            Manage Simulator Bookings
-          </button>
-          <button
-            className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 font-medium"
-            onClick={() => navigate('/booking-settings')}
-          >
-            Booking Settings
-          </button>
-        </div>
-      )}
 
       {/* Track Round Modal */}
       <TrackRoundModal

@@ -1,0 +1,19 @@
+{
+  "$schema": "../lm_profile.schema.json",
+  "id": "driver_high_spin",
+  "name": "Generic Driver (High Spin)",
+  "description": "Baseline driver swing for scripted scenarios.",
+  "club": "Driver",
+  "ball_speed_mph": 155,
+  "club_speed_mph": 108,
+  "launch_angle_deg": 12,
+  "side_angle_deg": 1,
+  "spin_rpm": 2800,
+  "axis_tilt_deg": -2,
+  "carry_distance_yds": 274,
+  "variation": {
+    "ball_speed_mph": 2,
+    "launch_angle_deg": 0.5,
+    "spin_rpm": 150
+  }
+}

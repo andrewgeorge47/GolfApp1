@@ -262,3 +262,11 @@ export {
   type FeedItemVariant,
   type FeedItemStatus
 } from './FeedItem';
+
+// Page Header Components
+export {
+  PageHeader,
+  PageHeaderWithBack,
+  type PageHeaderProps,
+  type PageHeaderWithBackProps
+} from './PageHeader';

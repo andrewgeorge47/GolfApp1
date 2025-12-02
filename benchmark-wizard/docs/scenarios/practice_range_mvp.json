@@ -1,0 +1,41 @@
+{
+  "$schema": "../scenario.schema.json",
+  "id": "practice_range_mvp",
+  "name": "Practice Range (MVP)",
+  "description": "Manual setup scenario for MVP v0 capturing a single practice-range session at 1080p High.",
+  "version": "0.1.0",
+  "type": "gameplay",
+  "tags": ["mvp", "range", "1080p"],
+  "resolution": "1920x1080",
+  "graphics_preset": "High",
+  "course": "Practice Range",
+  "tee": "Default",
+  "time_of_day": "Noon",
+  "wind": "Calm",
+  "camera_mode": "Follow",
+  "duration_seconds": 180,
+  "warmup_seconds": 15,
+  "instructions": [
+    "Launch GSPro and open the Practice Range.",
+    "Set resolution to 1920x1080 and graphics preset to High.",
+    "Ensure solo player mode and camera follow is enabled."
+  ],
+  "shots": [
+    {
+      "club": "Driver",
+      "lm_profile_id": "driver_high_spin",
+      "count": 8,
+      "interval_seconds": 6
+    },
+    {
+      "club": "7 Iron",
+      "lm_profile_id": "seven_iron_stock",
+      "count": 10,
+      "interval_seconds": 5
+    }
+  ],
+  "metrics_targets": {
+    "avg_fps": 120,
+    "p1_fps": 90
+  }
+}

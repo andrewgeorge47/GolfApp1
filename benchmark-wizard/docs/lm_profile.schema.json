@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://nn.dev/gspro-benchmark/lm_profile.schema.json",
+  "title": "Launch Monitor Profile",
+  "description": "Defines reusable LM payload templates for the GSPro Benchmark Wizard.",
+  "type": "object",
+  "required": ["id", "name", "club", "ball_speed_mph", "launch_angle_deg", "spin_rpm"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_\\-]+$",
+      "description": "Stable identifier used by scenarios."
+    },
+    "name": {
+      "type": "string",
+      "description": "Human friendly label."
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional help text."
+    },
+    "club": {
+      "type": "string",
+      "description": "Club archetype this profile emulates."
+    },
+    "ball_speed_mph": {
+      "type": "number",
+      "minimum": 1,
+      "description": "Ball speed in mph."
+    },
+    "club_speed_mph": {
+      "type": "number",
+      "minimum": 1,
+      "description": "Club speed in mph."
+    },
+    "launch_angle_deg": {
+      "type": "number",
+      "description": "Launch angle in degrees."
+    },
+    "side_angle_deg": {
+      "type": "number",
+      "description": "Side angle in degrees."
+    },
+    "backspin_rpm": {
+      "type": "number",
+      "description": "Backspin rpm."
+    },
+    "sidespin_rpm": {
+      "type": "number",
+      "description": "Side spin rpm (+ right, - left)."
+    },
+    "spin_rpm": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Alias for total spin rpm when axis is not provided."
+    },
+    "axis_tilt_deg": {
+      "type": "number",
+      "description": "Spin axis tilt in degrees."
+    },
+    "ball_direction_deg": {
+      "type": "number",
+      "description": "Optional ball direction."
+    },
+    "launch_direction_deg": {
+      "type": "number",
+      "description": "Optional launch direction."
+    },
+    "carry_distance_yds": {
+      "type": "number",
+      "description": "Optional carry distance target for documentation."
+    },
+    "variation": {
+      "type": "object",
+      "description": "Optional default perturbations for this profile.",
+      "additionalProperties": false,
+      "properties": {
+        "ball_speed_mph": {
+          "type": "number",
+          "minimum": 0
+        },
+        "launch_angle_deg": {
+          "type": "number",
+          "minimum": 0
+        },
+        "spin_rpm": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

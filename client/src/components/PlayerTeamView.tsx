@@ -15,7 +15,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 import { toast } from 'react-toastify';
-import { getUserTeams, getTeamDashboard } from '../services/api';
+// TODO: Re-enable when league endpoints are rebuilt with permission system
+// import { getUserTeams, getTeamDashboard } from '../services/api';
 
 interface TeamMember {
   user_member_id: number;

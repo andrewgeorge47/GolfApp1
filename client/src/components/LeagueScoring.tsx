@@ -16,15 +16,45 @@ import { toast } from 'react-toastify';
 import HybridScoreEntry from './HybridScoreEntry';
 import MatchScoringView from './MatchScoringView';
 import ScoreVerification from './ScoreVerification';
-import { 
-  getLeagueMatchups, 
-  getMatchupScores, 
-  getMatchupLineups,
-  type LeagueMatchup,
-  type WeeklyLineup,
-  type IndividualScore,
-  type AlternateShotScore
-} from '../services/api';
+// TODO: Re-enable when league endpoints are rebuilt with permission system
+// import {
+//   getLeagueMatchups,
+//   getMatchupScores,
+//   getMatchupLineups,
+//   type LeagueMatchup,
+//   type WeeklyLineup,
+//   type IndividualScore,
+//   type AlternateShotScore
+// } from '../services/api';
+
+// Temporary stub types until league endpoints are rebuilt
+interface LeagueMatchup {
+  id: number;
+  league_id: number;
+  week_number: number;
+  [key: string]: any; // Allow any additional properties
+}
+
+interface WeeklyLineup {
+  id: number;
+  matchup_id?: number;
+  team_id?: number;
+  week_number?: number;
+  [key: string]: any; // Allow any additional properties
+}
+
+interface IndividualScore {
+  id: number;
+  matchup_id?: number;
+  player_id?: number;
+  [key: string]: any; // Allow any additional properties
+}
+
+interface AlternateShotScore {
+  id: number;
+  matchup_id?: number;
+  [key: string]: any; // Allow any additional properties
+}
 
 interface LeagueScoringProps {
   leagueId?: number;
@@ -503,8 +533,8 @@ const LeagueScoring: React.FC<LeagueScoringProps> = ({
           {activeView === 'entry' && canEnterScores && (
             <HybridScoreEntry
               matchupId={selectedMatchup.id}
-              teamId={userTeam.team_id}
-              lineup={userTeam}
+              teamId={userTeam.team_id || 0}
+              lineup={userTeam as any}
               coursePar={Array(18).fill(4)} // Default par values
               courseHandicapIndexes={selectedMatchup.hole_indexes || []}
               onScoreSubmitted={handleScoreSubmitted}

@@ -1,0 +1,194 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://nn.dev/gspro-benchmark/scenario.schema.json",
+  "title": "GSPro Benchmark Scenario",
+  "description": "Defines a deterministic benchmark scenario for the GSPro Benchmark Wizard.",
+  "type": "object",
+  "required": ["id", "name", "description", "version", "type"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_\\-]+$",
+      "description": "Stable identifier used in reports and telemetry."
+    },
+    "name": {
+      "type": "string",
+      "description": "Human friendly name shown in the wizard."
+    },
+    "description": {
+      "type": "string",
+      "description": "Summary of what the scenario measures."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Semantic version of the scenario definition."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["gameplay", "network"],
+      "description": "Scenario execution mode."
+    },
+    "tags": {
+      "type": "array",
+      "description": "Optional metadata for grouping/reporting.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "duration_seconds": {
+      "type": "integer",
+      "minimum": 10,
+      "description": "Target capture duration for gameplay scenarios."
+    },
+    "warmup_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optional warmup before metrics capture begins."
+    },
+    "resolution": {
+      "type": "string",
+      "pattern": "^[0-9]+x[0-9]+$",
+      "description": "Screen resolution to enforce before run."
+    },
+    "graphics_preset": {
+      "type": "string",
+      "description": "GSPro graphics preset (e.g., Low, Medium, High, Ultra)."
+    },
+    "course": {
+      "type": "string",
+      "description": "Course or practice facility to load."
+    },
+    "tee": {
+      "type": "string",
+      "description": "Desired tee position."
+    },
+    "time_of_day": {
+      "type": "string",
+      "description": "Scenario lighting/time setting."
+    },
+    "wind": {
+      "type": "string",
+      "description": "Wind preset."
+    },
+    "camera_mode": {
+      "type": "string",
+      "description": "Camera configuration to apply."
+    },
+    "instructions": {
+      "type": "array",
+      "description": "Optional manual instructions presented to the user.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "shots": {
+      "type": "array",
+      "description": "Launch monitor events executed sequentially for gameplay scenarios.",
+      "items": {
+        "type": "object",
+        "required": ["club", "count", "interval_seconds"],
+        "additionalProperties": false,
+        "properties": {
+          "club": {
+            "type": "string",
+            "description": "Club label such as Driver or 7 Iron."
+          },
+          "lm_profile_id": {
+            "type": "string",
+            "description": "Reference to LM profile to mimic. Defaults to scenario default if omitted."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Number of shots to emit."
+          },
+          "interval_seconds": {
+            "type": "number",
+            "minimum": 0.5,
+            "description": "Delay between shots."
+          },
+          "randomization": {
+            "type": "object",
+            "description": "Optional perturbation of LM values.",
+            "additionalProperties": false,
+            "properties": {
+              "speed_mph": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Max random delta applied to ball speed."
+              },
+              "launch_angle_deg": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Max random delta applied to launch angle."
+              },
+              "spin_rpm": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Max random delta applied to spin."
+              }
+            }
+          }
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "description": "Network scenario configuration (required when type == network).",
+      "required": ["test_file_url", "test_file_size_bytes", "max_duration_seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "test_file_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "HTTPS endpoint hosting the synthetic course payload."
+        },
+        "test_file_size_bytes": {
+          "type": "integer",
+          "minimum": 1048576,
+          "description": "Total payload size used to compute throughput."
+        },
+        "max_duration_seconds": {
+          "type": "integer",
+          "minimum": 10,
+          "description": "Download timeout after which the test stops."
+        }
+      }
+    },
+    "metrics_targets": {
+      "type": "object",
+      "description": "Optional expected FPS thresholds for grading.",
+      "additionalProperties": false,
+      "properties": {
+        "avg_fps": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "p1_fps": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "type": { "const": "gameplay" } }
+      },
+      "then": {
+        "required": ["duration_seconds", "course", "resolution", "graphics_preset"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "network" } }
+      },
+      "then": {
+        "required": ["network"]
+      }
+    }
+  ]
+}
