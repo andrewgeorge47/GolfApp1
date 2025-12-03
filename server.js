@@ -49,12 +49,34 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
 
       // Update payment status in database
       try {
+        // Update challenge payments
         await pool.query(
           `UPDATE challenge_payments
            SET payment_status = 'completed'
            WHERE payment_reference = $1`,
           [paymentIntent.id]
         );
+
+        // Update signup payments
+        const signupPaymentResult = await pool.query(
+          `UPDATE signup_payments
+           SET payment_status = 'completed', updated_at = CURRENT_TIMESTAMP
+           WHERE stripe_payment_intent_id = $1
+           RETURNING registration_id`,
+          [paymentIntent.id]
+        );
+
+        // If signup payment was updated, update registration status to 'paid'
+        if (signupPaymentResult.rows.length > 0) {
+          const registrationId = signupPaymentResult.rows[0].registration_id;
+          await pool.query(
+            `UPDATE signup_registrations
+             SET status = 'paid', updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1`,
+            [registrationId]
+          );
+          console.log(`Signup registration ${registrationId} marked as paid`);
+        }
       } catch (err) {
         console.error('Error updating payment status:', err);
       }
@@ -65,10 +87,19 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
       console.log('PaymentIntent failed:', failedPayment.id);
 
       try {
+        // Update challenge payments
         await pool.query(
           `UPDATE challenge_payments
            SET payment_status = 'failed'
            WHERE payment_reference = $1`,
+          [failedPayment.id]
+        );
+
+        // Update signup payments
+        await pool.query(
+          `UPDATE signup_payments
+           SET payment_status = 'failed', updated_at = CURRENT_TIMESTAMP
+           WHERE stripe_payment_intent_id = $1`,
           [failedPayment.id]
         );
       } catch (err) {
@@ -17446,6 +17477,1721 @@ app.get('/api/user/can-book', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Error checking booking access:', err);
     res.status(500).json({ error: 'Failed to check booking access' });
+  }
+});
+
+// ============================================================================
+// SIGNUP SYSTEM ENDPOINTS
+// ============================================================================
+
+// ========================================
+// User Public Signup Endpoints (must be before parameterized routes)
+// ========================================
+
+// GET /api/signups/public - List open signups (public)
+app.get('/api/signups/public', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+        s.id,
+        s.title,
+        s.description,
+        s.slug,
+        s.entry_fee,
+        s.registration_opens_at,
+        s.registration_closes_at,
+        s.max_registrations,
+        s.image_url,
+        s.status,
+        COUNT(DISTINCT sr.id) as total_registrations,
+        COUNT(DISTINCT CASE WHEN sr.status = 'paid' THEN sr.id END) as paid_registrations
+      FROM signups s
+      LEFT JOIN signup_registrations sr ON s.id = sr.signup_id
+      WHERE s.status = 'open' AND s.deleted_at IS NULL
+      GROUP BY s.id
+      ORDER BY s.registration_opens_at DESC`,
+      []
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching public signups:', err);
+    res.status(500).json({ error: 'Failed to fetch signups' });
+  }
+});
+
+// GET /api/signups/:identifier/public - Get signup by ID or slug (public)
+app.get('/api/signups/:identifier/public', async (req, res) => {
+  try {
+    const { identifier } = req.params;
+
+    // Try to match by ID (number) or slug
+    const isNumeric = !isNaN(identifier);
+
+    const { rows } = await pool.query(
+      `SELECT
+        s.*,
+        COUNT(DISTINCT sr.id) as total_registrations,
+        COUNT(DISTINCT CASE WHEN sr.status = 'paid' THEN sr.id END) as paid_registrations
+      FROM signups s
+      LEFT JOIN signup_registrations sr ON s.id = sr.signup_id
+      WHERE ${isNumeric ? 's.id = $1' : 's.slug = $1'}
+        AND s.deleted_at IS NULL
+      GROUP BY s.id`,
+      [isNumeric ? parseInt(identifier) : identifier]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Signup not found' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching signup:', err);
+    res.status(500).json({ error: 'Failed to fetch signup' });
+  }
+});
+
+// ========================================
+// Admin Signup CRUD Endpoints
+// ========================================
+
+// POST /api/signups - Create new signup
+app.post('/api/signups', authenticateToken, requirePermission('manage_signups'), async (req, res) => {
+  try {
+    const {
+      title,
+      description,
+      slug,
+      entry_fee,
+      registration_opens_at,
+      registration_closes_at,
+      max_registrations,
+      stripe_enabled,
+      venmo_url,
+      venmo_username,
+      payment_organizer,
+      payment_organizer_name,
+      payment_venmo_url,
+      image_url,
+      confirmation_message,
+      status
+    } = req.body;
+
+    const userId = req.user.member_id;
+
+    // Validate required fields
+    if (!title) {
+      return res.status(400).json({ error: 'Title is required' });
+    }
+
+    // Generate slug from title if not provided
+    const finalSlug = slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+    const { rows } = await pool.query(
+      `INSERT INTO signups (
+        title, description, slug, entry_fee, registration_opens_at, registration_closes_at,
+        max_registrations, stripe_enabled, venmo_url, venmo_username, payment_organizer,
+        payment_organizer_name, payment_venmo_url, image_url, confirmation_message, status, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      RETURNING *`,
+      [
+        title, description, finalSlug, entry_fee || 0, registration_opens_at, registration_closes_at,
+        max_registrations, stripe_enabled !== false, venmo_url, venmo_username, payment_organizer,
+        payment_organizer_name, payment_venmo_url, image_url, confirmation_message, status || 'draft', userId
+      ]
+    );
+
+    console.log(`Signup created: ${rows[0].id} - ${title}`);
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('Error creating signup:', err);
+    if (err.code === '23505') { // Unique constraint violation
+      res.status(409).json({ error: 'Signup with this slug already exists' });
+    } else {
+      res.status(500).json({ error: 'Failed to create signup' });
+    }
+  }
+});
+
+// GET /api/signups - List all signups (admin)
+app.get('/api/signups', authenticateToken, requirePermission('manage_signups'), async (req, res) => {
+  try {
+    const { status, search } = req.query;
+
+    let query = `
+      SELECT s.*,
+        u.first_name || ' ' || u.last_name as created_by_name,
+        COUNT(DISTINCT sr.id) as total_registrations,
+        COUNT(DISTINCT CASE WHEN sr.status = 'paid' THEN sr.id END) as paid_registrations,
+        SUM(CASE WHEN sp.payment_status = 'completed' THEN sp.amount ELSE 0 END) as total_revenue
+      FROM signups s
+      LEFT JOIN users u ON s.created_by = u.member_id
+      LEFT JOIN signup_registrations sr ON s.id = sr.signup_id
+      LEFT JOIN signup_payments sp ON sr.id = sp.registration_id
+      WHERE s.deleted_at IS NULL
+    `;
+
+    const params = [];
+
+    if (status) {
+      params.push(status);
+      query += ` AND s.status = $${params.length}`;
+    }
+
+    if (search) {
+      params.push(`%${search}%`);
+      query += ` AND (s.title ILIKE $${params.length} OR s.description ILIKE $${params.length})`;
+    }
+
+    query += ` GROUP BY s.id, u.first_name, u.last_name ORDER BY s.created_at DESC`;
+
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching signups:', err);
+    res.status(500).json({ error: 'Failed to fetch signups' });
+  }
+});
+
+// GET /api/signups/:id - Get signup details
+app.get('/api/signups/:id', authenticateToken, requirePermission('manage_signups'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { rows } = await pool.query(
+      `SELECT s.*,
+        u.first_name || ' ' || u.last_name as created_by_name,
+        COUNT(DISTINCT sr.id) as total_registrations,
+        COUNT(DISTINCT CASE WHEN sr.status = 'paid' THEN sr.id END) as paid_registrations,
+        COUNT(DISTINCT CASE WHEN sr.status = 'pending' THEN sr.id END) as pending_registrations,
+        SUM(CASE WHEN sp.payment_status = 'completed' THEN sp.amount ELSE 0 END) as total_revenue
+      FROM signups s
+      LEFT JOIN users u ON s.created_by = u.member_id
+      LEFT JOIN signup_registrations sr ON s.id = sr.signup_id
+      LEFT JOIN signup_payments sp ON sr.id = sp.registration_id
+      WHERE s.id = $1 AND s.deleted_at IS NULL
+      GROUP BY s.id, u.first_name, u.last_name`,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Signup not found' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching signup:', err);
+    res.status(500).json({ error: 'Failed to fetch signup' });
+  }
+});
+
+// PUT /api/signups/:id - Update signup
+app.put('/api/signups/:id', authenticateToken, requirePermission('manage_signups'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      title,
+      description,
+      slug,
+      entry_fee,
+      registration_opens_at,
+      registration_closes_at,
+      max_registrations,
+      stripe_enabled,
+      venmo_url,
+      venmo_username,
+      payment_organizer,
+      payment_organizer_name,
+      payment_venmo_url,
+      image_url,
+      confirmation_message,
+      status
+    } = req.body;
+
+    const { rows } = await pool.query(
+      `UPDATE signups SET
+        title = COALESCE($1, title),
+        description = COALESCE($2, description),
+        slug = COALESCE($3, slug),
+        entry_fee = COALESCE($4, entry_fee),
+        registration_opens_at = COALESCE($5, registration_opens_at),
+        registration_closes_at = COALESCE($6, registration_closes_at),
+        max_registrations = COALESCE($7, max_registrations),
+        stripe_enabled = COALESCE($8, stripe_enabled),
+        venmo_url = COALESCE($9, venmo_url),
+        venmo_username = COALESCE($10, venmo_username),
+        payment_organizer = COALESCE($11, payment_organizer),
+        payment_organizer_name = COALESCE($12, payment_organizer_name),
+        payment_venmo_url = COALESCE($13, payment_venmo_url),
+        image_url = COALESCE($14, image_url),
+        confirmation_message = COALESCE($15, confirmation_message),
+        status = COALESCE($16, status),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $17 AND deleted_at IS NULL
+      RETURNING *`,
+      [
+        title, description, slug, entry_fee, registration_opens_at, registration_closes_at,
+        max_registrations, stripe_enabled, venmo_url, venmo_username, payment_organizer,
+        payment_organizer_name, payment_venmo_url, image_url, confirmation_message, status, id
+      ]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Signup not found' });
+    }
+
+    console.log(`Signup updated: ${id} - ${rows[0].title}`);
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating signup:', err);
+    if (err.code === '23505') {
+      res.status(409).json({ error: 'Signup with this slug already exists' });
+    } else {
+      res.status(500).json({ error: 'Failed to update signup' });
+    }
+  }
+});
+
+// DELETE /api/signups/:id - Soft delete signup
+app.delete('/api/signups/:id', authenticateToken, requirePermission('manage_signups'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { rows } = await pool.query(
+      `UPDATE signups SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Signup not found' });
+    }
+
+    console.log(`Signup deleted: ${id}`);
+    res.json({ message: 'Signup deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting signup:', err);
+    res.status(500).json({ error: 'Failed to delete signup' });
+  }
+});
+
+// ========================================
+// Admin Registration Management Endpoints
+// ========================================
+
+// GET /api/signups/:id/registrations - Get all registrations for a signup
+app.get('/api/signups/:id/registrations', authenticateToken, requirePermission('manage_signups'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.query;
+
+    let query = `
+      SELECT
+        sr.*,
+        u.first_name,
+        u.last_name,
+        u.email_address,
+        u.club,
+        sp.payment_method,
+        sp.payment_status,
+        sp.payment_reference,
+        sp.created_at as payment_date,
+        sp.verified_by,
+        sp.verified_at,
+        verifier.first_name || ' ' || verifier.last_name as verified_by_name
+      FROM signup_registrations sr
+      JOIN users u ON sr.user_id = u.member_id
+      LEFT JOIN signup_payments sp ON sr.id = sp.registration_id
+      LEFT JOIN users verifier ON sp.verified_by = verifier.member_id
+      WHERE sr.signup_id = $1
+    `;
+
+    const params = [id];
+
+    if (status) {
+      params.push(status);
+      query += ` AND sr.status = $${params.length}`;
+    }
+
+    query += ` ORDER BY sr.registered_at DESC`;
+
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching registrations:', err);
+    res.status(500).json({ error: 'Failed to fetch registrations' });
+  }
+});
+
+// GET /api/signups/:id/registrations/paid - Get only paid registrations
+app.get('/api/signups/:id/registrations/paid', authenticateToken, requirePermission('manage_signups'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { rows } = await pool.query(
+      `SELECT
+        sr.*,
+        u.first_name,
+        u.last_name,
+        u.email_address,
+        u.club
+      FROM signup_registrations sr
+      JOIN users u ON sr.user_id = u.member_id
+      WHERE sr.signup_id = $1 AND sr.status = 'paid'
+      ORDER BY sr.registered_at DESC`,
+      [id]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching paid registrations:', err);
+    res.status(500).json({ error: 'Failed to fetch paid registrations' });
+  }
+});
+
+// GET /api/signups/:id/stats - Get signup statistics
+app.get('/api/signups/:id/stats', authenticateToken, requirePermission('view_signup_analytics'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { rows } = await pool.query(
+      `SELECT
+        COUNT(DISTINCT sr.id) as total_registrations,
+        COUNT(DISTINCT CASE WHEN sr.status = 'paid' THEN sr.id END) as paid_count,
+        COUNT(DISTINCT CASE WHEN sr.status = 'pending' THEN sr.id END) as pending_count,
+        COUNT(DISTINCT CASE WHEN sr.status = 'cancelled' THEN sr.id END) as cancelled_count,
+        SUM(CASE WHEN sp.payment_status = 'completed' THEN sp.amount ELSE 0 END) as total_revenue,
+        SUM(CASE WHEN sp.payment_method = 'stripe' AND sp.payment_status = 'completed' THEN sp.amount ELSE 0 END) as stripe_revenue,
+        SUM(CASE WHEN sp.payment_method = 'venmo' AND sp.payment_status = 'completed' THEN sp.amount ELSE 0 END) as venmo_revenue,
+        SUM(CASE WHEN sp.payment_status = 'pending' THEN sp.amount ELSE 0 END) as pending_revenue
+      FROM signup_registrations sr
+      LEFT JOIN signup_payments sp ON sr.id = sp.registration_id
+      WHERE sr.signup_id = $1`,
+      [id]
+    );
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching signup stats:', err);
+    res.status(500).json({ error: 'Failed to fetch signup stats' });
+  }
+});
+
+// POST /api/signups/:id/registrations/:regId/verify-payment - Verify manual payment
+app.post('/api/signups/:signupId/registrations/:regId/verify-payment',
+  authenticateToken,
+  requirePermission('verify_signup_payments'),
+  async (req, res) => {
+    try {
+      const { signupId, regId } = req.params;
+      const { admin_notes } = req.body;
+      const verifierId = req.user.member_id;
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Update payment to completed
+        const paymentResult = await client.query(
+          `UPDATE signup_payments
+           SET payment_status = 'completed',
+               verified_by = $1,
+               verified_at = CURRENT_TIMESTAMP,
+               admin_notes = $2,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE registration_id = $3 AND payment_status = 'pending'
+           RETURNING *`,
+          [verifierId, admin_notes, regId]
+        );
+
+        if (paymentResult.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'Pending payment not found' });
+        }
+
+        // Update registration to paid
+        await client.query(
+          `UPDATE signup_registrations
+           SET status = 'paid', updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [regId]
+        );
+
+        await client.query('COMMIT');
+
+        console.log(`Payment verified for registration ${regId} by user ${verifierId}`);
+        res.json({
+          message: 'Payment verified successfully',
+          payment: paymentResult.rows[0]
+        });
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      console.error('Error verifying payment:', err);
+      res.status(500).json({ error: 'Failed to verify payment' });
+    }
+  }
+);
+
+// POST /api/signups/:signupId/registrations/:regId/refund - Issue refund
+app.post('/api/signups/:signupId/registrations/:regId/refund',
+  authenticateToken,
+  requirePermission('manage_signups'),
+  async (req, res) => {
+    try {
+      const { signupId, regId } = req.params;
+      const { reason } = req.body;
+      const adminId = req.user.member_id;
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Get payment details
+        const paymentResult = await client.query(
+          `SELECT * FROM signup_payments WHERE registration_id = $1 AND payment_status = 'completed'`,
+          [regId]
+        );
+
+        if (paymentResult.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'Completed payment not found' });
+        }
+
+        const payment = paymentResult.rows[0];
+
+        // If Stripe payment, process refund through Stripe
+        if (payment.payment_method === 'stripe' && payment.stripe_payment_intent_id) {
+          try {
+            await stripe.refunds.create({
+              payment_intent: payment.stripe_payment_intent_id,
+              reason: 'requested_by_customer'
+            });
+          } catch (stripeErr) {
+            console.error('Stripe refund error:', stripeErr);
+            await client.query('ROLLBACK');
+            return res.status(500).json({ error: 'Stripe refund failed' });
+          }
+        }
+
+        // Update payment status
+        await client.query(
+          `UPDATE signup_payments
+           SET payment_status = 'refunded',
+               admin_notes = $1,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
+          [reason, payment.id]
+        );
+
+        // Update registration status
+        await client.query(
+          `UPDATE signup_registrations
+           SET status = 'refunded', updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [regId]
+        );
+
+        await client.query('COMMIT');
+
+        console.log(`Refund processed for registration ${regId} by admin ${adminId}`);
+        res.json({ message: 'Refund processed successfully' });
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      console.error('Error processing refund:', err);
+      res.status(500).json({ error: 'Failed to process refund' });
+    }
+  }
+);
+
+// ========================================
+// Feature Testing Endpoints
+// ========================================
+
+// GET /api/feature-testing - List all features (admin only)
+app.get('/api/feature-testing', authenticateToken, requirePermission('manage_feature_testing'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, description, status, category, icon, priority, route, assigned_to, target_date,
+              created_by, created_at, updated_at
+       FROM feature_testing
+       WHERE deleted_at IS NULL
+       ORDER BY
+         CASE status
+           WHEN 'admin-testing' THEN 1
+           WHEN 'live-beta' THEN 2
+           WHEN 'coming-soon' THEN 3
+         END,
+         created_at DESC`
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching features:', err);
+    res.status(500).json({ error: 'Failed to fetch features' });
+  }
+});
+
+// GET /api/feature-testing/:id - Get single feature (admin only)
+app.get('/api/feature-testing/:id', authenticateToken, requirePermission('manage_feature_testing'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { rows } = await pool.query(
+      `SELECT id, name, description, status, category, icon, priority, route, assigned_to, target_date,
+              created_by, created_at, updated_at
+       FROM feature_testing
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Feature not found' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching feature:', err);
+    res.status(500).json({ error: 'Failed to fetch feature' });
+  }
+});
+
+// POST /api/feature-testing - Create new feature (admin only)
+app.post('/api/feature-testing', authenticateToken, requirePermission('manage_feature_testing'), async (req, res) => {
+  try {
+    const {
+      name,
+      description,
+      status,
+      category,
+      icon,
+      priority,
+      route,
+      assigned_to,
+      target_date
+    } = req.body;
+
+    const userId = req.user.member_id;
+
+    // Validate required fields
+    if (!name || !description || !category) {
+      return res.status(400).json({ error: 'Name, description, and category are required' });
+    }
+
+    // Validate status
+    if (status && !['admin-testing', 'live-beta', 'coming-soon'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    // Validate route is provided for admin-testing and live-beta
+    if ((status === 'admin-testing' || status === 'live-beta') && !route) {
+      return res.status(400).json({ error: 'Route is required for admin-testing and live-beta features' });
+    }
+
+    // Validate priority
+    if (priority && !['high', 'medium', 'low'].includes(priority)) {
+      return res.status(400).json({ error: 'Invalid priority' });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO feature_testing (
+        name, description, status, category, icon, priority, route, assigned_to, target_date, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING *`,
+      [
+        name,
+        description,
+        status || 'coming-soon',
+        category,
+        icon || 'Calendar',
+        priority || null,
+        route || null,
+        assigned_to || null,
+        target_date || null,
+        userId
+      ]
+    );
+
+    console.log(`Feature created: ${rows[0].id} - ${name}`);
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('Error creating feature:', err);
+    res.status(500).json({ error: 'Failed to create feature' });
+  }
+});
+
+// PUT /api/feature-testing/:id - Update feature (admin only)
+app.put('/api/feature-testing/:id', authenticateToken, requirePermission('manage_feature_testing'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      description,
+      status,
+      category,
+      icon,
+      priority,
+      route,
+      assigned_to,
+      target_date
+    } = req.body;
+
+    // Validate required fields
+    if (!name || !description || !category) {
+      return res.status(400).json({ error: 'Name, description, and category are required' });
+    }
+
+    // Validate status
+    if (status && !['admin-testing', 'live-beta', 'coming-soon'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    // Validate route is provided for admin-testing and live-beta
+    if ((status === 'admin-testing' || status === 'live-beta') && !route) {
+      return res.status(400).json({ error: 'Route is required for admin-testing and live-beta features' });
+    }
+
+    // Validate priority
+    if (priority && !['high', 'medium', 'low'].includes(priority)) {
+      return res.status(400).json({ error: 'Invalid priority' });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE feature_testing
+       SET name = $1, description = $2, status = $3, category = $4, icon = $5,
+           priority = $6, route = $7, assigned_to = $8, target_date = $9
+       WHERE id = $10 AND deleted_at IS NULL
+       RETURNING *`,
+      [name, description, status, category, icon, priority, route, assigned_to, target_date, id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Feature not found' });
+    }
+
+    console.log(`Feature updated: ${id} - ${name}`);
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating feature:', err);
+    res.status(500).json({ error: 'Failed to update feature' });
+  }
+});
+
+// DELETE /api/feature-testing/:id - Soft delete feature (admin only)
+app.delete('/api/feature-testing/:id', authenticateToken, requirePermission('manage_feature_testing'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { rows } = await pool.query(
+      `UPDATE feature_testing
+       SET deleted_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING id, name`,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Feature not found' });
+    }
+
+    console.log(`Feature deleted: ${id} - ${rows[0].name}`);
+    res.json({ message: 'Feature deleted successfully', id: rows[0].id });
+  } catch (err) {
+    console.error('Error deleting feature:', err);
+    res.status(500).json({ error: 'Failed to delete feature' });
+  }
+});
+
+// ========================================
+// Tournament Linking Endpoints
+// ========================================
+
+// POST /api/tournaments/:id/link-signup - Link tournament to signup
+app.post('/api/tournaments/:id/link-signup',
+  authenticateToken,
+  requirePermission('manage_tournaments'),
+  async (req, res) => {
+    try {
+      const { id: tournamentId } = req.params;
+      const { signup_id, auto_sync } = req.body;
+
+      if (!signup_id) {
+        return res.status(400).json({ error: 'signup_id is required' });
+      }
+
+      // Verify tournament exists
+      const tournamentCheck = await pool.query(
+        'SELECT id FROM tournaments WHERE id = $1',
+        [tournamentId]
+      );
+
+      if (tournamentCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Tournament not found' });
+      }
+
+      // Verify signup exists
+      const signupCheck = await pool.query(
+        'SELECT id FROM signups WHERE id = $1 AND deleted_at IS NULL',
+        [signup_id]
+      );
+
+      if (signupCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Signup not found' });
+      }
+
+      const { rows } = await pool.query(
+        `INSERT INTO tournament_signup_links (tournament_id, signup_id, auto_sync, synced_by)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (tournament_id, signup_id)
+         DO UPDATE SET auto_sync = $3, synced_by = $4
+         RETURNING *`,
+        [tournamentId, signup_id, auto_sync || false, req.user.member_id]
+      );
+
+      console.log(`Tournament ${tournamentId} linked to signup ${signup_id}`);
+      res.status(201).json(rows[0]);
+    } catch (err) {
+      console.error('Error linking signup to tournament:', err);
+      res.status(500).json({ error: 'Failed to link signup to tournament' });
+    }
+  }
+);
+
+// POST /api/tournaments/:id/sync-from-signup - Sync participants from linked signup
+app.post('/api/tournaments/:id/sync-from-signup',
+  authenticateToken,
+  requirePermission('manage_tournaments'),
+  async (req, res) => {
+    try {
+      const { id: tournamentId } = req.params;
+      const { signup_id } = req.body;
+
+      if (!signup_id) {
+        return res.status(400).json({ error: 'signup_id is required' });
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Verify link exists
+        const linkCheck = await client.query(
+          'SELECT * FROM tournament_signup_links WHERE tournament_id = $1 AND signup_id = $2',
+          [tournamentId, signup_id]
+        );
+
+        if (linkCheck.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'Tournament-signup link not found' });
+        }
+
+        // Get all paid registrations
+        const paidRegistrations = await client.query(
+          `SELECT user_id FROM signup_registrations WHERE signup_id = $1 AND status = 'paid'`,
+          [signup_id]
+        );
+
+        let addedCount = 0;
+        let skippedCount = 0;
+
+        // Add each paid user to tournament participation
+        for (const reg of paidRegistrations.rows) {
+          const insertResult = await client.query(
+            `INSERT INTO participation (tournament_id, user_member_id, signup_id)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (tournament_id, user_member_id) DO NOTHING
+             RETURNING *`,
+            [tournamentId, reg.user_id, signup_id]
+          );
+
+          if (insertResult.rows.length > 0) {
+            addedCount++;
+          } else {
+            skippedCount++;
+          }
+        }
+
+        // Update sync metadata
+        await client.query(
+          `UPDATE tournament_signup_links
+           SET last_synced_at = CURRENT_TIMESTAMP,
+               synced_by = $1,
+               sync_count = sync_count + 1
+           WHERE tournament_id = $2 AND signup_id = $3`,
+          [req.user.member_id, tournamentId, signup_id]
+        );
+
+        await client.query('COMMIT');
+
+        console.log(`Synced ${addedCount} participants from signup ${signup_id} to tournament ${tournamentId}`);
+        res.json({
+          message: 'Sync completed successfully',
+          added: addedCount,
+          skipped: skippedCount,
+          total: paidRegistrations.rows.length
+        });
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      console.error('Error syncing from signup:', err);
+      res.status(500).json({ error: 'Failed to sync from signup' });
+    }
+  }
+);
+
+// GET /api/tournaments/:id/linked-signups - Get linked signups for tournament
+app.get('/api/tournaments/:id/linked-signups',
+  authenticateToken,
+  requirePermission('manage_tournaments'),
+  async (req, res) => {
+    try {
+      const { id: tournamentId } = req.params;
+
+      const { rows } = await pool.query(
+        `SELECT
+          tsl.*,
+          s.title as signup_title,
+          s.entry_fee,
+          s.status as signup_status,
+          COUNT(DISTINCT sr.id) FILTER (WHERE sr.status = 'paid') as paid_registrations,
+          syncer.first_name || ' ' || syncer.last_name as synced_by_name
+        FROM tournament_signup_links tsl
+        JOIN signups s ON tsl.signup_id = s.id
+        LEFT JOIN signup_registrations sr ON s.id = sr.signup_id
+        LEFT JOIN users syncer ON tsl.synced_by = syncer.member_id
+        WHERE tsl.tournament_id = $1
+        GROUP BY tsl.id, s.id, syncer.first_name, syncer.last_name
+        ORDER BY tsl.created_at DESC`,
+        [tournamentId]
+      );
+
+      res.json(rows);
+    } catch (err) {
+      console.error('Error fetching linked signups:', err);
+      res.status(500).json({ error: 'Failed to fetch linked signups' });
+    }
+  }
+);
+
+// DELETE /api/tournaments/:id/unlink-signup/:signupId - Unlink signup from tournament
+app.delete('/api/tournaments/:id/unlink-signup/:signupId',
+  authenticateToken,
+  requirePermission('manage_tournaments'),
+  async (req, res) => {
+    try {
+      const { id: tournamentId, signupId } = req.params;
+
+      const { rows } = await pool.query(
+        'DELETE FROM tournament_signup_links WHERE tournament_id = $1 AND signup_id = $2 RETURNING *',
+        [tournamentId, signupId]
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: 'Link not found' });
+      }
+
+      console.log(`Unlinked signup ${signupId} from tournament ${tournamentId}`);
+      res.json({ message: 'Signup unlinked successfully' });
+    } catch (err) {
+      console.error('Error unlinking signup:', err);
+      res.status(500).json({ error: 'Failed to unlink signup' });
+    }
+  }
+);
+
+// GET /api/signups/:id/my-registration - Check if current user is registered
+app.get('/api/signups/:id/my-registration', authenticateToken, async (req, res) => {
+  try {
+    const { id: signupId } = req.params;
+    const userId = req.user.member_id;
+
+    const result = await pool.query(
+      `SELECT sr.*,
+        sp.payment_status,
+        sp.payment_method,
+        sp.payment_reference
+       FROM signup_registrations sr
+       LEFT JOIN signup_payments sp ON sr.id = sp.registration_id
+       WHERE sr.signup_id = $1 AND sr.user_id = $2`,
+      [signupId, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({ registered: false });
+    }
+
+    res.json({
+      registered: true,
+      registration: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error checking registration status:', err);
+    res.status(500).json({ error: 'Failed to check registration status' });
+  }
+});
+
+// POST /api/signups/:id/register - Register for signup (authenticated)
+app.post('/api/signups/:id/register', authenticateToken, async (req, res) => {
+  try {
+    const { id: signupId } = req.params;
+    const { registration_data } = req.body;
+    const userId = req.user.member_id;
+
+    // Get signup details
+    const signupResult = await pool.query(
+      `SELECT * FROM signups WHERE id = $1 AND deleted_at IS NULL`,
+      [signupId]
+    );
+
+    if (signupResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Signup not found' });
+    }
+
+    const signup = signupResult.rows[0];
+
+    // Validate signup is open
+    if (signup.status !== 'open') {
+      return res.status(400).json({ error: 'Signup is not currently open' });
+    }
+
+    // Check registration window
+    const now = new Date();
+    if (signup.registration_opens_at && new Date(signup.registration_opens_at) > now) {
+      return res.status(400).json({ error: 'Registration has not opened yet' });
+    }
+    if (signup.registration_closes_at && new Date(signup.registration_closes_at) < now) {
+      return res.status(400).json({ error: 'Registration has closed' });
+    }
+
+    // Check if already registered
+    const existingReg = await pool.query(
+      'SELECT * FROM signup_registrations WHERE signup_id = $1 AND user_id = $2',
+      [signupId, userId]
+    );
+
+    if (existingReg.rows.length > 0) {
+      return res.status(409).json({ error: 'You are already registered for this signup' });
+    }
+
+    // Check capacity
+    if (signup.max_registrations) {
+      const countResult = await pool.query(
+        `SELECT COUNT(*) as count FROM signup_registrations WHERE signup_id = $1 AND status IN ('pending', 'paid')`,
+        [signupId]
+      );
+
+      if (parseInt(countResult.rows[0].count) >= signup.max_registrations) {
+        return res.status(400).json({ error: 'Signup has reached maximum capacity' });
+      }
+    }
+
+    // Create registration
+    const { rows } = await pool.query(
+      `INSERT INTO signup_registrations (signup_id, user_id, registration_data, payment_amount)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [signupId, userId, registration_data ? JSON.stringify(registration_data) : null, signup.entry_fee]
+    );
+
+    console.log(`User ${userId} registered for signup ${signupId}`);
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('Error registering for signup:', err);
+    res.status(500).json({ error: 'Failed to register for signup' });
+  }
+});
+
+// POST /api/signups/:id/create-payment-intent - Create Stripe payment intent
+app.post('/api/signups/:id/create-payment-intent', authenticateToken, async (req, res) => {
+  try {
+    const { id: signupId } = req.params;
+    const userId = req.user.member_id;
+
+    // Get registration
+    const regResult = await pool.query(
+      `SELECT sr.*, s.title as signup_title
+       FROM signup_registrations sr
+       JOIN signups s ON sr.signup_id = s.id
+       WHERE sr.signup_id = $1 AND sr.user_id = $2`,
+      [signupId, userId]
+    );
+
+    if (regResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Registration not found. Please register first.' });
+    }
+
+    const registration = regResult.rows[0];
+
+    if (registration.status === 'paid') {
+      return res.status(400).json({ error: 'Registration is already paid' });
+    }
+
+    const amount = parseFloat(registration.payment_amount);
+    if (amount <= 0) {
+      return res.status(400).json({ error: 'Invalid payment amount' });
+    }
+
+    // Create Stripe PaymentIntent
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100), // Convert to cents
+      currency: 'usd',
+      metadata: {
+        signup_id: signupId,
+        registration_id: registration.id,
+        user_id: userId,
+        signup_title: registration.signup_title
+      }
+    });
+
+    // Create payment record
+    await pool.query(
+      `INSERT INTO signup_payments (
+        registration_id, amount, payment_method, payment_status,
+        stripe_payment_intent_id, stripe_client_secret
+      ) VALUES ($1, $2, 'stripe', 'pending', $3, $4)`,
+      [registration.id, amount, paymentIntent.id, paymentIntent.client_secret]
+    );
+
+    res.json({
+      clientSecret: paymentIntent.client_secret,
+      amount: amount
+    });
+  } catch (err) {
+    console.error('Error creating payment intent:', err);
+    res.status(500).json({ error: 'Failed to create payment intent' });
+  }
+});
+
+// POST /api/signups/:id/confirm-stripe-payment - Confirm Stripe payment
+app.post('/api/signups/:id/confirm-stripe-payment', authenticateToken, async (req, res) => {
+  try {
+    const { id: signupId } = req.params;
+    const { payment_intent_id } = req.body;
+    const userId = req.user.member_id;
+
+    // Verify payment intent succeeded
+    const paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
+
+    if (paymentIntent.status !== 'succeeded') {
+      return res.status(400).json({ error: 'Payment not completed' });
+    }
+
+    // Get registration
+    const regResult = await pool.query(
+      `SELECT * FROM signup_registrations WHERE signup_id = $1 AND user_id = $2`,
+      [signupId, userId]
+    );
+
+    if (regResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Registration not found' });
+    }
+
+    const registration = regResult.rows[0];
+
+    // Payment status is updated via webhook, but we confirm here
+    const paymentResult = await pool.query(
+      `SELECT * FROM signup_payments
+       WHERE stripe_payment_intent_id = $1 AND registration_id = $2`,
+      [payment_intent_id, registration.id]
+    );
+
+    if (paymentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Payment record not found' });
+    }
+
+    console.log(`Stripe payment confirmed for signup ${signupId}, user ${userId}`);
+
+    res.json({
+      message: 'Payment confirmed successfully',
+      registration: registration,
+      payment: paymentResult.rows[0]
+    });
+  } catch (err) {
+    console.error('Error confirming payment:', err);
+    res.status(500).json({ error: 'Failed to confirm payment' });
+  }
+});
+
+// POST /api/signups/:id/submit-venmo-payment - Submit Venmo payment (pending verification)
+app.post('/api/signups/:id/submit-venmo-payment', authenticateToken, async (req, res) => {
+  try {
+    const { id: signupId } = req.params;
+    const { venmo_reference } = req.body;
+    const userId = req.user.member_id;
+
+    if (!venmo_reference) {
+      return res.status(400).json({ error: 'Venmo username or reference is required' });
+    }
+
+    // Get registration
+    const regResult = await pool.query(
+      `SELECT * FROM signup_registrations WHERE signup_id = $1 AND user_id = $2`,
+      [signupId, userId]
+    );
+
+    if (regResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Registration not found. Please register first.' });
+    }
+
+    const registration = regResult.rows[0];
+
+    if (registration.status === 'paid') {
+      return res.status(400).json({ error: 'Registration is already paid' });
+    }
+
+    const amount = parseFloat(registration.payment_amount);
+
+    // Create payment record (pending verification)
+    const { rows } = await pool.query(
+      `INSERT INTO signup_payments (
+        registration_id, amount, payment_method, payment_reference, payment_status
+      ) VALUES ($1, $2, 'venmo', $3, 'pending')
+      RETURNING *`,
+      [registration.id, amount, venmo_reference]
+    );
+
+    console.log(`Venmo payment submitted for signup ${signupId}, user ${userId}`);
+
+    res.json({
+      message: 'Venmo payment submitted. Awaiting admin verification.',
+      payment: rows[0]
+    });
+  } catch (err) {
+    console.error('Error submitting Venmo payment:', err);
+    res.status(500).json({ error: 'Failed to submit Venmo payment' });
+  }
+});
+
+// GET /api/user/registrations - Get current user's registrations
+app.get('/api/user/registrations', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.member_id;
+
+    const { rows } = await pool.query(
+      `SELECT
+        sr.*,
+        s.title as signup_title,
+        s.description as signup_description,
+        s.slug,
+        s.entry_fee,
+        s.image_url,
+        sp.payment_method,
+        sp.payment_status,
+        sp.payment_reference,
+        sp.created_at as payment_date,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'tournament_id', t.id,
+              'tournament_name', t.name,
+              'tournament_date', t.tournament_date
+            )
+          ) FILTER (WHERE t.id IS NOT NULL),
+          '[]'
+        ) as linked_tournaments
+      FROM signup_registrations sr
+      JOIN signups s ON sr.signup_id = s.id
+      LEFT JOIN signup_payments sp ON sr.id = sp.registration_id
+      LEFT JOIN tournament_signup_links tsl ON s.id = tsl.signup_id
+      LEFT JOIN tournaments t ON tsl.tournament_id = t.id
+      WHERE sr.user_id = $1
+      GROUP BY sr.id, s.id, sp.id
+      ORDER BY sr.registered_at DESC`,
+      [userId]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching user registrations:', err);
+    res.status(500).json({ error: 'Failed to fetch registrations' });
+  }
+});
+
+// GET /api/user/registrations/:id - Get specific registration details
+app.get('/api/user/registrations/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id: registrationId } = req.params;
+    const userId = req.user.member_id;
+
+    const { rows } = await pool.query(
+      `SELECT
+        sr.*,
+        s.title as signup_title,
+        s.description as signup_description,
+        s.confirmation_message,
+        sp.payment_method,
+        sp.payment_status,
+        sp.payment_reference,
+        sp.created_at as payment_date
+      FROM signup_registrations sr
+      JOIN signups s ON sr.signup_id = s.id
+      LEFT JOIN signup_payments sp ON sr.id = sp.registration_id
+      WHERE sr.id = $1 AND sr.user_id = $2`,
+      [registrationId, userId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Registration not found' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching registration:', err);
+    res.status(500).json({ error: 'Failed to fetch registration' });
+  }
+});
+
+// ========================================
+// Golf Simulator Recommendation System
+// ========================================
+
+// Helper function: Get room width guidance
+function getRoomWidthNote(roomWidth) {
+  if (roomWidth < 11) {
+    return "ROOM WIDTH NOTE: Your room width is insufficient for safe use. Minimum width is 11 feet.";
+  } else if (roomWidth >= 11 && roomWidth <= 13) {
+    return "ROOM WIDTH NOTE: Your setup will require offset hitting for proper alignment to the center of the impact screen. Too narrow to accommodate left and right-handed players comfortably.";
+  } else if (roomWidth > 13 && roomWidth <= 16) {
+    return "ROOM WIDTH NOTE: Both left- and right-handed players can be accommodated by offsetting one or both of the hitting locations.";
+  } else {
+    return "Your setup supports central hitting for both left- and right-handed players.";
+  }
+}
+
+// POST /api/simulator/recommendations - Get equipment recommendations
+app.post('/api/simulator/recommendations', async (req, res) => {
+  try {
+    const {
+      ceiling,
+      width,
+      depth,
+      budget,
+      minBudgetUtilization = 0.75,
+      priorities = {
+        launch_monitor: 'high',
+        projector: 'medium',
+        hitting_mat: 'low',
+        impact_screen: 'medium',
+        computer: 'medium'
+      }
+    } = req.body;
+
+    // Validate input
+    if (!ceiling || !width || !depth || !budget) {
+      return res.status(400).json({ error: 'Missing required parameters: ceiling, width, depth, budget' });
+    }
+
+    const ceilingHeight = parseFloat(ceiling);
+    const roomWidth = parseFloat(width);
+    const roomDepth = parseFloat(depth);
+    const totalBudget = parseFloat(budget);
+    const minBudgetPct = parseFloat(minBudgetUtilization);
+
+    if (ceilingHeight <= 0 || roomWidth <= 0 || roomDepth <= 0 || totalBudget <= 0) {
+      return res.status(400).json({ error: 'All dimensions and budget must be positive numbers' });
+    }
+
+    // Calculate minimum acceptable total price (default 75% of budget)
+    const minAcceptablePrice = totalBudget * minBudgetPct;
+
+    // Priority weight mapping: low = 0.5x, medium = 1x, high = 2x
+    const getPriorityWeight = (priority) => {
+      if (priority === 'low') return 0.5;
+      if (priority === 'high') return 2;
+      return 1; // medium
+    };
+
+    // Priority filters for equipment selection
+    const getPriorityLimit = (priority, totalItems) => {
+      if (priority === 'low') return Math.ceil(totalItems * 0.3); // Bottom 30% (cheapest)
+      if (priority === 'high') return Math.ceil(totalItems * 0.3); // Top 30% (best rated)
+      return totalItems; // medium - consider all
+    };
+
+    // Step 1: Filter launch monitors by room constraints and budget
+    const launchMonitorsAllResult = await pool.query(
+      `SELECT name, price, technology, placement, purchase_url, score,
+              min_ceiling_height, min_room_width, min_room_depth
+       FROM simulator_launch_monitors
+       WHERE price <= $1
+         AND (min_ceiling_height IS NULL OR min_ceiling_height <= $2)
+         AND (min_room_width IS NULL OR min_room_width <= $3)
+         AND (min_room_depth IS NULL OR min_room_depth <= $4)
+       ORDER BY ${priorities.launch_monitor === 'low' ? 'price ASC' : 'score DESC'}`,
+      [totalBudget, ceilingHeight, roomWidth, roomDepth]
+    );
+    const launchMonitorsResult = {
+      rows: launchMonitorsAllResult.rows.slice(0, getPriorityLimit(priorities.launch_monitor, launchMonitorsAllResult.rows.length))
+    };
+
+    // Step 2: Filter projectors by budget
+    const projectorsAllResult = await pool.query(
+      `SELECT name, price, throw_ratio, max_image_size, purchase_url, score
+       FROM simulator_projectors
+       WHERE price <= $1
+       ORDER BY ${priorities.projector === 'low' ? 'price ASC' : 'score DESC'}`,
+      [totalBudget]
+    );
+    const projectorsResult = {
+      rows: projectorsAllResult.rows.slice(0, getPriorityLimit(priorities.projector, projectorsAllResult.rows.length))
+    };
+
+    // Step 3: Filter hitting mats by budget
+    const hittingMatsAllResult = await pool.query(
+      `SELECT name, price, rating, purchase_url
+       FROM simulator_hitting_mats
+       WHERE price <= $1
+       ORDER BY ${priorities.hitting_mat === 'low' ? 'price ASC' : 'rating DESC'}`,
+      [totalBudget]
+    );
+    const hittingMatsResult = {
+      rows: hittingMatsAllResult.rows.slice(0, getPriorityLimit(priorities.hitting_mat, hittingMatsAllResult.rows.length))
+    };
+
+    // Step 4: Filter impact screens by budget and room size
+    const impactScreensAllResult = await pool.query(
+      `SELECT name, price, dimensions, material, rating, score, purchase_url
+       FROM simulator_impact_screens
+       WHERE price <= $1
+         AND (min_room_width IS NULL OR min_room_width <= $2)
+         AND (min_room_height IS NULL OR min_room_height <= $3)
+       ORDER BY ${priorities.impact_screen === 'low' ? 'price ASC' : 'score DESC'}`,
+      [totalBudget, roomWidth, ceilingHeight]
+    );
+    const impactScreensResult = {
+      rows: impactScreensAllResult.rows.slice(0, getPriorityLimit(priorities.impact_screen, impactScreensAllResult.rows.length))
+    };
+
+    // Step 5: Filter computers by budget
+    const computersAllResult = await pool.query(
+      `SELECT name, price, processor, graphics_card, ram, performance_tier, rating, score, purchase_url
+       FROM simulator_computers
+       WHERE price <= $1
+       ORDER BY ${priorities.computer === 'low' ? 'price ASC' : 'score DESC'}`,
+      [totalBudget]
+    );
+    const computersResult = {
+      rows: computersAllResult.rows.slice(0, getPriorityLimit(priorities.computer, computersAllResult.rows.length))
+    };
+
+    // Step 6: Get all software (we'll filter by compatibility later)
+    const softwareResult = await pool.query(
+      `SELECT name, price, pricing_model, compatible_launch_monitors, features, course_count, rating, score, purchase_url
+       FROM simulator_software
+       WHERE price <= $1
+       ORDER BY score DESC`,
+      [totalBudget]
+    );
+
+    const launchMonitors = launchMonitorsResult.rows;
+    const projectors = projectorsResult.rows;
+    const hittingMats = hittingMatsResult.rows;
+    const impactScreens = impactScreensResult.rows;
+    const computers = computersResult.rows;
+    const software = softwareResult.rows;
+
+    // Helper function to check software compatibility
+    const isCompatibleSoftware = (softwareName, launchMonitorName) => {
+      const softwareItem = software.find(s => s.name === softwareName);
+      if (!softwareItem || !softwareItem.compatible_launch_monitors) return true;
+
+      const compatibility = softwareItem.compatible_launch_monitors.toLowerCase();
+      if (compatibility === 'universal') return true;
+
+      const monitorNameLower = launchMonitorName.toLowerCase();
+      return compatibility.split(',').some(brand => monitorNameLower.includes(brand.trim().toLowerCase()));
+    };
+
+    // Helper function to get compatible software for a launch monitor
+    const getCompatibleSoftware = (launchMonitorName) => {
+      return software.filter(sw => isCompatibleSoftware(sw.name, launchMonitorName));
+    };
+
+    // Step 7: Generate valid combinations (core equipment: launch monitor + projector + mat + screen + computer)
+    const validCombinations = [];
+
+    for (const monitor of launchMonitors) {
+      // Get compatible software for this launch monitor
+      const compatibleSoftware = getCompatibleSoftware(monitor.name);
+      const bestSoftware = compatibleSoftware[0]; // Highest rated compatible software
+
+      for (const projector of projectors) {
+        for (const mat of hittingMats) {
+          for (const screen of impactScreens) {
+            for (const computer of computers) {
+              const corePrice =
+                parseFloat(monitor.price) +
+                parseFloat(projector.price) +
+                parseFloat(mat.price) +
+                parseFloat(screen.price) +
+                parseFloat(computer.price);
+
+              // Filter: must be within budget AND meet minimum budget utilization
+              if (corePrice >= minAcceptablePrice && corePrice <= totalBudget) {
+                // Calculate total rating with user-defined priority weights
+                const totalRating =
+                  (parseFloat(monitor.score || 0) * getPriorityWeight(priorities.launch_monitor)) +
+                  (parseFloat(projector.score || 0) * getPriorityWeight(priorities.projector)) +
+                  (parseFloat(mat.rating || 0) * getPriorityWeight(priorities.hitting_mat)) +
+                  (parseFloat(screen.score || 0) * getPriorityWeight(priorities.impact_screen)) +
+                  (parseFloat(computer.score || 0) * getPriorityWeight(priorities.computer));
+
+                validCombinations.push({
+                  launch_monitor: {
+                    name: monitor.name,
+                    price: parseFloat(monitor.price),
+                    technology: monitor.technology,
+                    placement: monitor.placement,
+                    purchase_url: monitor.purchase_url
+                  },
+                  projector: {
+                    name: projector.name,
+                    price: parseFloat(projector.price),
+                    throw_ratio: parseFloat(projector.throw_ratio),
+                    max_image_size: projector.max_image_size,
+                    purchase_url: projector.purchase_url
+                  },
+                  hitting_mat: {
+                    name: mat.name,
+                    price: parseFloat(mat.price),
+                    rating: parseFloat(mat.rating),
+                    purchase_url: mat.purchase_url
+                  },
+                  impact_screen: {
+                    name: screen.name,
+                    price: parseFloat(screen.price),
+                    dimensions: screen.dimensions,
+                    material: screen.material,
+                    purchase_url: screen.purchase_url
+                  },
+                  computer: {
+                    name: computer.name,
+                    price: parseFloat(computer.price),
+                    processor: computer.processor,
+                    graphics_card: computer.graphics_card,
+                    performance_tier: computer.performance_tier,
+                    purchase_url: computer.purchase_url
+                  },
+                  recommended_software: bestSoftware ? {
+                    name: bestSoftware.name,
+                    price: parseFloat(bestSoftware.price),
+                    pricing_model: bestSoftware.pricing_model,
+                    purchase_url: bestSoftware.purchase_url
+                  } : null,
+                  total_price: corePrice,
+                  total_rating: totalRating,
+                  budget_remaining: totalBudget - corePrice
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Step 8: Sort by rating (descending), then by price (ascending for ties)
+    validCombinations.sort((a, b) => {
+      if (b.total_rating !== a.total_rating) {
+        return b.total_rating - a.total_rating;
+      }
+      return a.total_price - b.total_price;
+    });
+
+    // Step 9: Get top 10 combinations
+    const topCombinations = validCombinations.slice(0, 10);
+
+    // Step 10: Get room width guidance
+    const roomWidthNote = getRoomWidthNote(roomWidth);
+
+    // Step 11: Calculate price ranges for each category to help with visualization
+    const calculatePriceRange = (items) => {
+      if (!items || items.length === 0) return { min: 0, max: 0 };
+      const prices = items.map(item => parseFloat(item.price));
+      return {
+        min: Math.min(...prices),
+        max: Math.max(...prices)
+      };
+    };
+
+    const priceRanges = {
+      launch_monitors: calculatePriceRange(launchMonitors),
+      projectors: calculatePriceRange(projectorsResult.rows),
+      hitting_mats: calculatePriceRange(hittingMatsResult.rows),
+      impact_screens: calculatePriceRange(impactScreensResult.rows),
+      computers: calculatePriceRange(computersResult.rows),
+      software: calculatePriceRange(softwareResult.rows)
+    };
+
+    res.json({
+      launch_monitors: launchMonitors.slice(0, 20),
+      projectors: projectorsResult.rows.slice(0, 20),
+      hitting_mats: hittingMatsResult.rows.slice(0, 20),
+      impact_screens: impactScreensResult.rows.slice(0, 20),
+      computers: computersResult.rows.slice(0, 20),
+      software: softwareResult.rows,
+      valid_combinations: topCombinations,
+      room_width_note: roomWidthNote,
+      total_combinations_found: validCombinations.length,
+      price_ranges: priceRanges,
+      min_budget_utilization: minBudgetPct,
+      input: {
+        ceiling: ceilingHeight,
+        width: roomWidth,
+        depth: roomDepth,
+        budget: totalBudget
+      }
+    });
+
+  } catch (err) {
+    console.error('Error generating simulator recommendations:', err);
+    res.status(500).json({ error: 'Failed to generate recommendations' });
+  }
+});
+
+// GET /api/simulator/equipment - Get all equipment by category
+app.get('/api/simulator/equipment', async (req, res) => {
+  try {
+    const { category } = req.query;
+
+    let result;
+    switch (category) {
+      case 'launch-monitors':
+        result = await pool.query('SELECT * FROM simulator_launch_monitors ORDER BY score DESC');
+        break;
+      case 'projectors':
+        result = await pool.query('SELECT * FROM simulator_projectors ORDER BY score DESC');
+        break;
+      case 'hitting-mats':
+        result = await pool.query('SELECT * FROM simulator_hitting_mats ORDER BY rating DESC');
+        break;
+      case 'impact-screens':
+        result = await pool.query('SELECT * FROM simulator_impact_screens ORDER BY score DESC');
+        break;
+      case 'computers':
+        result = await pool.query('SELECT * FROM simulator_computers ORDER BY score DESC');
+        break;
+      case 'software':
+        result = await pool.query('SELECT * FROM simulator_software ORDER BY score DESC');
+        break;
+      default:
+        return res.status(400).json({ error: 'Invalid category. Use: launch-monitors, projectors, hitting-mats, impact-screens, computers, or software' });
+    }
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching simulator equipment:', err);
+    res.status(500).json({ error: 'Failed to fetch equipment' });
+  }
+});
+
+// POST /api/simulator/configurations - Save a user configuration
+app.post('/api/simulator/configurations', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.member_id;
+    const {
+      name,
+      ceiling_height,
+      room_width,
+      room_depth,
+      budget,
+      launch_monitor_id,
+      projector_id,
+      hitting_mat_id,
+      impact_screen_id,
+      computer_id,
+      software_id,
+      total_price,
+      total_rating,
+      notes,
+      is_purchased
+    } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO simulator_configurations (
+        user_id, name, ceiling_height, room_width, room_depth, budget,
+        launch_monitor_id, projector_id, hitting_mat_id, impact_screen_id,
+        computer_id, software_id, total_price, total_rating, notes, is_purchased
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      RETURNING *`,
+      [
+        userId, name, ceiling_height, room_width, room_depth, budget,
+        launch_monitor_id, projector_id, hitting_mat_id, impact_screen_id,
+        computer_id, software_id, total_price, total_rating, notes, is_purchased || false
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error saving simulator configuration:', err);
+    res.status(500).json({ error: 'Failed to save configuration' });
+  }
+});
+
+// GET /api/simulator/configurations - Get user's saved configurations
+app.get('/api/simulator/configurations', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.member_id;
+
+    const result = await pool.query(
+      `SELECT
+        c.*,
+        lm.name as launch_monitor_name, lm.price as launch_monitor_price,
+        p.name as projector_name, p.price as projector_price,
+        hm.name as hitting_mat_name, hm.price as hitting_mat_price,
+        is_table.name as impact_screen_name, is_table.price as impact_screen_price,
+        comp.name as computer_name, comp.price as computer_price,
+        sw.name as software_name, sw.price as software_price
+       FROM simulator_configurations c
+       LEFT JOIN simulator_launch_monitors lm ON c.launch_monitor_id = lm.id
+       LEFT JOIN simulator_projectors p ON c.projector_id = p.id
+       LEFT JOIN simulator_hitting_mats hm ON c.hitting_mat_id = hm.id
+       LEFT JOIN simulator_impact_screens is_table ON c.impact_screen_id = is_table.id
+       LEFT JOIN simulator_computers comp ON c.computer_id = comp.id
+       LEFT JOIN simulator_software sw ON c.software_id = sw.id
+       WHERE c.user_id = $1
+       ORDER BY c.created_at DESC`,
+      [userId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching simulator configurations:', err);
+    res.status(500).json({ error: 'Failed to fetch configurations' });
+  }
+});
+
+// DELETE /api/simulator/configurations/:id - Delete a configuration
+app.delete('/api/simulator/configurations/:id', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.member_id;
+    const configId = req.params.id;
+
+    const result = await pool.query(
+      'DELETE FROM simulator_configurations WHERE id = $1 AND user_id = $2 RETURNING *',
+      [configId, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Configuration not found' });
+    }
+
+    res.json({ message: 'Configuration deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting simulator configuration:', err);
+    res.status(500).json({ error: 'Failed to delete configuration' });
   }
 });
 

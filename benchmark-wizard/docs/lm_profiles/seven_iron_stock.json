@@ -1,0 +1,19 @@
+{
+  "$schema": "../lm_profile.schema.json",
+  "id": "seven_iron_stock",
+  "name": "Stock 7 Iron",
+  "description": "Average 7 iron strike for automation testing.",
+  "club": "7 Iron",
+  "ball_speed_mph": 120,
+  "club_speed_mph": 87,
+  "launch_angle_deg": 18,
+  "side_angle_deg": -0.5,
+  "spin_rpm": 6200,
+  "axis_tilt_deg": 1,
+  "carry_distance_yds": 170,
+  "variation": {
+    "ball_speed_mph": 1.2,
+    "launch_angle_deg": 0.7,
+    "spin_rpm": 200
+  }
+}

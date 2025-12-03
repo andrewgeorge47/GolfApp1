@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Users, Trophy, Medal, BarChart3, User, Menu, X, MapPin, LogIn, Calendar, Target, TrendingUp } from 'lucide-react';
+import { Home, Users, Trophy, Medal, BarChart3, User, Menu, X, MapPin, LogIn, Calendar, Target, TrendingUp, Crown, Wrench } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Leaderboard from './components/Leaderboard';
 import Scoring from './components/Scoring';
 import TournamentScoring from './components/TournamentScoring';
 import Admin from './components/Admin';
+import AdminLanding from './components/AdminLanding';
+import AdminUsers from './components/AdminUsers';
+import AdminClubs from './components/AdminClubs';
+import AdminEngagement from './components/AdminEngagement';
+import AdminFeatureTesting from './components/AdminFeatureTesting';
 import TournamentManagement from './components/TournamentManagement';
 import Profile from './components/Profile';
 import SimulatorCourses from './components/SimulatorCourses';
@@ -15,6 +20,16 @@ import AvailableTournaments from './components/AvailableTournaments';
 import NewWeeklyScoring from './components/NewWeeklyScoring';
 import NewWeeklyLeaderboard from './components/NewWeeklyLeaderboard';
 import AdminPermissionsManager from './components/AdminPermissionsManager';
+import LeagueManagement from './components/LeagueManagement';
+import CaptainDashboard from './components/CaptainDashboard';
+import LeagueScoring from './components/LeagueScoring';
+import PlayerAvailabilityCalendar from './components/PlayerAvailabilityCalendar';
+import PlayerAvailabilityForm from './components/PlayerAvailabilityForm';
+import PlayerTeamView from './components/PlayerTeamView';
+import LeagueStandings from './components/LeagueStandings';
+import DivisionStandings from './components/DivisionStandings';
+import TeamDetailsPage from './components/TeamDetailsPage';
+import WeeklyResults from './components/WeeklyResults';
 import { AuthProvider, useAuth } from './AuthContext';
 import { usePermissions } from './hooks/usePermissions';
 import ClubProDashboard from './components/ClubProDashboard';
@@ -33,6 +48,11 @@ import ChallengeLeaderboard from './components/ChallengeLeaderboard';
 import ChallengeDistanceSubmission from './components/ChallengeDistanceSubmission';
 import WeeklyChallengeAdmin from './components/WeeklyChallengeAdmin';
 import ComponentShowcase from './components/ComponentShowcase';
+import SignupManager from './components/SignupManager';
+import SignupDetails from './components/SignupDetails';
+import SignupList from './components/SignupList';
+import SignupRegistration from './components/SignupRegistration';
+import { SimulatorBuilder } from './components/SimulatorBuilder';
 
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -54,6 +74,45 @@ const NewWeeklyLeaderboardWrapper: React.FC = () => {
     <NewWeeklyLeaderboard 
       tournamentId={parseInt(tournamentId || '1')} 
       tournamentName="Weekly Tournament" 
+    />
+  );
+};
+
+// Wrapper for LeagueStandings to handle URL parameters
+const LeagueStandingsWrapper: React.FC = () => {
+  const { leagueId } = useParams();
+  return <LeagueStandings leagueId={parseInt(leagueId || '1')} />;
+};
+
+// Wrapper for DivisionStandings to handle URL parameters
+const DivisionStandingsWrapper: React.FC = () => {
+  const { leagueId, divisionId } = useParams();
+  return (
+    <DivisionStandings 
+      leagueId={parseInt(leagueId || '1')} 
+      divisionId={parseInt(divisionId || '1')} 
+    />
+  );
+};
+
+// Wrapper for TeamDetailsPage to handle URL parameters
+const TeamDetailsWrapper: React.FC = () => {
+  const { teamId, leagueId } = useParams();
+  return (
+    <TeamDetailsPage 
+      teamId={parseInt(teamId || '1')} 
+      leagueId={leagueId ? parseInt(leagueId) : undefined} 
+    />
+  );
+};
+
+// Wrapper for WeeklyResults to handle URL parameters
+const WeeklyResultsWrapper: React.FC = () => {
+  const { leagueId, weekNumber } = useParams();
+  return (
+    <WeeklyResults 
+      leagueId={parseInt(leagueId || '1')} 
+      weekNumber={weekNumber ? parseInt(weekNumber) : undefined} 
     />
   );
 };
@@ -294,7 +353,9 @@ function Navigation() {
     { to: "/tournaments", icon: Trophy, label: "Tournaments" },
     { to: "/simulator-courses", icon: MapPin, label: "Neighborhood Courses" },
     { to: "https://neighborhood-national.mn.co/", icon: Users, label: "Community", external: true },
-    ...(user ? [{ to: "/profile", icon: User, label: "Profile" }] : []),
+    ...(user ? [
+      { to: "/profile", icon: User, label: "Profile" }
+    ] : []),
   ];
 
   return (
@@ -504,6 +565,11 @@ function AppContent() {
             <SimulatorCourses />
           </main>
         } />
+        <Route path="/simulator-builder" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <SimulatorBuilder />
+          </main>
+        } />
         <Route path="/profile" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <ProtectedRoute><Profile /></ProtectedRoute>
@@ -511,7 +577,32 @@ function AppContent() {
         } />
         <Route path="/admin" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-            <ProtectedRoute><Admin /></ProtectedRoute>
+            <AdminProtectedRoute><AdminLanding /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/users" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><AdminUsers /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/clubs" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><AdminClubs /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/engagement" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><AdminEngagement /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/feature-testing" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><AdminFeatureTesting /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/club-management" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><BookingSettingsAdmin /></AdminProtectedRoute>
           </main>
         } />
         <Route path="/tournament-management" element={
@@ -532,6 +623,71 @@ function AppContent() {
         <Route path="/admin/permissions" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <AdminProtectedRoute><AdminPermissionsManager /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/league-management" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><LeagueManagement /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/captain-dashboard" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><CaptainDashboard /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/league-scoring" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><LeagueScoring /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/league-scoring/:matchupId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><LeagueScoring /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/player/availability" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><PlayerAvailabilityCalendar /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/player/availability-form" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><PlayerAvailabilityForm /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/player/team" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <ProtectedRoute><PlayerTeamView /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/league-standings/:leagueId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <LeagueStandingsWrapper />
+          </main>
+        } />
+        <Route path="/league-standings/:leagueId/division/:divisionId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <DivisionStandingsWrapper />
+          </main>
+        } />
+        <Route path="/team/:teamId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <TeamDetailsWrapper />
+          </main>
+        } />
+        <Route path="/team/:teamId/league/:leagueId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <TeamDetailsWrapper />
+          </main>
+        } />
+        <Route path="/weekly-results/:leagueId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <WeeklyResultsWrapper />
+          </main>
+        } />
+        <Route path="/weekly-results/:leagueId/week/:weekNumber" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <WeeklyResultsWrapper />
           </main>
         } />
         <Route path="/login" element={
@@ -592,6 +748,30 @@ function AppContent() {
         <Route path="/challenges/admin" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <AdminProtectedRoute><WeeklyChallengeAdmin /></AdminProtectedRoute>
+          </main>
+        } />
+
+        {/* User-facing Signups */}
+        <Route path="/signups/:id" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <SignupRegistration />
+          </main>
+        } />
+        <Route path="/signups" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <SignupList />
+          </main>
+        } />
+
+        {/* Signup Management */}
+        <Route path="/admin/signups/:id" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><SignupDetails /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/signups" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><SignupManager /></AdminProtectedRoute>
           </main>
         } />
 

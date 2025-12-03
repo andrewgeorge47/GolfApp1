@@ -1728,4 +1728,257 @@ export const finalizeChallengeWithPayouts = (challengeId: number, payout_notes?:
   }>(`/challenges/${challengeId}/finalize`, { payout_notes });
 };
 
+// ============================================================================
+// SIGNUP SYSTEM INTERFACES AND API FUNCTIONS
+// ============================================================================
+
+export interface Signup {
+  id: number;
+  title: string;
+  description?: string;
+  slug: string;
+  entry_fee: number;
+  registration_opens_at?: string;
+  registration_closes_at?: string;
+  max_registrations?: number;
+  stripe_enabled: boolean;
+  venmo_url?: string;
+  venmo_username?: string;
+  payment_organizer?: 'jeff' | 'adam' | 'other';
+  payment_organizer_name?: string;
+  payment_venmo_url?: string;
+  image_url?: string;
+  confirmation_message?: string;
+  status: 'draft' | 'open' | 'closed' | 'archived';
+  created_by: number;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+  // Additional fields from joins
+  created_by_name?: string;
+  total_registrations?: number;
+  paid_registrations?: number;
+  pending_registrations?: number;
+  total_revenue?: number;
+}
+
+export interface SignupRegistration {
+  id: number;
+  signup_id: number;
+  user_id: number;
+  registration_data?: any;
+  payment_required: boolean;
+  payment_amount: number;
+  status: 'pending' | 'paid' | 'cancelled' | 'refunded';
+  registered_at: string;
+  updated_at: string;
+  // Additional fields from joins
+  first_name?: string;
+  last_name?: string;
+  email_address?: string;
+  club?: string;
+  payment_method?: string;
+  payment_status?: string;
+  payment_reference?: string;
+  payment_date?: string;
+  verified_by?: number;
+  verified_at?: string;
+  verified_by_name?: string;
+  signup_title?: string;
+  signup_description?: string;
+  confirmation_message?: string;
+  linked_tournaments?: Array<{
+    tournament_id: number;
+    tournament_name: string;
+    tournament_date: string;
+  }>;
+}
+
+export interface SignupPayment {
+  id: number;
+  registration_id: number;
+  amount: number;
+  payment_method: string;
+  payment_reference?: string;
+  payment_status: 'pending' | 'processing' | 'completed' | 'failed' | 'refunded';
+  stripe_payment_intent_id?: string;
+  stripe_client_secret?: string;
+  verified_by?: number;
+  verified_at?: string;
+  admin_notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SignupStats {
+  total_registrations: number;
+  paid_count: number;
+  pending_count: number;
+  cancelled_count: number;
+  total_revenue: number;
+  stripe_revenue: number;
+  venmo_revenue: number;
+  pending_revenue: number;
+}
+
+export interface TournamentSignupLink {
+  id: number;
+  tournament_id: number;
+  signup_id: number;
+  auto_sync: boolean;
+  last_synced_at?: string;
+  synced_by?: number;
+  sync_count: number;
+  created_at: string;
+  // Additional fields from joins
+  signup_title?: string;
+  entry_fee?: number;
+  signup_status?: string;
+  paid_registrations?: number;
+  synced_by_name?: string;
+}
+
+// ========================================
+// Admin Signup CRUD API Functions
+// ========================================
+
+export const createSignup = (data: Partial<Signup>) =>
+  api.post<Signup>('/signups', data);
+
+export const getSignups = (params?: { status?: string; search?: string }) =>
+  api.get<Signup[]>('/signups', { params });
+
+export const getSignup = (id: number) =>
+  api.get<Signup>(`/signups/${id}`);
+
+export const updateSignup = (id: number, data: Partial<Signup>) =>
+  api.put<Signup>(`/signups/${id}`, data);
+
+export const deleteSignup = (id: number) =>
+  api.delete<{ message: string }>(`/signups/${id}`);
+
+// ========================================
+// Admin Registration Management API Functions
+// ========================================
+
+export const getSignupRegistrations = (signupId: number, params?: { status?: string }) =>
+  api.get<SignupRegistration[]>(`/signups/${signupId}/registrations`, { params });
+
+export const getPaidSignupRegistrations = (signupId: number) =>
+  api.get<SignupRegistration[]>(`/signups/${signupId}/registrations/paid`);
+
+export const getSignupStats = (signupId: number) =>
+  api.get<SignupStats>(`/signups/${signupId}/stats`);
+
+export const verifySignupPayment = (signupId: number, registrationId: number, admin_notes?: string) =>
+  api.post<{ message: string; payment: SignupPayment }>(
+    `/signups/${signupId}/registrations/${registrationId}/verify-payment`,
+    { admin_notes }
+  );
+
+export const refundSignupRegistration = (signupId: number, registrationId: number, reason?: string) =>
+  api.post<{ message: string }>(
+    `/signups/${signupId}/registrations/${registrationId}/refund`,
+    { reason }
+  );
+
+// ========================================
+// Tournament Linking API Functions
+// ========================================
+
+export const linkSignupToTournament = (tournamentId: number, signup_id: number, auto_sync: boolean = false) =>
+  api.post<TournamentSignupLink>(`/tournaments/${tournamentId}/link-signup`, { signup_id, auto_sync });
+
+export const syncTournamentFromSignup = (tournamentId: number, signup_id: number) =>
+  api.post<{ message: string; added: number; skipped: number; total: number }>(
+    `/tournaments/${tournamentId}/sync-from-signup`,
+    { signup_id }
+  );
+
+export const getTournamentLinkedSignups = (tournamentId: number) =>
+  api.get<TournamentSignupLink[]>(`/tournaments/${tournamentId}/linked-signups`);
+
+export const unlinkSignupFromTournament = (tournamentId: number, signupId: number) =>
+  api.delete<{ message: string }>(`/tournaments/${tournamentId}/unlink-signup/${signupId}`);
+
+// ========================================
+// Public Signup API Functions (no auth required)
+// ========================================
+
+export const getPublicSignups = () =>
+  api.get<Signup[]>('/signups/public');
+
+export const getPublicSignup = (identifier: string | number) =>
+  api.get<Signup>(`/signups/${identifier}/public`);
+
+// ========================================
+// User Registration API Functions
+// ========================================
+
+export const checkMySignupRegistration = (signupId: number) =>
+  api.get<{ registered: boolean; registration?: SignupRegistration & { payment_status?: string; payment_method?: string; payment_reference?: string } }>(`/signups/${signupId}/my-registration`);
+
+export const registerForSignup = (signupId: number, registration_data?: any) =>
+  api.post<SignupRegistration>(`/signups/${signupId}/register`, { registration_data });
+
+export const createSignupPaymentIntent = (signupId: number) =>
+  api.post<{ clientSecret: string; amount: number }>(`/signups/${signupId}/create-payment-intent`);
+
+export const confirmSignupStripePayment = (signupId: number, payment_intent_id: string) =>
+  api.post<{ message: string; registration: SignupRegistration; payment: SignupPayment }>(
+    `/signups/${signupId}/confirm-stripe-payment`,
+    { payment_intent_id }
+  );
+
+export const submitSignupVenmoPayment = (signupId: number, venmo_reference: string) =>
+  api.post<{ message: string; payment: SignupPayment }>(
+    `/signups/${signupId}/submit-venmo-payment`,
+    { venmo_reference }
+  );
+
+export const getUserRegistrations = () =>
+  api.get<SignupRegistration[]>('/user/registrations');
+
+export const getUserRegistration = (registrationId: number) =>
+  api.get<SignupRegistration>(`/user/registrations/${registrationId}`);
+
+// ========================================
+// Feature Testing Types
+// ========================================
+
+export interface FeatureTest {
+  id: number;
+  name: string;
+  description: string;
+  status: 'admin-testing' | 'live-beta' | 'coming-soon';
+  category: string;
+  icon: string;
+  priority?: 'high' | 'medium' | 'low';
+  route?: string;
+  assigned_to?: string;
+  target_date?: string;
+  created_by?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// ========================================
+// Feature Testing API Functions
+// ========================================
+
+export const getFeatureTests = () =>
+  api.get<FeatureTest[]>('/feature-testing');
+
+export const getFeatureTest = (id: number) =>
+  api.get<FeatureTest>(`/feature-testing/${id}`);
+
+export const createFeatureTest = (data: Partial<FeatureTest>) =>
+  api.post<FeatureTest>('/feature-testing', data);
+
+export const updateFeatureTest = (id: number, data: Partial<FeatureTest>) =>
+  api.put<FeatureTest>(`/feature-testing/${id}`, data);
+
+export const deleteFeatureTest = (id: number) =>
+  api.delete<{ message: string; id: number }>(`/feature-testing/${id}`);
+
 export default api; 
