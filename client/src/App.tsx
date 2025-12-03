@@ -13,6 +13,7 @@ import AdminEngagement from './components/AdminEngagement';
 import AdminFeatureTesting from './components/AdminFeatureTesting';
 import TournamentManagement from './components/TournamentManagement';
 import Profile from './components/Profile';
+import BetaProfile from './components/BetaProfile';
 import SimulatorCourses from './components/SimulatorCourses';
 import UserTrackingPage from './components/UserTrackingPage';
 import AdminUserProfile from './components/AdminUserProfile';
@@ -52,6 +53,7 @@ import SignupManager from './components/SignupManager';
 import SignupDetails from './components/SignupDetails';
 import SignupList from './components/SignupList';
 import SignupRegistration from './components/SignupRegistration';
+import RegistrationTemplateManager from './components/RegistrationTemplateManager';
 import { SimulatorBuilder } from './components/SimulatorBuilder';
 
 import { ToastContainer } from 'react-toastify';
@@ -575,6 +577,11 @@ function AppContent() {
             <ProtectedRoute><Profile /></ProtectedRoute>
           </main>
         } />
+        <Route path="/beta-profile" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <BetaProtectedRoute><BetaProfile /></BetaProtectedRoute>
+          </main>
+        } />
         <Route path="/admin" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <AdminProtectedRoute><AdminLanding /></AdminProtectedRoute>
@@ -772,6 +779,11 @@ function AppContent() {
         <Route path="/admin/signups" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <AdminProtectedRoute><SignupManager /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/registration-templates" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><RegistrationTemplateManager /></AdminProtectedRoute>
           </main>
         } />
 
