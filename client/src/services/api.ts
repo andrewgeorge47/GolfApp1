@@ -1750,6 +1750,10 @@ export interface Signup {
   image_url?: string;
   confirmation_message?: string;
   status: 'draft' | 'open' | 'closed' | 'archived';
+  // Registration form fields
+  has_registration_form?: boolean;
+  registration_form_template?: string;
+  registration_form_data?: any;
   created_by: number;
   created_at: string;
   updated_at: string;
@@ -1839,6 +1843,77 @@ export interface TournamentSignupLink {
 }
 
 // ========================================
+// Registration Form Template API Functions
+// ========================================
+
+export interface RegistrationFormQuestion {
+  id: string;
+  question: string;
+  type: 'radio' | 'checkbox' | 'text' | 'member_multiselect';
+  required: boolean;
+  options?: string[];
+  placeholder?: string;
+  conditional?: {
+    dependsOn: string;
+    showWhen: string;
+  };
+  // For member_multiselect type
+  restrictToClub?: boolean; // If true, only show members from user's club
+  maxSelections?: number; // Maximum number of members that can be selected
+}
+
+export interface RegistrationFormTemplate {
+  id: number;
+  name: string;
+  description?: string;
+  category: string;
+  template_key: string;
+  questions: RegistrationFormQuestion[];
+  is_active: boolean;
+  is_system: boolean;
+  created_by?: number;
+  created_by_name?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const getRegistrationTemplates = (params?: { category?: string; is_active?: boolean }) =>
+  api.get<RegistrationFormTemplate[]>('/registration-templates', { params });
+
+export const getPublicRegistrationTemplates = () =>
+  api.get<RegistrationFormTemplate[]>('/registration-templates/public');
+
+export const getRegistrationTemplate = (id: number) =>
+  api.get<RegistrationFormTemplate>(`/registration-templates/${id}`);
+
+export const createRegistrationTemplate = (data: {
+  name: string;
+  description?: string;
+  category?: string;
+  template_key: string;
+  questions: RegistrationFormQuestion[];
+  is_active?: boolean;
+}) => api.post<RegistrationFormTemplate>('/registration-templates', data);
+
+export const updateRegistrationTemplate = (id: number, data: Partial<{
+  name: string;
+  description: string;
+  category: string;
+  template_key: string;
+  questions: RegistrationFormQuestion[];
+  is_active: boolean;
+}>) => api.put<RegistrationFormTemplate>(`/registration-templates/${id}`, data);
+
+export const deleteRegistrationTemplate = (id: number) =>
+  api.delete<{ message: string; template?: RegistrationFormTemplate }>(`/registration-templates/${id}`);
+
+// Get club members for member selection in registration forms
+export const getClubMembers = (club?: string) =>
+  api.get<Array<{ member_id: number; first_name: string; last_name: string; club: string }>>('/users/club-members', {
+    params: club ? { club } : undefined
+  });
+
+// ========================================
 // Admin Signup CRUD API Functions
 // ========================================
 
@@ -1881,6 +1956,26 @@ export const refundSignupRegistration = (signupId: number, registrationId: numbe
     `/signups/${signupId}/registrations/${registrationId}/refund`,
     { reason }
   );
+
+export const deleteSignupRegistration = (signupId: number, registrationId: number) =>
+  api.delete<{ message: string }>(`/signups/${signupId}/registrations/${registrationId}`);
+
+export const manuallyRegisterUser = (signupId: number, data: {
+  user_id: number;
+  status?: string;
+  payment_status?: string;
+  payment_method?: string;
+  payment_amount?: number;
+  admin_notes?: string;
+}) => api.post<SignupRegistration>(`/signups/${signupId}/registrations/manual`, data);
+
+export const updateSignupRegistration = (signupId: number, registrationId: number, data: {
+  status?: string;
+  payment_status?: string;
+  payment_method?: string;
+  payment_amount?: number;
+  admin_notes?: string;
+}) => api.put<SignupRegistration>(`/signups/${signupId}/registrations/${registrationId}`, data);
 
 // ========================================
 // Tournament Linking API Functions

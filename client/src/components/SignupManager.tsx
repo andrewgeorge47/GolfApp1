@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   getSignups,
   createSignup,
   updateSignup,
   deleteSignup,
-  type Signup
+  getPublicRegistrationTemplates,
+  getSignup,
+  type Signup,
+  type RegistrationFormTemplate,
+  type RegistrationFormQuestion
 } from '../services/api';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
@@ -14,16 +18,20 @@ import { Modal, ModalHeader, ModalContent, ModalFooter } from './ui/Modal';
 import { Badge } from './ui/Badge';
 import { Input } from './ui/Input';
 import { PageHeader } from './ui/PageHeader';
-import { Plus, Search, Edit2, Trash2, Eye, DollarSign, Users, Calendar } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Eye, DollarSign, Users, Calendar, FileText } from 'lucide-react';
+import { toast } from 'react-toastify';
 
 const SignupManager: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [signups, setSignups] = useState<Signup[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingSignup, setEditingSignup] = useState<Signup | null>(null);
+  const [registrationTemplates, setRegistrationTemplates] = useState<RegistrationFormTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
   const [formData, setFormData] = useState<Partial<Signup>>({
     title: '',
     description: '',
@@ -34,11 +42,55 @@ const SignupManager: React.FC = () => {
     payment_organizer: undefined,
     payment_organizer_name: '',
     payment_venmo_url: '',
+    has_registration_form: false,
+    registration_form_template: '',
+    registration_form_data: null,
   });
 
   useEffect(() => {
     fetchSignups();
+    fetchRegistrationTemplates();
   }, [statusFilter]);
+
+  // Handle edit from navigation state
+  useEffect(() => {
+    const state = location.state as { editSignupId?: number };
+    if (state?.editSignupId && signups.length > 0) {
+      const signupToEdit = signups.find(s => s.id === state.editSignupId);
+      if (signupToEdit) {
+        openEditModal(signupToEdit);
+        // Clear the state to prevent re-opening on refresh
+        navigate(location.pathname, { replace: true, state: {} });
+      } else {
+        // Fetch the signup if it's not in the list
+        fetchAndEditSignup(state.editSignupId);
+      }
+    }
+  }, [location.state, signups]);
+
+  const fetchAndEditSignup = async (id: number) => {
+    try {
+      const response = await getSignup(id);
+      openEditModal(response.data);
+      navigate(location.pathname, { replace: true, state: {} });
+    } catch (error) {
+      console.error('Error fetching signup for edit:', error);
+      toast.error('Failed to load signup for editing');
+    }
+  };
+
+  const fetchRegistrationTemplates = async () => {
+    try {
+      setTemplatesLoading(true);
+      const response = await getPublicRegistrationTemplates();
+      setRegistrationTemplates(response.data);
+    } catch (error) {
+      console.error('Error fetching registration templates:', error);
+      toast.error('Failed to load registration templates');
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
 
   const fetchSignups = async () => {
     try {
@@ -113,6 +165,9 @@ const SignupManager: React.FC = () => {
       payment_organizer_name: signup.payment_organizer_name,
       payment_venmo_url: signup.payment_venmo_url,
       confirmation_message: signup.confirmation_message,
+      has_registration_form: signup.has_registration_form || false,
+      registration_form_template: signup.registration_form_template || '',
+      registration_form_data: signup.registration_form_data || null,
     });
   };
 
@@ -127,7 +182,24 @@ const SignupManager: React.FC = () => {
       payment_organizer: undefined,
       payment_organizer_name: '',
       payment_venmo_url: '',
+      has_registration_form: false,
+      registration_form_template: '',
+      registration_form_data: null,
     });
+  };
+
+  // Handle registration form template selection
+  const handleRegistrationTemplateSelect = (template: RegistrationFormTemplate) => {
+    setFormData(prev => ({
+      ...prev,
+      registration_form_template: template.template_key,
+      registration_form_data: {
+        name: template.name,
+        description: template.description,
+        questions: template.questions
+      }
+    }));
+    toast.success(`Applied ${template.name} template`);
   };
 
   const getStatusBadge = (status: string) => {
@@ -493,6 +565,107 @@ const SignupManager: React.FC = () => {
                 rows={2}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-neon-green"
               />
+            </div>
+
+            {/* Registration Form Settings */}
+            <div className="border-t pt-4">
+              <div className="flex items-center gap-3 mb-4">
+                <FileText className="w-5 h-5 text-brand-dark-green" />
+                <h4 className="text-lg font-semibold text-gray-900">Registration Form</h4>
+              </div>
+
+              <div className="flex items-center gap-2 mb-4">
+                <input
+                  type="checkbox"
+                  id="has_registration_form"
+                  checked={formData.has_registration_form}
+                  onChange={(e) => setFormData({ ...formData, has_registration_form: e.target.checked })}
+                  className="rounded border-gray-300 text-brand-dark-green focus:ring-brand-dark-green"
+                />
+                <label htmlFor="has_registration_form" className="text-sm font-medium text-gray-700">
+                  Enable Custom Registration Form
+                </label>
+              </div>
+
+              {formData.has_registration_form && (
+                <div className="space-y-4 pl-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Select Template
+                    </label>
+                    {templatesLoading ? (
+                      <div className="text-center py-4">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-brand-neon-green mx-auto"></div>
+                      </div>
+                    ) : registrationTemplates.length === 0 ? (
+                      <p className="text-sm text-gray-500">No templates available. Please create one first.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {registrationTemplates.map((template) => (
+                          <button
+                            key={template.id}
+                            type="button"
+                            onClick={() => handleRegistrationTemplateSelect(template)}
+                            className={`p-3 rounded-lg border text-left transition-all ${
+                              formData.registration_form_template === template.template_key
+                                ? 'border-brand-dark-green bg-green-50'
+                                : 'border-gray-200 hover:border-brand-dark-green'
+                            }`}
+                          >
+                            <div className="font-medium text-gray-900">{template.name}</div>
+                            <div className="text-xs text-gray-600 mt-1">{template.description}</div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {formData.registration_form_template && formData.registration_form_data && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Template Preview
+                      </label>
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <h6 className="font-medium text-gray-900 mb-3">
+                          {formData.registration_form_data.name}
+                        </h6>
+                        {formData.registration_form_data.questions.map((question: RegistrationFormQuestion, index: number) => (
+                          <div key={index} className="mb-3 text-sm">
+                            <p className="font-medium text-gray-700 mb-1">
+                              {question.question}
+                              {question.required && <span className="text-red-500 ml-1">*</span>}
+                            </p>
+                            <div className="ml-4 text-gray-600">
+                              {question.type === 'text' && (
+                                <p className="italic">Text input{question.placeholder ? `: ${question.placeholder}` : ''}</p>
+                              )}
+                              {question.type === 'radio' && question.options && (
+                                <div className="space-y-1">
+                                  {question.options.map((option: string, i: number) => (
+                                    <div key={i}>○ {option}</div>
+                                  ))}
+                                </div>
+                              )}
+                              {question.type === 'checkbox' && question.options && (
+                                <div className="space-y-1">
+                                  {question.options.map((option: string, i: number) => (
+                                    <div key={i}>☐ {option}</div>
+                                  ))}
+                                </div>
+                              )}
+                              {question.conditional && (
+                                <p className="text-xs text-blue-600 mt-1">
+                                  Shows when "{question.conditional.dependsOn}" is "{question.conditional.showWhen}"
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2">

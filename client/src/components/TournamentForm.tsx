@@ -1,25 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Users, Settings, Plus, Search, MapPin } from 'lucide-react';
-import { createTournament, updateTournament, getSimulatorCourses, getAllClubs } from '../services/api';
+import {
+  createTournament,
+  updateTournament,
+  getSimulatorCourses,
+  getAllClubs,
+  getPublicRegistrationTemplates,
+  type RegistrationFormTemplate
+} from '../services/api';
 import { toast } from 'react-toastify';
 import LeagueSettings from './LeagueSettings';
-
-interface RegistrationFormQuestion {
-  id: string;
-  question: string;
-  type: 'radio' | 'checkbox' | 'text';
-  required: boolean;
-  options?: string[];
-  placeholder?: string;
-  conditional?: {
-    dependsOn: string;
-    showWhen: string;
-  };
-}
-
-interface RegistrationFormTemplate {
-  questions: RegistrationFormQuestion[];
-}
 
 interface TournamentFormProps {
   mode: 'create' | 'edit';
@@ -163,6 +153,10 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
   const [showClubDropdown, setShowClubDropdown] = useState(false);
   const [filteredClubs, setFilteredClubs] = useState<string[]>([]);
 
+  // Registration templates state
+  const [registrationTemplates, setRegistrationTemplates] = useState<RegistrationFormTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+
   // League configuration state
   const [leagueConfig, setLeagueConfig] = useState<LeagueConfig>({
     name: tournament?.league_config?.name || 'Weekly Golf League',
@@ -184,61 +178,7 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
     drop_worst_weeks: tournament?.league_config?.drop_worst_weeks || 0
   });
 
-  // Registration form templates
-  const registrationFormTemplates = {
-    live_rounds: {
-      name: 'Live Rounds',
-      description: 'Ask participants about their participation in live rounds and night availability',
-      questions: [
-        {
-          id: 'participation_type',
-          type: 'radio',
-          question: 'Are you planning to participate in Live rounds this week or will you be playing solo?',
-          options: ['Live', 'Solo'],
-          required: true
-        },
-        {
-          id: 'night_availability',
-          type: 'checkbox',
-          question: 'Choose which of the following nights absolutely work for you THIS week.',
-          options: [
-            'Wednesday (7-10)',
-            'Thursday (7-10)',
-            'Friday (7-10)',
-            'Saturday (7-10)'
-          ],
-          required: true,
-          conditional: {
-            dependsOn: 'participation_type',
-            showWhen: 'Live'
-          }
-        }
-      ]
-    },
-    night_availability: {
-      name: 'Night Availability',
-      description: 'Simple night availability selection',
-      questions: [
-        {
-          id: 'available_nights',
-          type: 'checkbox',
-          question: 'Which nights are you available this week?',
-          options: [
-            'Monday (7-10)',
-            'Tuesday (7-10)',
-            'Wednesday (7-10)',
-            'Thursday (7-10)',
-            'Friday (7-10)',
-            'Saturday (7-10)',
-            'Sunday (7-10)'
-          ],
-          required: true
-        }
-      ]
-    }
-  };
-
-  // Load simulator courses
+  // Load simulator courses and registration templates
   useEffect(() => {
     const fetchSimulatorCourses = async () => {
       try {
@@ -263,8 +203,22 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
       }
     };
 
+    const fetchRegistrationTemplates = async () => {
+      try {
+        setTemplatesLoading(true);
+        const response = await getPublicRegistrationTemplates();
+        setRegistrationTemplates(response.data);
+      } catch (error) {
+        console.error('Error fetching registration templates:', error);
+        toast.error('Failed to load registration templates');
+      } finally {
+        setTemplatesLoading(false);
+      }
+    };
+
     fetchSimulatorCourses();
     fetchClubs();
+    fetchRegistrationTemplates();
   }, []);
 
   // Load platform-specific courses
@@ -531,16 +485,17 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
   };
 
   // Handle registration form template selection
-  const handleRegistrationTemplateSelect = (templateKey: string) => {
-    const template = registrationFormTemplates[templateKey as keyof typeof registrationFormTemplates];
-    if (template) {
-      setTournamentForm(prev => ({
-        ...prev,
-        registration_form_template: templateKey,
-        registration_form_data: template
-      }));
-      toast.success(`Applied ${template.name} template`);
-    }
+  const handleRegistrationTemplateSelect = (template: RegistrationFormTemplate) => {
+    setTournamentForm(prev => ({
+      ...prev,
+      registration_form_template: template.template_key,
+      registration_form_data: {
+        name: template.name,
+        description: template.description,
+        questions: template.questions
+      }
+    }));
+    toast.success(`Applied ${template.name} template`);
   };
 
   // Handle championship type changes
@@ -1465,44 +1420,57 @@ const TournamentForm: React.FC<TournamentFormProps> = ({
                     <label className="block text-sm font-medium text-neutral-600 mb-2">
                       Registration Form Template
                     </label>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {Object.entries(registrationFormTemplates).map(([key, template]) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => handleRegistrationTemplateSelect(key)}
-                          className={`p-4 rounded-lg border transition-all text-left ${
-                            tournamentForm.registration_form_template === key
-                              ? 'border-brand-neon-green bg-green-50'
-                              : 'border-neutral-200 hover:border-brand-neon-green'
-                          }`}
-                        >
-                          <h5 className="font-medium text-brand-black mb-1">{template.name}</h5>
-                          <p className="text-sm text-neutral-600">{template.description}</p>
-                        </button>
-                      ))}
-                    </div>
+                    {templatesLoading ? (
+                      <div className="text-center py-4">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-brand-neon-green mx-auto"></div>
+                      </div>
+                    ) : registrationTemplates.length === 0 ? (
+                      <p className="text-sm text-neutral-500">No templates available. Please create one first.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {registrationTemplates.map((template) => (
+                          <button
+                            key={template.id}
+                            type="button"
+                            onClick={() => handleRegistrationTemplateSelect(template)}
+                            className={`p-4 rounded-lg border transition-all text-left ${
+                              tournamentForm.registration_form_template === template.template_key
+                                ? 'border-brand-neon-green bg-green-50'
+                                : 'border-neutral-200 hover:border-brand-neon-green'
+                            }`}
+                          >
+                            <h5 className="font-medium text-brand-black mb-1">{template.name}</h5>
+                            <p className="text-sm text-neutral-600">{template.description}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   
-                  {tournamentForm.registration_form_template && (
+                  {tournamentForm.registration_form_template && tournamentForm.registration_form_data && (
                     <div>
                       <label className="block text-sm font-medium text-neutral-600 mb-2">
                         Selected Template Preview
                       </label>
                       <div className="bg-neutral-100 p-4 rounded-lg">
                         <h6 className="font-medium text-brand-black mb-2">
-                          {registrationFormTemplates[tournamentForm.registration_form_template as keyof typeof registrationFormTemplates]?.name}
+                          {tournamentForm.registration_form_data.name}
                         </h6>
-                        {registrationFormTemplates[tournamentForm.registration_form_template as keyof typeof registrationFormTemplates]?.questions.map((question, index) => (
+                        {tournamentForm.registration_form_data.questions.map((question: any, index: number) => (
                           <div key={index} className="mb-3">
-                            <p className="text-sm font-medium text-neutral-700 mb-1">{question.question}</p>
-                            <div className="ml-4">
-                              {question.options.map((option, optIndex) => (
-                                <div key={optIndex} className="text-xs text-neutral-600">
-                                  • {option}
-                                </div>
-                              ))}
-                            </div>
+                            <p className="text-sm font-medium text-neutral-700 mb-1">
+                              {question.question}
+                              {question.required && <span className="text-red-500 ml-1">*</span>}
+                            </p>
+                            {question.options && (
+                              <div className="ml-4">
+                                {question.options.map((option: string, optIndex: number) => (
+                                  <div key={optIndex} className="text-xs text-neutral-600">
+                                    • {option}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

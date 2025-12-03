@@ -27,6 +27,137 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
 
+// Stripe webhook event handlers
+async function handlePaymentIntentSucceeded(paymentIntent) {
+  console.log('PaymentIntent succeeded:', paymentIntent.id);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Update challenge payments
+    await client.query(
+      `UPDATE challenge_payments
+       SET payment_status = 'completed', updated_at = CURRENT_TIMESTAMP
+       WHERE payment_reference = $1`,
+      [paymentIntent.id]
+    );
+
+    // Update signup payments
+    const signupPaymentResult = await client.query(
+      `UPDATE signup_payments
+       SET payment_status = 'completed', updated_at = CURRENT_TIMESTAMP
+       WHERE stripe_payment_intent_id = $1
+       RETURNING registration_id, amount`,
+      [paymentIntent.id]
+    );
+
+    // If signup payment was updated, update registration status to 'paid'
+    if (signupPaymentResult.rows.length > 0) {
+      const { registration_id, amount } = signupPaymentResult.rows[0];
+
+      await client.query(
+        `UPDATE signup_registrations
+         SET status = 'paid', updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [registration_id]
+      );
+
+      console.log(`Signup registration ${registration_id} marked as paid - $${amount}`);
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function handlePaymentIntentFailed(paymentIntent) {
+  console.log('PaymentIntent failed:', paymentIntent.id);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    await client.query(
+      `UPDATE challenge_payments
+       SET payment_status = 'failed', updated_at = CURRENT_TIMESTAMP
+       WHERE payment_reference = $1`,
+      [paymentIntent.id]
+    );
+
+    await client.query(
+      `UPDATE signup_payments
+       SET payment_status = 'failed', updated_at = CURRENT_TIMESTAMP
+       WHERE stripe_payment_intent_id = $1`,
+      [paymentIntent.id]
+    );
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function handlePaymentIntentCanceled(paymentIntent) {
+  console.log('PaymentIntent canceled:', paymentIntent.id);
+
+  await pool.query(
+    `UPDATE signup_payments
+     SET payment_status = 'canceled', updated_at = CURRENT_TIMESTAMP
+     WHERE stripe_payment_intent_id = $1`,
+    [paymentIntent.id]
+  );
+}
+
+async function handleChargeRefunded(charge) {
+  console.log('Charge refunded:', charge.id);
+
+  // Get the payment intent from the charge
+  const paymentIntentId = charge.payment_intent;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Update payment status to refunded
+    const result = await client.query(
+      `UPDATE signup_payments
+       SET payment_status = 'refunded', updated_at = CURRENT_TIMESTAMP
+       WHERE stripe_payment_intent_id = $1
+       RETURNING registration_id`,
+      [paymentIntentId]
+    );
+
+    if (result.rows.length > 0) {
+      const { registration_id } = result.rows[0];
+
+      // Update registration status
+      await client.query(
+        `UPDATE signup_registrations
+         SET status = 'refunded', updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [registration_id]
+      );
+
+      console.log(`Registration ${registration_id} refunded`);
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 // Raw body parser for Stripe webhooks (must be before express.json())
 app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
@@ -41,77 +172,76 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // Handle the event
-  switch (event.type) {
-    case 'payment_intent.succeeded':
-      const paymentIntent = event.data.object;
-      console.log('PaymentIntent succeeded:', paymentIntent.id);
+  // CHECK FOR DUPLICATE EVENTS (IDEMPOTENCY)
+  try {
+    const existingEvent = await pool.query(
+      'SELECT id, processed FROM stripe_webhook_events WHERE event_id = $1',
+      [event.id]
+    );
 
-      // Update payment status in database
-      try {
-        // Update challenge payments
-        await pool.query(
-          `UPDATE challenge_payments
-           SET payment_status = 'completed'
-           WHERE payment_reference = $1`,
-          [paymentIntent.id]
-        );
+    if (existingEvent.rows.length > 0) {
+      console.log(`Webhook event ${event.id} already processed, ignoring duplicate`);
+      return res.status(200).json({ received: true, duplicate: true });
+    }
 
-        // Update signup payments
-        const signupPaymentResult = await pool.query(
-          `UPDATE signup_payments
-           SET payment_status = 'completed', updated_at = CURRENT_TIMESTAMP
-           WHERE stripe_payment_intent_id = $1
-           RETURNING registration_id`,
-          [paymentIntent.id]
-        );
-
-        // If signup payment was updated, update registration status to 'paid'
-        if (signupPaymentResult.rows.length > 0) {
-          const registrationId = signupPaymentResult.rows[0].registration_id;
-          await pool.query(
-            `UPDATE signup_registrations
-             SET status = 'paid', updated_at = CURRENT_TIMESTAMP
-             WHERE id = $1`,
-            [registrationId]
-          );
-          console.log(`Signup registration ${registrationId} marked as paid`);
-        }
-      } catch (err) {
-        console.error('Error updating payment status:', err);
-      }
-      break;
-
-    case 'payment_intent.payment_failed':
-      const failedPayment = event.data.object;
-      console.log('PaymentIntent failed:', failedPayment.id);
-
-      try {
-        // Update challenge payments
-        await pool.query(
-          `UPDATE challenge_payments
-           SET payment_status = 'failed'
-           WHERE payment_reference = $1`,
-          [failedPayment.id]
-        );
-
-        // Update signup payments
-        await pool.query(
-          `UPDATE signup_payments
-           SET payment_status = 'failed', updated_at = CURRENT_TIMESTAMP
-           WHERE stripe_payment_intent_id = $1`,
-          [failedPayment.id]
-        );
-      } catch (err) {
-        console.error('Error updating failed payment:', err);
-      }
-      break;
-
-    default:
-      console.log(`Unhandled event type: ${event.type}`);
+    // Log the event
+    await pool.query(
+      `INSERT INTO stripe_webhook_events (event_id, event_type, event_data)
+       VALUES ($1, $2, $3)`,
+      [event.id, event.type, JSON.stringify(event)]
+    );
+  } catch (err) {
+    console.error('Error checking webhook event:', err);
+    // Continue processing even if logging fails
   }
 
-  res.json({ received: true });
+  // Handle the event
+  try {
+    switch (event.type) {
+      case 'payment_intent.succeeded':
+        await handlePaymentIntentSucceeded(event.data.object);
+        break;
+
+      case 'payment_intent.payment_failed':
+        await handlePaymentIntentFailed(event.data.object);
+        break;
+
+      case 'payment_intent.canceled':
+        await handlePaymentIntentCanceled(event.data.object);
+        break;
+
+      case 'charge.refunded':
+        await handleChargeRefunded(event.data.object);
+        break;
+
+      default:
+        console.log(`Unhandled event type ${event.type}`);
+    }
+
+    // Mark event as processed
+    await pool.query(
+      `UPDATE stripe_webhook_events
+       SET processed = true, processed_at = CURRENT_TIMESTAMP
+       WHERE event_id = $1`,
+      [event.id]
+    );
+  } catch (err) {
+    console.error('Error processing webhook:', err);
+
+    // Log the error
+    await pool.query(
+      `UPDATE stripe_webhook_events
+       SET processing_error = $1
+       WHERE event_id = $2`,
+      [err.message, event.id]
+    );
+
+    // Return 500 so Stripe retries
+    return res.status(500).json({ error: 'Webhook processing failed' });
+  }
+
+  // Return success quickly (Stripe expects response within 30 seconds)
+  res.status(200).json({ received: true });
 });
 
 // PostgreSQL connection pool
@@ -871,6 +1001,33 @@ app.get('/api/users', async (req, res) => {
   } catch (err) {
     console.error('Error fetching users:', err);
     res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// Get club members for registration form member selection
+app.get('/api/users/club-members', authenticateToken, async (req, res) => {
+  try {
+    const { club } = req.query;
+
+    let query = `
+      SELECT member_id, first_name, last_name, club
+      FROM users
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (club) {
+      params.push(club);
+      query += ` AND club = $${params.length}`;
+    }
+
+    query += ` ORDER BY last_name, first_name`;
+
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching club members:', err);
+    res.status(500).json({ error: 'Failed to fetch club members' });
   }
 });
 
@@ -17481,6 +17638,264 @@ app.get('/api/user/can-book', authenticateToken, async (req, res) => {
 });
 
 // ============================================================================
+// REGISTRATION FORM TEMPLATE ENDPOINTS
+// ============================================================================
+
+// GET /api/registration-templates - List all templates (with optional filtering)
+app.get('/api/registration-templates', authenticateToken, async (req, res) => {
+  try {
+    const { category, is_active } = req.query;
+
+    let query = `
+      SELECT
+        rt.*,
+        u.first_name || ' ' || u.last_name as created_by_name
+      FROM registration_form_templates rt
+      LEFT JOIN users u ON rt.created_by = u.member_id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (category) {
+      params.push(category);
+      query += ` AND rt.category = $${params.length}`;
+    }
+
+    if (is_active !== undefined) {
+      params.push(is_active === 'true');
+      query += ` AND rt.is_active = $${params.length}`;
+    }
+
+    query += ` ORDER BY rt.is_system DESC, rt.category, rt.name`;
+
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching registration templates:', err);
+    res.status(500).json({ error: 'Failed to fetch registration templates' });
+  }
+});
+
+// GET /api/registration-templates/public - List active templates for public use
+app.get('/api/registration-templates/public', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        id,
+        name,
+        description,
+        category,
+        template_key,
+        questions
+      FROM registration_form_templates
+      WHERE is_active = true
+      ORDER BY category, name
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching public registration templates:', err);
+    res.status(500).json({ error: 'Failed to fetch templates' });
+  }
+});
+
+// GET /api/registration-templates/:id - Get single template
+app.get('/api/registration-templates/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query(`
+      SELECT
+        rt.*,
+        u.first_name || ' ' || u.last_name as created_by_name
+      FROM registration_form_templates rt
+      LEFT JOIN users u ON rt.created_by = u.member_id
+      WHERE rt.id = $1
+    `, [id]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching registration template:', err);
+    res.status(500).json({ error: 'Failed to fetch template' });
+  }
+});
+
+// POST /api/registration-templates - Create new template
+app.post('/api/registration-templates', authenticateToken, requirePermission('manage_signups'), async (req, res) => {
+  try {
+    const {
+      name,
+      description,
+      category,
+      template_key,
+      questions,
+      is_active
+    } = req.body;
+
+    // Validate required fields
+    if (!name || !template_key || !questions) {
+      return res.status(400).json({ error: 'Name, template_key, and questions are required' });
+    }
+
+    // Validate questions is an array
+    if (!Array.isArray(questions)) {
+      return res.status(400).json({ error: 'Questions must be an array' });
+    }
+
+    const { rows } = await pool.query(`
+      INSERT INTO registration_form_templates (
+        name,
+        description,
+        category,
+        template_key,
+        questions,
+        is_active,
+        is_system,
+        created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, false, $7)
+      RETURNING *
+    `, [
+      name,
+      description || null,
+      category || 'general',
+      template_key,
+      JSON.stringify(questions),
+      is_active !== false,
+      req.user.member_id
+    ]);
+
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('Error creating registration template:', err);
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'A template with this key already exists' });
+    }
+    res.status(500).json({ error: 'Failed to create template' });
+  }
+});
+
+// PUT /api/registration-templates/:id - Update template
+app.put('/api/registration-templates/:id', authenticateToken, requirePermission('manage_signups'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      description,
+      category,
+      template_key,
+      questions,
+      is_active
+    } = req.body;
+
+    // Check if template exists
+    const existingTemplate = await pool.query(
+      'SELECT is_system FROM registration_form_templates WHERE id = $1',
+      [id]
+    );
+
+    if (existingTemplate.rows.length === 0) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    // Build update query dynamically
+    const updates = [];
+    const params = [];
+    let paramCount = 1;
+
+    if (name !== undefined) {
+      updates.push(`name = $${paramCount++}`);
+      params.push(name);
+    }
+    if (description !== undefined) {
+      updates.push(`description = $${paramCount++}`);
+      params.push(description);
+    }
+    if (category !== undefined) {
+      updates.push(`category = $${paramCount++}`);
+      params.push(category);
+    }
+    if (template_key !== undefined) {
+      updates.push(`template_key = $${paramCount++}`);
+      params.push(template_key);
+    }
+    if (questions !== undefined) {
+      if (!Array.isArray(questions)) {
+        return res.status(400).json({ error: 'Questions must be an array' });
+      }
+      updates.push(`questions = $${paramCount++}`);
+      params.push(JSON.stringify(questions));
+    }
+    if (is_active !== undefined) {
+      updates.push(`is_active = $${paramCount++}`);
+      params.push(is_active);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    params.push(id);
+    const { rows } = await pool.query(`
+      UPDATE registration_form_templates
+      SET ${updates.join(', ')}
+      WHERE id = $${paramCount}
+      RETURNING *
+    `, params);
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error updating registration template:', err);
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'A template with this key already exists' });
+    }
+    res.status(500).json({ error: 'Failed to update template' });
+  }
+});
+
+// DELETE /api/registration-templates/:id - Delete template (or deactivate if system)
+app.delete('/api/registration-templates/:id', authenticateToken, requirePermission('manage_signups'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if template exists and is system
+    const { rows: templateRows } = await pool.query(
+      'SELECT is_system FROM registration_form_templates WHERE id = $1',
+      [id]
+    );
+
+    if (templateRows.length === 0) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    const isSystem = templateRows[0].is_system;
+
+    if (isSystem) {
+      // System templates can only be deactivated, not deleted
+      const { rows } = await pool.query(`
+        UPDATE registration_form_templates
+        SET is_active = false
+        WHERE id = $1
+        RETURNING *
+      `, [id]);
+
+      return res.json({
+        message: 'System template deactivated',
+        template: rows[0]
+      });
+    } else {
+      // Custom templates can be permanently deleted
+      await pool.query('DELETE FROM registration_form_templates WHERE id = $1', [id]);
+      return res.json({ message: 'Template deleted successfully' });
+    }
+  } catch (err) {
+    console.error('Error deleting registration template:', err);
+    res.status(500).json({ error: 'Failed to delete template' });
+  }
+});
+
+// ============================================================================
 // SIGNUP SYSTEM ENDPOINTS
 // ============================================================================
 
@@ -18009,6 +18424,285 @@ app.post('/api/signups/:signupId/registrations/:regId/refund',
     } catch (err) {
       console.error('Error processing refund:', err);
       res.status(500).json({ error: 'Failed to process refund' });
+    }
+  }
+);
+
+// DELETE /api/signups/:signupId/registrations/:regId - Remove a registration
+app.delete('/api/signups/:signupId/registrations/:regId',
+  authenticateToken,
+  requirePermission('manage_signups'),
+  async (req, res) => {
+    try {
+      const { signupId, regId } = req.params;
+      const adminId = req.user.member_id;
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Check if registration exists
+        const regCheck = await client.query(
+          'SELECT * FROM signup_registrations WHERE id = $1 AND signup_id = $2',
+          [regId, signupId]
+        );
+
+        if (regCheck.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'Registration not found' });
+        }
+
+        const registration = regCheck.rows[0];
+
+        // If there's a completed payment, warn about it
+        const paymentCheck = await client.query(
+          `SELECT * FROM signup_payments WHERE registration_id = $1 AND payment_status = 'completed'`,
+          [regId]
+        );
+
+        if (paymentCheck.rows.length > 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            error: 'Cannot delete registration with completed payment. Please refund first.'
+          });
+        }
+
+        // Delete associated payments
+        await client.query('DELETE FROM signup_payments WHERE registration_id = $1', [regId]);
+
+        // Delete registration
+        await client.query('DELETE FROM signup_registrations WHERE id = $1', [regId]);
+
+        await client.query('COMMIT');
+
+        console.log(`Registration ${regId} deleted by admin ${adminId}`);
+        res.json({ message: 'Registration deleted successfully' });
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      console.error('Error deleting registration:', err);
+      res.status(500).json({ error: 'Failed to delete registration' });
+    }
+  }
+);
+
+// POST /api/signups/:signupId/registrations/manual - Manually register a user (admin)
+app.post('/api/signups/:signupId/registrations/manual',
+  authenticateToken,
+  requirePermission('manage_signups'),
+  async (req, res) => {
+    try {
+      const { signupId } = req.params;
+      const { user_id, status, payment_status, payment_method, payment_amount, admin_notes } = req.body;
+      const adminId = req.user.member_id;
+
+      if (!user_id) {
+        return res.status(400).json({ error: 'user_id is required' });
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Check if signup exists and get details
+        const signupResult = await client.query(
+          'SELECT * FROM signups WHERE id = $1',
+          [signupId]
+        );
+
+        if (signupResult.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'Signup not found' });
+        }
+
+        const signup = signupResult.rows[0];
+
+        // Check if user exists
+        const userResult = await client.query(
+          'SELECT * FROM users WHERE member_id = $1',
+          [user_id]
+        );
+
+        if (userResult.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Check if user is already registered
+        const existingReg = await client.query(
+          'SELECT id FROM signup_registrations WHERE signup_id = $1 AND user_id = $2',
+          [signupId, user_id]
+        );
+
+        if (existingReg.rows.length > 0) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({ error: 'User is already registered for this signup' });
+        }
+
+        // Create registration
+        const regResult = await client.query(
+          `INSERT INTO signup_registrations (signup_id, user_id, status, registered_at)
+           VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+           RETURNING *`,
+          [signupId, user_id, status || 'pending']
+        );
+
+        const registration = regResult.rows[0];
+
+        // If payment info provided, create payment record
+        if (payment_status || payment_method) {
+          await client.query(
+            `INSERT INTO signup_payments (
+              registration_id,
+              payment_method,
+              payment_amount,
+              payment_status,
+              admin_notes,
+              created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
+            [
+              registration.id,
+              payment_method || 'manual',
+              payment_amount || signup.entry_fee || 0,
+              payment_status || 'pending',
+              admin_notes || `Manually registered by admin ${adminId}`
+            ]
+          );
+
+          // Update registration status if payment is completed
+          if (payment_status === 'completed') {
+            await client.query(
+              'UPDATE signup_registrations SET status = $1 WHERE id = $2',
+              ['paid', registration.id]
+            );
+          }
+        }
+
+        await client.query('COMMIT');
+
+        // Fetch complete registration data
+        const completeReg = await client.query(
+          `SELECT
+            sr.*,
+            u.first_name,
+            u.last_name,
+            u.email_address,
+            sp.payment_method,
+            sp.payment_amount,
+            sp.payment_status
+           FROM signup_registrations sr
+           JOIN users u ON sr.user_id = u.member_id
+           LEFT JOIN signup_payments sp ON sp.registration_id = sr.id
+           WHERE sr.id = $1`,
+          [registration.id]
+        );
+
+        console.log(`User ${user_id} manually registered for signup ${signupId} by admin ${adminId}`);
+        res.status(201).json(completeReg.rows[0]);
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      console.error('Error creating manual registration:', err);
+      res.status(500).json({ error: 'Failed to create registration' });
+    }
+  }
+);
+
+// PUT /api/signups/:signupId/registrations/:regId - Update registration details
+app.put('/api/signups/:signupId/registrations/:regId',
+  authenticateToken,
+  requirePermission('manage_signups'),
+  async (req, res) => {
+    try {
+      const { signupId, regId } = req.params;
+      const { status, payment_status, payment_method, payment_amount, admin_notes } = req.body;
+      const adminId = req.user.member_id;
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Update registration status if provided
+        if (status) {
+          await client.query(
+            'UPDATE signup_registrations SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND signup_id = $3',
+            [status, regId, signupId]
+          );
+        }
+
+        // Update payment details if provided
+        if (payment_status || payment_method || payment_amount !== undefined || admin_notes) {
+          const updates = [];
+          const params = [];
+          let paramCount = 1;
+
+          if (payment_status) {
+            updates.push(`payment_status = $${paramCount++}`);
+            params.push(payment_status);
+          }
+          if (payment_method) {
+            updates.push(`payment_method = $${paramCount++}`);
+            params.push(payment_method);
+          }
+          if (payment_amount !== undefined) {
+            updates.push(`payment_amount = $${paramCount++}`);
+            params.push(payment_amount);
+          }
+          if (admin_notes) {
+            updates.push(`admin_notes = $${paramCount++}`);
+            params.push(admin_notes);
+          }
+
+          if (updates.length > 0) {
+            updates.push(`updated_at = CURRENT_TIMESTAMP`);
+            params.push(regId);
+
+            await client.query(
+              `UPDATE signup_payments SET ${updates.join(', ')} WHERE registration_id = $${paramCount}`,
+              params
+            );
+          }
+        }
+
+        await client.query('COMMIT');
+
+        // Fetch updated registration
+        const result = await client.query(
+          `SELECT
+            sr.*,
+            u.first_name,
+            u.last_name,
+            u.email_address,
+            sp.payment_method,
+            sp.payment_amount,
+            sp.payment_status
+           FROM signup_registrations sr
+           JOIN users u ON sr.user_id = u.member_id
+           LEFT JOIN signup_payments sp ON sp.registration_id = sr.id
+           WHERE sr.id = $1`,
+          [regId]
+        );
+
+        console.log(`Registration ${regId} updated by admin ${adminId}`);
+        res.json(result.rows[0]);
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      console.error('Error updating registration:', err);
+      res.status(500).json({ error: 'Failed to update registration' });
     }
   }
 );
