@@ -27,6 +27,12 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
 
+// PostgreSQL connection pool (must be initialized before webhook handlers)
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
 // Stripe webhook event handlers
 async function handlePaymentIntentSucceeded(paymentIntent) {
   console.log('PaymentIntent succeeded:', paymentIntent.id);
@@ -242,12 +248,6 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
 
   // Return success quickly (Stripe expects response within 30 seconds)
   res.status(200).json({ received: true });
-});
-
-// PostgreSQL connection pool
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
 });
 
 // CORS configuration for production
@@ -17990,7 +17990,10 @@ app.post('/api/signups', authenticateToken, requirePermission('manage_signups'),
       payment_venmo_url,
       image_url,
       confirmation_message,
-      status
+      status,
+      has_registration_form,
+      registration_form_template,
+      registration_form_data
     } = req.body;
 
     const userId = req.user.member_id;
@@ -18001,19 +18004,40 @@ app.post('/api/signups', authenticateToken, requirePermission('manage_signups'),
     }
 
     // Generate slug from title if not provided
-    const finalSlug = slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    let baseSlug = slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+    // Check if slug already exists (including deleted signups) and generate unique one
+    let finalSlug = baseSlug;
+    let slugExists = true;
+    let counter = 1;
+
+    while (slugExists) {
+      const existingSlug = await pool.query(
+        'SELECT id FROM signups WHERE slug = $1',
+        [finalSlug]
+      );
+
+      if (existingSlug.rows.length === 0) {
+        slugExists = false;
+      } else {
+        finalSlug = `${baseSlug}-${counter}`;
+        counter++;
+      }
+    }
 
     const { rows } = await pool.query(
       `INSERT INTO signups (
         title, description, slug, entry_fee, registration_opens_at, registration_closes_at,
         max_registrations, stripe_enabled, venmo_url, venmo_username, payment_organizer,
-        payment_organizer_name, payment_venmo_url, image_url, confirmation_message, status, created_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        payment_organizer_name, payment_venmo_url, image_url, confirmation_message, status, created_by,
+        has_registration_form, registration_form_template, registration_form_data
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       RETURNING *`,
       [
         title, description, finalSlug, entry_fee || 0, registration_opens_at, registration_closes_at,
         max_registrations, stripe_enabled !== false, venmo_url, venmo_username, payment_organizer,
-        payment_organizer_name, payment_venmo_url, image_url, confirmation_message, status || 'draft', userId
+        payment_organizer_name, payment_venmo_url, image_url, confirmation_message, status || 'draft', userId,
+        has_registration_form || false, registration_form_template || null, registration_form_data || null
       ]
     );
 
@@ -18121,8 +18145,34 @@ app.put('/api/signups/:id', authenticateToken, requirePermission('manage_signups
       payment_venmo_url,
       image_url,
       confirmation_message,
-      status
+      status,
+      has_registration_form,
+      registration_form_template,
+      registration_form_data
     } = req.body;
+
+    // If slug is being updated, check for conflicts (including deleted signups)
+    let finalSlug = slug;
+    if (slug) {
+      let slugExists = true;
+      let counter = 1;
+      let testSlug = slug;
+
+      while (slugExists) {
+        const existingSlug = await pool.query(
+          'SELECT id FROM signups WHERE slug = $1 AND id != $2',
+          [testSlug, id]
+        );
+
+        if (existingSlug.rows.length === 0) {
+          slugExists = false;
+          finalSlug = testSlug;
+        } else {
+          testSlug = `${slug}-${counter}`;
+          counter++;
+        }
+      }
+    }
 
     const { rows } = await pool.query(
       `UPDATE signups SET
@@ -18142,13 +18192,17 @@ app.put('/api/signups/:id', authenticateToken, requirePermission('manage_signups
         image_url = COALESCE($14, image_url),
         confirmation_message = COALESCE($15, confirmation_message),
         status = COALESCE($16, status),
+        has_registration_form = COALESCE($17, has_registration_form),
+        registration_form_template = COALESCE($18, registration_form_template),
+        registration_form_data = COALESCE($19, registration_form_data),
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $17 AND deleted_at IS NULL
+      WHERE id = $20 AND deleted_at IS NULL
       RETURNING *`,
       [
-        title, description, slug, entry_fee, registration_opens_at, registration_closes_at,
+        title, description, finalSlug, entry_fee, registration_opens_at, registration_closes_at,
         max_registrations, stripe_enabled, venmo_url, venmo_username, payment_organizer,
-        payment_organizer_name, payment_venmo_url, image_url, confirmation_message, status, id
+        payment_organizer_name, payment_venmo_url, image_url, confirmation_message, status,
+        has_registration_form, registration_form_template, registration_form_data, id
       ]
     );
 

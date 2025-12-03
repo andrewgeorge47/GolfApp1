@@ -219,3 +219,13 @@ COMMENT ON COLUMN registration_form_templates.template_key IS 'Unique identifier
 COMMENT ON COLUMN registration_form_templates.questions IS 'JSONB array of question objects with fields: id, type, question, required, options, placeholder, conditional';
 COMMENT ON COLUMN registration_form_templates.is_system IS 'System templates are preloaded and cannot be deleted, only deactivated';
 COMMENT ON COLUMN registration_form_templates.category IS 'Category for organizing templates: general, event, tournament, league, etc.';
+
+-- Add registration form columns to signups table
+ALTER TABLE signups ADD COLUMN IF NOT EXISTS has_registration_form BOOLEAN DEFAULT false;
+ALTER TABLE signups ADD COLUMN IF NOT EXISTS registration_form_template VARCHAR(100) REFERENCES registration_form_templates(template_key) ON DELETE SET NULL;
+ALTER TABLE signups ADD COLUMN IF NOT EXISTS registration_form_data JSONB;
+
+-- Add comments for new columns
+COMMENT ON COLUMN signups.has_registration_form IS 'Whether this signup uses a custom registration form';
+COMMENT ON COLUMN signups.registration_form_template IS 'Reference to the template_key in registration_form_templates';
+COMMENT ON COLUMN signups.registration_form_data IS 'Additional custom form configuration if needed';
