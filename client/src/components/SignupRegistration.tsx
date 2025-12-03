@@ -9,8 +9,11 @@ import {
   submitSignupVenmoPayment,
   confirmSignupStripePayment,
   checkMySignupRegistration,
-  type Signup
+  getPublicRegistrationTemplates,
+  type Signup,
+  type RegistrationFormTemplate
 } from '../services/api';
+import { RegistrationFormRenderer } from './RegistrationFormRenderer';
 import { useAuth } from '../AuthContext';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
@@ -60,6 +63,8 @@ const SignupRegistration: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [isAlreadyRegistered, setIsAlreadyRegistered] = useState(false);
   const [existingRegistration, setExistingRegistration] = useState<any>(null);
+  const [registrationTemplate, setRegistrationTemplate] = useState<RegistrationFormTemplate | null>(null);
+  const [registrationFormData, setRegistrationFormData] = useState<Record<string, any>>({});
 
   useEffect(() => {
     if (id) {
@@ -77,6 +82,35 @@ const SignupRegistration: React.FC = () => {
       setLoading(true);
       const response = await getPublicSignup(id);
       setSignup(response.data);
+
+      console.log('Signup data:', response.data);
+      console.log('Registration form template:', response.data.registration_form_template);
+
+      // Fetch registration template if signup has one
+      if (response.data.registration_form_template) {
+        try {
+          // Fetch all public templates
+          const templatesResponse = await getPublicRegistrationTemplates();
+          console.log('Available templates:', templatesResponse.data);
+
+          // Find template by template_key (stored as string in signup)
+          const template = templatesResponse.data.find(
+            t => t.template_key === response.data.registration_form_template ||
+                 t.id.toString() === response.data.registration_form_template
+          );
+
+          console.log('Found template:', template);
+
+          if (template) {
+            setRegistrationTemplate(template);
+          } else {
+            console.warn('Template not found for key:', response.data.registration_form_template);
+          }
+        } catch (err) {
+          console.error('Error fetching registration template:', err);
+          // Continue without template if it fails to load
+        }
+      }
     } catch (error) {
       console.error('Error fetching signup:', error);
       window.alert('Failed to load signup details');
@@ -99,6 +133,21 @@ const SignupRegistration: React.FC = () => {
     }
   };
 
+  const validateRegistrationForm = (): boolean => {
+    if (!registrationTemplate) return true;
+
+    for (const question of registrationTemplate.questions) {
+      if (question.required) {
+        const value = registrationFormData[question.id];
+        if (!value || (Array.isArray(value) && value.length === 0)) {
+          window.alert(`Please answer: ${question.question}`);
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+
   const handleRegister = async () => {
     if (!id || !user) {
       window.alert('You must be logged in to register');
@@ -106,11 +155,19 @@ const SignupRegistration: React.FC = () => {
       return;
     }
 
+    // Validate registration form if template exists
+    if (registrationTemplate && !validateRegistrationForm()) {
+      return;
+    }
+
     try {
       setSubmitting(true);
 
-      // Step 1: Register for the signup
-      const registerResponse = await registerForSignup(parseInt(id));
+      // Step 1: Register for the signup with form data
+      const registerResponse = await registerForSignup(
+        parseInt(id),
+        registrationTemplate ? registrationFormData : undefined
+      );
       const regId = registerResponse.data.id;
       setRegistrationId(regId);
 
@@ -228,11 +285,11 @@ const SignupRegistration: React.FC = () => {
             </div>
           )}
           <div className="flex gap-3 justify-center">
+            <Button onClick={() => navigate('/profile')} variant="primary">
+              Back to Your Profile
+            </Button>
             <Button onClick={() => navigate('/signups')} variant="outline">
               View All Signups
-            </Button>
-            <Button onClick={() => navigate('/dashboard')}>
-              Go to Dashboard
             </Button>
           </div>
         </Card>
@@ -481,6 +538,31 @@ const SignupRegistration: React.FC = () => {
               </div>
             ) : registrationStep === 'details' ? (
               <div className="space-y-4">
+                {/* Registration Form (if template exists) */}
+                {(() => {
+                  console.log('Rendering registration step - registrationTemplate:', registrationTemplate);
+                  console.log('Questions:', registrationTemplate?.questions);
+                  console.log('Questions length:', registrationTemplate?.questions?.length);
+
+                  return registrationTemplate && registrationTemplate.questions && registrationTemplate.questions.length > 0 ? (
+                    <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">Registration Information</h3>
+                      <RegistrationFormRenderer
+                        questions={registrationTemplate.questions}
+                        formData={registrationFormData}
+                        onChange={(questionId, value) => {
+                          console.log('Form data changed:', questionId, value);
+                          setRegistrationFormData({
+                            ...registrationFormData,
+                            [questionId]: value
+                          });
+                        }}
+                        userClub={user?.club}
+                      />
+                    </div>
+                  ) : null;
+                })()}
+
                 {signup.entry_fee > 0 ? (
                   <>
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
