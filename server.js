@@ -44,7 +44,7 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
     // Update challenge payments
     await client.query(
       `UPDATE challenge_payments
-       SET payment_status = 'completed', updated_at = CURRENT_TIMESTAMP
+       SET payment_status = 'completed'
        WHERE payment_reference = $1`,
       [paymentIntent.id]
     );
@@ -90,7 +90,7 @@ async function handlePaymentIntentFailed(paymentIntent) {
 
     await client.query(
       `UPDATE challenge_payments
-       SET payment_status = 'failed', updated_at = CURRENT_TIMESTAMP
+       SET payment_status = 'failed'
        WHERE payment_reference = $1`,
       [paymentIntent.id]
     );
