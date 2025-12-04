@@ -19329,11 +19329,12 @@ app.post('/api/signups/:id/create-payment-intent', authenticateToken, async (req
     const { id: signupId } = req.params;
     const userId = req.user.member_id;
 
-    // Get registration
+    // Get registration with user information
     const regResult = await pool.query(
-      `SELECT sr.*, s.title as signup_title
+      `SELECT sr.*, s.title as signup_title, u.email_address, u.first_name, u.last_name
        FROM signup_registrations sr
        JOIN signups s ON sr.signup_id = s.id
+       JOIN users u ON sr.user_id = u.member_id
        WHERE sr.signup_id = $1 AND sr.user_id = $2`,
       [signupId, userId]
     );
@@ -19357,11 +19358,14 @@ app.post('/api/signups/:id/create-payment-intent', authenticateToken, async (req
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(amount * 100), // Convert to cents
       currency: 'usd',
+      description: `Entry fee for ${registration.signup_title}`,
+      receipt_email: registration.email_address,
       metadata: {
         signup_id: signupId,
         registration_id: registration.id,
         user_id: userId,
-        signup_title: registration.signup_title
+        signup_title: registration.signup_title,
+        user_name: `${registration.first_name} ${registration.last_name}`
       }
     });
 

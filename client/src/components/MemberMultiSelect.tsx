@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getClubMembers } from '../services/api';
 import { Search, X } from 'lucide-react';
 import { Badge } from './ui/Badge';
@@ -32,10 +32,28 @@ export const MemberMultiSelect: React.FC<MemberMultiSelectProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchMembers();
   }, [userClub, restrictToClub]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+
+    if (showDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDropdown]);
 
   useEffect(() => {
     // Filter members based on search term
@@ -70,6 +88,9 @@ export const MemberMultiSelect: React.FC<MemberMultiSelectProps> = ({
         return; // Don't allow more selections
       }
       onChange([...selectedMembers, memberId]);
+      // Close dropdown and clear search after selection
+      setShowDropdown(false);
+      setSearchTerm('');
     }
   };
 
@@ -84,7 +105,7 @@ export const MemberMultiSelect: React.FC<MemberMultiSelectProps> = ({
   const isMaxReached = maxSelections ? selectedMembers.length >= maxSelections : false;
 
   return (
-    <div className="space-y-2">
+    <div ref={containerRef} className="space-y-2">
       {/* Selected Members Display */}
       {selectedMembers.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-2">
@@ -121,8 +142,21 @@ export const MemberMultiSelect: React.FC<MemberMultiSelectProps> = ({
                 : `Search ${restrictToClub && userClub ? `${userClub} members` : 'members'}...`
             }
             disabled={isMaxReached}
-            className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-neon-green disabled:bg-gray-100 disabled:cursor-not-allowed"
+            className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-neon-green disabled:bg-gray-100 disabled:cursor-not-allowed"
           />
+          {(searchTerm || showDropdown) && !isMaxReached && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchTerm('');
+                setShowDropdown(false);
+              }}
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+              aria-label="Clear search"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Dropdown */}

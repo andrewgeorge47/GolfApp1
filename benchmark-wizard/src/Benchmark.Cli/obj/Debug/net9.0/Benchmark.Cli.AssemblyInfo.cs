@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Benchmark.Cli")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+81a2a2ecf264ba3139e10ab3d6ef797aef81eac3")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+bccfc91a01feeda22651d81840beebd4eecf3771")]
 [assembly: System.Reflection.AssemblyProductAttribute("Benchmark.Cli")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Benchmark.Cli")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

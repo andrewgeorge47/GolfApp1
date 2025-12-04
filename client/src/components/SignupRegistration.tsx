@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import {
@@ -52,6 +52,7 @@ const cardElementOptions = {
 const SignupRegistration: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const [signup, setSignup] = useState<Signup | null>(null);
   const [loading, setLoading] = useState(true);
@@ -151,7 +152,7 @@ const SignupRegistration: React.FC = () => {
   const handleRegister = async () => {
     if (!id || !user) {
       window.alert('You must be logged in to register');
-      navigate('/login');
+      navigate('/login', { state: { from: location.pathname + location.search } });
       return;
     }
 
@@ -488,7 +489,7 @@ const SignupRegistration: React.FC = () => {
             {!user ? (
               <div className="space-y-4">
                 <p className="text-sm text-gray-600">You must be logged in to register.</p>
-                <Button onClick={() => navigate('/login')} className="w-full">
+                <Button onClick={() => navigate('/login', { state: { from: location.pathname + location.search } })} className="w-full">
                   Log In
                 </Button>
               </div>

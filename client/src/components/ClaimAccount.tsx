@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { checkEmail, claimAccount } from '../services/api';
 
@@ -15,6 +15,7 @@ interface UserInfo {
 const ClaimAccount: React.FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [step, setStep] = useState<'email' | 'password'>('email');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -67,7 +68,9 @@ const ClaimAccount: React.FC = () => {
       await claimAccount(email, password);
       // Automatically log them in after successful account claiming
       await login(email, password);
-      navigate('/profile');
+      // Redirect to the intended destination or profile
+      const from = location.state?.from || '/profile';
+      navigate(from);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to claim account');
     } finally {

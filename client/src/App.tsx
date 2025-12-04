@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Users, Trophy, Medal, BarChart3, User, Menu, X, MapPin, LogIn, Calendar, Target, TrendingUp, Crown, Wrench } from 'lucide-react';
+import { Home, Users, Trophy, User, Menu, X, MapPin } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Leaderboard from './components/Leaderboard';
 import Scoring from './components/Scoring';
 import TournamentScoring from './components/TournamentScoring';
-import Admin from './components/Admin';
 import AdminLanding from './components/AdminLanding';
 import AdminUsers from './components/AdminUsers';
 import AdminClubs from './components/AdminClubs';
@@ -46,7 +45,6 @@ import ViewAsModeIndicator from './components/ViewAsModeIndicator';
 import WeeklyChallengeCard from './components/WeeklyChallengeCard';
 import ChallengesList from './components/ChallengesList';
 import ChallengeLeaderboard from './components/ChallengeLeaderboard';
-import ChallengeDistanceSubmission from './components/ChallengeDistanceSubmission';
 import WeeklyChallengeAdmin from './components/WeeklyChallengeAdmin';
 import ComponentShowcase from './components/ComponentShowcase';
 import SignupManager from './components/SignupManager';
@@ -55,6 +53,7 @@ import SignupList from './components/SignupList';
 import SignupRegistration from './components/SignupRegistration';
 import RegistrationTemplateManager from './components/RegistrationTemplateManager';
 import { SimulatorBuilder } from './components/SimulatorBuilder';
+import ComingSoon from './components/ComingSoon';
 
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -314,6 +313,40 @@ function BetaProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function SignupsProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const { hasPermission } = usePermissions();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Check if user has beta access
+  const hasAccess = hasPermission('access_beta_features');
+
+  console.log('SignupsProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'hasAccess=', hasAccess, 'pathname=', location.pathname);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate('/login', { state: { from: location.pathname + location.search } });
+    }
+  }, [loading, user, navigate, location]);
+
+  if (loading) {
+    return <div className="p-4 text-center">Loading...</div>;
+  }
+
+  if (!user) {
+    return <div className="p-4 text-center">Redirecting to login...</div>;
+  }
+
+  // Show coming soon page if user doesn't have beta access
+  if (!hasAccess) {
+    return <ComingSoon />;
+  }
+
+  return <>{children}</>;
+}
+
 function HomeRoute() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
@@ -351,8 +384,7 @@ function Navigation() {
 
   const navigationItems = [
     ...(!user ? [{ to: "/", icon: Home, label: "Home" }] : []),
-    { to: "/leaderboard", icon: Medal, label: "Leaderboard" },
-    { to: "/tournaments", icon: Trophy, label: "Tournaments" },
+    { to: "/signups", icon: Trophy, label: "Compete" },
     { to: "/simulator-courses", icon: MapPin, label: "Neighborhood Courses" },
     { to: "https://neighborhood-national.mn.co/", icon: Users, label: "Community", external: true },
     ...(user ? [
@@ -761,12 +793,12 @@ function AppContent() {
         {/* User-facing Signups */}
         <Route path="/signups/:id" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-            <SignupRegistration />
+            <SignupsProtectedRoute><SignupRegistration /></SignupsProtectedRoute>
           </main>
         } />
         <Route path="/signups" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-            <SignupList />
+            <SignupsProtectedRoute><SignupList /></SignupsProtectedRoute>
           </main>
         } />
 
