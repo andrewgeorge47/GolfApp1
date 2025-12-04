@@ -31,7 +31,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 
-const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY || 'pk_test_51SVNmVROpIECKIAau9Yjvp95Pr7rguHxpBiSjald2K24rAf8TLYYyF1n1iamh8I0Qo1eRawJn5vaO7ez6IBD040900F7QrQ7Jc');
+const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY || 'pk_live_51OMksoIxApvccLawqRPtBKJIIPhLpnQREnN0ZUyPLvgodAJC1mXTUTuSdquuP1S8vX0R79MUD1u6ABTE4pbJqkhn00njjVlrNc');
 
 // Card Element styling
 const cardElementOptions = {

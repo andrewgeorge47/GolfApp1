@@ -25,6 +25,9 @@ try {
 // Stripe configuration
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
+// Loops email notifications
+const { sendBookingConfirmation, sendRescheduleNotification, sendCancellationNotification } = require('./utils/loopsEmail');
+
 const app = express();
 
 // PostgreSQL connection pool (must be initialized before webhook handlers)
@@ -13439,7 +13442,25 @@ app.post('/api/simulator-bookings', authenticateToken, requireAdminForBooking, a
       'INSERT INTO simulator_bookings (user_id, date, start_time, end_time, type, participants, bay, club_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
       [userId, date, start_time, end_time, type || 'solo', type === 'social' ? [userId] : [], bay || 1, clubName]
     );
-    res.status(201).json(rows[0]);
+
+    const booking = rows[0];
+
+    // Send confirmation email with calendar attachment
+    try {
+      const userResult = await pool.query(
+        'SELECT member_id, first_name, last_name, email_address FROM users WHERE member_id = $1',
+        [userId]
+      );
+
+      if (userResult.rows.length > 0) {
+        await sendBookingConfirmation(booking, userResult.rows[0]);
+      }
+    } catch (emailErr) {
+      console.error('Error sending booking confirmation email:', emailErr);
+      // Don't fail the booking if email fails
+    }
+
+    res.status(201).json(booking);
   } catch (err) {
     console.error('Error creating booking:', err);
     res.status(500).json({ error: 'Failed to create booking' });
@@ -13454,7 +13475,27 @@ app.delete('/api/simulator-bookings/:id', authenticateToken, requireAdminForBook
     const { rows } = await pool.query('SELECT * FROM simulator_bookings WHERE id = $1', [id]);
     if (!rows[0]) return res.status(404).json({ error: 'Booking not found' });
     if (rows[0].user_id !== userId) return res.status(403).json({ error: 'Can only delete your own bookings' });
+
+    const booking = rows[0];
+
+    // Delete the booking
     await pool.query('DELETE FROM simulator_bookings WHERE id = $1', [id]);
+
+    // Send cancellation email
+    try {
+      const userResult = await pool.query(
+        'SELECT member_id, first_name, last_name, email_address FROM users WHERE member_id = $1',
+        [userId]
+      );
+
+      if (userResult.rows.length > 0) {
+        await sendCancellationNotification(booking, userResult.rows[0]);
+      }
+    } catch (emailErr) {
+      console.error('Error sending cancellation email:', emailErr);
+      // Don't fail the deletion if email fails
+    }
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete booking' });
@@ -13472,7 +13513,8 @@ app.put('/api/simulator-bookings/:id', authenticateToken, requireAdminForBooking
     if (!rows[0]) return res.status(404).json({ error: 'Booking not found' });
     if (rows[0].user_id !== userId) return res.status(403).json({ error: 'Can only reschedule your own bookings' });
 
-    const clubName = rows[0].club_name || req.user.club || 'No. 5';
+    const oldBooking = rows[0]; // Store old booking details for email
+    const clubName = oldBooking.club_name || req.user.club || 'No. 5';
 
     // Check if booking is still enabled for this club
     const settingsCheck = await pool.query(
@@ -13487,16 +13529,34 @@ app.put('/api/simulator-bookings/:id', authenticateToken, requireAdminForBooking
     // Prevent double booking for the same bay at same club
     const conflict = await pool.query(
       'SELECT 1 FROM simulator_bookings WHERE id != $1 AND club_name = $2 AND date = $3 AND bay = $4 AND ((start_time, end_time) OVERLAPS ($5::time, $6::time))',
-      [id, clubName, date, bay || rows[0].bay || 1, start_time, end_time]
+      [id, clubName, date, bay || oldBooking.bay || 1, start_time, end_time]
     );
     if (conflict.rows.length > 0) {
       return res.status(409).json({ error: 'Time slot already booked for this bay' });
     }
     const updated = await pool.query(
       'UPDATE simulator_bookings SET date = $1, start_time = $2, end_time = $3, type = $4, bay = $5 WHERE id = $6 RETURNING *',
-      [date, start_time, end_time, type || rows[0].type, bay || rows[0].bay || 1, id]
+      [date, start_time, end_time, type || oldBooking.type, bay || oldBooking.bay || 1, id]
     );
-    res.json(updated.rows[0]);
+
+    const newBooking = updated.rows[0];
+
+    // Send reschedule notification email
+    try {
+      const userResult = await pool.query(
+        'SELECT member_id, first_name, last_name, email_address FROM users WHERE member_id = $1',
+        [userId]
+      );
+
+      if (userResult.rows.length > 0) {
+        await sendRescheduleNotification(oldBooking, newBooking, userResult.rows[0]);
+      }
+    } catch (emailErr) {
+      console.error('Error sending reschedule email:', emailErr);
+      // Don't fail the reschedule if email fails
+    }
+
+    res.json(newBooking);
   } catch (err) {
     console.error('Error rescheduling booking:', err);
     res.status(500).json({ error: 'Failed to reschedule booking' });

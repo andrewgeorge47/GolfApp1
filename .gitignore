@@ -12,3 +12,6 @@ add_password.js
 gcs-keyfile.json
 gsc-keyfile.json
 client/.env.local
+db/data-1764844548647.csv
+db/loops_export.csv
+db/loops_sample.csv
