@@ -17,13 +17,43 @@
 function generateICS(booking, userEmail, userName) {
   const { date, start_time, end_time, club_name, bay } = booking;
 
-  // Parse date and times
-  const bookingDate = new Date(date + 'T' + start_time);
-  const endDate = new Date(date + 'T' + end_time);
+  // Parse date and times - handle PostgreSQL time format
+  // Times come as "HH:MM:SS" or HH:MM:SS.mmm or Date objects
+  const parseTime = (timeStr) => {
+    if (!timeStr) return '00:00:00';
+    // Convert to string and extract just HH:MM:SS
+    const timeOnly = timeStr.toString().split('.')[0].split('+')[0]; // Remove milliseconds and timezone
+    // Ensure it's 8 characters (HH:MM:SS)
+    if (timeOnly.length === 5) return timeOnly + ':00'; // HH:MM -> HH:MM:00
+    if (timeOnly.length === 8) return timeOnly; // HH:MM:SS
+    return '00:00:00';
+  };
 
-  // Format dates for ICS (YYYYMMDDTHHMMSS)
+  const startTimeStr = parseTime(start_time);
+  const endTimeStr = parseTime(end_time);
+
+  // Parse date - could be Date object or string
+  const dateStr = date instanceof Date ? date.toISOString().split('T')[0] : date.toString().split('T')[0];
+
+  // Create datetime strings (local time, not UTC)
+  const bookingDate = new Date(dateStr + 'T' + startTimeStr);
+  const endDate = new Date(dateStr + 'T' + endTimeStr);
+
+  // Verify dates are valid
+  if (isNaN(bookingDate.getTime()) || isNaN(endDate.getTime())) {
+    console.error('Invalid date/time:', { date, start_time, end_time, dateStr, startTimeStr, endTimeStr });
+    throw new Error('Invalid booking date or time');
+  }
+
+  // Format dates for ICS (YYYYMMDDTHHMMSS) in local time
   const formatICSDate = (d) => {
-    return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const seconds = String(d.getSeconds()).padStart(2, '0');
+    return `${year}${month}${day}T${hours}${minutes}${seconds}`;
   };
 
   // Generate unique ID
