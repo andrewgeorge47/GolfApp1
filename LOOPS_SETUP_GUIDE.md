@@ -4,13 +4,28 @@ This guide will help you set up transactional email notifications for booking co
 
 ## 1. Environment Variables
 
-Add your Loops API key to your `.env` file:
+Create a `.env.loops` file in your project root (use `.env.loops.example` as a template):
+
+```bash
+# Copy the example file
+cp .env.loops.example .env.loops
+```
+
+Then fill in your actual Loops credentials:
 
 ```bash
 LOOPS_API_KEY=your_loops_api_key_here
+LOOPS_BOOKING_CONFIRMATION_ID=clxxxxxxxxxxxxx
+LOOPS_BOOKING_RESCHEDULED_ID=clxxxxxxxxxxxxx
+LOOPS_BOOKING_CANCELLED_ID=clxxxxxxxxxxxxx
 ```
 
-Get your API key from: https://app.loops.so/settings?page=api
+**Where to find these:**
+- **LOOPS_API_KEY**: https://app.loops.so/settings?page=api
+- **Transactional IDs**: Create each email template in Loops, then copy the auto-generated ID from the template settings
+
+**For Production (Render):**
+Add these same variables in your Render dashboard → Environment tab
 
 ## 2. Create Transactional Email Templates in Loops
 
@@ -18,12 +33,14 @@ You need to create 3 transactional email templates in your Loops dashboard.
 
 ### Go to: Loops Dashboard → Transactional → Create new transactional email
 
+**Important:** After creating each template, Loops will auto-generate a transactional ID (looks like `clxxxxxxxxxxxxx`). Copy this ID and add it to your environment variables.
+
 ---
 
 ## Template 1: Booking Confirmation
 
 **Name:** Booking Confirmation
-**Transactional ID:** `booking-confirmation`
+**Auto-generated ID:** Copy this to `LOOPS_BOOKING_CONFIRMATION_ID`
 
 ### Data Variables Available:
 - `firstName` - User's first name
@@ -67,7 +84,7 @@ Neighborhood National Golf Club
 ## Template 2: Booking Rescheduled
 
 **Name:** Booking Rescheduled
-**Transactional ID:** `booking-rescheduled`
+**Auto-generated ID:** Copy this to `LOOPS_BOOKING_RESCHEDULED_ID`
 
 ### Data Variables Available:
 - `firstName` - User's first name
@@ -118,7 +135,7 @@ Neighborhood National Golf Club
 ## Template 3: Booking Cancelled
 
 **Name:** Booking Cancelled
-**Transactional ID:** `booking-cancelled`
+**Auto-generated ID:** Copy this to `LOOPS_BOOKING_CANCELLED_ID`
 
 ### Data Variables Available:
 - `firstName` - User's first name
@@ -194,11 +211,12 @@ Add footer links to your website, social media, etc.
 ## 5. Troubleshooting
 
 ### Emails Not Sending:
-1. Check `LOOPS_API_KEY` is set correctly in `.env`
-2. Verify transactional IDs match exactly:
-   - `booking-confirmation`
-   - `booking-rescheduled`
-   - `booking-cancelled`
+1. Check all environment variables are set in Render:
+   - `LOOPS_API_KEY`
+   - `LOOPS_BOOKING_CONFIRMATION_ID`
+   - `LOOPS_BOOKING_RESCHEDULED_ID`
+   - `LOOPS_BOOKING_CANCELLED_ID`
+2. Verify the transactional IDs match exactly what Loops generated
 3. Check server logs for errors:
    ```bash
    grep "Error sending" logs/server.log

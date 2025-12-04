@@ -1,6 +1,7 @@
 node_modules/
 venv/
 .env
+.env.loops
 *.pyc
 __pycache__/
 build/

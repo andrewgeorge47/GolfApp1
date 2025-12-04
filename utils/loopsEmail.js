@@ -31,7 +31,7 @@ async function sendBookingConfirmation(booking, user) {
 
     const emailData = {
       email: user.email_address,
-      transactionalId: 'booking-confirmation', // Create this in Loops dashboard
+      transactionalId: process.env.LOOPS_BOOKING_CONFIRMATION_ID,
       dataVariables: {
         firstName: user.first_name,
         lastName: user.last_name,
@@ -84,7 +84,7 @@ async function sendRescheduleNotification(oldBooking, newBooking, user) {
 
     const emailData = {
       email: user.email_address,
-      transactionalId: 'booking-rescheduled', // Create this in Loops dashboard
+      transactionalId: process.env.LOOPS_BOOKING_RESCHEDULED_ID,
       dataVariables: {
         firstName: user.first_name,
         lastName: user.last_name,
@@ -135,7 +135,7 @@ async function sendCancellationNotification(booking, user) {
 
     const emailData = {
       email: user.email_address,
-      transactionalId: 'booking-cancelled', // Create this in Loops dashboard
+      transactionalId: process.env.LOOPS_BOOKING_CANCELLED_ID,
       dataVariables: {
         firstName: user.first_name,
         lastName: user.last_name,
