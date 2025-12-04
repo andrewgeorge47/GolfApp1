@@ -71,13 +71,15 @@ Booking Details:
 • Type: {{bookingType}}
 • Booking ID: #{{bookingId}}
 
-A calendar invite (.ics file) is attached to this email. Add it to your calendar so you don't forget!
+Mark your calendar! We'll see you at {{startTime}} on {{date}}.
 
 See you on the course!
 
 Best regards,
 Neighborhood National Golf Club
 ```
+
+**Note:** Calendar .ics attachments require Loops Pro plan. Contact help@loops.so to upgrade.
 
 ---
 
@@ -122,7 +124,7 @@ New Booking:
 • Location: {{clubName}}
 • Booking ID: #{{bookingId}}
 
-A new calendar invite (.ics file) is attached to replace the previous one.
+Please update your calendar with the new time.
 
 See you soon!
 
@@ -222,10 +224,10 @@ Add footer links to your website, social media, etc.
    grep "Error sending" logs/server.log
    ```
 
-### Calendar File Not Working:
-- Ensure the .ics attachment is enabled in Loops
-- Test the .ics file by opening it directly
-- Check timezone settings
+### Want Calendar Attachments?
+- Calendar .ics files require Loops Pro plan
+- Contact help@loops.so to upgrade
+- Code is already in place (utils/calendar.js) - just uncomment in utils/loopsEmail.js
 
 ### Data Variables Not Showing:
 - Verify variable names match exactly (case-sensitive)

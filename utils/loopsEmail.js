@@ -23,11 +23,8 @@ async function sendBookingConfirmation(booking, user) {
       return str.slice(0, 5); // Get HH:MM
     };
 
-    const icsContent = generateICS(
-      booking,
-      user.email_address,
-      `${user.first_name} ${user.last_name}`
-    );
+    // Note: Calendar .ics attachments require Loops Pro plan
+    // Upgrade at help@loops.so to enable calendar attachments
 
     const emailData = {
       email: user.email_address,
@@ -42,14 +39,7 @@ async function sendBookingConfirmation(booking, user) {
         bay: booking.bay,
         bookingType: booking.type,
         bookingId: booking.id
-      },
-      attachments: [
-        {
-          filename: 'booking.ics',
-          contentType: 'text/calendar',
-          data: icsToBase64(icsContent)
-        }
-      ]
+      }
     };
 
     const response = await loops.sendTransactionalEmail(emailData);
@@ -76,11 +66,8 @@ async function sendRescheduleNotification(oldBooking, newBooking, user) {
       return str.slice(0, 5); // Get HH:MM
     };
 
-    const icsContent = generateICS(
-      newBooking,
-      user.email_address,
-      `${user.first_name} ${user.last_name}`
-    );
+    // Note: Calendar .ics attachments require Loops Pro plan
+    // Upgrade at help@loops.so to enable calendar attachments
 
     const emailData = {
       email: user.email_address,
@@ -100,14 +87,7 @@ async function sendRescheduleNotification(oldBooking, newBooking, user) {
         newEndTime: formatTime(newBooking.end_time),
         newBay: newBooking.bay,
         bookingId: newBooking.id
-      },
-      attachments: [
-        {
-          filename: 'booking.ics',
-          contentType: 'text/calendar',
-          data: icsToBase64(icsContent)
-        }
-      ]
+      }
     };
 
     const response = await loops.sendTransactionalEmail(emailData);
