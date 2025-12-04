@@ -16,6 +16,13 @@ const loops = new LoopsClient(process.env.LOOPS_API_KEY);
  */
 async function sendBookingConfirmation(booking, user) {
   try {
+    // Helper to format time for display
+    const formatTime = (timeStr) => {
+      if (!timeStr) return '00:00';
+      const str = timeStr.toString().split('.')[0]; // Remove milliseconds
+      return str.slice(0, 5); // Get HH:MM
+    };
+
     const icsContent = generateICS(
       booking,
       user.email_address,
@@ -30,8 +37,8 @@ async function sendBookingConfirmation(booking, user) {
         lastName: user.last_name,
         clubName: booking.club_name,
         date: booking.date,
-        startTime: booking.start_time.slice(0, 5),
-        endTime: booking.end_time.slice(0, 5),
+        startTime: formatTime(booking.start_time),
+        endTime: formatTime(booking.end_time),
         bay: booking.bay,
         bookingType: booking.type,
         bookingId: booking.id
@@ -62,6 +69,13 @@ async function sendBookingConfirmation(booking, user) {
  */
 async function sendRescheduleNotification(oldBooking, newBooking, user) {
   try {
+    // Helper to format time for display
+    const formatTime = (timeStr) => {
+      if (!timeStr) return '00:00';
+      const str = timeStr.toString().split('.')[0]; // Remove milliseconds
+      return str.slice(0, 5); // Get HH:MM
+    };
+
     const icsContent = generateICS(
       newBooking,
       user.email_address,
@@ -77,13 +91,13 @@ async function sendRescheduleNotification(oldBooking, newBooking, user) {
         clubName: newBooking.club_name,
         // Old booking info
         oldDate: oldBooking.date,
-        oldStartTime: oldBooking.start_time.slice(0, 5),
-        oldEndTime: oldBooking.end_time.slice(0, 5),
+        oldStartTime: formatTime(oldBooking.start_time),
+        oldEndTime: formatTime(oldBooking.end_time),
         oldBay: oldBooking.bay,
         // New booking info
         newDate: newBooking.date,
-        newStartTime: newBooking.start_time.slice(0, 5),
-        newEndTime: newBooking.end_time.slice(0, 5),
+        newStartTime: formatTime(newBooking.start_time),
+        newEndTime: formatTime(newBooking.end_time),
         newBay: newBooking.bay,
         bookingId: newBooking.id
       },
@@ -112,6 +126,13 @@ async function sendRescheduleNotification(oldBooking, newBooking, user) {
  */
 async function sendCancellationNotification(booking, user) {
   try {
+    // Helper to format time for display
+    const formatTime = (timeStr) => {
+      if (!timeStr) return '00:00';
+      const str = timeStr.toString().split('.')[0]; // Remove milliseconds
+      return str.slice(0, 5); // Get HH:MM
+    };
+
     const emailData = {
       email: user.email_address,
       transactionalId: 'booking-cancelled', // Create this in Loops dashboard
@@ -120,8 +141,8 @@ async function sendCancellationNotification(booking, user) {
         lastName: user.last_name,
         clubName: booking.club_name,
         date: booking.date,
-        startTime: booking.start_time.slice(0, 5),
-        endTime: booking.end_time.slice(0, 5),
+        startTime: formatTime(booking.start_time),
+        endTime: formatTime(booking.end_time),
         bay: booking.bay,
         bookingId: booking.id
       }
