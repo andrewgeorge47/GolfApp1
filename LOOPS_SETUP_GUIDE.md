@@ -4,7 +4,14 @@ This guide will help you set up transactional email notifications for booking co
 
 ## 1. Environment Variables
 
-Add your Loops credentials to your `.env` file:
+Create a `.env.loops` file in your project root (use `.env.loops.example` as a template):
+
+```bash
+# Copy the example file
+cp .env.loops.example .env.loops
+```
+
+Then fill in your actual Loops credentials:
 
 ```bash
 LOOPS_API_KEY=your_loops_api_key_here
@@ -16,6 +23,9 @@ LOOPS_BOOKING_CANCELLED_ID=clxxxxxxxxxxxxx
 **Where to find these:**
 - **LOOPS_API_KEY**: https://app.loops.so/settings?page=api
 - **Transactional IDs**: Create each email template in Loops, then copy the auto-generated ID from the template settings
+
+**For Production (Render):**
+Add these same variables in your Render dashboard → Environment tab
 
 ## 2. Create Transactional Email Templates in Loops
 
