@@ -64,7 +64,7 @@ const Profile: React.FC = () => {
         const [profileResponse, matchesResponse, nationalChampionshipMatchesResponse, simStatsResponse, combinedStatsResponse, courseRecordsResponse, userTournamentsResponse] = await Promise.all([
           getUserProfile(user.member_id),
           getMatches(),
-          api.get('/api/user/national-championship-matches').catch(() => ({ data: [] })), // Fetch national championship matches
+          api.get('/user/national-championship-matches').catch(() => ({ data: [] })), // Fetch national championship matches
           getUserSimStats(user.member_id),
           getUserCombinedStats(user.member_id),
           getUserCourseRecords(user.member_id),

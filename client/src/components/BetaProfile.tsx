@@ -61,7 +61,7 @@ const BetaProfile: React.FC = () => {
         const [profileResponse, matchesResponse, nationalChampionshipMatchesResponse, simStatsResponse, combinedStatsResponse, courseRecordsResponse, userTournamentsResponse] = await Promise.all([
           getUserProfile(user.member_id),
           getMatches(),
-          api.get('/api/user/national-championship-matches').catch(() => ({ data: [] })), // Fetch national championship matches
+          api.get('/user/national-championship-matches').catch(() => ({ data: [] })), // Fetch national championship matches
           getUserSimStats(user.member_id),
           getUserCombinedStats(user.member_id),
           getUserCourseRecords(user.member_id),
@@ -1125,27 +1125,15 @@ const BetaProfile: React.FC = () => {
                     <button
                       onClick={async () => {
                         try {
-                          const response = await fetch('/api/sims/nn-no5/sessions', {
-                            method: 'POST',
-                            headers: {
-                              'Content-Type': 'application/json',
-                              'Authorization': `Bearer ${localStorage.getItem('token')}`
-                            },
-                            body: JSON.stringify({
-                              nn_player_id: user?.member_id,
-                              session_type: 'practice'
-                            })
+                          const response = await api.post('/sims/nn-no5/sessions', {
+                            nn_player_id: user?.member_id,
+                            session_type: 'practice'
                           });
 
-                          if (response.ok) {
-                            const data = await response.json();
-                            alert(`Session started successfully! All shots will now be tracked.\n\nSession ID: ${data.session.session_uuid}`);
-                          } else {
-                            const error = await response.json();
-                            alert(`Failed to start session: ${error.error}`);
-                          }
+                          alert(`Session started successfully! All shots will now be tracked.\n\nSession ID: ${response.data.session.session_uuid}`);
                         } catch (err: any) {
-                          alert(`Error: ${err.message}`);
+                          const errorMessage = err.response?.data?.error || err.message;
+                          alert(`Failed to start session: ${errorMessage}`);
                         }
                       }}
                       className="flex-1 inline-flex items-center justify-center px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors text-lg"
