@@ -20197,6 +20197,94 @@ app.post('/api/shots', authenticateSimulator, async (req, res) => {
   }
 });
 
+// GET /api/users/:userId/shot-stats - Get shot statistics for a user
+app.get('/api/users/:userId/shot-stats', authenticateToken, async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+
+    // Check if user is accessing their own data or is admin
+    if (req.user.member_id !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // Get overall stats
+    const overallStats = await pool.query(
+      `SELECT
+        COUNT(*) as total_shots,
+        COUNT(DISTINCT session_id) as total_sessions,
+        MIN(shot_timestamp) as first_shot,
+        MAX(shot_timestamp) as last_shot
+       FROM shots
+       WHERE nn_player_id = $1`,
+      [userId]
+    );
+
+    // Get stats by club
+    const clubStats = await pool.query(
+      `SELECT
+        club,
+        COUNT(*) as shot_count,
+        ROUND(AVG(ball_speed)::numeric, 2) as avg_ball_speed,
+        ROUND(MAX(ball_speed)::numeric, 2) as max_ball_speed,
+        ROUND(AVG(club_speed)::numeric, 2) as avg_club_speed,
+        ROUND(MAX(club_speed)::numeric, 2) as max_club_speed,
+        ROUND(AVG(carry_distance)::numeric, 2) as avg_carry,
+        ROUND(MAX(carry_distance)::numeric, 2) as max_carry,
+        ROUND(AVG(total_distance)::numeric, 2) as avg_total,
+        ROUND(MAX(total_distance)::numeric, 2) as max_total,
+        ROUND(AVG(smash_factor)::numeric, 3) as avg_smash_factor,
+        ROUND(AVG(launch_angle)::numeric, 2) as avg_launch_angle,
+        ROUND(AVG(spin_rate)::numeric, 0) as avg_spin_rate
+       FROM shots
+       WHERE nn_player_id = $1 AND club IS NOT NULL
+       GROUP BY club
+       ORDER BY
+         CASE
+           WHEN club ILIKE '%driver%' THEN 1
+           WHEN club ILIKE '%wood%' THEN 2
+           WHEN club ILIKE '%hybrid%' THEN 3
+           WHEN club ILIKE '%iron%' THEN 4
+           WHEN club ILIKE '%wedge%' THEN 5
+           WHEN club ILIKE '%putter%' THEN 6
+           ELSE 7
+         END,
+         club`,
+      [userId]
+    );
+
+    // Get recent shots (last 20)
+    const recentShots = await pool.query(
+      `SELECT
+        id,
+        shot_timestamp,
+        club,
+        ball_speed,
+        club_speed,
+        carry_distance,
+        total_distance,
+        smash_factor,
+        launch_angle,
+        spin_rate,
+        course_name
+       FROM shots
+       WHERE nn_player_id = $1
+       ORDER BY shot_timestamp DESC
+       LIMIT 20`,
+      [userId]
+    );
+
+    res.json({
+      overall: overallStats.rows[0],
+      by_club: clubStats.rows,
+      recent_shots: recentShots.rows
+    });
+
+  } catch (err) {
+    console.error('Error fetching shot stats:', err);
+    res.status(500).json({ error: 'Failed to fetch shot statistics', details: err.message });
+  }
+});
+
 // GET /api/sims/:simId/active-session - Get active session for a simulator
 app.get('/api/sims/:simId/active-session', authenticateSimulator, async (req, res) => {
   try {

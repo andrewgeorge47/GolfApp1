@@ -324,6 +324,46 @@ export const getUserCombinedStats = (id: number) => api.get<SimStats>(`/users/${
 
 export const getUserCourseRecords = (userId: number) => api.get(`/user-course-records/${userId}`);
 
+// Shot tracking statistics
+export interface ShotStats {
+  overall: {
+    total_shots: number;
+    total_sessions: number;
+    first_shot: string | null;
+    last_shot: string | null;
+  };
+  by_club: Array<{
+    club: string;
+    shot_count: number;
+    avg_ball_speed: number;
+    max_ball_speed: number;
+    avg_club_speed: number;
+    max_club_speed: number;
+    avg_carry: number;
+    max_carry: number;
+    avg_total: number;
+    max_total: number;
+    avg_smash_factor: number;
+    avg_launch_angle: number;
+    avg_spin_rate: number;
+  }>;
+  recent_shots: Array<{
+    id: number;
+    shot_timestamp: string;
+    club: string;
+    ball_speed: number;
+    club_speed: number;
+    carry_distance: number;
+    total_distance: number;
+    smash_factor: number;
+    launch_angle: number;
+    spin_rate: number;
+    course_name: string | null;
+  }>;
+}
+
+export const getUserShotStats = (userId: number) => api.get<ShotStats>(`/users/${userId}/shot-stats`);
+
 export const getUserRecentSimulatorRounds = (userId: number) => api.get(`/users/${userId}/recent-simulator-rounds`);
 
 // Profile photo upload

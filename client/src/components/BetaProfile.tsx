@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
-import api, { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser, getUserTournaments } from '../services/api';
+import api, { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser, getUserTournaments, getUserShotStats, ShotStats } from '../services/api';
 import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign, MessageSquare, Eye, CheckCircle, Info, AlertTriangle, Play, Activity } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
@@ -23,6 +23,8 @@ const BetaProfile: React.FC = () => {
   const [userTournaments, setUserTournaments] = useState<any[]>([]);
   const [showAllTournaments, setShowAllTournaments] = useState(false);
   const [activeSection, setActiveSection] = useState<'play' | 'compete' | 'improve'>('play');
+  const [shotStats, setShotStats] = useState<ShotStats | null>(null);
+  const [loadingShotStats, setLoadingShotStats] = useState(false);
   const [formData, setFormData] = useState({
     first_name: user?.first_name || '',
     last_name: user?.last_name || '',
@@ -114,6 +116,31 @@ const BetaProfile: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [user?.member_id]);
+
+  // Load shot stats when user navigates to improve section
+  useEffect(() => {
+    if (activeSection === 'improve' && user?.member_id && !shotStats) {
+      loadShotStats();
+    }
+  }, [activeSection, user?.member_id]);
+
+  const loadShotStats = async () => {
+    if (!user?.member_id) return;
+
+    setLoadingShotStats(true);
+    try {
+      const response = await getUserShotStats(user.member_id);
+      setShotStats(response.data);
+    } catch (err: any) {
+      console.error('Error loading shot stats:', err);
+      // Don't show error if user just doesn't have shots yet
+      if (err.response?.status !== 404) {
+        console.error('Failed to load shot statistics');
+      }
+    } finally {
+      setLoadingShotStats(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!user?.member_id) return;
@@ -1163,18 +1190,109 @@ const BetaProfile: React.FC = () => {
               </div>
             )}
 
-            {/* Analytics - Coming Soon */}
+            {/* Shot Performance Analytics */}
             <div className="bg-white rounded-2xl shadow-lg p-6">
               <h2 className="text-2xl font-bold text-brand-black mb-4 flex items-center">
                 <BarChart3 className="w-6 h-6 mr-3" />
-                Performance Analytics
+                Shot Performance
               </h2>
-              <div className="text-center py-12">
-                <div className="inline-block bg-purple-100 text-purple-800 px-4 py-2 rounded-full text-sm font-medium mb-4">
-                  Coming Soon
+
+              {loadingShotStats ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-neon-green mx-auto"></div>
+                  <p className="text-gray-600 mt-4">Loading shot data...</p>
                 </div>
-                <p className="text-gray-600">Detailed performance analytics and insights coming soon</p>
-              </div>
+              ) : shotStats && shotStats.overall.total_shots > 0 ? (
+                <div className="space-y-6">
+                  {/* Overall Stats */}
+                  <div className="bg-gradient-to-r from-brand-dark-green to-brand-neon-green rounded-xl p-4 text-white">
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="text-center">
+                        <div className="text-2xl font-bold">{shotStats.overall.total_shots}</div>
+                        <div className="text-xs opacity-90">Total Shots</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold">{shotStats.overall.total_sessions || 0}</div>
+                        <div className="text-xs opacity-90">Sessions</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold">{shotStats.by_club.length}</div>
+                        <div className="text-xs opacity-90">Clubs</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Club Stats */}
+                  <div>
+                    <h3 className="font-semibold text-brand-black mb-3">By Club</h3>
+                    <div className="space-y-3">
+                      {shotStats.by_club.map((club) => (
+                        <div key={club.club} className="bg-gray-50 rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-10 h-10 bg-brand-neon-green rounded-lg flex items-center justify-center">
+                                <Target className="w-5 h-5 text-brand-dark-green" />
+                              </div>
+                              <div>
+                                <div className="font-semibold text-brand-black">{club.club}</div>
+                                <div className="text-xs text-gray-500">{club.shot_count} shots</div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-lg font-bold text-brand-dark-green">
+                                {club.avg_carry ? `${Math.round(club.avg_carry)}y` : '-'}
+                              </div>
+                              <div className="text-xs text-gray-500">avg carry</div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-3 pt-3 border-t border-gray-200">
+                            <div>
+                              <div className="text-xs text-gray-500 mb-1">Ball Speed</div>
+                              <div className="font-semibold text-sm">
+                                {club.avg_ball_speed ? `${club.avg_ball_speed} mph` : '-'}
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                max: {club.max_ball_speed || '-'}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-500 mb-1">Smash</div>
+                              <div className="font-semibold text-sm">
+                                {club.avg_smash_factor || '-'}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-500 mb-1">Launch</div>
+                              <div className="font-semibold text-sm">
+                                {club.avg_launch_angle ? `${club.avg_launch_angle}°` : '-'}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <div className="inline-block bg-gray-100 text-gray-600 px-4 py-2 rounded-full text-sm font-medium mb-4">
+                    No Data Yet
+                  </div>
+                  <p className="text-gray-600 mb-4">
+                    Start hitting shots on the simulator to see your performance stats here
+                  </p>
+                  {user?.role?.toLowerCase() === 'admin' && (
+                    <button
+                      onClick={() => navigate('/admin/shot-capture')}
+                      className="inline-flex items-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors"
+                    >
+                      <Activity className="w-4 h-4 mr-2" />
+                      View Shot Capture System
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
