@@ -3,6 +3,7 @@ import { Activity, Database, AlertCircle, CheckCircle, Clock, Zap } from 'lucide
 import { Card } from './ui/Card';
 import { Badge } from './ui/Badge';
 import { PageHeader } from './ui/PageHeader';
+import api from '../services/api';
 
 interface SimSyncStatus {
   sim_id: string;
@@ -33,18 +34,8 @@ const AdminShotCapture: React.FC = () => {
 
   const fetchSyncStatus = async () => {
     try {
-      const response = await fetch('/api/sims/sync-status', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch sync status');
-      }
-
-      const data = await response.json();
-      setSims(data);
+      const response = await api.get('/sims/sync-status');
+      setSims(response.data);
       setError(null);
     } catch (err: any) {
       setError(err.message);
