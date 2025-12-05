@@ -20008,6 +20008,419 @@ app.delete('/api/simulator/configurations/:id', authenticateToken, async (req, r
   }
 });
 
+// ============================================================================
+// SHOT CAPTURE SYSTEM - SIMULATOR INTEGRATION
+// ============================================================================
+
+// Middleware: Authenticate simulator API key
+const authenticateSimulator = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Missing or invalid authorization header' });
+    }
+
+    const apiKey = authHeader.substring(7); // Remove 'Bearer ' prefix
+
+    if (!apiKey) {
+      return res.status(401).json({ error: 'No API key provided' });
+    }
+
+    // Look up simulator by API key
+    const result = await pool.query(
+      `SELECT sim_id, sim_name, location, is_active
+       FROM simulator_api_keys
+       WHERE api_key = $1`,
+      [apiKey]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid API key' });
+    }
+
+    const sim = result.rows[0];
+
+    if (!sim.is_active) {
+      return res.status(403).json({ error: 'Simulator is deactivated' });
+    }
+
+    // Update last used timestamp
+    await pool.query(
+      'UPDATE simulator_api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE sim_id = $1',
+      [sim.sim_id]
+    );
+
+    // Attach simulator info to request
+    req.simulator = {
+      simId: sim.sim_id,
+      simName: sim.sim_name,
+      location: sim.location
+    };
+
+    next();
+  } catch (err) {
+    console.error('Error authenticating simulator:', err);
+    res.status(500).json({ error: 'Authentication failed' });
+  }
+};
+
+// POST /api/shots - Upload a shot from simulator
+app.post('/api/shots', authenticateSimulator, async (req, res) => {
+  try {
+    const simId = req.simulator.simId;
+    const {
+      uuid,
+      session_id,
+      nn_player_id,
+      timestamp,
+      club,
+      ball_speed,
+      club_speed,
+      smash_factor,
+      launch_angle,
+      launch_direction,
+      spin_rate,
+      spin_axis,
+      carry_distance,
+      total_distance,
+      offline,
+      apex_height,
+      descent_angle,
+      hole_number,
+      shot_number,
+      course_name,
+      raw_gspro_data,
+      source
+    } = req.body;
+
+    // Validate required fields
+    if (!uuid) {
+      return res.status(400).json({ error: 'Missing required field: uuid' });
+    }
+
+    if (!timestamp) {
+      return res.status(400).json({ error: 'Missing required field: timestamp' });
+    }
+
+    // If no session_id provided, try to find active session for this sim
+    let finalSessionId = session_id;
+    let finalPlayerId = nn_player_id;
+
+    if (!finalSessionId) {
+      const sessionResult = await pool.query(
+        `SELECT id, nn_player_id FROM simulator_sessions
+         WHERE sim_id = $1 AND status = 'active'
+         ORDER BY started_at DESC LIMIT 1`,
+        [simId]
+      );
+
+      if (sessionResult.rows.length > 0) {
+        finalSessionId = sessionResult.rows[0].id;
+        if (!finalPlayerId) {
+          finalPlayerId = sessionResult.rows[0].nn_player_id;
+        }
+      }
+    }
+
+    // Insert or update shot (idempotent based on uuid)
+    const result = await pool.query(
+      `INSERT INTO shots (
+        shot_uuid, sim_id, session_id, nn_player_id,
+        shot_timestamp, club, ball_speed, club_speed, smash_factor,
+        launch_angle, launch_direction, spin_rate, spin_axis,
+        carry_distance, total_distance, offline, apex_height, descent_angle,
+        hole_number, shot_number, course_name, raw_gspro_data, source
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
+      )
+      ON CONFLICT (shot_uuid) DO UPDATE SET
+        session_id = COALESCE(EXCLUDED.session_id, shots.session_id),
+        nn_player_id = COALESCE(EXCLUDED.nn_player_id, shots.nn_player_id),
+        raw_gspro_data = EXCLUDED.raw_gspro_data
+      RETURNING id, shot_uuid, session_id, nn_player_id`,
+      [
+        uuid, simId, finalSessionId, finalPlayerId,
+        timestamp, club, ball_speed, club_speed, smash_factor,
+        launch_angle, launch_direction, spin_rate, spin_axis,
+        carry_distance, total_distance, offline, apex_height, descent_angle,
+        hole_number, shot_number, course_name,
+        raw_gspro_data ? JSON.stringify(raw_gspro_data) : null,
+        source || 'gspro'
+      ]
+    );
+
+    const shot = result.rows[0];
+
+    // Update sync status
+    await pool.query(
+      `INSERT INTO sim_sync_status (sim_id, last_sync_at, last_shot_received_at, total_shots_received, updated_at)
+       VALUES ($1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1, CURRENT_TIMESTAMP)
+       ON CONFLICT (sim_id) DO UPDATE SET
+         last_sync_at = CURRENT_TIMESTAMP,
+         last_shot_received_at = CURRENT_TIMESTAMP,
+         total_shots_received = sim_sync_status.total_shots_received + 1,
+         consecutive_errors = 0,
+         updated_at = CURRENT_TIMESTAMP`,
+      [simId]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Shot recorded successfully',
+      shot_id: shot.id,
+      shot_uuid: shot.shot_uuid,
+      session_id: shot.session_id,
+      nn_player_id: shot.nn_player_id
+    });
+
+  } catch (err) {
+    console.error('Error recording shot:', err);
+
+    // Update sync status with error
+    try {
+      await pool.query(
+        `INSERT INTO sim_sync_status (sim_id, last_error_at, last_error_message, consecutive_errors, updated_at)
+         VALUES ($1, CURRENT_TIMESTAMP, $2, 1, CURRENT_TIMESTAMP)
+         ON CONFLICT (sim_id) DO UPDATE SET
+           last_error_at = CURRENT_TIMESTAMP,
+           last_error_message = $2,
+           consecutive_errors = sim_sync_status.consecutive_errors + 1,
+           updated_at = CURRENT_TIMESTAMP`,
+        [req.simulator?.simId || 'unknown', err.message]
+      );
+    } catch (statusErr) {
+      console.error('Error updating sync status:', statusErr);
+    }
+
+    res.status(500).json({ error: 'Failed to record shot', details: err.message });
+  }
+});
+
+// GET /api/sims/:simId/active-session - Get active session for a simulator
+app.get('/api/sims/:simId/active-session', authenticateSimulator, async (req, res) => {
+  try {
+    const { simId } = req.params;
+
+    // Verify simId matches authenticated simulator
+    if (simId !== req.simulator.simId) {
+      return res.status(403).json({ error: 'Cannot access other simulator sessions' });
+    }
+
+    const result = await pool.query(
+      `SELECT
+         ss.id,
+         ss.session_uuid,
+         ss.nn_player_id,
+         ss.player_name,
+         ss.started_at,
+         ss.session_type,
+         ss.course_name,
+         ss.total_shots,
+         u.first_name,
+         u.last_name,
+         u.email_address
+       FROM simulator_sessions ss
+       LEFT JOIN users u ON ss.nn_player_id = u.member_id
+       WHERE ss.sim_id = $1 AND ss.status = 'active'
+       ORDER BY ss.started_at DESC
+       LIMIT 1`,
+      [simId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({ active_session: null });
+    }
+
+    const session = result.rows[0];
+
+    res.json({
+      active_session: {
+        session_id: session.id,
+        session_uuid: session.session_uuid,
+        nn_player_id: session.nn_player_id,
+        player_name: session.player_name || (session.first_name && session.last_name
+          ? `${session.first_name} ${session.last_name}`
+          : null),
+        player_email: session.email_address,
+        started_at: session.started_at,
+        session_type: session.session_type,
+        course_name: session.course_name,
+        total_shots: session.total_shots
+      }
+    });
+
+  } catch (err) {
+    console.error('Error fetching active session:', err);
+    res.status(500).json({ error: 'Failed to fetch active session' });
+  }
+});
+
+// POST /api/sims/:simId/sessions - Create new session (called by web app)
+app.post('/api/sims/:simId/sessions', authenticateToken, async (req, res) => {
+  try {
+    const { simId } = req.params;
+    const {
+      nn_player_id,
+      player_name,
+      session_type,
+      course_name
+    } = req.body;
+
+    // Verify sim exists
+    const simCheck = await pool.query(
+      'SELECT sim_id FROM simulator_api_keys WHERE sim_id = $1 AND is_active = true',
+      [simId]
+    );
+
+    if (simCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Simulator not found or inactive' });
+    }
+
+    // End any active sessions for this sim first
+    await pool.query(
+      `UPDATE simulator_sessions
+       SET status = 'completed', ended_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE sim_id = $1 AND status = 'active'`,
+      [simId]
+    );
+
+    // Create new session
+    const result = await pool.query(
+      `INSERT INTO simulator_sessions
+       (sim_id, nn_player_id, player_name, session_type, course_name, status)
+       VALUES ($1, $2, $3, $4, $5, 'active')
+       RETURNING id, session_uuid, sim_id, nn_player_id, player_name, started_at, session_type, course_name`,
+      [simId, nn_player_id || null, player_name || null, session_type || 'practice', course_name || null]
+    );
+
+    const session = result.rows[0];
+
+    res.status(201).json({
+      success: true,
+      message: 'Session created successfully',
+      session: {
+        session_id: session.id,
+        session_uuid: session.session_uuid,
+        sim_id: session.sim_id,
+        nn_player_id: session.nn_player_id,
+        player_name: session.player_name,
+        started_at: session.started_at,
+        session_type: session.session_type,
+        course_name: session.course_name
+      }
+    });
+
+  } catch (err) {
+    console.error('Error creating session:', err);
+    res.status(500).json({ error: 'Failed to create session' });
+  }
+});
+
+// PUT /api/sims/:simId/sessions/:sessionId/end - End a session
+app.put('/api/sims/:simId/sessions/:sessionId/end', authenticateToken, async (req, res) => {
+  try {
+    const { simId, sessionId } = req.params;
+
+    const result = await pool.query(
+      `UPDATE simulator_sessions
+       SET status = 'completed', ended_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND sim_id = $2 AND status = 'active'
+       RETURNING id, session_uuid, started_at, ended_at, total_shots`,
+      [sessionId, simId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Active session not found' });
+    }
+
+    const session = result.rows[0];
+
+    res.json({
+      success: true,
+      message: 'Session ended successfully',
+      session: {
+        session_id: session.id,
+        session_uuid: session.session_uuid,
+        started_at: session.started_at,
+        ended_at: session.ended_at,
+        total_shots: session.total_shots
+      }
+    });
+
+  } catch (err) {
+    console.error('Error ending session:', err);
+    res.status(500).json({ error: 'Failed to end session' });
+  }
+});
+
+// GET /api/sims/:simId/sync-status - Get sync health status
+app.get('/api/sims/:simId/sync-status', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { simId } = req.params;
+
+    const result = await pool.query(
+      `SELECT
+         sak.sim_id,
+         sak.sim_name,
+         sak.location,
+         sak.is_active,
+         sak.last_used_at,
+         sss.last_sync_at,
+         sss.last_shot_received_at,
+         sss.total_shots_received,
+         sss.last_error_at,
+         sss.last_error_message,
+         sss.consecutive_errors,
+         sss.listener_version
+       FROM simulator_api_keys sak
+       LEFT JOIN sim_sync_status sss ON sak.sim_id = sss.sim_id
+       WHERE sak.sim_id = $1`,
+      [simId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Simulator not found' });
+    }
+
+    res.json(result.rows[0]);
+
+  } catch (err) {
+    console.error('Error fetching sync status:', err);
+    res.status(500).json({ error: 'Failed to fetch sync status' });
+  }
+});
+
+// GET /api/sims/sync-status - Get all sim sync statuses (admin)
+app.get('/api/sims/sync-status', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT
+         sak.sim_id,
+         sak.sim_name,
+         sak.location,
+         sak.is_active,
+         sak.last_used_at,
+         sss.last_sync_at,
+         sss.last_shot_received_at,
+         sss.total_shots_received,
+         sss.last_error_at,
+         sss.last_error_message,
+         sss.consecutive_errors,
+         sss.listener_version
+       FROM simulator_api_keys sak
+       LEFT JOIN sim_sync_status sss ON sak.sim_id = sss.sim_id
+       ORDER BY sak.sim_name`
+    );
+
+    res.json(result.rows);
+
+  } catch (err) {
+    console.error('Error fetching sync statuses:', err);
+    res.status(500).json({ error: 'Failed to fetch sync statuses' });
+  }
+});
+
 // Start the server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

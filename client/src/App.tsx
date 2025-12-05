@@ -54,6 +54,7 @@ import SignupRegistration from './components/SignupRegistration';
 import RegistrationTemplateManager from './components/RegistrationTemplateManager';
 import { SimulatorBuilder } from './components/SimulatorBuilder';
 import ComingSoon from './components/ComingSoon';
+import AdminShotCapture from './components/AdminShotCapture';
 
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -632,6 +633,11 @@ function AppContent() {
         <Route path="/admin/engagement" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <AdminProtectedRoute><AdminEngagement /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/shot-capture" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><AdminShotCapture /></AdminProtectedRoute>
           </main>
         } />
         <Route path="/admin/feature-testing" element={

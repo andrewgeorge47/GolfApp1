@@ -8,7 +8,7 @@ build/
 dist/
 .DS_Store
 NN_Handicaps.csv
-add_password.js 
+add_password.js
 # secrets
 gcs-keyfile.json
 gsc-keyfile.json
@@ -16,3 +16,8 @@ client/.env.local
 db/data-1764844548647.csv
 db/loops_export.csv
 db/loops_sample.csv
+
+# Simulator API Keys and Credentials
+SIM_PC_DEVELOPER_HANDOFF.md
+*_HANDOFF.md
+simulator_credentials/

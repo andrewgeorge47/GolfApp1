@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
 import api, { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser, getUserTournaments } from '../services/api';
-import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign, MessageSquare, Eye, CheckCircle, Info, AlertTriangle } from 'lucide-react';
+import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign, MessageSquare, Eye, CheckCircle, Info, AlertTriangle, Play, Activity } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
 import ScoreCard from './ScoreCard';
@@ -1094,6 +1094,76 @@ const BetaProfile: React.FC = () => {
                 </button>
               </div>
             </div>
+
+            {/* Start Session - Admin Only */}
+            {user?.role?.toLowerCase() === 'admin' && (
+              <div className="bg-white rounded-2xl shadow-lg p-6">
+                <h2 className="text-2xl font-bold text-brand-black mb-6 flex items-center">
+                  <Play className="w-6 h-6 mr-3" />
+                  Practice Session
+                  <span className="ml-3 text-xs bg-purple-100 text-purple-800 px-3 py-1 rounded-full font-medium">
+                    Admin
+                  </span>
+                </h2>
+                <div className="space-y-4">
+                  <p className="text-gray-600">
+                    Start a practice session on a simulator to track your shots in real-time.
+                  </p>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <p className="text-gray-500 mb-1">Simulator</p>
+                        <p className="font-medium text-gray-900">NN No.5</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 mb-1">Location</p>
+                        <p className="font-medium text-gray-900">Durham, NC</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={async () => {
+                        try {
+                          const response = await fetch('/api/sims/nn-no5/sessions', {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'Authorization': `Bearer ${localStorage.getItem('token')}`
+                            },
+                            body: JSON.stringify({
+                              nn_player_id: user?.member_id,
+                              session_type: 'practice'
+                            })
+                          });
+
+                          if (response.ok) {
+                            const data = await response.json();
+                            alert(`Session started successfully! All shots will now be tracked.\n\nSession ID: ${data.session.session_uuid}`);
+                          } else {
+                            const error = await response.json();
+                            alert(`Failed to start session: ${error.error}`);
+                          }
+                        } catch (err: any) {
+                          alert(`Error: ${err.message}`);
+                        }
+                      }}
+                      className="flex-1 inline-flex items-center justify-center px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors text-lg"
+                    >
+                      <Play className="w-5 h-5 mr-2" />
+                      Start Session
+                    </button>
+                    <button
+                      onClick={() => navigate('/admin/shot-capture')}
+                      className="inline-flex items-center px-6 py-3 bg-white border-2 border-brand-dark-green text-brand-dark-green rounded-lg font-medium hover:bg-gray-50 transition-colors text-lg"
+                    >
+                      <Activity className="w-5 h-5 mr-2" />
+                      Monitor
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Analytics - Coming Soon */}
             <div className="bg-white rounded-2xl shadow-lg p-6">
