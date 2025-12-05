@@ -61,28 +61,38 @@ const Profile: React.FC = () => {
         console.log('Fetching data for user ID:', user.member_id);
         console.log('User data:', user);
         
-        const [profileResponse, matchesResponse, nationalChampionshipMatchesResponse, simStatsResponse, combinedStatsResponse, courseRecordsResponse, userTournamentsResponse] = await Promise.all([
+        const [profileResponse, matchesResponse, simStatsResponse, combinedStatsResponse, courseRecordsResponse, userTournamentsResponse] = await Promise.all([
           getUserProfile(user.member_id),
           getMatches(),
-          api.get('/user/national-championship-matches').catch(() => ({ data: [] })), // Fetch national championship matches
           getUserSimStats(user.member_id),
           getUserCombinedStats(user.member_id),
           getUserCourseRecords(user.member_id),
           getUserTournaments(user.member_id)
         ]);
-        
+
         console.log('Sim stats response:', simStatsResponse.data);
         console.log('Combined stats response:', combinedStatsResponse.data);
-        
+
         // Check for handicap changes before updating state
         const oldSimHandicap = user?.sim_handicap || 0;
         const oldGrassHandicap = user?.grass_handicap || 0;
-        
+
         setProfile(profileResponse.data);
+
+        // Fetch national championship matches separately to prevent 401 errors from blocking login
+        let nationalChampionshipMatches: any[] = [];
+        try {
+          const ncResponse = await api.get('/user/national-championship-matches');
+          nationalChampionshipMatches = ncResponse.data || [];
+        } catch (err) {
+          // Silently fail - this endpoint is optional
+          console.log('National championship matches not available');
+        }
+
         // Combine regular matches with national championship matches
         const allMatches = [
           ...matchesResponse.data,
-          ...(nationalChampionshipMatchesResponse.data || [])
+          ...nationalChampionshipMatches
         ];
         setMatches(allMatches);
         setSimStats(simStatsResponse.data);

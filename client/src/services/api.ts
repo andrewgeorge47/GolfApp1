@@ -45,10 +45,18 @@ api.interceptors.response.use(
   (error) => {
     console.error('API Response Error:', error.response?.status, error.config?.url, error.message);
     if (error.response?.status === 401) {
-      // Token expired or invalid, redirect to login
-      localStorage.removeItem('token');
-      // Use window.location for hash router compatibility
-      window.location.href = '#/login';
+      // Skip redirect for optional endpoints that may not be available
+      const optionalEndpoints = ['/user/national-championship-matches'];
+      const isOptionalEndpoint = optionalEndpoints.some(endpoint =>
+        error.config?.url?.includes(endpoint)
+      );
+
+      if (!isOptionalEndpoint) {
+        // Token expired or invalid, redirect to login
+        localStorage.removeItem('token');
+        // Use window.location for hash router compatibility
+        window.location.href = '#/login';
+      }
     }
     return Promise.reject(error);
   }
