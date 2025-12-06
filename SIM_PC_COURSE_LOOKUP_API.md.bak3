@@ -177,7 +177,7 @@ using System.Text.Json;
 public async Task<int?> LookupCourseId(string courseName)
 {
     var httpClient = new HttpClient();
-    httpClient.DefaultRequestHeaders.Add("Bearer nn-sim-nn-no5-3a11134c18c31b06c9d73277fcf4a9af", "nn-sim-nn-no5-3a11134c18c31b06c9d73277fcf4a9af");
+    httpClient.DefaultRequestHeaders.Add("X-Sim-API-Key", "nn-sim-nn-no5-3a11134c18c31b06c9d73277fcf4a9af");
 
     var url = $"https://golfapp1.onrender.com/api/sim/courses/lookup?name={Uri.EscapeDataString(courseName)}";
 

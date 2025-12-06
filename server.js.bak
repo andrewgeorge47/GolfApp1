@@ -20919,7 +20919,7 @@ app.post('/api/sim/courses/report-available', authenticateSimulator, async (req,
 
 // GET /api/sim/ctp-challenges/pending - Sim PC polls for pending CTP challenges
 app.get('/api/sim/ctp-challenges/pending', authenticateSimulator, async (req, res) => {
-  const simId = req.simulator.simId;
+  const simId = req.simId;
 
   try {
     const result = await pool.query(`
@@ -20950,7 +20950,7 @@ app.get('/api/sim/ctp-challenges/pending', authenticateSimulator, async (req, re
 app.put('/api/sim/ctp-challenges/:id/synced', authenticateSimulator, async (req, res) => {
   const challengeId = req.params.id;
   const { crdFilename, crdContent } = req.body;
-  const simId = req.simulator.simId;
+  const simId = req.simId;
 
   try {
     const result = await pool.query(`
@@ -20986,7 +20986,7 @@ app.put('/api/sim/ctp-challenges/:id/synced', authenticateSimulator, async (req,
 
 // GET /api/sim/active-ctp-session - Sim PC polls for active CTP session
 app.get('/api/sim/active-ctp-session', authenticateSimulator, async (req, res) => {
-  const simId = req.simulator.simId;
+  const simId = req.simId;
 
   try {
     const result = await pool.query(
