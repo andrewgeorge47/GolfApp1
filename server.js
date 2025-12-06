@@ -15440,7 +15440,8 @@ app.post('/api/challenges/:id/reup', authenticateToken, async (req, res) => {
       });
     }
 
-    const reupFee = challenge.default_reup_fee || 3.00;
+    // Use challenge's reup_fee if set, otherwise fall back to challenge type's default
+    const reupFee = challenge.reup_fee !== null ? challenge.reup_fee : (challenge.default_reup_fee || 3.00);
     const newGroupNumber = entry.groups_purchased + 1;
 
     // Create payment record
@@ -15993,12 +15994,21 @@ app.post('/api/challenges', authenticateToken, requirePermission('manage_tournam
       challenge_name,
       designated_hole,
       entry_fee,
+      reup_fee,
       week_start_date,
       week_end_date,
-      // New Five-Shot fields
+      // Five-Shot fields
       challenge_type_id,
       course_id,
-      required_distance_yards
+      required_distance_yards,
+      // CTP-specific fields
+      is_ctp_challenge,
+      ctp_mode,
+      ctp_tee_type,
+      ctp_pin_day,
+      ctp_selected_holes,
+      ctp_attempts_per_hole,
+      sim_id
     } = req.body;
 
     if (!designated_hole || designated_hole < 1 || designated_hole > 18) {
@@ -16029,32 +16039,130 @@ app.post('/api/challenges', authenticateToken, requirePermission('manage_tournam
     const hioResult = await pool.query('SELECT current_amount FROM challenge_hio_jackpot LIMIT 1');
     const hioJackpot = hioResult.rows[0]?.current_amount || 0;
 
-    const result = await pool.query(
-      `INSERT INTO weekly_challenges
-       (challenge_name, designated_hole, entry_fee, week_start_date, week_end_date,
-        starting_pot, status, challenge_type_id, course_id, required_distance_yards, hio_jackpot_amount)
-       VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10)
-       RETURNING *`,
-      [challenge_name, designated_hole, finalEntryFee, week_start_date, week_end_date,
-       startingPot, challenge_type_id || null, course_id || null, required_distance_yards || null, hioJackpot]
-    );
+    // CTP Challenge-specific logic
+    let ctpHolesConfig = null;
+    if (is_ctp_challenge) {
+      // Validate CTP fields
+      if (!course_id) {
+        return res.status(400).json({ error: 'Course is required for CTP challenges' });
+      }
+      if (!ctp_mode || !['par3-holes', 'par3-tees'].includes(ctp_mode)) {
+        return res.status(400).json({ error: 'Valid CTP mode is required (par3-holes or par3-tees)' });
+      }
+      if (!ctp_tee_type) {
+        return res.status(400).json({ error: 'Tee type is required for CTP challenges' });
+      }
+      if (!ctp_pin_day || !['Thursday', 'Friday', 'Saturday', 'Sunday'].includes(ctp_pin_day)) {
+        return res.status(400).json({ error: 'Valid pin day is required (Thursday, Friday, Saturday, or Sunday)' });
+      }
 
-    // If challenge has a type, return with type and course info
-    if (challenge_type_id || course_id) {
-      const extendedResult = await pool.query(
-        `SELECT wc.*,
-                ct.type_key, ct.type_name, ct.shots_per_group, ct.default_reup_fee, ct.payout_config,
-                sc.name as course_name
-         FROM weekly_challenges wc
-         LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
-         LEFT JOIN simulator_courses_combined sc ON wc.course_id = sc.id
-         WHERE wc.id = $1`,
-        [result.rows[0].id]
+      // Fetch course hole details
+      const courseResult = await pool.query(
+        'SELECT id, name, hole_details, par_values FROM simulator_courses_combined WHERE id = $1',
+        [course_id]
       );
-      return res.status(201).json(extendedResult.rows[0]);
+
+      if (courseResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Course not found' });
+      }
+
+      const course = courseResult.rows[0];
+
+      if (!course.hole_details || course.hole_details.length === 0) {
+        return res.status(400).json({
+          error: 'This course does not have detailed hole data. Please sync from simulator first.'
+        });
+      }
+
+      const holeDetails = course.hole_details;
+      const parValues = course.par_values;
+
+      // Filter eligible holes based on mode
+      let eligibleHoles = holeDetails;
+      if (ctp_mode === 'par3-holes') {
+        eligibleHoles = holeDetails.filter((h, idx) => parValues[idx] === 3);
+      }
+
+      // If specific holes selected, filter further
+      if (ctp_selected_holes && Array.isArray(ctp_selected_holes) && ctp_selected_holes.length > 0) {
+        eligibleHoles = eligibleHoles.filter(h => ctp_selected_holes.includes(h.hole));
+      }
+
+      if (eligibleHoles.length === 0) {
+        return res.status(400).json({ error: 'No eligible holes found for this CTP configuration' });
+      }
+
+      // Pre-compute hole config for .crd generation
+      ctpHolesConfig = eligibleHoles.map(hole => {
+        const teeKey = ctp_mode === 'par3-tees' ? 'Par3' : ctp_tee_type;
+        const teePos = hole.tees[teeKey] || hole.tees[ctp_tee_type] || hole.tees['White'];
+        const pinPos = hole.pins[ctp_pin_day] || hole.pins['Thursday'];
+
+        if (!teePos || !pinPos) {
+          console.warn(`[CTP] Missing tee or pin data for hole ${hole.hole}`);
+          return null;
+        }
+
+        // Calculate distance (meters to yards conversion)
+        const dx = teePos.x - pinPos.x;
+        const dz = teePos.z - pinPos.z;
+        const distanceYards = Math.round(Math.sqrt(dx * dx + dz * dz) * 1.09361);
+
+        return {
+          hole: hole.hole,
+          par: hole.par,
+          distance: distanceYards,
+          teePos: { x: teePos.x, y: teePos.y, z: teePos.z },
+          pinPos: { x: pinPos.x, y: pinPos.y, z: pinPos.z }
+        };
+      }).filter(h => h !== null);
+
+      console.log(`[CTP] Creating challenge with ${ctpHolesConfig.length} holes`);
     }
 
-    res.status(201).json(result.rows[0]);
+    // Insert challenge with CTP fields
+    const insertQuery = is_ctp_challenge
+      ? `INSERT INTO weekly_challenges
+         (challenge_name, designated_hole, entry_fee, reup_fee, week_start_date, week_end_date,
+          starting_pot, status, challenge_type_id, course_id, required_distance_yards, hio_jackpot_amount,
+          is_ctp_challenge, ctp_mode, ctp_tee_type, ctp_pin_day, ctp_selected_holes, ctp_attempts_per_hole, ctp_holes_config, sim_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+         RETURNING *`
+      : `INSERT INTO weekly_challenges
+         (challenge_name, designated_hole, entry_fee, reup_fee, week_start_date, week_end_date,
+          starting_pot, status, challenge_type_id, course_id, required_distance_yards, hio_jackpot_amount)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11)
+         RETURNING *`;
+
+    const insertParams = is_ctp_challenge
+      ? [challenge_name, designated_hole, finalEntryFee, reup_fee, week_start_date, week_end_date,
+         startingPot, challenge_type_id || null, course_id || null, required_distance_yards || null, hioJackpot,
+         true, ctp_mode, ctp_tee_type, ctp_pin_day, ctp_selected_holes || null,
+         ctp_attempts_per_hole || 3, JSON.stringify(ctpHolesConfig), sim_id || 'nn-no5']
+      : [challenge_name, designated_hole, finalEntryFee, reup_fee, week_start_date, week_end_date,
+         startingPot, challenge_type_id || null, course_id || null, required_distance_yards || null, hioJackpot];
+
+    const result = await pool.query(insertQuery, insertParams);
+
+    // Return with type and course info
+    const extendedResult = await pool.query(
+      `SELECT wc.*,
+              ct.type_key, ct.type_name, ct.shots_per_group, ct.default_reup_fee, ct.payout_config,
+              sc.name as course_name, sc.location as course_location
+       FROM weekly_challenges wc
+       LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
+       LEFT JOIN simulator_courses_combined sc ON wc.course_id = sc.id
+       WHERE wc.id = $1`,
+      [result.rows[0].id]
+    );
+
+    const challenge = extendedResult.rows[0];
+
+    if (is_ctp_challenge) {
+      console.log(`[CTP] Challenge created: ${challenge.challenge_name} (${challenge.id}) - ${ctpHolesConfig.length} holes on ${challenge.course_name}`);
+    }
+
+    res.status(201).json(challenge);
   } catch (err) {
     console.error('Error creating challenge:', err);
     if (err.code === '23505') {
@@ -20506,6 +20614,622 @@ app.get('/api/sims/sync-status', authenticateToken, requireAdmin, async (req, re
   } catch (err) {
     console.error('Error fetching sync statuses:', err);
     res.status(500).json({ error: 'Failed to fetch sync statuses' });
+  }
+});
+
+// ============================================================================
+// CTP CHALLENGE SYSTEM API ENDPOINTS
+// ============================================================================
+
+// POST /api/sim/courses/:courseId/hole-details - Sync course hole details from sim PC
+app.post('/api/sim/courses/:courseId/hole-details', authenticateSimulator, async (req, res) => {
+  const courseId = req.params.courseId;
+  const { holeDetails, gsproCourseName } = req.body;
+  const simId = req.simId;
+
+  try {
+    // Validate course exists
+    const courseCheck = await pool.query(
+      'SELECT id, name FROM simulator_courses_combined WHERE id = $1',
+      [courseId]
+    );
+
+    if (courseCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+
+    const courseName = courseCheck.rows[0].name;
+
+    // Validate holeDetails structure
+    if (!Array.isArray(holeDetails) || holeDetails.length === 0) {
+      return res.status(400).json({ error: 'Invalid hole details format' });
+    }
+
+    // Upsert hole_details
+    await pool.query(
+      `UPDATE simulator_courses_combined
+       SET hole_details = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [JSON.stringify(holeDetails), courseId]
+    );
+
+    // Track course availability for this simulator
+    await pool.query(
+      `INSERT INTO simulator_course_availability
+       (sim_id, course_id, hole_details_synced, gspro_course_name, last_synced_at)
+       VALUES ($1, $2, TRUE, $3, CURRENT_TIMESTAMP)
+       ON CONFLICT (sim_id, course_id) DO UPDATE SET
+         hole_details_synced = TRUE,
+         gspro_course_name = EXCLUDED.gspro_course_name,
+         last_synced_at = CURRENT_TIMESTAMP,
+         updated_at = CURRENT_TIMESTAMP`,
+      [simId, courseId, gsproCourseName]
+    );
+
+    // Update sync status
+    await pool.query(
+      `INSERT INTO sim_sync_status (sim_id, last_sync_at, updated_at)
+       VALUES ($1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON CONFLICT (sim_id) DO UPDATE SET
+         last_sync_at = CURRENT_TIMESTAMP,
+         updated_at = CURRENT_TIMESTAMP`,
+      [simId]
+    );
+
+    console.log(`[CTP] Course hole details synced: ${courseName} (${courseId}) - ${holeDetails.length} holes from ${simId}`);
+
+    res.json({
+      success: true,
+      courseId: parseInt(courseId),
+      courseName,
+      holesUpdated: holeDetails.length,
+      message: 'Course hole details updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Course hole details sync error:', error);
+    res.status(500).json({ error: 'Failed to sync course hole details' });
+  }
+});
+
+// GET /api/courses/ctp-eligible - Get courses eligible for CTP challenges
+app.get('/api/courses/ctp-eligible', authenticateToken, async (req, res) => {
+  try {
+    const { sim_id } = req.query;
+
+    // If sim_id is provided, filter by courses available at that simulator
+    const query = sim_id
+      ? `SELECT * FROM ctp_courses_by_simulator WHERE sim_id = $1 AND par3_hole_count > 0 ORDER BY course_name`
+      : `SELECT
+          NULL as sim_id,
+          id as course_id,
+          name as course_name,
+          location,
+          designer,
+          par_values,
+          CASE
+            WHEN hole_details IS NOT NULL AND jsonb_array_length(hole_details) > 0
+            THEN TRUE
+            ELSE FALSE
+          END as has_hole_details,
+          (
+            SELECT COUNT(*)
+            FROM jsonb_array_elements(par_values) AS p(value)
+            WHERE (p.value)::text::int = 3
+          ) as par3_hole_count,
+          (
+            SELECT array_agg((idx + 1)::int ORDER BY idx)
+            FROM jsonb_array_elements(par_values) WITH ORDINALITY arr(value, idx)
+            WHERE (arr.value)::text::int = 3
+          ) as par3_hole_numbers,
+          NULL::timestamp as last_synced_at,
+          FALSE as hole_details_synced,
+          NULL as gspro_course_name
+        FROM simulator_courses_combined
+        WHERE par_values IS NOT NULL
+        ORDER BY name`;
+
+    const result = sim_id
+      ? await pool.query(query, [sim_id])
+      : await pool.query(query);
+
+    const ctpEligibleCourses = result.rows.map(course => ({
+      id: course.course_id,
+      name: course.course_name,
+      location: course.location,
+      designer: course.designer,
+      par_values: course.par_values,
+      par3_hole_count: course.par3_hole_count,
+      par3_hole_numbers: course.par3_hole_numbers,
+      ctp_ready: course.has_hole_details,
+      last_synced_at: course.last_synced_at,
+      gspro_course_name: course.gspro_course_name,
+      // Include sim_id if filtering by simulator
+      ...(sim_id ? { sim_id: course.sim_id } : {})
+    }));
+
+    res.json(ctpEligibleCourses);
+
+  } catch (error) {
+    console.error('Error fetching CTP-eligible courses:', error);
+    res.status(500).json({ error: 'Failed to fetch CTP-eligible courses' });
+  }
+});
+
+// GET /api/courses/:courseId/hole-details - Get detailed hole information for a course
+app.get('/api/courses/:courseId/hole-details', authenticateToken, async (req, res) => {
+  const courseId = req.params.courseId;
+
+  try {
+    const result = await pool.query(
+      `SELECT id, name, location, par_values, hole_details
+       FROM simulator_courses_combined
+       WHERE id = $1`,
+      [courseId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+
+    const course = result.rows[0];
+
+    if (!course.hole_details || course.hole_details.length === 0) {
+      return res.status(400).json({
+        error: 'This course does not have detailed hole data. Please sync from simulator first.'
+      });
+    }
+
+    res.json({
+      courseId: course.id,
+      courseName: course.name,
+      location: course.location,
+      holes: course.hole_details
+    });
+
+  } catch (error) {
+    console.error('Error fetching course hole details:', error);
+    res.status(500).json({ error: 'Failed to fetch course hole details' });
+  }
+});
+
+// GET /api/sim/courses/lookup - Sim PC looks up course ID by name
+app.get('/api/sim/courses/lookup', authenticateSimulator, async (req, res) => {
+  const { name } = req.query;
+
+  try {
+    if (!name) {
+      return res.status(400).json({ error: 'name parameter is required' });
+    }
+
+    // Try exact match first
+    let result = await pool.query(
+      `SELECT id, name, location, designer, par_values, holes_count
+       FROM simulator_courses_combined
+       WHERE LOWER(name) = LOWER($1)`,
+      [name]
+    );
+
+    // If no exact match, try fuzzy match (contains)
+    if (result.rows.length === 0) {
+      result = await pool.query(
+        `SELECT id, name, location, designer, par_values, holes_count,
+                similarity(name, $1) as similarity_score
+         FROM simulator_courses_combined
+         WHERE LOWER(name) LIKE LOWER($2)
+         ORDER BY similarity_score DESC
+         LIMIT 5`,
+        [name, `%${name}%`]
+      );
+    }
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Course not found',
+        searchedName: name,
+        suggestion: 'Try searching with partial name or check spelling'
+      });
+    }
+
+    // If exact match, return single result
+    if (result.rows.length === 1) {
+      const course = result.rows[0];
+      return res.json({
+        found: true,
+        exact: true,
+        course: {
+          id: course.id,
+          name: course.name,
+          location: course.location,
+          designer: course.designer,
+          holes: course.holes_count
+        }
+      });
+    }
+
+    // Multiple matches - return all possibilities
+    res.json({
+      found: true,
+      exact: false,
+      matches: result.rows.map(course => ({
+        id: course.id,
+        name: course.name,
+        location: course.location,
+        designer: course.designer,
+        holes: course.holes_count,
+        similarity: course.similarity_score
+      })),
+      message: 'Multiple courses found. Please use the most appropriate course ID.'
+    });
+
+  } catch (error) {
+    console.error('Course lookup error:', error);
+    res.status(500).json({ error: 'Failed to lookup course' });
+  }
+});
+
+// POST /api/sim/courses/report-available - Sim PC reports which courses are installed
+app.post('/api/sim/courses/report-available', authenticateSimulator, async (req, res) => {
+  const simId = req.simId;
+  const { courses } = req.body; // Array of { courseId, gsproCourseName }
+
+  try {
+    if (!Array.isArray(courses)) {
+      return res.status(400).json({ error: 'courses must be an array' });
+    }
+
+    // Mark all courses as unavailable first for this sim
+    await pool.query(
+      `UPDATE simulator_course_availability
+       SET is_available = FALSE, updated_at = CURRENT_TIMESTAMP
+       WHERE sim_id = $1`,
+      [simId]
+    );
+
+    // Upsert each available course
+    for (const course of courses) {
+      await pool.query(
+        `INSERT INTO simulator_course_availability
+         (sim_id, course_id, is_available, gspro_course_name, last_synced_at)
+         VALUES ($1, $2, TRUE, $3, CURRENT_TIMESTAMP)
+         ON CONFLICT (sim_id, course_id) DO UPDATE SET
+           is_available = TRUE,
+           gspro_course_name = EXCLUDED.gspro_course_name,
+           last_synced_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP`,
+        [simId, course.courseId, course.gsproCourseName]
+      );
+    }
+
+    console.log(`[CTP] Sim ${simId} reported ${courses.length} available courses`);
+
+    res.json({
+      success: true,
+      simId,
+      coursesReported: courses.length,
+      message: 'Course availability updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Error reporting course availability:', error);
+    res.status(500).json({ error: 'Failed to update course availability' });
+  }
+});
+
+// GET /api/sim/ctp-challenges/pending - Sim PC polls for pending CTP challenges
+app.get('/api/sim/ctp-challenges/pending', authenticateSimulator, async (req, res) => {
+  const simId = req.simId;
+
+  try {
+    const result = await pool.query(`
+      SELECT
+        wc.*,
+        sc.name as course_name,
+        sc.location as course_location
+      FROM weekly_challenges wc
+      JOIN simulator_courses_combined sc ON sc.id = wc.course_id
+      WHERE wc.sim_id = $1
+        AND wc.is_ctp_challenge = TRUE
+        AND wc.status = 'active'
+        AND wc.synced_to_sim_at IS NULL
+      ORDER BY wc.created_at ASC
+    `, [simId]);
+
+    console.log(`[CTP] Sim ${simId} polled for pending challenges: ${result.rows.length} found`);
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error('Error fetching pending CTP challenges:', error);
+    res.status(500).json({ error: 'Failed to fetch pending challenges' });
+  }
+});
+
+// PUT /api/sim/ctp-challenges/:id/synced - Sim PC confirms challenge synced
+app.put('/api/sim/ctp-challenges/:id/synced', authenticateSimulator, async (req, res) => {
+  const challengeId = req.params.id;
+  const { crdFilename, crdContent } = req.body;
+  const simId = req.simId;
+
+  try {
+    const result = await pool.query(`
+      UPDATE weekly_challenges
+      SET synced_to_sim_at = CURRENT_TIMESTAMP,
+          crd_filename = $1,
+          crd_content = $2,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3 AND sim_id = $4
+      RETURNING id, challenge_name
+    `, [crdFilename, JSON.stringify(crdContent), challengeId, simId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Challenge not found for this simulator' });
+    }
+
+    const challenge = result.rows[0];
+    console.log(`[CTP] Challenge synced to sim: ${challenge.challenge_name} (${challengeId}) - ${crdFilename}`);
+
+    res.json({
+      success: true,
+      message: 'Challenge sync confirmed',
+      challengeId: challenge.id,
+      challengeName: challenge.challenge_name,
+      crdFilename
+    });
+
+  } catch (error) {
+    console.error('Error confirming challenge sync:', error);
+    res.status(500).json({ error: 'Failed to confirm sync' });
+  }
+});
+
+// GET /api/sim/active-ctp-session - Sim PC polls for active CTP session
+app.get('/api/sim/active-ctp-session', authenticateSimulator, async (req, res) => {
+  const simId = req.simId;
+
+  try {
+    const result = await pool.query(
+      'SELECT * FROM get_active_ctp_session_for_sim($1)',
+      [simId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({ active_session: null });
+    }
+
+    const session = result.rows[0];
+    console.log(`[CTP] Active session for ${simId}: User ${session.user_name} playing ${session.challenge_name}`);
+
+    res.json({ active_session: session });
+
+  } catch (error) {
+    console.error('Error fetching active CTP session:', error);
+    res.status(500).json({ error: 'Failed to fetch active session' });
+  }
+});
+
+// GET /api/challenges/ctp - Get available CTP challenges for users
+app.get('/api/challenges/ctp', authenticateToken, async (req, res) => {
+  const userId = req.userId;
+
+  try {
+    const result = await pool.query(`
+      SELECT
+        wc.*,
+        sc.name as course_name,
+        sc.location as course_location,
+        COUNT(DISTINCT wce.id) as participant_count,
+        EXISTS(
+          SELECT 1 FROM weekly_challenge_entries wce2
+          WHERE wce2.challenge_id = wc.id
+            AND wce2.user_id = $1
+        ) as user_entered,
+        (
+          SELECT wce3.id
+          FROM weekly_challenge_entries wce3
+          WHERE wce3.challenge_id = wc.id
+            AND wce3.user_id = $1
+          LIMIT 1
+        ) as user_entry_id
+      FROM weekly_challenges wc
+      JOIN simulator_courses_combined sc ON sc.id = wc.course_id
+      LEFT JOIN weekly_challenge_entries wce ON wce.challenge_id = wc.id
+      WHERE wc.is_ctp_challenge = TRUE
+        AND wc.status = 'active'
+      GROUP BY wc.id, sc.name, sc.location
+      ORDER BY wc.week_start_date DESC
+    `, [userId]);
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error('Error fetching CTP challenges:', error);
+    res.status(500).json({ error: 'Failed to fetch CTP challenges' });
+  }
+});
+
+// POST /api/challenges/:id/activate-session - User activates their CTP session
+app.post('/api/challenges/:id/activate-session', authenticateToken, async (req, res) => {
+  const challengeId = req.params.id;
+  const userId = req.userId;
+  const { simId } = req.body;
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Verify challenge exists and user has entered
+    const entryCheck = await client.query(
+      `SELECT wce.id, wc.challenge_name, wc.crd_filename, wc.course_id, sc.name as course_name
+       FROM weekly_challenge_entries wce
+       JOIN weekly_challenges wc ON wc.id = wce.challenge_id
+       JOIN simulator_courses_combined sc ON sc.id = wc.course_id
+       WHERE wce.challenge_id = $1 AND wce.user_id = $2`,
+      [challengeId, userId]
+    );
+
+    if (entryCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'You must enter the challenge first' });
+    }
+
+    const entry = entryCheck.rows[0];
+
+    // Use default sim if not provided
+    const targetSimId = simId || 'nn-no5';
+
+    // Check if sim already has an active CTP session
+    const activeCheck = await client.query(
+      'SELECT id, user_id FROM ctp_active_sessions WHERE sim_id = $1 AND status = $\'active\'',
+      [targetSimId]
+    );
+
+    if (activeCheck.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'Another user has an active session on this simulator. Please wait for them to finish.'
+      });
+    }
+
+    // Create simulator_session first (for shot tracking)
+    const simSessionResult = await client.query(
+      `INSERT INTO simulator_sessions
+       (sim_id, nn_player_id, status, session_type, course_name, started_at)
+       VALUES ($1, $2, 'active', 'ctp_challenge', $3, CURRENT_TIMESTAMP)
+       RETURNING id, session_uuid`,
+      [targetSimId, userId, entry.course_name]
+    );
+
+    const simSession = simSessionResult.rows[0];
+
+    // Create CTP active session
+    const ctpSessionResult = await client.query(
+      `INSERT INTO ctp_active_sessions
+       (challenge_id, entry_id, user_id, sim_id, simulator_session_id, status, started_at)
+       VALUES ($1, $2, $3, $4, $5, 'active', CURRENT_TIMESTAMP)
+       RETURNING id`,
+      [challengeId, entry.id, userId, targetSimId, simSession.id]
+    );
+
+    await client.query('COMMIT');
+
+    console.log(`[CTP] Session activated: User ${userId} for challenge ${entry.challenge_name} on sim ${targetSimId}`);
+
+    res.json({
+      success: true,
+      sessionId: ctpSessionResult.rows[0].id,
+      simSessionId: simSession.id,
+      simSessionUuid: simSession.session_uuid,
+      challengeId: parseInt(challengeId),
+      challengeName: entry.challenge_name,
+      crdFilename: entry.crd_filename,
+      simId: targetSimId,
+      message: `Session activated! Load "${entry.crd_filename}" in GSPro and start playing.`
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error activating CTP session:', error);
+    res.status(500).json({ error: 'Failed to activate session' });
+  } finally {
+    client.release();
+  }
+});
+
+// PUT /api/challenges/:id/end-session - User ends their CTP session
+app.put('/api/challenges/:id/end-session', authenticateToken, async (req, res) => {
+  const challengeId = req.params.id;
+  const userId = req.userId;
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Find and end the active CTP session
+    const result = await client.query(
+      `UPDATE ctp_active_sessions
+       SET status = 'completed',
+           ended_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE challenge_id = $1
+         AND user_id = $2
+         AND status = 'active'
+       RETURNING id, simulator_session_id, shots_taken, best_distance_yards`,
+      [challengeId, userId]
+    );
+
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No active session found' });
+    }
+
+    const session = result.rows[0];
+
+    // Also end the simulator session
+    if (session.simulator_session_id) {
+      await client.query(
+        `UPDATE simulator_sessions
+         SET status = 'completed',
+             ended_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [session.simulator_session_id]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    console.log(`[CTP] Session ended: User ${userId} for challenge ${challengeId} - ${session.shots_taken} shots, best: ${session.best_distance_yards}yds`);
+
+    res.json({
+      success: true,
+      message: 'CTP session ended successfully',
+      sessionId: session.id,
+      shotsTaken: session.shots_taken,
+      bestDistance: session.best_distance_yards
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error ending CTP session:', error);
+    res.status(500).json({ error: 'Failed to end session' });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /api/challenges/:id/leaderboard - Get real-time CTP leaderboard
+app.get('/api/challenges/:id/leaderboard', authenticateToken, async (req, res) => {
+  const challengeId = req.params.id;
+
+  try {
+    const result = await pool.query(`
+      SELECT
+        ROW_NUMBER() OVER (ORDER BY wce.distance_from_pin_inches ASC NULLS LAST) as rank,
+        u.member_id as user_id,
+        u.full_name as user_name,
+        u.avatar,
+        wce.distance_from_pin_inches,
+        ROUND(wce.distance_from_pin_inches / 36.0, 1) as distance_yards,
+        COUNT(s.id) as shots_taken,
+        wce.status,
+        wce.created_at as entered_at,
+        wce.updated_at as last_shot_at
+      FROM weekly_challenge_entries wce
+      JOIN users u ON u.member_id = wce.user_id
+      LEFT JOIN shots s ON s.challenge_entry_id = wce.id
+      WHERE wce.challenge_id = $1
+      GROUP BY wce.id, u.member_id, u.full_name, u.avatar
+      ORDER BY wce.distance_from_pin_inches ASC NULLS LAST, wce.updated_at ASC
+    `, [challengeId]);
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error('Error fetching CTP leaderboard:', error);
+    res.status(500).json({ error: 'Failed to fetch leaderboard' });
   }
 });
 

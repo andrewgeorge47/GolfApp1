@@ -11,9 +11,12 @@ import {
   deleteSignupRegistration,
   manuallyRegisterUser,
   updateSignupRegistration,
+  getPublicRegistrationTemplates,
+  getUsers,
   type Signup,
   type SignupRegistration,
-  type SignupStats
+  type SignupStats,
+  type RegistrationFormTemplate
 } from '../services/api';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
@@ -35,7 +38,9 @@ import {
   Edit2,
   Trash2,
   Settings,
-  UserPlus
+  UserPlus,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 
@@ -53,6 +58,9 @@ const SignupDetails: React.FC = () => {
   const [showEditRegistrationModal, setShowEditRegistrationModal] = useState(false);
   const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
   const [editingRegistration, setEditingRegistration] = useState<SignupRegistration | null>(null);
+  const [registrationTemplate, setRegistrationTemplate] = useState<RegistrationFormTemplate | null>(null);
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const [memberNamesMap, setMemberNamesMap] = useState<Record<number, string>>({});
   const [registrationFormData, setRegistrationFormData] = useState<{
     status: string;
     payment_status: string;
@@ -78,15 +86,39 @@ const SignupDetails: React.FC = () => {
 
     try {
       setLoading(true);
-      const [signupRes, registrationsRes, statsRes] = await Promise.all([
+      const [signupRes, registrationsRes, statsRes, usersRes] = await Promise.all([
         getSignup(parseInt(id)),
         getSignupRegistrations(parseInt(id)),
-        getSignupStats(parseInt(id))
+        getSignupStats(parseInt(id)),
+        getUsers()
       ]);
 
       setSignup(signupRes.data);
       setRegistrations(registrationsRes.data);
       setStats(statsRes.data);
+
+      // Build member names map
+      const namesMap: Record<number, string> = {};
+      usersRes.data.forEach(user => {
+        namesMap[user.member_id] = `${user.first_name} ${user.last_name}`;
+      });
+      setMemberNamesMap(namesMap);
+
+      // Fetch registration template if signup has one
+      if (signupRes.data.registration_form_template) {
+        try {
+          const templatesResponse = await getPublicRegistrationTemplates();
+          const template = templatesResponse.data.find(
+            t => t.template_key === signupRes.data.registration_form_template ||
+                 t.id.toString() === signupRes.data.registration_form_template
+          );
+          if (template) {
+            setRegistrationTemplate(template);
+          }
+        } catch (err) {
+          console.error('Error fetching registration template:', err);
+        }
+      }
     } catch (error) {
       console.error('Error fetching signup details:', error);
       window.alert('Failed to load signup details');
@@ -228,6 +260,18 @@ const SignupDetails: React.FC = () => {
     }
   };
 
+  const toggleRowExpansion = (registrationId: number) => {
+    setExpandedRows(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(registrationId)) {
+        newSet.delete(registrationId);
+      } else {
+        newSet.add(registrationId);
+      }
+      return newSet;
+    });
+  };
+
   const getStatusBadge = (status: string) => {
     const variants: Record<string, 'success' | 'warning' | 'info' | 'default'> = {
       paid: 'success',
@@ -258,6 +302,67 @@ const SignupDetails: React.FC = () => {
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleString();
+  };
+
+  const formatRegistrationData = (registrationData: any, questionId: string, format: 'short' | 'full' = 'full') => {
+    if (!registrationData || !registrationData[questionId]) return 'N/A';
+
+    const value = registrationData[questionId];
+
+    // Handle arrays (checkboxes, member_multiselect)
+    if (Array.isArray(value)) {
+      if (value.length === 0) return 'None';
+
+      // Check if it's member IDs (numbers)
+      if (typeof value[0] === 'number') {
+        // For member multiselect, show user names
+        const names = value.map(id => memberNamesMap[id] || `User #${id}`);
+
+        if (format === 'short' && names.length > 2) {
+          return `${names.slice(0, 2).join(', ')}, +${names.length - 2} more`;
+        }
+
+        return names.join(', ');
+      }
+
+      // For checkbox arrays, join with commas
+      return value.join(', ');
+    }
+
+    // Handle simple values (text, radio)
+    return value;
+  };
+
+  // Helper to extract role preference from registration data
+  const getRolePreference = (registration: SignupRegistration) => {
+    if (!registrationTemplate || !registration.registration_data) return 'N/A';
+
+    // Look for common captain/player question patterns
+    const roleQuestion = registrationTemplate.questions.find(q =>
+      q.question.toLowerCase().includes('captain') ||
+      q.question.toLowerCase().includes('player') ||
+      q.question.toLowerCase().includes('role')
+    );
+
+    if (roleQuestion) {
+      return formatRegistrationData(registration.registration_data, roleQuestion.id, 'short');
+    }
+    return 'N/A';
+  };
+
+  // Helper to extract team members from registration data
+  const getTeamMembers = (registration: SignupRegistration) => {
+    if (!registrationTemplate || !registration.registration_data) return 'N/A';
+
+    // Look for member_multiselect questions (team selection)
+    const teamQuestion = registrationTemplate.questions.find(q =>
+      q.type === 'member_multiselect'
+    );
+
+    if (teamQuestion) {
+      return formatRegistrationData(registration.registration_data, teamQuestion.id, 'short');
+    }
+    return 'N/A';
   };
 
   if (loading) {
@@ -445,118 +550,239 @@ const SignupDetails: React.FC = () => {
         <Table>
           <thead>
             <tr>
-              <th>User</th>
-              <th>Contact</th>
+              <th className="w-10"></th>
+              <th>Name</th>
+              <th>Club</th>
+              <th>Role</th>
+              <th>Team Members</th>
               <th>Status</th>
-              <th>Payment Status</th>
-              <th>Amount</th>
-              <th>Payment Method</th>
-              <th>Registered</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {registrations.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center py-8 text-gray-500">
+                <td colSpan={7} className="text-center py-8 text-gray-500">
                   No registrations yet
                 </td>
               </tr>
             ) : (
-              registrations.map((registration) => (
-                <tr key={registration.id} className="hover:bg-gray-50">
-                  <td>
-                    <div className="font-medium text-gray-900">
-                      {registration.first_name && registration.last_name
-                        ? `${registration.first_name} ${registration.last_name}`
-                        : 'Unknown User'}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      ID: {registration.user_id}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="space-y-1">
-                      {registration.email_address && (
-                        <div className="flex items-center gap-2 text-sm">
-                          <Mail className="w-3 h-3 text-gray-400" />
-                          <span>{registration.email_address}</span>
+              registrations.map((registration) => {
+                const isExpanded = expandedRows.has(registration.id);
+                return (
+                  <React.Fragment key={registration.id}>
+                    <tr className="hover:bg-gray-50">
+                      <td>
+                        <button
+                          onClick={() => toggleRowExpansion(registration.id)}
+                          className="p-1 hover:bg-gray-100 rounded"
+                          title={isExpanded ? "Collapse details" : "Expand details"}
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="w-4 h-4 text-gray-600" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4 text-gray-600" />
+                          )}
+                        </button>
+                      </td>
+                      <td>
+                        <div className="font-medium text-gray-900">
+                          {registration.first_name && registration.last_name
+                            ? `${registration.first_name} ${registration.last_name}`
+                            : 'Unknown User'}
                         </div>
-                      )}
-                    </div>
-                  </td>
-                  <td>{getStatusBadge(registration.status)}</td>
-                  <td>{getPaymentStatusBadge(registration.payment_status || 'pending')}</td>
-                  <td className="font-medium">
-                    {formatCurrency(registration.payment_amount || 0)}
-                  </td>
-                  <td>
-                    <span className="text-sm text-gray-600">
-                      {registration.payment_method || 'N/A'}
-                    </span>
-                  </td>
-                  <td className="text-sm text-gray-600">
-                    {formatDate(registration.registered_at)}
-                  </td>
-                  <td>
-                    <div className="flex gap-2">
-                      {registration.status === 'pending' &&
-                       registration.payment_method === 'venmo' && (
-                        <Button
-                          onClick={() => handleVerifyPayment(registration.id)}
-                          variant="outline"
-                          size="sm"
-                          disabled={processingPayment === registration.id}
-                        >
-                          {processingPayment === registration.id ? (
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <>
-                              <CheckCircle className="w-4 h-4" />
-                              Verify
-                            </>
-                          )}
-                        </Button>
-                      )}
-                      {registration.status === 'paid' &&
-                       registration.payment_status === 'completed' && (
-                        <Button
-                          onClick={() => handleRefundPayment(registration.id)}
-                          variant="outline"
-                          size="sm"
-                          disabled={processingPayment === registration.id}
-                        >
-                          {processingPayment === registration.id ? (
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <>
-                              <XCircle className="w-4 h-4" />
-                              Refund
-                            </>
-                          )}
-                        </Button>
-                      )}
-                      <button
-                        onClick={() => openEditRegistrationModal(registration)}
-                        className="p-1 text-blue-600 hover:bg-blue-50 rounded"
-                        title="Edit Registration"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteRegistration(
-                          registration.id,
-                          `${registration.first_name} ${registration.last_name}`
+                        {registration.email_address && (
+                          <div className="text-sm text-gray-500">
+                            {registration.email_address}
+                          </div>
                         )}
-                        className="p-1 text-red-600 hover:bg-red-50 rounded"
-                        title="Remove Registration"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+                      </td>
+                      <td className="text-sm text-gray-700">
+                        {registration.club || 'N/A'}
+                      </td>
+                      <td className="text-sm text-gray-700">
+                        {getRolePreference(registration)}
+                      </td>
+                      <td className="text-sm text-gray-700 max-w-xs">
+                        <div className="truncate" title={getTeamMembers(registration)}>
+                          {getTeamMembers(registration)}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-1">
+                          {getStatusBadge(registration.status)}
+                          <span className="text-xs text-gray-600">
+                            {formatCurrency(registration.payment_amount || 0)}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex gap-2">
+                          {registration.status === 'pending' &&
+                           registration.payment_method === 'venmo' && (
+                            <Button
+                              onClick={() => handleVerifyPayment(registration.id)}
+                              variant="outline"
+                              size="sm"
+                              disabled={processingPayment === registration.id}
+                            >
+                              {processingPayment === registration.id ? (
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <CheckCircle className="w-4 h-4" />
+                                  Verify
+                                </>
+                              )}
+                            </Button>
+                          )}
+                          {registration.status === 'paid' &&
+                           registration.payment_status === 'completed' && (
+                            <Button
+                              onClick={() => handleRefundPayment(registration.id)}
+                              variant="outline"
+                              size="sm"
+                              disabled={processingPayment === registration.id}
+                            >
+                              {processingPayment === registration.id ? (
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <XCircle className="w-4 h-4" />
+                                  Refund
+                                </>
+                              )}
+                            </Button>
+                          )}
+                          <button
+                            onClick={() => openEditRegistrationModal(registration)}
+                            className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                            title="Edit Registration"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRegistration(
+                              registration.id,
+                              `${registration.first_name} ${registration.last_name}`
+                            )}
+                            className="p-1 text-red-600 hover:bg-red-50 rounded"
+                            title="Remove Registration"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="bg-gray-50">
+                        <td colSpan={7} className="p-4">
+                          <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-6">
+                              {/* Payment Details */}
+                              <div>
+                                <h4 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                                  Payment Details
+                                </h4>
+                                <div className="space-y-2">
+                                  <div className="flex justify-between">
+                                    <span className="text-xs text-gray-600">Payment Status:</span>
+                                    <span className="text-sm font-medium">
+                                      {getPaymentStatusBadge(registration.payment_status || 'pending')}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-xs text-gray-600">Payment Method:</span>
+                                    <span className="text-sm font-medium text-gray-900">
+                                      {registration.payment_method || 'N/A'}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-xs text-gray-600">Amount:</span>
+                                    <span className="text-sm font-medium text-gray-900">
+                                      {formatCurrency(registration.payment_amount || 0)}
+                                    </span>
+                                  </div>
+                                  {registration.payment_reference && (
+                                    <div className="flex justify-between">
+                                      <span className="text-xs text-gray-600">Reference:</span>
+                                      <span className="text-sm font-medium text-gray-900">
+                                        {registration.payment_reference}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {registration.payment_date && (
+                                    <div className="flex justify-between">
+                                      <span className="text-xs text-gray-600">Payment Date:</span>
+                                      <span className="text-sm font-medium text-gray-900">
+                                        {formatDate(registration.payment_date)}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {registration.verified_by_name && (
+                                    <div className="flex justify-between">
+                                      <span className="text-xs text-gray-600">Verified By:</span>
+                                      <span className="text-sm font-medium text-gray-900">
+                                        {registration.verified_by_name}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Registration Details */}
+                              <div>
+                                <h4 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                                  Registration Details
+                                </h4>
+                                <div className="space-y-2">
+                                  <div className="flex justify-between">
+                                    <span className="text-xs text-gray-600">User ID:</span>
+                                    <span className="text-sm font-medium text-gray-900">
+                                      {registration.user_id}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-xs text-gray-600">Registered:</span>
+                                    <span className="text-sm font-medium text-gray-900">
+                                      {formatDate(registration.registered_at)}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-xs text-gray-600">Last Updated:</span>
+                                    <span className="text-sm font-medium text-gray-900">
+                                      {formatDate(registration.updated_at)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Registration Form Responses - Full Display */}
+                            {registrationTemplate?.questions && registrationTemplate.questions.length > 0 && (
+                              <div>
+                                <h4 className="text-sm font-semibold text-gray-900 mb-3 pb-2 border-b border-gray-200">
+                                  Registration Form (Full Details)
+                                </h4>
+                                <div className="grid grid-cols-2 gap-4">
+                                  {registrationTemplate.questions.map((question) => (
+                                    <div key={question.id} className="bg-white p-3 rounded border border-gray-200">
+                                      <p className="text-xs text-gray-600 mb-1">{question.question}</p>
+                                      <p className="text-sm font-medium text-gray-900">
+                                        {formatRegistrationData(registration.registration_data, question.id, 'full')}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })
             )}
           </tbody>
         </Table>

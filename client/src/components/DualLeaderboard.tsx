@@ -5,8 +5,8 @@ import {
   CTPLeaderboardEntry,
   HIOLeaderboardEntry,
   ChallengeHIOJackpot,
-  getCTPLeaderboard,
-  getHIOLeaderboard,
+  getWeeklyCTPLeaderboard,
+  getWeeklyHIOLeaderboard,
   getHIOJackpot
 } from '../services/api';
 import { useAuth } from '../AuthContext';
@@ -35,8 +35,8 @@ const DualLeaderboard: React.FC<DualLeaderboardProps> = ({ challenge, onBack }) 
     try {
       setLoading(true);
       const [ctpRes, hioRes, jackpotRes] = await Promise.all([
-        getCTPLeaderboard(challenge.id),
-        getHIOLeaderboard(challenge.id),
+        getWeeklyCTPLeaderboard(challenge.id),
+        getWeeklyHIOLeaderboard(challenge.id),
         getHIOJackpot()
       ]);
       setCtpEntries(ctpRes.data);

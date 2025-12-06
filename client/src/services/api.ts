@@ -1721,13 +1721,13 @@ export const getChallengeGroup = (challengeId: number, groupId: number) => {
   return api.get<ChallengeShotGroup>(`/challenges/${challengeId}/groups/${groupId}`);
 };
 
-// Get CTP leaderboard
-export const getCTPLeaderboard = (challengeId: number) => {
+// Get CTP leaderboard (Weekly Challenge)
+export const getWeeklyCTPLeaderboard = (challengeId: number) => {
   return api.get<CTPLeaderboardEntry[]>(`/challenges/${challengeId}/leaderboard/ctp`);
 };
 
-// Get HIO leaderboard
-export const getHIOLeaderboard = (challengeId: number) => {
+// Get HIO leaderboard (Weekly Challenge)
+export const getWeeklyHIOLeaderboard = (challengeId: number) => {
   return api.get<HIOLeaderboardEntry[]>(`/challenges/${challengeId}/leaderboard/hio`);
 };
 
@@ -1774,6 +1774,72 @@ export const finalizeChallengeWithPayouts = (challengeId: number, payout_notes?:
       hio_jackpot_new_total: number;
     };
   }>(`/challenges/${challengeId}/finalize`, { payout_notes });
+};
+
+// ============================================================================
+// CTP CHALLENGE SYSTEM
+// ============================================================================
+
+// Get CTP-eligible courses (courses with hole details and par 3 holes)
+export const getCTPEligibleCourses = () => {
+  return api.get<any[]>('/courses/ctp-eligible');
+};
+
+// Get detailed hole information for a course
+export const getCourseHoleDetails = (courseId: number) => {
+  return api.get<{
+    courseId: number;
+    courseName: string;
+    location: string;
+    holes: any[];
+  }>(`/courses/${courseId}/hole-details`);
+};
+
+// Get available CTP challenges for users
+export const getCTPChallenges = () => {
+  return api.get<any[]>('/challenges/ctp');
+};
+
+// Activate a CTP session
+export const activateCTPSession = (challengeId: number, data?: { simId?: string }) => {
+  return api.post<{
+    success: boolean;
+    sessionId: number;
+    simSessionId: number;
+    simSessionUuid: string;
+    challengeId: number;
+    challengeName: string;
+    crdFilename: string;
+    simId: string;
+    message: string;
+  }>(`/challenges/${challengeId}/activate-session`, data);
+};
+
+// End a CTP session
+export const endCTPSession = (challengeId: number) => {
+  return api.put<{
+    success: boolean;
+    message: string;
+    sessionId: number;
+    shotsTaken: number;
+    bestDistance: number;
+  }>(`/challenges/${challengeId}/end-session`);
+};
+
+// Get real-time CTP leaderboard
+export const getCTPLeaderboard = (challengeId: number) => {
+  return api.get<Array<{
+    rank: number;
+    user_id: number;
+    user_name: string;
+    avatar: string;
+    distance_from_pin_inches: number;
+    distance_yards: number;
+    shots_taken: number;
+    status: string;
+    entered_at: string;
+    last_shot_at: string;
+  }>>(`/challenges/${challengeId}/leaderboard`);
 };
 
 // ============================================================================

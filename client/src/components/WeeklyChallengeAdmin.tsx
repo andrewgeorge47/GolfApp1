@@ -14,6 +14,8 @@ import {
   getChallengeTypes,
   getHIOJackpot,
   deleteChallenge,
+  getCTPEligibleCourses,
+  getCourseHoleDetails,
   type WeeklyChallenge,
   type ChallengeEntry,
   type ChallengePot,
@@ -67,12 +69,26 @@ const WeeklyChallengeAdmin: React.FC = () => {
     challenge_name: '',
     designated_hole: 1,
     entry_fee: 5,
+    reup_fee: 3,
     week_start_date: '',
     week_end_date: '',
     course_id: '',
     challenge_type_id: '',
     required_distance_yards: ''
   });
+
+  // CTP-specific state
+  const [isCTPChallenge, setIsCTPChallenge] = useState(false);
+  const [ctpConfig, setCtpConfig] = useState({
+    pin_day: 'Thursday',
+    attempts_per_hole: 3,
+    selected_options: [] as string[], // Array of selected option IDs like "hole-5-white" or "hole-12-par3"
+    mode: 'par3-holes' as 'par3-holes' | 'par3-tees',
+    tee_type: 'White'
+  });
+  const [ctpEligibleCourses, setCtpEligibleCourses] = useState<any[]>([]);
+  const [courseHoleDetails, setCourseHoleDetails] = useState<any>(null);
+  const [ctpOptions, setCtpOptions] = useState<any[]>([]); // All available par 3 options
 
   // Course selection state
   const [simulatorCourses, setSimulatorCourses] = useState<any[]>([]);
@@ -102,8 +118,82 @@ const WeeklyChallengeAdmin: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Fetch CTP-eligible courses when CTP mode is enabled
+    const fetchCTPCourses = async () => {
+      if (isCTPChallenge) {
+        try {
+          const response = await getCTPEligibleCourses();
+          setCtpEligibleCourses(response.data);
+        } catch (error) {
+          console.error('Error fetching CTP-eligible courses:', error);
+          toast.error('Failed to load CTP-eligible courses');
+        }
+      }
+    };
+    fetchCTPCourses();
+  }, [isCTPChallenge]);
+
+  useEffect(() => {
+    // Fetch hole details when a course is selected in CTP mode
+    const fetchHoleDetails = async () => {
+      if (isCTPChallenge && selectedCourse && selectedCourse.id) {
+        try {
+          const response = await getCourseHoleDetails(selectedCourse.id);
+          setCourseHoleDetails(response.data);
+        } catch (error) {
+          console.error('Error fetching course hole details:', error);
+          toast.error('Failed to load course hole details');
+        }
+      }
+    };
+    fetchHoleDetails();
+  }, [isCTPChallenge, selectedCourse]);
+
+  useEffect(() => {
+    // Calculate all available par 3 options when course details or pin day changes
+    if (!courseHoleDetails || !courseHoleDetails.holes) {
+      setCtpOptions([]);
+      return;
+    }
+
+    const options: any[] = [];
+    const teeTypes = ['Black', 'Blue', 'White', 'Yellow', 'Green', 'Red', 'Junior', 'Par3'];
+
+    courseHoleDetails.holes.forEach((hole: any) => {
+      // Add options for each tee type
+      teeTypes.forEach(teeType => {
+        const teePos = hole.tees?.[teeType];
+        const pinPos = hole.pins?.[ctpConfig.pin_day];
+
+        if (teePos && pinPos) {
+          const dx = teePos.x - pinPos.x;
+          const dz = teePos.z - pinPos.z;
+          const distanceYards = Math.round(Math.sqrt(dx * dx + dz * dz) * 1.09361);
+
+          options.push({
+            id: `hole-${hole.hole}-${teeType.toLowerCase()}`,
+            hole: hole.hole,
+            par: hole.par,
+            teeType: teeType,
+            pinDay: ctpConfig.pin_day,
+            distanceYards: distanceYards,
+            teePos: teePos,
+            pinPos: pinPos
+          });
+        }
+      });
+    });
+
+    // Sort by distance (shortest to longest)
+    options.sort((a, b) => a.distanceYards - b.distanceYards);
+
+    setCtpOptions(options);
+  }, [courseHoleDetails, ctpConfig.pin_day]);
+
+  useEffect(() => {
     if (courseSearchTerm.trim()) {
-      const filtered = simulatorCourses.filter(course =>
+      const coursesToSearch = isCTPChallenge ? ctpEligibleCourses : simulatorCourses;
+      const filtered = coursesToSearch.filter(course =>
         course.name.toLowerCase().includes(courseSearchTerm.toLowerCase()) ||
         (course.location && course.location.toLowerCase().includes(courseSearchTerm.toLowerCase()))
       );
@@ -111,7 +201,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
     } else {
       setFilteredCourses([]);
     }
-  }, [courseSearchTerm, simulatorCourses]);
+  }, [courseSearchTerm, simulatorCourses, ctpEligibleCourses, isCTPChallenge]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -195,7 +285,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
   const handleCreateChallenge = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const challengeData = {
+      const challengeData: any = {
         challenge_name: newChallenge.challenge_name,
         designated_hole: newChallenge.designated_hole,
         entry_fee: newChallenge.entry_fee,
@@ -205,22 +295,58 @@ const WeeklyChallengeAdmin: React.FC = () => {
         challenge_type_id: newChallenge.challenge_type_id ? parseInt(newChallenge.challenge_type_id) : undefined,
         required_distance_yards: newChallenge.required_distance_yards ? parseInt(newChallenge.required_distance_yards) : undefined
       };
+
+      // Add CTP-specific fields if CTP mode is enabled
+      if (isCTPChallenge) {
+        challengeData.is_ctp_challenge = true;
+        challengeData.ctp_pin_day = ctpConfig.pin_day;
+        challengeData.ctp_attempts_per_hole = ctpConfig.attempts_per_hole;
+
+        // Build the selected holes configuration from selected options
+        const selectedHoles = ctpOptions
+          .filter(opt => ctpConfig.selected_options.includes(opt.id))
+          .map(opt => ({
+            hole: opt.hole,
+            par: opt.par,
+            teeType: opt.teeType,
+            distance: opt.distanceYards,
+            teePos: opt.teePos,
+            pinPos: opt.pinPos
+          }));
+
+        challengeData.ctp_holes_config = selectedHoles;
+        challengeData.sim_id = 'nn-no5';
+      }
+
       await createChallenge(challengeData);
       toast.success('Challenge created successfully!');
       setShowCreateModal(false);
       loadData();
+
+      // Reset form
       setNewChallenge({
         challenge_name: '',
         designated_hole: 1,
         entry_fee: 5,
+        reup_fee: 3,
         week_start_date: '',
         week_end_date: '',
         course_id: '',
         challenge_type_id: '',
         required_distance_yards: ''
       });
+      setIsCTPChallenge(false);
+      setCtpConfig({
+        pin_day: 'Thursday',
+        attempts_per_hole: 3,
+        selected_options: [],
+        mode: 'par3-holes',
+        tee_type: 'White'
+      });
       setSelectedCourse(null);
       setCourseSearchTerm('');
+      setCourseHoleDetails(null);
+      setCtpOptions([]);
     } catch (err: any) {
       console.error('Error creating challenge:', err);
       toast.error(err.response?.data?.error || 'Failed to create challenge');
@@ -687,7 +813,8 @@ const WeeklyChallengeAdmin: React.FC = () => {
                       setNewChallenge({
                         ...newChallenge,
                         challenge_type_id: typeId,
-                        entry_fee: selectedType ? Number(selectedType.default_entry_fee) : 5
+                        entry_fee: selectedType ? Number(selectedType.default_entry_fee) : 5,
+                        reup_fee: selectedType ? Number(selectedType.default_reup_fee) : 3
                       });
                     }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
@@ -695,7 +822,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
                     <option value="">Select a challenge type...</option>
                     {challengeTypes.map(type => (
                       <option key={type.id} value={type.id}>
-                        {type.type_name} (${type.default_entry_fee} entry / ${type.default_reup_fee} re-up)
+                        {type.type_name}
                       </option>
                     ))}
                   </select>
@@ -706,18 +833,50 @@ const WeeklyChallengeAdmin: React.FC = () => {
                   )}
                 </div>
 
+                {/* CTP Challenge Toggle */}
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isCTPChallenge}
+                      onChange={(e) => {
+                        setIsCTPChallenge(e.target.checked);
+                        if (e.target.checked) {
+                          // Set CTP challenge type if available
+                          const ctpType = challengeTypes.find(t => t.type_key === 'ctp-auto');
+                          if (ctpType) {
+                            setNewChallenge({
+                              ...newChallenge,
+                              challenge_type_id: ctpType.id.toString(),
+                              entry_fee: Number(ctpType.default_entry_fee),
+                              reup_fee: Number(ctpType.default_reup_fee)
+                            });
+                          }
+                        }
+                      }}
+                      className="w-4 h-4 text-indigo-600 rounded focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <span className="ml-3 text-sm font-medium text-indigo-900">
+                      Automated CTP Challenge (Simulator)
+                    </span>
+                  </label>
+                  <p className="mt-2 text-xs text-indigo-700">
+                    Enable for automated shot capture from simulator. Challenges will be available as custom rounds in GSPro.
+                  </p>
+                </div>
+
                 <Input
                   label="Challenge Name"
                   value={newChallenge.challenge_name}
                   onChange={(e) => setNewChallenge({ ...newChallenge, challenge_name: e.target.value })}
                   required
-                  placeholder="Week 1 Five-Shot Challenge"
+                  placeholder={isCTPChallenge ? "Saturday CTP Challenge" : "Week 1 Five-Shot Challenge"}
                 />
 
                 {/* Course Selection */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Course <span className="text-xs text-gray-500">(Optional)</span>
+                    Course {isCTPChallenge ? <span className="text-red-500">*</span> : <span className="text-xs text-gray-500">(Optional)</span>}
                   </label>
                   <div className="relative course-dropdown-container">
                     <div className="flex items-center space-x-2">
@@ -753,10 +912,19 @@ const WeeklyChallengeAdmin: React.FC = () => {
                               onClick={() => handleCourseSelect(course)}
                               className="w-full px-4 py-3 text-left hover:bg-indigo-50 border-b border-gray-100 last:border-b-0"
                             >
-                              <div className="font-medium text-gray-900">{course.name}</div>
-                              {course.location && (
-                                <div className="text-sm text-gray-500">{course.location}</div>
-                              )}
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  <div className="font-medium text-gray-900">{course.name}</div>
+                                  {course.location && (
+                                    <div className="text-sm text-gray-500">{course.location}</div>
+                                  )}
+                                </div>
+                                {isCTPChallenge && !course.ctp_ready && (
+                                  <span className="ml-2 px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded">
+                                    Needs Sync
+                                  </span>
+                                )}
+                              </div>
                             </button>
                           ))
                         ) : courseSearchTerm ? (
@@ -766,38 +934,271 @@ const WeeklyChallengeAdmin: React.FC = () => {
                         ) : null}
                       </div>
                     )}
+
+                    {/* Warning for courses that need sync */}
+                    {isCTPChallenge && selectedCourse && !selectedCourse.ctp_ready && (
+                      <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <p className="text-xs text-yellow-800">
+                          <strong>⚠️ Course needs hole data sync:</strong> This course doesn't have detailed tee/pin position data yet.
+                          The sim PC needs to sync this course's .gspcrse file data before CTP challenges can be created.
+                          You can select it now, but the challenge won't be fully configured until the data is synced.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
+                {/* CTP Configuration Section */}
+                {isCTPChallenge && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
+                    <h4 className="font-medium text-gray-900">CTP Configuration</h4>
+
+                    {/* Mode Selector */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Challenge Mode <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={ctpConfig.mode}
+                        onChange={(e) => setCtpConfig({
+                          ...ctpConfig,
+                          mode: e.target.value as 'par3-holes' | 'par3-tees'
+                        })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        required
+                      >
+                        <option value="par3-holes">Par 3 Holes Only</option>
+                        <option value="par3-tees">All Holes from Par 3 Tees</option>
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {ctpConfig.mode === 'par3-holes'
+                          ? 'Play only the par 3 holes on this course'
+                          : 'Play all 18 holes from the par 3 tee boxes'}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Tee Type Selector - only show for par3-holes mode */}
+                      {ctpConfig.mode === 'par3-holes' && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Tee Type <span className="text-red-500">*</span>
+                          </label>
+                          <select
+                            value={ctpConfig.tee_type}
+                            onChange={(e) => setCtpConfig({ ...ctpConfig, tee_type: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                            required
+                          >
+                            <option value="Black">Black Tees</option>
+                            <option value="Blue">Blue Tees</option>
+                            <option value="White">White Tees</option>
+                            <option value="Yellow">Yellow Tees</option>
+                            <option value="Green">Green Tees</option>
+                            <option value="Red">Red Tees</option>
+                            <option value="Junior">Junior Tees</option>
+                          </select>
+                        </div>
+                      )}
+
+                      {/* Pin Day Selector */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Pin Position <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={ctpConfig.pin_day}
+                          onChange={(e) => setCtpConfig({ ...ctpConfig, pin_day: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          required
+                        >
+                          <option value="Thursday">Thursday</option>
+                          <option value="Friday">Friday</option>
+                          <option value="Saturday">Saturday</option>
+                          <option value="Sunday">Sunday</option>
+                        </select>
+                      </div>
+
+                      {/* Attempts Per Hole */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Attempts Per Hole <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="5"
+                          value={ctpConfig.attempts_per_hole}
+                          onChange={(e) => setCtpConfig({ ...ctpConfig, attempts_per_hole: parseInt(e.target.value) || 3 })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {/* Hole Preview/Selection */}
+                    {courseHoleDetails && courseHoleDetails.holes && courseHoleDetails.holes.length > 0 && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Holes Preview
+                        </label>
+                        <div className="bg-white rounded-lg border border-gray-300 p-3 max-h-48 overflow-y-auto">
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            {courseHoleDetails.holes.map((hole: any, idx: number) => {
+                              const teeKey = ctpConfig.mode === 'par3-tees' ? 'Par3' : ctpConfig.tee_type;
+                              const teePos = hole.tees?.[teeKey];
+                              const pinPos = hole.pins?.[ctpConfig.pin_day];
+
+                              let distanceYards = 0;
+                              if (teePos && pinPos) {
+                                const dx = teePos.x - pinPos.x;
+                                const dz = teePos.z - pinPos.z;
+                                distanceYards = Math.round(Math.sqrt(dx * dx + dz * dz) * 1.09361);
+                              }
+
+                              return (
+                                <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                                  <span className="font-medium">Hole {hole.hole}</span>
+                                  <span className="text-gray-600">
+                                    Par {hole.par} • {distanceYards || '?'} yds
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">
+                          {ctpConfig.mode === 'par3-holes'
+                            ? `${courseHoleDetails.holes.length} par 3 hole${courseHoleDetails.holes.length !== 1 ? 's' : ''} available`
+                            : '18 holes from par 3 tees'}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Available Par 3 Options Table */}
+                    {ctpOptions.length > 0 && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Available Par 3 Options <span className="text-red-500">*</span>
+                          <span className="ml-2 text-xs text-gray-500 font-normal">
+                            (sorted by distance)
+                          </span>
+                        </label>
+                        <div className="bg-white rounded-lg border border-gray-300 max-h-64 overflow-y-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 sticky top-0">
+                              <tr>
+                                <th className="px-3 py-2 text-left w-12"></th>
+                                <th className="px-3 py-2 text-left">Hole</th>
+                                <th className="px-3 py-2 text-left">Tees</th>
+                                <th className="px-3 py-2 text-left">Par</th>
+                                <th className="px-3 py-2 text-right">Yards</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {ctpOptions.map((option) => (
+                                <tr
+                                  key={option.id}
+                                  className="hover:bg-gray-50 cursor-pointer"
+                                  onClick={() => {
+                                    const isSelected = ctpConfig.selected_options.includes(option.id);
+                                    setCtpConfig({
+                                      ...ctpConfig,
+                                      selected_options: isSelected
+                                        ? ctpConfig.selected_options.filter(id => id !== option.id)
+                                        : [...ctpConfig.selected_options, option.id]
+                                    });
+                                  }}
+                                >
+                                  <td className="px-3 py-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={ctpConfig.selected_options.includes(option.id)}
+                                      onChange={() => {}}
+                                      className="w-4 h-4 text-indigo-600 rounded"
+                                    />
+                                  </td>
+                                  <td className="px-3 py-2 font-medium">#{option.hole}</td>
+                                  <td className="px-3 py-2">
+                                    <span className={`inline-block px-2 py-1 text-xs rounded ${
+                                      option.teeType === 'Par3' ? 'bg-purple-100 text-purple-800' :
+                                      option.teeType === 'Black' ? 'bg-gray-800 text-white' :
+                                      option.teeType === 'Blue' ? 'bg-blue-100 text-blue-800' :
+                                      option.teeType === 'White' ? 'bg-gray-100 text-gray-800' :
+                                      option.teeType === 'Yellow' ? 'bg-yellow-100 text-yellow-800' :
+                                      option.teeType === 'Green' ? 'bg-green-100 text-green-800' :
+                                      option.teeType === 'Red' ? 'bg-red-100 text-red-800' :
+                                      'bg-gray-100 text-gray-800'
+                                    }`}>
+                                      {option.teeType}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2">{option.par}</td>
+                                  <td className="px-3 py-2 text-right font-semibold">{option.distanceYards}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">
+                          {ctpConfig.selected_options.length} option{ctpConfig.selected_options.length !== 1 ? 's' : ''} selected
+                        </p>
+                      </div>
+                    )}
+
+                    {ctpOptions.length === 0 && selectedCourse && selectedCourse.ctp_ready && (
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <p className="text-xs text-blue-800">
+                          No par 3 options available for the selected pin position. Try selecting a different pin day.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Designated Hole and Distance - Only for non-CTP challenges */}
+                {!isCTPChallenge && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input
+                      label="Designated Hole"
+                      type="number"
+                      min="1"
+                      max="18"
+                      value={newChallenge.designated_hole}
+                      onChange={(e) => setNewChallenge({ ...newChallenge, designated_hole: parseInt(e.target.value) })}
+                      required
+                    />
+                    <Input
+                      label="Required Distance (yards)"
+                      type="number"
+                      min="50"
+                      max="250"
+                      value={newChallenge.required_distance_yards}
+                      onChange={(e) => setNewChallenge({ ...newChallenge, required_distance_yards: e.target.value })}
+                      placeholder="150"
+                    />
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <Input
-                    label="Designated Hole"
+                    label="Entry Fee ($)"
                     type="number"
                     min="1"
-                    max="18"
-                    value={newChallenge.designated_hole}
-                    onChange={(e) => setNewChallenge({ ...newChallenge, designated_hole: parseInt(e.target.value) })}
+                    step="0.01"
+                    value={newChallenge.entry_fee}
+                    onChange={(e) => setNewChallenge({ ...newChallenge, entry_fee: parseFloat(e.target.value) })}
                     required
                   />
                   <Input
-                    label="Required Distance (yards)"
+                    label="Re-up Fee ($)"
                     type="number"
-                    min="50"
-                    max="250"
-                    value={newChallenge.required_distance_yards}
-                    onChange={(e) => setNewChallenge({ ...newChallenge, required_distance_yards: e.target.value })}
-                    placeholder="150"
+                    min="0"
+                    step="0.01"
+                    value={newChallenge.reup_fee}
+                    onChange={(e) => setNewChallenge({ ...newChallenge, reup_fee: parseFloat(e.target.value) })}
+                    required
                   />
                 </div>
-                <Input
-                  label="Entry Fee ($)"
-                  type="number"
-                  min="1"
-                  step="0.01"
-                  value={newChallenge.entry_fee}
-                  onChange={(e) => setNewChallenge({ ...newChallenge, entry_fee: parseFloat(e.target.value) })}
-                  required
-                />
                 <Input
                   label="Week Start Date"
                   type="date"
