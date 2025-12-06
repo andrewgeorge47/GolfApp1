@@ -20807,7 +20807,7 @@ app.get('/api/sim/courses/lookup', authenticateSimulator, async (req, res) => {
 
     // Try exact match first
     let result = await pool.query(
-      `SELECT id, name, location, designer, par_values, holes_count
+      `SELECT id, name, location, designer, par_values
        FROM simulator_courses_combined
        WHERE LOWER(name) = LOWER($1)`,
       [name]
@@ -20816,7 +20816,7 @@ app.get('/api/sim/courses/lookup', authenticateSimulator, async (req, res) => {
     // If no exact match, try fuzzy match (contains)
     if (result.rows.length === 0) {
       result = await pool.query(
-        `SELECT id, name, location, designer, par_values, holes_count
+        `SELECT id, name, location, designer, par_values
          FROM simulator_courses_combined
          WHERE LOWER(name) LIKE LOWER($1)
          ORDER BY name
@@ -20836,6 +20836,7 @@ app.get('/api/sim/courses/lookup', authenticateSimulator, async (req, res) => {
     // If exact match, return single result
     if (result.rows.length === 1) {
       const course = result.rows[0];
+      const holes = course.par_values ? course.par_values.length : 18;
       return res.json({
         found: true,
         exact: true,
@@ -20844,7 +20845,7 @@ app.get('/api/sim/courses/lookup', authenticateSimulator, async (req, res) => {
           name: course.name,
           location: course.location,
           designer: course.designer,
-          holes: course.holes_count
+          holes: holes
         }
       });
     }
@@ -20853,13 +20854,16 @@ app.get('/api/sim/courses/lookup', authenticateSimulator, async (req, res) => {
     res.json({
       found: true,
       exact: false,
-      matches: result.rows.map(course => ({
-        id: course.id,
-        name: course.name,
-        location: course.location,
-        designer: course.designer,
-        holes: course.holes_count
-      })),
+      matches: result.rows.map(course => {
+        const holes = course.par_values ? course.par_values.length : 18;
+        return {
+          id: course.id,
+          name: course.name,
+          location: course.location,
+          designer: course.designer,
+          holes: holes
+        };
+      }),
       message: 'Multiple courses found. Please use the most appropriate course ID.'
     });
 
