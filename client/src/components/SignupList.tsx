@@ -226,8 +226,8 @@ const SignupList: React.FC = () => {
                       onClick={() => navigate(`/signups/${signup.id}`)}
                       className="w-full"
                       variant={
-                        userReg?.status === 'paid' ? 'success' :
-                        userReg?.status === 'pending' ? 'secondary' :
+                        userReg?.status === 'paid' ? 'primary' :
+                        userReg?.status === 'pending' ? 'neon' :
                         canRegister ? 'primary' : 'outline'
                       }
                     >

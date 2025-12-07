@@ -165,9 +165,11 @@ const SignupRegistration: React.FC = () => {
       return;
     }
 
-    // Validate registration form if template exists (only if not retrying payment)
-    if (registrationTemplate && !validateRegistrationForm() && !existingRegistration) {
-      return;
+    // Only validate form if this is a NEW registration (not a payment retry)
+    if (!existingRegistration && registrationTemplate) {
+      if (!validateRegistrationForm()) {
+        return;
+      }
     }
 
     try {

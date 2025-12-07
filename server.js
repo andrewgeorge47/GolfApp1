@@ -19462,32 +19462,172 @@ app.post('/api/signups/:id/create-payment-intent', authenticateToken, async (req
       return res.status(400).json({ error: 'Invalid payment amount' });
     }
 
-    // Create Stripe PaymentIntent
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100), // Convert to cents
-      currency: 'usd',
-      description: `Entry fee for ${registration.signup_title}`,
-      receipt_email: registration.email_address,
-      metadata: {
-        signup_id: signupId,
-        registration_id: registration.id,
-        user_id: userId,
-        signup_title: registration.signup_title,
-        user_name: `${registration.first_name} ${registration.last_name}`
-      }
-    });
-
-    // Create payment record
-    await pool.query(
-      `INSERT INTO signup_payments (
-        registration_id, amount, payment_method, payment_status,
-        stripe_payment_intent_id, stripe_client_secret
-      ) VALUES ($1, $2, 'stripe', 'pending', $3, $4)`,
-      [registration.id, amount, paymentIntent.id, paymentIntent.client_secret]
+    // Check for existing payment record
+    const existingPaymentResult = await pool.query(
+      `SELECT * FROM signup_payments
+       WHERE registration_id = $1 AND payment_method = 'stripe' AND payment_status != 'completed'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [registration.id]
     );
 
+    let paymentIntent;
+    let clientSecret;
+
+    if (existingPaymentResult.rows.length > 0) {
+      const existingPayment = existingPaymentResult.rows[0];
+
+      // Check if existing PaymentIntent is still valid
+      if (existingPayment.stripe_payment_intent_id) {
+        try {
+          const existingIntent = await stripe.paymentIntents.retrieve(existingPayment.stripe_payment_intent_id);
+
+          // Reuse if still in a usable state
+          if (existingIntent.status === 'requires_payment_method' ||
+              existingIntent.status === 'requires_confirmation' ||
+              existingIntent.status === 'requires_action') {
+            console.log(`Reusing existing PaymentIntent ${existingIntent.id} for registration ${registration.id}`);
+            paymentIntent = existingIntent;
+            clientSecret = existingIntent.client_secret;
+          } else if (existingIntent.status === 'canceled' || existingIntent.status === 'succeeded') {
+            // Create new one if old one is finalized
+            console.log(`Old PaymentIntent ${existingIntent.id} is ${existingIntent.status}, creating new one`);
+            paymentIntent = await stripe.paymentIntents.create({
+              amount: Math.round(amount * 100),
+              currency: 'usd',
+              description: `Entry fee for ${registration.signup_title}`,
+              receipt_email: registration.email_address,
+              metadata: {
+                signup_id: signupId,
+                registration_id: registration.id,
+                user_id: userId,
+                signup_title: registration.signup_title,
+                user_name: `${registration.first_name} ${registration.last_name}`
+              }
+            });
+            clientSecret = paymentIntent.client_secret;
+
+            // Update existing payment record with new intent
+            await pool.query(
+              `UPDATE signup_payments
+               SET stripe_payment_intent_id = $1, stripe_client_secret = $2, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $3`,
+              [paymentIntent.id, clientSecret, existingPayment.id]
+            );
+          } else {
+            // For other statuses, cancel and create new
+            console.log(`Canceling stale PaymentIntent ${existingIntent.id} with status ${existingIntent.status}`);
+            try {
+              await stripe.paymentIntents.cancel(existingIntent.id);
+            } catch (cancelErr) {
+              console.warn('Could not cancel PaymentIntent:', cancelErr.message);
+            }
+
+            paymentIntent = await stripe.paymentIntents.create({
+              amount: Math.round(amount * 100),
+              currency: 'usd',
+              description: `Entry fee for ${registration.signup_title}`,
+              receipt_email: registration.email_address,
+              metadata: {
+                signup_id: signupId,
+                registration_id: registration.id,
+                user_id: userId,
+                signup_title: registration.signup_title,
+                user_name: `${registration.first_name} ${registration.last_name}`
+              }
+            });
+            clientSecret = paymentIntent.client_secret;
+
+            // Update existing payment record
+            await pool.query(
+              `UPDATE signup_payments
+               SET stripe_payment_intent_id = $1, stripe_client_secret = $2, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $3`,
+              [paymentIntent.id, clientSecret, existingPayment.id]
+            );
+          }
+        } catch (stripeErr) {
+          console.error('Error retrieving existing PaymentIntent:', stripeErr);
+          // Create new PaymentIntent if we can't retrieve the old one
+          paymentIntent = await stripe.paymentIntents.create({
+            amount: Math.round(amount * 100),
+            currency: 'usd',
+            description: `Entry fee for ${registration.signup_title}`,
+            receipt_email: registration.email_address,
+            metadata: {
+              signup_id: signupId,
+              registration_id: registration.id,
+              user_id: userId,
+              signup_title: registration.signup_title,
+              user_name: `${registration.first_name} ${registration.last_name}`
+            }
+          });
+          clientSecret = paymentIntent.client_secret;
+
+          // Update existing payment record
+          await pool.query(
+            `UPDATE signup_payments
+             SET stripe_payment_intent_id = $1, stripe_client_secret = $2, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $3`,
+            [paymentIntent.id, clientSecret, existingPayment.id]
+          );
+        }
+      } else {
+        // No PaymentIntent ID stored, create new one
+        paymentIntent = await stripe.paymentIntents.create({
+          amount: Math.round(amount * 100),
+          currency: 'usd',
+          description: `Entry fee for ${registration.signup_title}`,
+          receipt_email: registration.email_address,
+          metadata: {
+            signup_id: signupId,
+            registration_id: registration.id,
+            user_id: userId,
+            signup_title: registration.signup_title,
+            user_name: `${registration.first_name} ${registration.last_name}`
+          }
+        });
+        clientSecret = paymentIntent.client_secret;
+
+        // Update existing payment record
+        await pool.query(
+          `UPDATE signup_payments
+           SET stripe_payment_intent_id = $1, stripe_client_secret = $2, updated_at = CURRENT_TIMESTAMP
+           WHERE id = $3`,
+          [paymentIntent.id, clientSecret, existingPayment.id]
+        );
+      }
+    } else {
+      // No existing payment record, create new PaymentIntent and record
+      paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(amount * 100),
+        currency: 'usd',
+        description: `Entry fee for ${registration.signup_title}`,
+        receipt_email: registration.email_address,
+        metadata: {
+          signup_id: signupId,
+          registration_id: registration.id,
+          user_id: userId,
+          signup_title: registration.signup_title,
+          user_name: `${registration.first_name} ${registration.last_name}`
+        }
+      });
+      clientSecret = paymentIntent.client_secret;
+
+      // Create new payment record
+      await pool.query(
+        `INSERT INTO signup_payments (
+          registration_id, amount, payment_method, payment_status,
+          stripe_payment_intent_id, stripe_client_secret
+        ) VALUES ($1, $2, 'stripe', 'pending', $3, $4)`,
+        [registration.id, amount, paymentIntent.id, clientSecret]
+      );
+    }
+
+    console.log(`Payment intent ready for signup ${signupId}, user ${userId}: ${paymentIntent.id}`);
+
     res.json({
-      clientSecret: paymentIntent.client_secret,
+      clientSecret: clientSecret,
       amount: amount
     });
   } catch (err) {
