@@ -69,26 +69,49 @@ const SignupRegistration: React.FC = () => {
 
   useEffect(() => {
     if (id) {
-      fetchSignup();
-      if (user) {
-        checkRegistrationStatus();
-      }
+      loadPageData();
     }
   }, [id, user]);
 
-  const fetchSignup = async () => {
+  const loadPageData = async () => {
     if (!id) return;
 
     try {
       setLoading(true);
-      const response = await getPublicSignup(id);
-      setSignup(response.data);
 
-      console.log('Signup data:', response.data);
-      console.log('Registration form template:', response.data.registration_form_template);
+      // Fetch signup data and registration status in parallel
+      const promises: Promise<any>[] = [
+        getPublicSignup(id)
+      ];
+
+      if (user) {
+        promises.push(checkMySignupRegistration(parseInt(id)));
+      }
+
+      const results = await Promise.all(promises);
+      const signupResponse = results[0];
+      const registrationResponse = results[1];
+
+      setSignup(signupResponse.data);
+
+      console.log('Signup data:', signupResponse.data);
+      console.log('Registration form template:', signupResponse.data.registration_form_template);
+
+      // Check registration status
+      if (registrationResponse) {
+        console.log('Registration status:', registrationResponse.data);
+        setIsAlreadyRegistered(registrationResponse.data.registered);
+        if (registrationResponse.data.registered) {
+          setExistingRegistration(registrationResponse.data.registration);
+        }
+      } else {
+        // User not logged in, ensure state is reset
+        setIsAlreadyRegistered(false);
+        setExistingRegistration(null);
+      }
 
       // Fetch registration template if signup has one
-      if (response.data.registration_form_template) {
+      if (signupResponse.data.registration_form_template) {
         try {
           // Fetch all public templates
           const templatesResponse = await getPublicRegistrationTemplates();
@@ -96,8 +119,8 @@ const SignupRegistration: React.FC = () => {
 
           // Find template by template_key (stored as string in signup)
           const template = templatesResponse.data.find(
-            t => t.template_key === response.data.registration_form_template ||
-                 t.id.toString() === response.data.registration_form_template
+            t => t.template_key === signupResponse.data.registration_form_template ||
+                 t.id.toString() === signupResponse.data.registration_form_template
           );
 
           console.log('Found template:', template);
@@ -105,7 +128,7 @@ const SignupRegistration: React.FC = () => {
           if (template) {
             setRegistrationTemplate(template);
           } else {
-            console.warn('Template not found for key:', response.data.registration_form_template);
+            console.warn('Template not found for key:', signupResponse.data.registration_form_template);
           }
         } catch (err) {
           console.error('Error fetching registration template:', err);
@@ -113,24 +136,10 @@ const SignupRegistration: React.FC = () => {
         }
       }
     } catch (error) {
-      console.error('Error fetching signup:', error);
+      console.error('Error loading page data:', error);
       window.alert('Failed to load signup details');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const checkRegistrationStatus = async () => {
-    if (!id || !user) return;
-
-    try {
-      const response = await checkMySignupRegistration(parseInt(id));
-      setIsAlreadyRegistered(response.data.registered);
-      if (response.data.registered) {
-        setExistingRegistration(response.data.registration);
-      }
-    } catch (error) {
-      console.error('Error checking registration status:', error);
     }
   };
 
@@ -156,21 +165,29 @@ const SignupRegistration: React.FC = () => {
       return;
     }
 
-    // Validate registration form if template exists
-    if (registrationTemplate && !validateRegistrationForm()) {
+    // Validate registration form if template exists (only if not retrying payment)
+    if (registrationTemplate && !validateRegistrationForm() && !existingRegistration) {
       return;
     }
 
     try {
       setSubmitting(true);
 
-      // Step 1: Register for the signup with form data
-      const registerResponse = await registerForSignup(
-        parseInt(id),
-        registrationTemplate ? registrationFormData : undefined
-      );
-      const regId = registerResponse.data.id;
-      setRegistrationId(regId);
+      let regId = registrationId;
+
+      // Step 1: Register for the signup with form data (if not already registered)
+      if (!existingRegistration) {
+        const registerResponse = await registerForSignup(
+          parseInt(id),
+          registrationTemplate ? registrationFormData : undefined
+        );
+        regId = registerResponse.data.id;
+        setRegistrationId(regId);
+      } else {
+        // User already has a registration, use that ID
+        regId = existingRegistration.id;
+        setRegistrationId(regId);
+      }
 
       // Step 2: If payment is required and Stripe is enabled, create payment intent
       if (signup?.entry_fee && signup.entry_fee > 0 && signup.stripe_enabled && paymentMethod === 'stripe') {
@@ -495,20 +512,40 @@ const SignupRegistration: React.FC = () => {
               </div>
             ) : isAlreadyRegistered ? (
               <div className="space-y-4">
-                <div className="flex items-center gap-2 text-green-600 mb-3">
-                  <CheckCircle className="w-5 h-5" />
-                  <span className="font-medium">Already Registered</span>
+                <div className={`flex items-center gap-2 mb-3 ${existingRegistration?.status === 'paid' ? 'text-green-600' : 'text-yellow-600'}`}>
+                  {existingRegistration?.status === 'paid' ? (
+                    <CheckCircle className="w-5 h-5" />
+                  ) : (
+                    <Clock className="w-5 h-5" />
+                  )}
+                  <span className="font-medium">
+                    {existingRegistration?.status === 'paid' ? 'Already Registered' : 'Registration Pending'}
+                  </span>
                 </div>
 
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
-                  <p className="text-sm text-green-800">
-                    You're registered for this event!
+                <div className={`border rounded-lg p-4 space-y-2 ${
+                  existingRegistration?.status === 'paid'
+                    ? 'bg-green-50 border-green-200'
+                    : 'bg-yellow-50 border-yellow-200'
+                }`}>
+                  <p className={`text-sm ${
+                    existingRegistration?.status === 'paid' ? 'text-green-800' : 'text-yellow-800'
+                  }`}>
+                    {existingRegistration?.status === 'paid'
+                      ? "You're registered for this event!"
+                      : "Your registration is pending payment."}
                   </p>
 
                   {existingRegistration && (
                     <>
-                      <div className="pt-2 border-t border-green-200">
-                        <p className="text-xs text-green-700 font-medium">Registration Status:</p>
+                      <div className={`pt-2 border-t ${
+                        existingRegistration.status === 'paid' ? 'border-green-200' : 'border-yellow-200'
+                      }`}>
+                        <p className={`text-xs font-medium ${
+                          existingRegistration.status === 'paid' ? 'text-green-700' : 'text-yellow-700'
+                        }`}>
+                          Payment Status:
+                        </p>
                         <Badge variant={existingRegistration.status === 'paid' ? 'success' : 'warning'}>
                           {existingRegistration.status === 'paid' ? 'Payment Complete' : 'Payment Pending'}
                         </Badge>
@@ -516,12 +553,71 @@ const SignupRegistration: React.FC = () => {
 
                       {existingRegistration.status !== 'paid' && existingRegistration.payment_method === 'venmo' && (
                         <p className="text-xs text-yellow-700 mt-2">
-                          Your Venmo payment is pending verification.
+                          Your Venmo payment is pending admin verification.
                         </p>
+                      )}
+
+                      {existingRegistration.payment_amount && (
+                        <div className={`pt-2 border-t ${
+                          existingRegistration.status === 'paid' ? 'border-green-200' : 'border-yellow-200'
+                        }`}>
+                          <p className={`text-xs ${
+                            existingRegistration.status === 'paid' ? 'text-green-700' : 'text-yellow-700'
+                          }`}>
+                            Amount: {formatCurrency(existingRegistration.payment_amount)}
+                          </p>
+                        </div>
                       )}
                     </>
                   )}
                 </div>
+
+                {/* Show retry payment button if payment is pending and not Venmo */}
+                {existingRegistration?.status !== 'paid' && existingRegistration?.payment_method !== 'venmo' && signup?.entry_fee && signup.entry_fee > 0 && (
+                  <div className="space-y-3">
+                    <div className="text-sm text-gray-700 font-medium">Complete Your Payment:</div>
+
+                    {signup.stripe_enabled && (
+                      <div className="space-y-2">
+                        <label className="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                          <input
+                            type="radio"
+                            name="paymentMethod"
+                            value="stripe"
+                            checked={paymentMethod === 'stripe'}
+                            onChange={() => setPaymentMethod('stripe')}
+                            className="text-brand-neon-green"
+                          />
+                          <CreditCard className="w-5 h-5 text-gray-600" />
+                          <span className="text-sm">Credit/Debit Card</span>
+                        </label>
+                      </div>
+                    )}
+
+                    {(signup.venmo_url || signup.venmo_username) && (
+                      <label className="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                        <input
+                          type="radio"
+                          name="paymentMethod"
+                          value="venmo"
+                          checked={paymentMethod === 'venmo'}
+                          onChange={() => setPaymentMethod('venmo')}
+                          className="text-brand-neon-green"
+                        />
+                        <DollarSign className="w-5 h-5 text-blue-500" />
+                        <span className="text-sm">Venmo</span>
+                      </label>
+                    )}
+
+                    <Button
+                      onClick={handleRegister}
+                      disabled={submitting}
+                      className="w-full"
+                    >
+                      {submitting ? 'Processing...' : 'Complete Payment'}
+                    </Button>
+                  </div>
+                )}
 
                 <Button onClick={() => navigate('/signups')} variant="outline" className="w-full">
                   View All Signups

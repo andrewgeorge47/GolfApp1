@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getPublicSignups, type Signup } from '../services/api';
+import { getPublicSignups, getUserRegistrations, type Signup, type SignupRegistration } from '../services/api';
+import { useAuth } from '../AuthContext';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { Badge } from './ui/Badge';
@@ -16,12 +17,17 @@ import {
 
 const SignupList: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [signups, setSignups] = useState<Signup[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userRegistrations, setUserRegistrations] = useState<SignupRegistration[]>([]);
 
   useEffect(() => {
     fetchSignups();
-  }, []);
+    if (user) {
+      fetchUserRegistrations();
+    }
+  }, [user]);
 
   const fetchSignups = async () => {
     try {
@@ -32,6 +38,15 @@ const SignupList: React.FC = () => {
       console.error('Error fetching signups:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchUserRegistrations = async () => {
+    try {
+      const response = await getUserRegistrations();
+      setUserRegistrations(response.data);
+    } catch (error) {
+      console.error('Error fetching user registrations:', error);
     }
   };
 
@@ -99,6 +114,24 @@ const SignupList: React.FC = () => {
     return { text: 'Open', icon: CheckCircle, color: 'text-green-600' };
   };
 
+  const getUserRegistrationForSignup = (signupId: number) => {
+    return userRegistrations.find(reg => reg.signup_id === signupId);
+  };
+
+  const getButtonText = (signup: Signup) => {
+    const userReg = getUserRegistrationForSignup(signup.id);
+
+    if (userReg) {
+      if (userReg.status === 'paid') {
+        return 'Registered ✓';
+      } else {
+        return 'Complete Payment';
+      }
+    }
+
+    return isRegistrationOpen(signup) ? 'Register Now' : 'View Details';
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-[400px]">
@@ -127,6 +160,8 @@ const SignupList: React.FC = () => {
             const registrationStatus = getRegistrationStatus(signup);
             const StatusIcon = registrationStatus.icon;
             const canRegister = isRegistrationOpen(signup);
+            const userReg = getUserRegistrationForSignup(signup.id);
+            const buttonText = getButtonText(signup);
 
             return (
               <Card key={signup.id} className="flex flex-col hover:shadow-lg transition-shadow">
@@ -141,7 +176,14 @@ const SignupList: React.FC = () => {
                 <div className="p-6 flex-1 flex flex-col">
                   <div className="flex items-start justify-between mb-3">
                     <h3 className="text-xl font-semibold text-gray-900">{signup.title}</h3>
-                    {getStatusBadge(signup.status)}
+                    <div className="flex gap-2">
+                      {getStatusBadge(signup.status)}
+                      {userReg && (
+                        <Badge variant={userReg.status === 'paid' ? 'success' : 'warning'}>
+                          {userReg.status === 'paid' ? 'Paid' : 'Pending'}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
 
                   {signup.description && (
@@ -183,9 +225,13 @@ const SignupList: React.FC = () => {
                     <Button
                       onClick={() => navigate(`/signups/${signup.id}`)}
                       className="w-full"
-                      variant={canRegister ? 'primary' : 'outline'}
+                      variant={
+                        userReg?.status === 'paid' ? 'success' :
+                        userReg?.status === 'pending' ? 'secondary' :
+                        canRegister ? 'primary' : 'outline'
+                      }
                     >
-                      {canRegister ? 'Register Now' : 'View Details'}
+                      {buttonText}
                     </Button>
                   </div>
                 </div>

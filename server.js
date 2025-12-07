@@ -19603,7 +19603,14 @@ app.get('/api/user/registrations', authenticateToken, async (req, res) => {
 
     const { rows } = await pool.query(
       `SELECT
-        sr.*,
+        sr.id,
+        sr.signup_id,
+        sr.user_id,
+        sr.status,
+        sr.registration_data,
+        sr.payment_amount,
+        sr.registered_at,
+        sr.updated_at,
         s.title as signup_title,
         s.description as signup_description,
         s.slug,
@@ -19612,24 +19619,11 @@ app.get('/api/user/registrations', authenticateToken, async (req, res) => {
         sp.payment_method,
         sp.payment_status,
         sp.payment_reference,
-        sp.created_at as payment_date,
-        COALESCE(
-          json_agg(
-            json_build_object(
-              'tournament_id', t.id,
-              'tournament_name', t.name,
-              'tournament_date', t.tournament_date
-            )
-          ) FILTER (WHERE t.id IS NOT NULL),
-          '[]'
-        ) as linked_tournaments
+        sp.created_at as payment_date
       FROM signup_registrations sr
       JOIN signups s ON sr.signup_id = s.id
       LEFT JOIN signup_payments sp ON sr.id = sp.registration_id
-      LEFT JOIN tournament_signup_links tsl ON s.id = tsl.signup_id
-      LEFT JOIN tournaments t ON tsl.tournament_id = t.id
       WHERE sr.user_id = $1
-      GROUP BY sr.id, s.id, sp.id
       ORDER BY sr.registered_at DESC`,
       [userId]
     );

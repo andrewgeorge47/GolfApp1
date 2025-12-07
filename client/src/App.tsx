@@ -316,14 +316,10 @@ function BetaProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function SignupsProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  const { hasPermission } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Check if user has beta access
-  const hasAccess = hasPermission('access_beta_features');
-
-  console.log('SignupsProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'hasAccess=', hasAccess, 'pathname=', location.pathname);
+  console.log('SignupsProtectedRoute: loading=', loading, 'user=', user ? 'exists' : 'none', 'pathname=', location.pathname);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -338,11 +334,6 @@ function SignupsProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return <div className="p-4 text-center">Redirecting to login...</div>;
-  }
-
-  // Show coming soon page if user doesn't have beta access
-  if (!hasAccess) {
-    return <ComingSoon />;
   }
 
   return <>{children}</>;
