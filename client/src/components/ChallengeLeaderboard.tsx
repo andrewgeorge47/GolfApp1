@@ -178,26 +178,79 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
 
       <CardContent>
         {/* Challenge Info */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="text-sm text-gray-600 mb-1">Designated Hole</div>
-            <div className="text-2xl font-bold text-indigo-600">Hole {challenge.designated_hole}</div>
+        {Number(challenge.entry_fee || 0) === 0 ? (
+          // Free Challenge - Show prizes
+          <div className="mb-6">
+            <div className="bg-gray-50 rounded-lg p-4 mb-4">
+              <div className="text-sm text-gray-600 mb-1">Designated Hole</div>
+              <div className="text-2xl font-bold text-indigo-600">Hole {challenge.designated_hole}</div>
+            </div>
+
+            {/* Prize Images */}
+            {((challenge as any).prize_1st_image_url || (challenge as any).prize_2nd_image_url || (challenge as any).prize_3rd_image_url) && (
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <Trophy className="w-5 h-5 text-yellow-600" />
+                  Prizes
+                </h3>
+                <div className="grid grid-cols-3 gap-4">
+                  {(challenge as any).prize_1st_image_url && (
+                    <div className="text-center">
+                      <img
+                        src={(challenge as any).prize_1st_image_url}
+                        alt="1st Place Prize"
+                        className="w-full h-40 object-cover rounded-lg border-2 border-yellow-400 mb-2"
+                      />
+                      <Badge variant="warning">1st Place</Badge>
+                    </div>
+                  )}
+                  {(challenge as any).prize_2nd_image_url && (
+                    <div className="text-center">
+                      <img
+                        src={(challenge as any).prize_2nd_image_url}
+                        alt="2nd Place Prize"
+                        className="w-full h-40 object-cover rounded-lg border-2 border-gray-400 mb-2"
+                      />
+                      <Badge variant="default">2nd Place</Badge>
+                    </div>
+                  )}
+                  {(challenge as any).prize_3rd_image_url && (
+                    <div className="text-center">
+                      <img
+                        src={(challenge as any).prize_3rd_image_url}
+                        alt="3rd Place Prize"
+                        className="w-full h-40 object-cover rounded-lg border-2 border-orange-600 mb-2"
+                      />
+                      <Badge variant="error">3rd Place</Badge>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="text-sm text-gray-600 mb-1">Total Entries</div>
-            <div className="text-2xl font-bold text-gray-900">{entries.length}</div>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="text-sm text-gray-600 mb-1">Prize Pool</div>
-            <div className="text-2xl font-bold text-green-600">
-              ${(Number(challenge.starting_pot || 0) + (Number(challenge.total_entry_fees) * 0.5)).toFixed(2)}
+        ) : (
+          // Paid Challenge - Show stats
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="text-sm text-gray-600 mb-1">Designated Hole</div>
+              <div className="text-2xl font-bold text-indigo-600">Hole {challenge.designated_hole}</div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="text-sm text-gray-600 mb-1">Total Entries</div>
+              <div className="text-2xl font-bold text-gray-900">{entries.length}</div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="text-sm text-gray-600 mb-1">Prize Pool</div>
+              <div className="text-2xl font-bold text-green-600">
+                ${(Number(challenge.starting_pot || 0) + (Number(challenge.total_entry_fees) * 0.5)).toFixed(2)}
+              </div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="text-sm text-gray-600 mb-1">Hole-in-Ones</div>
+              <div className="text-2xl font-bold text-yellow-600">{holeInOneEntries.length}</div>
             </div>
           </div>
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="text-sm text-gray-600 mb-1">Hole-in-Ones</div>
-            <div className="text-2xl font-bold text-yellow-600">{holeInOneEntries.length}</div>
-          </div>
-        </div>
+        )}
 
         {/* My Entry */}
         {myEntry && (

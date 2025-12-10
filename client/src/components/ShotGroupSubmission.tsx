@@ -16,6 +16,8 @@ import {
   Button,
   Alert
 } from './ui';
+import { compressImage, isImageFile } from '../utils/imageCompression';
+import { toast } from 'react-toastify';
 
 interface ShotGroupSubmissionProps {
   challenge: WeeklyChallengeExtended;
@@ -53,16 +55,30 @@ const ShotGroupSubmission: React.FC<ShotGroupSubmissionProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleScreenshotSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleScreenshotSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        setError('File size must be less than 10MB');
+      if (!isImageFile(file)) {
+        setError('Please select an image file');
         return;
       }
-      setGroupScreenshot(file);
-      setScreenshotPreview(URL.createObjectURL(file));
-      setError(null);
+
+      try {
+        // Show compression toast for large files
+        if (file.size > 2 * 1024 * 1024) {
+          toast.info('Compressing image...', { autoClose: 1000 });
+        }
+
+        // Compress the image before setting it
+        const compressedFile = await compressImage(file, 'screenshot');
+
+        setGroupScreenshot(compressedFile);
+        setScreenshotPreview(URL.createObjectURL(compressedFile));
+        setError(null);
+      } catch (error) {
+        console.error('Error processing image:', error);
+        setError('Failed to process image');
+      }
     }
   };
 
@@ -245,7 +261,7 @@ const ShotGroupSubmission: React.FC<ShotGroupSubmissionProps> = ({
                 >
                   <Upload className="w-10 h-10 text-gray-400 mx-auto mb-2" />
                   <p className="text-gray-600">Click to upload screenshot</p>
-                  <p className="text-sm text-gray-400 mt-1">PNG, JPG up to 10MB</p>
+                  <p className="text-sm text-gray-400 mt-1">PNG, JPG (automatically compressed)</p>
                 </div>
               )}
               <input
@@ -345,9 +361,23 @@ const ShotGroupSubmission: React.FC<ShotGroupSubmissionProps> = ({
                       <input
                         type="file"
                         accept="image/*"
-                        onChange={(e) => {
-                          if (e.target.files?.[0]) {
-                            updateShot(index, 'detailFile', e.target.files[0]);
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (!isImageFile(file)) {
+                              toast.error('Please select an image file');
+                              return;
+                            }
+                            try {
+                              if (file.size > 2 * 1024 * 1024) {
+                                toast.info('Compressing image...', { autoClose: 1000 });
+                              }
+                              const compressedFile = await compressImage(file, 'detail');
+                              updateShot(index, 'detailFile', compressedFile);
+                            } catch (error) {
+                              console.error('Error processing image:', error);
+                              toast.error('Failed to process image');
+                            }
                           }
                         }}
                         className="hidden"

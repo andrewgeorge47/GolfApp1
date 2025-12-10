@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trophy, Calendar, DollarSign, Users, CheckCircle, XCircle, Camera, Edit, Trash2 } from 'lucide-react';
+import { Plus, Trophy, Calendar, DollarSign, Users, CheckCircle, XCircle, Camera, Edit, Trash2, Upload, X } from 'lucide-react';
 import { toast } from 'react-toastify';
 import {
   getChallenges,
   getChallengePot,
   getChallengeEntries,
   createChallenge,
+  updateChallenge,
   verifyChallengeEntry,
   verifyChallengePhoto,
   finalizeChallenge,
@@ -16,6 +17,7 @@ import {
   deleteChallenge,
   getCTPEligibleCourses,
   getCourseHoleDetails,
+  uploadPrizePhoto,
   type WeeklyChallenge,
   type ChallengeEntry,
   type ChallengePot,
@@ -46,7 +48,8 @@ import {
   SimpleLoading,
   EmptyState,
   Avatar,
-  ConfirmationDialog
+  ConfirmationDialog,
+  Switch
 } from './ui';
 
 const WeeklyChallengeAdmin: React.FC = () => {
@@ -59,6 +62,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
   const [entries, setEntries] = useState<ChallengeEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingChallenge, setEditingChallenge] = useState<WeeklyChallenge | null>(null);
   const [showFinalizeDialog, setShowFinalizeDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEntryVerifyModal, setShowEntryVerifyModal] = useState(false);
@@ -79,6 +83,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
 
   // CTP-specific state
   const [isCTPChallenge, setIsCTPChallenge] = useState(false);
+  const [isFreeChallenge, setIsFreeChallenge] = useState(false);
   const [ctpConfig, setCtpConfig] = useState({
     pin_day: 'Thursday',
     attempts_per_hole: 3,
@@ -86,6 +91,39 @@ const WeeklyChallengeAdmin: React.FC = () => {
     mode: 'par3-holes' as 'par3-holes' | 'par3-tees',
     tee_type: 'White'
   });
+
+  // Challenge settings state
+  const [challengeSettings, setChallengeSettings] = useState({
+    instructions: '',
+    platforms: ['GSPro', 'Trackman'],
+    gsproSettings: {
+      pins: 'Friday',
+      putting: 'No Gimme',
+      elevation: 'Course',
+      stimp: '11',
+      mulligan: 'No',
+      gameplay: 'Force Realistic',
+      fairway_firmness: 'Normal',
+      green_firmness: 'Normal',
+      wind: 'None'
+    },
+    trackmanSettings: {
+      pins: 'Medium',
+      putting: 'No Gimme',
+      stimp: '11',
+      fairway_firmness: 'Medium',
+      green_firmness: 'Medium',
+      wind: 'Calm'
+    },
+    prize1stUrl: '',
+    prize2ndUrl: '',
+    prize3rdUrl: ''
+  });
+  const [uploadingPrize, setUploadingPrize] = useState<{
+    first: boolean;
+    second: boolean;
+    third: boolean;
+  }>({ first: false, second: false, third: false });
   const [ctpEligibleCourses, setCtpEligibleCourses] = useState<any[]>([]);
   const [courseHoleDetails, setCourseHoleDetails] = useState<any>(null);
   const [ctpOptions, setCtpOptions] = useState<any[]>([]); // All available par 3 options
@@ -282,13 +320,98 @@ const WeeklyChallengeAdmin: React.FC = () => {
     setShowCourseDropdown(false);
   };
 
-  const handleCreateChallenge = async (e: React.FormEvent) => {
+  const handlePrizePhotoUpload = async (file: File, position: 'first' | 'second' | 'third') => {
+    try {
+      setUploadingPrize({ ...uploadingPrize, [position]: true });
+      toast.info('Uploading prize photo...', { autoClose: 1000 });
+
+      const response = await uploadPrizePhoto(file, position);
+      const urlField = position === 'first' ? 'prize1stUrl' : position === 'second' ? 'prize2ndUrl' : 'prize3rdUrl';
+
+      setChallengeSettings({
+        ...challengeSettings,
+        [urlField]: response.data.photoUrl
+      });
+
+      toast.success('Prize photo uploaded successfully!');
+    } catch (error: any) {
+      console.error('Error uploading prize photo:', error);
+      toast.error(error.response?.data?.error || 'Failed to upload prize photo');
+    } finally {
+      setUploadingPrize({ ...uploadingPrize, [position]: false });
+    }
+  };
+
+  const handlePrizePhotoRemove = (position: 'first' | 'second' | 'third') => {
+    const urlField = position === 'first' ? 'prize1stUrl' : position === 'second' ? 'prize2ndUrl' : 'prize3rdUrl';
+    setChallengeSettings({
+      ...challengeSettings,
+      [urlField]: ''
+    });
+  };
+
+  const handleEditClick = (challenge: WeeklyChallenge) => {
+    setEditingChallenge(challenge);
+    // Pre-fill form with challenge data
+    setNewChallenge({
+      challenge_name: challenge.challenge_name,
+      designated_hole: challenge.designated_hole,
+      entry_fee: challenge.entry_fee || 0,
+      reup_fee: challenge.reup_fee || 0,
+      week_start_date: challenge.week_start_date.split('T')[0],
+      week_end_date: challenge.week_end_date.split('T')[0],
+      course_id: challenge.course_id?.toString() || '',
+      challenge_type_id: challenge.challenge_type_id?.toString() || '',
+      required_distance_yards: challenge.required_distance_yards?.toString() || ''
+    });
+    // Pre-fill challenge settings
+    if (challenge.instructions || challenge.gspro_settings || challenge.trackman_settings) {
+      setChallengeSettings({
+        instructions: challenge.instructions || '',
+        platforms: challenge.platforms || ['GSPro', 'Trackman'],
+        gsproSettings: {
+          pins: challenge.gspro_settings?.pins || 'Friday',
+          putting: challenge.gspro_settings?.putting || 'No Gimme',
+          elevation: challenge.gspro_settings?.elevation || 'Course',
+          stimp: challenge.gspro_settings?.stimp || '11',
+          mulligan: challenge.gspro_settings?.mulligan || 'No',
+          gameplay: challenge.gspro_settings?.gameplay || 'Force Realistic',
+          fairway_firmness: challenge.gspro_settings?.fairway_firmness || 'Normal',
+          green_firmness: challenge.gspro_settings?.green_firmness || 'Normal',
+          wind: challenge.gspro_settings?.wind || 'None'
+        },
+        trackmanSettings: {
+          pins: challenge.trackman_settings?.pins || 'Medium',
+          putting: challenge.trackman_settings?.putting || 'No Gimme',
+          stimp: challenge.trackman_settings?.stimp || '11',
+          fairway_firmness: challenge.trackman_settings?.fairway_firmness || 'Medium',
+          green_firmness: challenge.trackman_settings?.green_firmness || 'Medium',
+          wind: challenge.trackman_settings?.wind || 'Calm'
+        },
+        prize1stUrl: challenge.prize_1st_image_url || '',
+        prize2ndUrl: challenge.prize_2nd_image_url || '',
+        prize3rdUrl: challenge.prize_3rd_image_url || ''
+      });
+    }
+    // Set course search
+    if (challenge.course_name) {
+      setCourseSearchTerm(challenge.course_name);
+      setSelectedCourse({ id: challenge.course_id, name: challenge.course_name });
+    }
+    setIsFreeChallenge(challenge.entry_fee === 0);
+    setShowCreateModal(true);
+  };
+
+  const handleSubmitChallenge = async (e: React.FormEvent) => {
     e.preventDefault();
+    const isEditing = !!editingChallenge;
+
     try {
       const challengeData: any = {
         challenge_name: newChallenge.challenge_name,
         designated_hole: newChallenge.designated_hole,
         entry_fee: newChallenge.entry_fee,
+        reup_fee: newChallenge.reup_fee,
         week_start_date: newChallenge.week_start_date,
         week_end_date: newChallenge.week_end_date,
         course_id: newChallenge.course_id ? parseInt(newChallenge.course_id) : undefined,
@@ -318,9 +441,37 @@ const WeeklyChallengeAdmin: React.FC = () => {
         challengeData.sim_id = 'nn-no5';
       }
 
-      await createChallenge(challengeData);
-      toast.success('Challenge created successfully!');
+      // Add instructions and settings if provided
+      if (challengeSettings.instructions) {
+        challengeData.instructions = challengeSettings.instructions;
+      }
+      if (challengeSettings.platforms.length > 0) {
+        challengeData.platforms = challengeSettings.platforms;
+      }
+      challengeData.gspro_settings = challengeSettings.gsproSettings;
+      challengeData.trackman_settings = challengeSettings.trackmanSettings;
+
+      // Add prize image URLs if provided
+      if (challengeSettings.prize1stUrl) {
+        challengeData.prize_1st_image_url = challengeSettings.prize1stUrl;
+      }
+      if (challengeSettings.prize2ndUrl) {
+        challengeData.prize_2nd_image_url = challengeSettings.prize2ndUrl;
+      }
+      if (challengeSettings.prize3rdUrl) {
+        challengeData.prize_3rd_image_url = challengeSettings.prize3rdUrl;
+      }
+
+      if (isEditing) {
+        await updateChallenge(editingChallenge.id, challengeData);
+        toast.success('Challenge updated successfully!');
+      } else {
+        await createChallenge(challengeData);
+        toast.success('Challenge created successfully!');
+      }
+
       setShowCreateModal(false);
+      setEditingChallenge(null);
       loadData();
 
       // Reset form
@@ -335,7 +486,34 @@ const WeeklyChallengeAdmin: React.FC = () => {
         challenge_type_id: '',
         required_distance_yards: ''
       });
+      setIsFreeChallenge(false);
       setIsCTPChallenge(false);
+      setChallengeSettings({
+        instructions: '',
+        platforms: ['GSPro', 'Trackman'],
+        gsproSettings: {
+          pins: 'Friday',
+          putting: 'No Gimme',
+          elevation: 'Course',
+          stimp: '11',
+          mulligan: 'No',
+          gameplay: 'Force Realistic',
+          fairway_firmness: 'Normal',
+          green_firmness: 'Normal',
+          wind: 'None'
+        },
+        trackmanSettings: {
+          pins: 'Medium',
+          putting: 'No Gimme',
+          stimp: '11',
+          fairway_firmness: 'Medium',
+          green_firmness: 'Medium',
+          wind: 'Calm'
+        },
+        prize1stUrl: '',
+        prize2ndUrl: '',
+        prize3rdUrl: ''
+      });
       setCtpConfig({
         pin_day: 'Thursday',
         attempts_per_hole: 3,
@@ -348,8 +526,8 @@ const WeeklyChallengeAdmin: React.FC = () => {
       setCourseHoleDetails(null);
       setCtpOptions([]);
     } catch (err: any) {
-      console.error('Error creating challenge:', err);
-      toast.error(err.response?.data?.error || 'Failed to create challenge');
+      console.error(`Error ${isEditing ? 'updating' : 'creating'} challenge:`, err);
+      toast.error(err.response?.data?.error || `Failed to ${isEditing ? 'update' : 'create'} challenge`);
     }
   };
 
@@ -540,6 +718,17 @@ const WeeklyChallengeAdmin: React.FC = () => {
                           </div>
                           {challenge.status === 'active' && (
                             <div className="flex gap-2 self-end sm:self-start">
+                              <Button
+                                variant="secondary"
+                                size="xs"
+                                responsive
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditClick(challenge);
+                                }}
+                              >
+                                <Edit className="w-3 h-3 sm:w-4 sm:h-4" />
+                              </Button>
                               <Button
                                 variant="danger"
                                 size="xs"
@@ -791,12 +980,15 @@ const WeeklyChallengeAdmin: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Create Challenge Modal */}
+      {/* Create/Edit Challenge Modal */}
       {showCreateModal && (
-        <Modal open={true} onClose={() => setShowCreateModal(false)} size="md">
-          <form onSubmit={handleCreateChallenge} className="flex flex-col overflow-hidden h-full">
+        <Modal open={true} onClose={() => {
+          setShowCreateModal(false);
+          setEditingChallenge(null);
+        }} size="md">
+          <form onSubmit={handleSubmitChallenge} className="flex flex-col overflow-hidden h-full">
             <ModalHeader>
-              Create New Challenge
+              {editingChallenge ? 'Edit Challenge' : 'Create New Challenge'}
             </ModalHeader>
             <ModalContent>
               <div className="space-y-4">
@@ -1179,14 +1371,52 @@ const WeeklyChallengeAdmin: React.FC = () => {
                     />
                   </div>
                 )}
+
+                {/* Free Challenge Toggle */}
+                <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Trophy className="w-5 h-5 text-blue-600" />
+                      <div>
+                        <div className="font-semibold text-gray-900">Free Challenge</div>
+                        <div className="text-sm text-gray-600">No entry fee, one entry per member, no re-ups</div>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={isFreeChallenge}
+                      onChange={(e) => {
+                        const isChecked = e.target.checked;
+                        setIsFreeChallenge(isChecked);
+                        if (isChecked) {
+                          setNewChallenge({
+                            ...newChallenge,
+                            entry_fee: 0,
+                            reup_fee: 0
+                          });
+                        } else {
+                          // Reset to default fees
+                          setNewChallenge({
+                            ...newChallenge,
+                            entry_fee: 5,
+                            reup_fee: 3
+                          });
+                        }
+                      }}
+                      switchSize="lg"
+                    />
+                  </div>
+                </div>
+
+                {/* Entry and Re-up Fee Inputs (disabled for free challenges) */}
                 <div className="grid grid-cols-2 gap-4">
                   <Input
                     label="Entry Fee ($)"
                     type="number"
-                    min="1"
+                    min="0"
                     step="0.01"
                     value={newChallenge.entry_fee}
                     onChange={(e) => setNewChallenge({ ...newChallenge, entry_fee: parseFloat(e.target.value) })}
+                    disabled={isFreeChallenge}
                     required
                   />
                   <Input
@@ -1196,6 +1426,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
                     step="0.01"
                     value={newChallenge.reup_fee}
                     onChange={(e) => setNewChallenge({ ...newChallenge, reup_fee: parseFloat(e.target.value) })}
+                    disabled={isFreeChallenge}
                     required
                   />
                 </div>
@@ -1213,6 +1444,151 @@ const WeeklyChallengeAdmin: React.FC = () => {
                   onChange={(e) => setNewChallenge({ ...newChallenge, week_end_date: e.target.value })}
                   required
                 />
+
+                {/* Instructions Section */}
+                <div className="border-t pt-4">
+                  <h4 className="font-semibold text-gray-900 mb-3">Challenge Settings (Optional)</h4>
+
+                  <Textarea
+                    label="Instructions/Notes"
+                    rows={3}
+                    value={challengeSettings.instructions}
+                    onChange={(e) => setChallengeSettings({...challengeSettings, instructions: e.target.value})}
+                    placeholder="Add any special instructions or notes for participants..."
+                  />
+
+                  {/* Prize Image Uploads */}
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Prize Images (Optional)</label>
+                    <div className="grid grid-cols-3 gap-3">
+                      {/* 1st Place */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">1st Place</label>
+                        {challengeSettings.prize1stUrl ? (
+                          <div className="relative">
+                            <img
+                              src={challengeSettings.prize1stUrl}
+                              alt="1st Place Prize"
+                              className="w-full h-32 object-cover rounded-lg border-2 border-yellow-400"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handlePrizePhotoRemove('first')}
+                              className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              disabled={uploadingPrize.first}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handlePrizePhotoUpload(file, 'first');
+                              }}
+                            />
+                            {uploadingPrize.first ? (
+                              <div className="text-xs text-gray-500">Uploading...</div>
+                            ) : (
+                              <>
+                                <Upload className="w-6 h-6 text-gray-400 mb-1" />
+                                <span className="text-xs text-gray-500">Upload</span>
+                              </>
+                            )}
+                          </label>
+                        )}
+                      </div>
+
+                      {/* 2nd Place */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">2nd Place</label>
+                        {challengeSettings.prize2ndUrl ? (
+                          <div className="relative">
+                            <img
+                              src={challengeSettings.prize2ndUrl}
+                              alt="2nd Place Prize"
+                              className="w-full h-32 object-cover rounded-lg border-2 border-gray-400"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handlePrizePhotoRemove('second')}
+                              className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              disabled={uploadingPrize.second}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handlePrizePhotoUpload(file, 'second');
+                              }}
+                            />
+                            {uploadingPrize.second ? (
+                              <div className="text-xs text-gray-500">Uploading...</div>
+                            ) : (
+                              <>
+                                <Upload className="w-6 h-6 text-gray-400 mb-1" />
+                                <span className="text-xs text-gray-500">Upload</span>
+                              </>
+                            )}
+                          </label>
+                        )}
+                      </div>
+
+                      {/* 3rd Place */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">3rd Place</label>
+                        {challengeSettings.prize3rdUrl ? (
+                          <div className="relative">
+                            <img
+                              src={challengeSettings.prize3rdUrl}
+                              alt="3rd Place Prize"
+                              className="w-full h-32 object-cover rounded-lg border-2 border-orange-600"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handlePrizePhotoRemove('third')}
+                              className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              disabled={uploadingPrize.third}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handlePrizePhotoUpload(file, 'third');
+                              }}
+                            />
+                            {uploadingPrize.third ? (
+                              <div className="text-xs text-gray-500">Uploading...</div>
+                            ) : (
+                              <>
+                                <Upload className="w-6 h-6 text-gray-400 mb-1" />
+                                <span className="text-xs text-gray-500">Upload</span>
+                              </>
+                            )}
+                          </label>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </ModalContent>
             <ModalFooter>

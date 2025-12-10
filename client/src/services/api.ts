@@ -1250,6 +1250,7 @@ export interface WeeklyChallenge {
   challenge_name: string;
   designated_hole: number;
   entry_fee: number;
+  reup_fee?: number;
   week_start_date: string;
   week_end_date: string;
   status: 'active' | 'completed' | 'cancelled';
@@ -1271,6 +1272,37 @@ export interface WeeklyChallenge {
   created_at: string;
   updated_at: string;
   entry_count?: number;
+  // Instructions and settings
+  instructions?: string;
+  platforms?: string[];
+  gspro_settings?: {
+    pins?: string;
+    putting?: string;
+    elevation?: string;
+    stimp?: string;
+    mulligan?: string;
+    gameplay?: string;
+    fairway_firmness?: string;
+    green_firmness?: string;
+    wind?: string;
+  };
+  trackman_settings?: {
+    pins?: string;
+    putting?: string;
+    stimp?: string;
+    fairway_firmness?: string;
+    green_firmness?: string;
+    wind?: string;
+  };
+  // Prize images
+  prize_1st_image_url?: string;
+  prize_2nd_image_url?: string;
+  prize_3rd_image_url?: string;
+  // Extended fields (from joins)
+  challenge_type_id?: number;
+  course_id?: number;
+  course_name?: string;
+  required_distance_yards?: number;
 }
 
 export interface ChallengePot {
@@ -1465,6 +1497,11 @@ export const createChallenge = (data: {
   return api.post<WeeklyChallenge>('/challenges', data);
 };
 
+// Update challenge (Admin only)
+export const updateChallenge = (challengeId: number, data: Partial<WeeklyChallenge>) => {
+  return api.put<WeeklyChallenge>(`/challenges/${challengeId}`, data);
+};
+
 // Get all challenges
 export const getChallenges = (params?: {
   status?: 'active' | 'completed' | 'cancelled';
@@ -1482,11 +1519,6 @@ export const getActiveChallenge = () => {
 // Get specific challenge
 export const getChallenge = (id: number) => {
   return api.get<WeeklyChallenge>(`/challenges/${id}`);
-};
-
-// Update challenge (Admin only)
-export const updateChallenge = (id: number, data: Partial<WeeklyChallenge>) => {
-  return api.put<WeeklyChallenge>(`/challenges/${id}`, data);
 };
 
 // Delete/cancel challenge (Admin only)
@@ -1529,6 +1561,23 @@ export const uploadChallengePhoto = (challengeId: number, entryId: number, file:
 
   return api.post<{ message: string; photo_url: string; entry: ChallengeEntry }>(
     `/challenges/${challengeId}/entries/${entryId}/photo`,
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+};
+
+// Upload prize photo (Admin only)
+export const uploadPrizePhoto = (file: File, prizePosition: 'first' | 'second' | 'third') => {
+  const formData = new FormData();
+  formData.append('prizePhoto', file);
+  formData.append('prizePosition', prizePosition);
+
+  return api.post<{ success: boolean; photoUrl: string; message: string }>(
+    '/challenges/prize-photo',
     formData,
     {
       headers: {

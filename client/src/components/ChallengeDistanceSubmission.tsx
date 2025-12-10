@@ -3,6 +3,7 @@ import { Camera, Upload, Target, AlertCircle, CheckCircle, Trophy } from 'lucide
 import { toast } from 'react-toastify';
 import { submitChallengeDistance, uploadChallengePhoto, type ChallengeEntry, type WeeklyChallenge } from '../services/api';
 import { Modal, ModalHeader, ModalContent, ModalFooter, Button, Input, Textarea, Switch, Alert } from './ui';
+import { compressImage, isImageFile } from '../utils/imageCompression';
 
 interface ChallengeDistanceSubmissionProps {
   challenge: WeeklyChallenge;
@@ -27,26 +28,35 @@ const ChallengeDistanceSubmission: React.FC<ChallengeDistanceSubmissionProps> = 
   const [step, setStep] = useState<'distance' | 'photo'>('distance');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (!file.type.startsWith('image/')) {
+      if (!isImageFile(file)) {
         toast.error('Please select an image file');
         return;
       }
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error('Image must be less than 5MB');
-        return;
+
+      try {
+        // Show compression toast for large files
+        if (file.size > 2 * 1024 * 1024) {
+          toast.info('Compressing image...', { autoClose: 1000 });
+        }
+
+        // Compress the image before setting it
+        const compressedFile = await compressImage(file, 'detail');
+
+        setPhoto(compressedFile);
+
+        // Create preview
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setPhotoPreview(reader.result as string);
+        };
+        reader.readAsDataURL(compressedFile);
+      } catch (error) {
+        console.error('Error processing image:', error);
+        toast.error('Failed to process image');
       }
-
-      setPhoto(file);
-
-      // Create preview
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
     }
   };
 
@@ -268,7 +278,7 @@ const ChallengeDistanceSubmission: React.FC<ChallengeDistanceSubmissionProps> = 
                     Click to upload photo
                   </p>
                   <p className="text-xs text-gray-500">
-                    PNG, JPG up to 5MB
+                    PNG, JPG (automatically compressed)
                   </p>
                 </div>
               )}
