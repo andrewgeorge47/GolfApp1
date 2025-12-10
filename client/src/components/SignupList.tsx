@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getPublicSignups, getUserRegistrations, type Signup, type SignupRegistration } from '../services/api';
+import { getPublicSignups, getUserRegistrations, getChallenges, type Signup, type SignupRegistration, type WeeklyChallenge } from '../services/api';
 import { useAuth } from '../AuthContext';
+import { usePermissions } from '../hooks/usePermissions';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { Badge } from './ui/Badge';
@@ -12,22 +13,32 @@ import {
   Users,
   Clock,
   CheckCircle,
-  XCircle
+  XCircle,
+  Trophy,
+  Target
 } from 'lucide-react';
 
 const SignupList: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { hasPermission } = usePermissions();
   const [signups, setSignups] = useState<Signup[]>([]);
   const [loading, setLoading] = useState(true);
   const [userRegistrations, setUserRegistrations] = useState<SignupRegistration[]>([]);
+  const [challenges, setChallenges] = useState<WeeklyChallenge[]>([]);
+  const [challengesLoading, setChallengesLoading] = useState(false);
+
+  const isBetaTester = hasPermission('access_beta_features');
 
   useEffect(() => {
     fetchSignups();
     if (user) {
       fetchUserRegistrations();
     }
-  }, [user]);
+    if (isBetaTester) {
+      fetchChallenges();
+    }
+  }, [user, isBetaTester]);
 
   const fetchSignups = async () => {
     try {
@@ -47,6 +58,18 @@ const SignupList: React.FC = () => {
       setUserRegistrations(response.data);
     } catch (error) {
       console.error('Error fetching user registrations:', error);
+    }
+  };
+
+  const fetchChallenges = async () => {
+    try {
+      setChallengesLoading(true);
+      const response = await getChallenges({ status: 'active', limit: 3 });
+      setChallenges(response.data);
+    } catch (error) {
+      console.error('Error fetching challenges:', error);
+    } finally {
+      setChallengesLoading(false);
     }
   };
 
@@ -240,6 +263,110 @@ const SignupList: React.FC = () => {
           })}
         </div>
       )}
+
+      {/* Challenges Section */}
+      <div className="mt-12">
+        <div className="flex items-center gap-3 mb-6">
+          <Trophy className="w-6 h-6 text-yellow-500" />
+          <h2 className="text-2xl font-bold text-gray-900">CTP Challenges</h2>
+          {isBetaTester && (
+            <Badge variant="info" size="sm">Beta</Badge>
+          )}
+        </div>
+
+        {isBetaTester ? (
+          // Beta Testers - Show Active Challenges
+          challengesLoading ? (
+            <div className="flex justify-center items-center min-h-[200px]">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-neon-green"></div>
+            </div>
+          ) : challenges.length === 0 ? (
+            <Card className="p-8 text-center">
+              <Target className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+              <h3 className="text-lg font-semibold text-gray-700 mb-2">No Active Challenges</h3>
+              <p className="text-gray-600 mb-4">Check back soon for new challenges!</p>
+            </Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {challenges.map((challenge) => (
+                  <Card key={challenge.id} className="flex flex-col hover:shadow-lg transition-shadow">
+                    <div className="p-6 flex-1 flex flex-col">
+                      <div className="flex items-start justify-between mb-3">
+                        <h3 className="text-xl font-semibold text-gray-900">{challenge.challenge_name}</h3>
+                        <Badge variant={challenge.status === 'active' ? 'success' : 'default'}>
+                          {challenge.status}
+                        </Badge>
+                      </div>
+
+                      <div className="space-y-3 mb-6">
+                        <div className="flex items-center gap-2 text-gray-700">
+                          <Target className="w-5 h-5 text-indigo-600" />
+                          <span className="text-sm">Hole {challenge.designated_hole}</span>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-gray-700">
+                          <DollarSign className="w-5 h-5 text-green-600" />
+                          <span className="font-semibold">
+                            {Number(challenge.entry_fee || 0) === 0
+                              ? 'Free Entry'
+                              : formatCurrency(challenge.entry_fee)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-gray-600">
+                          <Users className="w-5 h-5" />
+                          <span className="text-sm">{challenge.total_entries || 0} entries</span>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-gray-600">
+                          <Calendar className="w-5 h-5" />
+                          <span className="text-sm">
+                            Ends {formatDate(challenge.week_end_date)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="mt-auto pt-4 border-t border-gray-200">
+                        <Button
+                          onClick={() => navigate(`/challenges/${challenge.id}`)}
+                          className="w-full"
+                          variant="primary"
+                        >
+                          View Challenge
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+              <div className="text-center mt-6">
+                <Button
+                  onClick={() => navigate('/challenges')}
+                  variant="outline"
+                >
+                  View All Challenges
+                </Button>
+              </div>
+            </>
+          )
+        ) : (
+          // Regular Users - Coming Soon
+          <Card className="p-12 text-center bg-gradient-to-br from-yellow-50 to-orange-50 border-2 border-yellow-200">
+            <Trophy className="w-20 h-20 mx-auto text-yellow-500 mb-4" />
+            <h3 className="text-2xl font-bold text-gray-900 mb-3">Coming Soon!</h3>
+            <p className="text-gray-700 text-lg mb-2">
+              Weekly CTP Challenges
+            </p>
+            <p className="text-gray-600 max-w-md mx-auto">
+              Compete against other members in closest-to-the-pin challenges for prizes and bragging rights.
+            </p>
+            <Badge variant="warning" size="lg" className="mt-4">
+              Available Soon
+            </Badge>
+          </Card>
+        )}
+      </div>
     </div>
   );
 };
