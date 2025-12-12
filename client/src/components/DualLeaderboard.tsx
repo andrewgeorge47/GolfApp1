@@ -89,67 +89,50 @@ const DualLeaderboard: React.FC<DualLeaderboardProps> = ({ challenge, onBack }) 
         </div>
       </div>
 
-      {/* Stats Bar or Prize Display */}
-      {Number(challenge.entry_fee || 0) === 0 ? (
-        // Free Challenge - Show prizes
-        ((challenge.prize_1st_image_url || challenge.prize_2nd_image_url || challenge.prize_3rd_image_url) && (
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-              <Trophy className="w-4 h-4 text-yellow-600" />
-              Prizes
-            </h3>
-            <div className="grid grid-cols-3 gap-3">
-              {challenge.prize_1st_image_url && (
-                <div className="text-center">
-                  <img
-                    src={challenge.prize_1st_image_url}
-                    alt="1st Place Prize"
-                    className="w-full h-32 object-cover rounded-lg border-2 border-yellow-400 mb-2"
-                  />
-                  <span className="text-xs font-medium text-yellow-600">1st Place</span>
-                </div>
-              )}
-              {challenge.prize_2nd_image_url && (
-                <div className="text-center">
-                  <img
-                    src={challenge.prize_2nd_image_url}
-                    alt="2nd Place Prize"
-                    className="w-full h-32 object-cover rounded-lg border-2 border-gray-400 mb-2"
-                  />
-                  <span className="text-xs font-medium text-gray-600">2nd Place</span>
-                </div>
-              )}
-              {challenge.prize_3rd_image_url && (
-                <div className="text-center">
-                  <img
-                    src={challenge.prize_3rd_image_url}
-                    alt="3rd Place Prize"
-                    className="w-full h-32 object-cover rounded-lg border-2 border-orange-600 mb-2"
-                  />
-                  <span className="text-xs font-medium text-orange-600">3rd Place</span>
-                </div>
-              )}
-            </div>
-          </div>
-        ))
-      ) : (
-        // Paid Challenge - Show stats
-        <div className="grid grid-cols-3 gap-4">
-          <div className="bg-blue-50 rounded-lg p-3 text-center">
-            <p className="text-2xl font-bold text-blue-600">{ctpEntries.length}</p>
-            <p className="text-xs text-blue-700">Entries</p>
-          </div>
-          <div className="bg-green-50 rounded-lg p-3 text-center">
-            <p className="text-2xl font-bold text-green-600">
-              ${((challenge.total_entry_fees || 0) * 0.5).toFixed(0)}
-            </p>
-            <p className="text-xs text-green-700">CTP Prize</p>
-          </div>
-          <div className="bg-purple-50 rounded-lg p-3 text-center">
-            <p className="text-2xl font-bold text-purple-600">
-              ${Number(hioJackpot?.current_amount || 0).toFixed(0)}
-            </p>
-            <p className="text-xs text-purple-700">HIO Jackpot</p>
+      {/* Stats Bar - Show entry count only, pot calculations disabled */}
+      <div className="bg-blue-50 rounded-lg p-3 text-center mb-4">
+        <p className="text-2xl font-bold text-blue-600">{ctpEntries.length}</p>
+        <p className="text-xs text-blue-700">Total Entries</p>
+      </div>
+
+      {/* Prize Display - Free Challenges Only */}
+      {Number(challenge.entry_fee || 0) === 0 && (challenge.prize_1st_image_url || challenge.prize_2nd_image_url || challenge.prize_3rd_image_url) && (
+        <div className="mb-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <Trophy className="w-4 h-4 text-yellow-600" />
+            Prizes
+          </h3>
+          <div className="grid grid-cols-3 gap-3">
+            {challenge.prize_1st_image_url && (
+              <div className="text-center">
+                <img
+                  src={challenge.prize_1st_image_url}
+                  alt="1st Place Prize"
+                  className="w-full h-32 object-cover rounded-lg border-2 border-yellow-400 mb-2"
+                />
+                <span className="text-xs font-medium text-yellow-600">1st Place</span>
+              </div>
+            )}
+            {challenge.prize_2nd_image_url && (
+              <div className="text-center">
+                <img
+                  src={challenge.prize_2nd_image_url}
+                  alt="2nd Place Prize"
+                  className="w-full h-32 object-cover rounded-lg border-2 border-gray-400 mb-2"
+                />
+                <span className="text-xs font-medium text-gray-600">2nd Place</span>
+              </div>
+            )}
+            {challenge.prize_3rd_image_url && (
+              <div className="text-center">
+                <img
+                  src={challenge.prize_3rd_image_url}
+                  alt="3rd Place Prize"
+                  className="w-full h-32 object-cover rounded-lg border-2 border-orange-600 mb-2"
+                />
+                <span className="text-xs font-medium text-orange-600">3rd Place</span>
+              </div>
+            )}
           </div>
         </div>
       )}

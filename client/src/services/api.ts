@@ -1303,6 +1303,7 @@ export interface WeeklyChallenge {
   course_id?: number;
   course_name?: string;
   required_distance_yards?: number;
+  pending_verification_count?: number;
 }
 
 export interface ChallengePot {

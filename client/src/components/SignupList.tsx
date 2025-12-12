@@ -289,30 +289,38 @@ const SignupList: React.FC = () => {
           ) : (
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {challenges.map((challenge) => (
-                  <Card key={challenge.id} className="flex flex-col hover:shadow-lg transition-shadow">
-                    <div className="p-6 flex-1 flex flex-col">
-                      <div className="flex items-start justify-between mb-3">
-                        <h3 className="text-xl font-semibold text-gray-900">{challenge.challenge_name}</h3>
-                        <Badge variant={challenge.status === 'active' ? 'success' : 'default'}>
-                          {challenge.status}
-                        </Badge>
-                      </div>
+                {challenges.map((challenge) => {
+                  const isFreeChallenge = Number(challenge.entry_fee || 0) === 0;
+                  console.log('SignupList Challenge:', challenge.challenge_name, {
+                    entry_fee: challenge.entry_fee,
+                    entry_fee_type: typeof challenge.entry_fee,
+                    isFreeChallenge
+                  });
 
-                      <div className="space-y-3 mb-6">
-                        <div className="flex items-center gap-2 text-gray-700">
-                          <Target className="w-5 h-5 text-indigo-600" />
-                          <span className="text-sm">Hole {challenge.designated_hole}</span>
+                  return (
+                    <Card key={challenge.id} className="flex flex-col hover:shadow-lg transition-shadow">
+                      <div className="p-6 flex-1 flex flex-col">
+                        <div className="flex items-start justify-between mb-3">
+                          <h3 className="text-xl font-semibold text-gray-900">{challenge.challenge_name}</h3>
+                          <Badge variant={challenge.status === 'active' ? 'success' : 'default'}>
+                            {challenge.status}
+                          </Badge>
                         </div>
 
-                        <div className="flex items-center gap-2 text-gray-700">
-                          <DollarSign className="w-5 h-5 text-green-600" />
-                          <span className="font-semibold">
-                            {Number(challenge.entry_fee || 0) === 0
-                              ? 'Free Entry'
-                              : formatCurrency(challenge.entry_fee)}
-                          </span>
-                        </div>
+                        <div className="space-y-3 mb-6">
+                          <div className="flex items-center gap-2 text-gray-700">
+                            <Target className="w-5 h-5 text-indigo-600" />
+                            <span className="text-sm">Hole {challenge.designated_hole}</span>
+                          </div>
+
+                          <div className="flex items-center gap-2 text-gray-700">
+                            <DollarSign className="w-5 h-5 text-green-600" />
+                            <span className="font-semibold">
+                              {isFreeChallenge
+                                ? 'Free Entry'
+                                : formatCurrency(challenge.entry_fee)}
+                            </span>
+                          </div>
 
                         <div className="flex items-center gap-2 text-gray-600">
                           <Users className="w-5 h-5" />
@@ -329,16 +337,17 @@ const SignupList: React.FC = () => {
 
                       <div className="mt-auto pt-4 border-t border-gray-200">
                         <Button
-                          onClick={() => navigate(`/challenges/${challenge.id}`)}
+                          onClick={() => navigate('/challenges')}
                           className="w-full"
                           variant="primary"
                         >
-                          View Challenge
+                          Enter Challenge
                         </Button>
                       </div>
                     </div>
                   </Card>
-                ))}
+                  );
+                })}
               </div>
               <div className="text-center mt-6">
                 <Button

@@ -85,12 +85,13 @@ const ChallengeCompactCard: React.FC<ChallengeCompactCardProps> = ({
   ) || [];
   const needsSubmission = groupsNeedingSubmission.length > 0;
 
-  const ctpPot = Number(challenge.total_entry_fees || 0) * 0.5;
+  // Pot calculations disabled for now
+  // const ctpPot = Number(challenge.total_entry_fees || 0) * 0.5;
 
-  const formatCurrency = (amount: number | undefined) => {
-    const num = Number(amount) || 0;
-    return num >= 1000 ? `$${(num / 1000).toFixed(1)}k` : `$${num.toFixed(0)}`;
-  };
+  // const formatCurrency = (amount: number | undefined) => {
+  //   const num = Number(amount) || 0;
+  //   return num >= 1000 ? `$${(num / 1000).toFixed(1)}k` : `$${num.toFixed(0)}`;
+  // };
 
   const formatDistance = (inches: number | undefined) => {
     if (inches === undefined || inches === null) return '--';
@@ -263,7 +264,7 @@ const ChallengeCompactCard: React.FC<ChallengeCompactCardProps> = ({
         status={getStatus()}
         participants={{ current: challenge.total_entries }}
         endDate={timeRemaining}
-        prize={myEntry?.best_shot ? formatDistance(myEntry.best_shot.distance_from_pin_inches) : formatCurrency(ctpPot)}
+        prize={myEntry?.best_shot ? formatDistance(myEntry.best_shot.distance_from_pin_inches) : '--'}
         {...(needsSubmission && segmentedActionsConfig
           ? { segmentedActions: segmentedActionsConfig }
           : { onAction: actionConfig.handler, actionLabel: actionConfig.label }

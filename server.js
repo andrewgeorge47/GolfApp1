@@ -16268,7 +16268,16 @@ app.get('/api/challenges', async (req, res) => {
 
     let query = `SELECT wc.*,
                         ct.type_key, ct.type_name, ct.shots_per_group, ct.default_reup_fee, ct.payout_config,
-                        sc.name as course_name, sc.location as course_location
+                        sc.name as course_name, sc.location as course_location,
+                        COALESCE(
+                          (SELECT COUNT(*)
+                           FROM challenge_shot_groups csg
+                           JOIN challenge_shots cs ON cs.group_id = csg.id
+                           JOIN weekly_challenge_entries wce ON wce.id = csg.entry_id
+                           WHERE wce.challenge_id = wc.id
+                           AND cs.verified = false),
+                          0
+                        ) as pending_verification_count
                  FROM weekly_challenges wc
                  LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
                  LEFT JOIN simulator_courses_combined sc ON wc.course_id = sc.id`;

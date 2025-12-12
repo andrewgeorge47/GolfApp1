@@ -84,6 +84,8 @@ const WeeklyChallengeAdmin: React.FC = () => {
   // CTP-specific state
   const [isCTPChallenge, setIsCTPChallenge] = useState(false);
   const [isFreeChallenge, setIsFreeChallenge] = useState(false);
+  const [gsproEnabled, setGsproEnabled] = useState(true);
+  const [trackmanEnabled, setTrackmanEnabled] = useState(true);
   const [ctpConfig, setCtpConfig] = useState({
     pin_day: 'Thursday',
     attempts_per_hole: 3,
@@ -364,41 +366,43 @@ const WeeklyChallengeAdmin: React.FC = () => {
       challenge_type_id: challenge.challenge_type_id?.toString() || '',
       required_distance_yards: challenge.required_distance_yards?.toString() || ''
     });
-    // Pre-fill challenge settings
-    if (challenge.instructions || challenge.gspro_settings || challenge.trackman_settings) {
-      setChallengeSettings({
-        instructions: challenge.instructions || '',
-        platforms: challenge.platforms || ['GSPro', 'Trackman'],
-        gsproSettings: {
-          pins: challenge.gspro_settings?.pins || 'Friday',
-          putting: challenge.gspro_settings?.putting || 'No Gimme',
-          elevation: challenge.gspro_settings?.elevation || 'Course',
-          stimp: challenge.gspro_settings?.stimp || '11',
-          mulligan: challenge.gspro_settings?.mulligan || 'No',
-          gameplay: challenge.gspro_settings?.gameplay || 'Force Realistic',
-          fairway_firmness: challenge.gspro_settings?.fairway_firmness || 'Normal',
-          green_firmness: challenge.gspro_settings?.green_firmness || 'Normal',
-          wind: challenge.gspro_settings?.wind || 'None'
-        },
-        trackmanSettings: {
-          pins: challenge.trackman_settings?.pins || 'Medium',
-          putting: challenge.trackman_settings?.putting || 'No Gimme',
-          stimp: challenge.trackman_settings?.stimp || '11',
-          fairway_firmness: challenge.trackman_settings?.fairway_firmness || 'Medium',
-          green_firmness: challenge.trackman_settings?.green_firmness || 'Medium',
-          wind: challenge.trackman_settings?.wind || 'Calm'
-        },
-        prize1stUrl: challenge.prize_1st_image_url || '',
-        prize2ndUrl: challenge.prize_2nd_image_url || '',
-        prize3rdUrl: challenge.prize_3rd_image_url || ''
-      });
-    }
+    // Pre-fill challenge settings - always reset to avoid stale data
+    setChallengeSettings({
+      instructions: challenge.instructions || '',
+      platforms: challenge.platforms || ['GSPro', 'Trackman'],
+      gsproSettings: {
+        pins: challenge.gspro_settings?.pins || 'Friday',
+        putting: challenge.gspro_settings?.putting || 'No Gimme',
+        elevation: challenge.gspro_settings?.elevation || 'Course',
+        stimp: challenge.gspro_settings?.stimp || '11',
+        mulligan: challenge.gspro_settings?.mulligan || 'No',
+        gameplay: challenge.gspro_settings?.gameplay || 'Force Realistic',
+        fairway_firmness: challenge.gspro_settings?.fairway_firmness || 'Normal',
+        green_firmness: challenge.gspro_settings?.green_firmness || 'Normal',
+        wind: challenge.gspro_settings?.wind || 'None'
+      },
+      trackmanSettings: {
+        pins: challenge.trackman_settings?.pins || 'Medium',
+        putting: challenge.trackman_settings?.putting || 'No Gimme',
+        stimp: challenge.trackman_settings?.stimp || '11',
+        fairway_firmness: challenge.trackman_settings?.fairway_firmness || 'Medium',
+        green_firmness: challenge.trackman_settings?.green_firmness || 'Medium',
+        wind: challenge.trackman_settings?.wind || 'Calm'
+      },
+      prize1stUrl: challenge.prize_1st_image_url || '',
+      prize2ndUrl: challenge.prize_2nd_image_url || '',
+      prize3rdUrl: challenge.prize_3rd_image_url || ''
+    });
     // Set course search
     if (challenge.course_name) {
       setCourseSearchTerm(challenge.course_name);
       setSelectedCourse({ id: challenge.course_id, name: challenge.course_name });
     }
-    setIsFreeChallenge(challenge.entry_fee === 0);
+    // Set platform toggles
+    const platforms = challenge.platforms || ['GSPro', 'Trackman'];
+    setGsproEnabled(platforms.includes('GSPro'));
+    setTrackmanEnabled(platforms.includes('Trackman'));
+    setIsFreeChallenge(Number(challenge.entry_fee || 0) === 0);
     setShowCreateModal(true);
   };
 
@@ -445,11 +449,22 @@ const WeeklyChallengeAdmin: React.FC = () => {
       if (challengeSettings.instructions) {
         challengeData.instructions = challengeSettings.instructions;
       }
-      if (challengeSettings.platforms.length > 0) {
-        challengeData.platforms = challengeSettings.platforms;
+
+      // Build platforms array from enabled toggles
+      const platforms: string[] = [];
+      if (gsproEnabled) platforms.push('GSPro');
+      if (trackmanEnabled) platforms.push('Trackman');
+      if (platforms.length > 0) {
+        challengeData.platforms = platforms;
       }
-      challengeData.gspro_settings = challengeSettings.gsproSettings;
-      challengeData.trackman_settings = challengeSettings.trackmanSettings;
+
+      // Only include settings for enabled platforms
+      if (gsproEnabled) {
+        challengeData.gspro_settings = challengeSettings.gsproSettings;
+      }
+      if (trackmanEnabled) {
+        challengeData.trackman_settings = challengeSettings.trackmanSettings;
+      }
 
       // Add prize image URLs if provided
       if (challengeSettings.prize1stUrl) {
@@ -488,6 +503,8 @@ const WeeklyChallengeAdmin: React.FC = () => {
       });
       setIsFreeChallenge(false);
       setIsCTPChallenge(false);
+      setGsproEnabled(true);
+      setTrackmanEnabled(true);
       setChallengeSettings({
         instructions: '',
         platforms: ['GSPro', 'Trackman'],
@@ -618,6 +635,64 @@ const WeeklyChallengeAdmin: React.FC = () => {
     return `${feet}' ${remainingInches}"`;
   };
 
+  const handleCreateClick = () => {
+    // Reset all form state before opening create modal
+    setEditingChallenge(null);
+    setNewChallenge({
+      challenge_name: '',
+      designated_hole: 1,
+      entry_fee: 5,
+      reup_fee: 3,
+      week_start_date: '',
+      week_end_date: '',
+      course_id: '',
+      challenge_type_id: '',
+      required_distance_yards: ''
+    });
+    setIsFreeChallenge(false);
+    setIsCTPChallenge(false);
+    setGsproEnabled(true);
+    setTrackmanEnabled(true);
+    setChallengeSettings({
+      instructions: '',
+      platforms: ['GSPro', 'Trackman'],
+      gsproSettings: {
+        pins: 'Friday',
+        putting: 'No Gimme',
+        elevation: 'Course',
+        stimp: '11',
+        mulligan: 'No',
+        gameplay: 'Force Realistic',
+        fairway_firmness: 'Normal',
+        green_firmness: 'Normal',
+        wind: 'None'
+      },
+      trackmanSettings: {
+        pins: 'Medium',
+        putting: 'No Gimme',
+        stimp: '11',
+        fairway_firmness: 'Medium',
+        green_firmness: 'Medium',
+        wind: 'Calm'
+      },
+      prize1stUrl: '',
+      prize2ndUrl: '',
+      prize3rdUrl: ''
+    });
+    setCtpConfig({
+      pin_day: 'Thursday',
+      attempts_per_hole: 3,
+      selected_options: [],
+      mode: 'par3-holes',
+      tee_type: 'White'
+    });
+    setSelectedCourse(null);
+    setCourseSearchTerm('');
+    setCourseHoleDetails(null);
+    setCtpOptions([]);
+    setShowCreateModal(true);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header with Pot Info */}
@@ -633,14 +708,15 @@ const WeeklyChallengeAdmin: React.FC = () => {
                 <p className="text-xs sm:text-sm text-gray-600">Manage weekly challenges</p>
               </div>
             </div>
-            <Button variant="primary" size="sm" responsive onClick={() => setShowCreateModal(true)}>
+            <Button variant="primary" size="sm" responsive onClick={handleCreateClick}>
               <Plus className="w-4 h-4 mr-1 sm:mr-2" />
               Create
             </Button>
           </div>
         </CardHeader>
         <CardContent>
-          {pot && (
+          {/* Pot display disabled for now */}
+          {/* {pot && (
             <div className="grid grid-cols-3 gap-2 sm:gap-4">
               <div className="bg-green-50 rounded-lg p-2 sm:p-4">
                 <div className="text-xs sm:text-sm text-gray-600 mb-1">Current Pot</div>
@@ -655,7 +731,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
                 <div className="text-sm sm:text-2xl font-bold text-purple-600">${Number(pot.total_contributions).toFixed(2)}</div>
               </div>
             </div>
-          )}
+          )} */}
         </CardContent>
       </Card>
 
@@ -704,11 +780,18 @@ const WeeklyChallengeAdmin: React.FC = () => {
                                 <span className="ml-1 sm:ml-2 font-semibold">{challenge.total_entries}</span>
                               </div>
                               <div>
+                                <span className="text-gray-600">Pending Review:</span>
+                                <span className={`ml-1 sm:ml-2 font-semibold ${(challenge.pending_verification_count || 0) > 0 ? 'text-orange-600' : 'text-gray-900'}`}>
+                                  {challenge.pending_verification_count || 0}
+                                </span>
+                              </div>
+                              {/* Pot display disabled for now */}
+                              {/* <div>
                                 <span className="text-gray-600">Pot:</span>
                                 <span className="ml-1 sm:ml-2 font-semibold text-green-600">
                                   ${(Number(challenge.starting_pot || 0) + (Number(challenge.total_entry_fees) * 0.5)).toFixed(2)}
                                 </span>
-                              </div>
+                              </div> */}
                               <div>
                                 <Badge variant={challenge.status === 'active' ? 'success' : 'default'}>
                                   {challenge.status}
@@ -941,7 +1024,8 @@ const WeeklyChallengeAdmin: React.FC = () => {
                               {challenge.has_hole_in_one ? 'HIO' : 'CTP'}
                             </span>
                           </div>
-                          <div>
+                          {/* Payout/Rollover display and Mark Paid button disabled for now */}
+                          {/* <div>
                             <span className="text-gray-600">Payout:</span>
                             <span className="ml-1 sm:ml-2 font-semibold text-green-600">
                               ${Number(challenge.payout_amount).toFixed(2)}
@@ -968,7 +1052,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
                                 Paid
                               </Badge>
                             )}
-                          </div>
+                          </div> */}
                         </div>
                       </div>
                     ))}
@@ -1457,6 +1541,295 @@ const WeeklyChallengeAdmin: React.FC = () => {
                     placeholder="Add any special instructions or notes for participants..."
                   />
 
+                  {/* GSPro Settings */}
+                  <div className="mt-6">
+                    <div className="flex items-center justify-between mb-3">
+                      <h5 className="font-semibold text-gray-900">GSPro Settings</h5>
+                      <Switch
+                        checked={gsproEnabled}
+                        onChange={(e) => setGsproEnabled(e.target.checked)}
+                        switchSize="md"
+                      />
+                    </div>
+                    {gsproEnabled && (
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Pins</label>
+                        <select
+                          value={challengeSettings.gsproSettings.pins}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            gsproSettings: { ...challengeSettings.gsproSettings, pins: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="Friday">Friday</option>
+                          <option value="Saturday">Saturday</option>
+                          <option value="Sunday">Sunday</option>
+                          <option value="Easy">Easy</option>
+                          <option value="Hard">Hard</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Putting</label>
+                        <select
+                          value={challengeSettings.gsproSettings.putting}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            gsproSettings: { ...challengeSettings.gsproSettings, putting: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="No Gimme">No Gimme</option>
+                          <option value="3' Gimme">3' Gimme</option>
+                          <option value="5' Gimme">5' Gimme</option>
+                          <option value="8' Gimme">8' Gimme</option>
+                          <option value="10' Gimme">10' Gimme</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Elevation</label>
+                        <select
+                          value={challengeSettings.gsproSettings.elevation}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            gsproSettings: { ...challengeSettings.gsproSettings, elevation: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="Course">Course</option>
+                          <option value="Off">Off</option>
+                          <option value="High">High</option>
+                          <option value="Low">Low</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Stimp</label>
+                        <select
+                          value={challengeSettings.gsproSettings.stimp}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            gsproSettings: { ...challengeSettings.gsproSettings, stimp: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="8">8</option>
+                          <option value="9">9</option>
+                          <option value="10">10</option>
+                          <option value="11">11</option>
+                          <option value="12">12</option>
+                          <option value="13">13</option>
+                          <option value="14">14</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Mulligan</label>
+                        <select
+                          value={challengeSettings.gsproSettings.mulligan}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            gsproSettings: { ...challengeSettings.gsproSettings, mulligan: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="No">No</option>
+                          <option value="Yes">Yes</option>
+                          <option value="1 per hole">1 per hole</option>
+                          <option value="2 per round">2 per round</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Game Play</label>
+                        <select
+                          value={challengeSettings.gsproSettings.gameplay}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            gsproSettings: { ...challengeSettings.gsproSettings, gameplay: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="Force Realistic">Force Realistic</option>
+                          <option value="Allow Unrealistic">Allow Unrealistic</option>
+                          <option value="Tournament Mode">Tournament Mode</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Fairway Firmness</label>
+                        <select
+                          value={challengeSettings.gsproSettings.fairway_firmness}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            gsproSettings: { ...challengeSettings.gsproSettings, fairway_firmness: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="Normal">Normal</option>
+                          <option value="Soft">Soft</option>
+                          <option value="Firm">Firm</option>
+                          <option value="Very Firm">Very Firm</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Green Firmness</label>
+                        <select
+                          value={challengeSettings.gsproSettings.green_firmness}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            gsproSettings: { ...challengeSettings.gsproSettings, green_firmness: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="Normal">Normal</option>
+                          <option value="Soft">Soft</option>
+                          <option value="Firm">Firm</option>
+                          <option value="Very Firm">Very Firm</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Wind</label>
+                        <select
+                          value={challengeSettings.gsproSettings.wind}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            gsproSettings: { ...challengeSettings.gsproSettings, wind: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="None">None</option>
+                          <option value="Light">Light</option>
+                          <option value="Moderate">Moderate</option>
+                          <option value="Strong">Strong</option>
+                          <option value="Random">Random</option>
+                        </select>
+                      </div>
+                    </div>
+                    )}
+                  </div>
+
+                  {/* Trackman Settings */}
+                  <div className="mt-6">
+                    <div className="flex items-center justify-between mb-3">
+                      <h5 className="font-semibold text-gray-900">Trackman Settings</h5>
+                      <Switch
+                        checked={trackmanEnabled}
+                        onChange={(e) => setTrackmanEnabled(e.target.checked)}
+                        switchSize="md"
+                      />
+                    </div>
+                    {trackmanEnabled && (
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Pins</label>
+                        <select
+                          value={challengeSettings.trackmanSettings.pins}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            trackmanSettings: { ...challengeSettings.trackmanSettings, pins: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="Easy">Easy</option>
+                          <option value="Medium">Medium</option>
+                          <option value="Hard">Hard</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Putting</label>
+                        <select
+                          value={challengeSettings.trackmanSettings.putting}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            trackmanSettings: { ...challengeSettings.trackmanSettings, putting: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="No Gimme">No Gimme</option>
+                          <option value="3' Gimme">3' Gimme</option>
+                          <option value="5' Gimme">5' Gimme</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Stimp</label>
+                        <select
+                          value={challengeSettings.trackmanSettings.stimp}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            trackmanSettings: { ...challengeSettings.trackmanSettings, stimp: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="8">8</option>
+                          <option value="9">9</option>
+                          <option value="10">10</option>
+                          <option value="11">11</option>
+                          <option value="12">12</option>
+                          <option value="13">13</option>
+                          <option value="14">14</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Fairway Firmness</label>
+                        <select
+                          value={challengeSettings.trackmanSettings.fairway_firmness}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            trackmanSettings: { ...challengeSettings.trackmanSettings, fairway_firmness: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="Easy">Easy</option>
+                          <option value="Medium">Medium</option>
+                          <option value="Hard">Hard</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Green Firmness</label>
+                        <select
+                          value={challengeSettings.trackmanSettings.green_firmness}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            trackmanSettings: { ...challengeSettings.trackmanSettings, green_firmness: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="Easy">Easy</option>
+                          <option value="Medium">Medium</option>
+                          <option value="Hard">Hard</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Wind</label>
+                        <select
+                          value={challengeSettings.trackmanSettings.wind}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            trackmanSettings: { ...challengeSettings.trackmanSettings, wind: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="Calm">Calm</option>
+                          <option value="Light">Light</option>
+                          <option value="Moderate">Moderate</option>
+                          <option value="Strong">Strong</option>
+                        </select>
+                      </div>
+                    </div>
+                    )}
+                  </div>
+
                   {/* Prize Image Uploads */}
                   <div className="mt-4">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Prize Images (Optional)</label>
@@ -1653,7 +2026,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
         <ConfirmationDialog
           open={true}
           title="Finalize Challenge?"
-          message={`This will determine the winner and update the pot. Total entries: ${selectedChallenge.total_entries}. This action cannot be undone.`}
+          message={`This will determine the winner. Total entries: ${selectedChallenge.total_entries}. This action cannot be undone.`}
           confirmText="Finalize"
           variant="danger"
           onConfirm={handleFinalizeChallenge}
