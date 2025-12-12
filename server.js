@@ -11,17 +11,10 @@ const path = require('path');
 const fs = require('fs');
 const { Storage } = require('@google-cloud/storage');
 
-// Google Cloud Storage configuration (optional - falls back to local storage)
+// Google Cloud Storage configuration will be initialized later with proper credentials
+// See lines ~7893-7905 for the actual initialization
 let storage;
 let bucketName;
-try {
-  if (process.env.GCS_BUCKET_NAME) {
-    storage = new Storage();
-    bucketName = process.env.GCS_BUCKET_NAME;
-  }
-} catch (err) {
-  console.log('GCS not configured, using local storage for uploads');
-}
 
 // Stripe configuration
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -7900,11 +7893,18 @@ if (process.env.GCP_PROJECT_ID && process.env.GCS_BUCKET_NAME && process.env.GCS
       keyFilename: process.env.GCS_KEYFILE_PATH
     });
     bucket = gcs.bucket(process.env.GCS_BUCKET_NAME);
+
+    // Set shared GCS variables for challenge uploads
+    storage = gcs;
+    bucketName = process.env.GCS_BUCKET_NAME;
+
     console.log('Google Cloud Storage initialized successfully');
   } catch (error) {
     console.warn('Google Cloud Storage initialization failed:', error.message);
     gcs = null;
     bucket = null;
+    storage = null;
+    bucketName = null;
   }
 } else {
   console.log('Google Cloud Storage not configured - file uploads will be disabled');
@@ -15550,6 +15550,7 @@ app.post('/api/challenges/:id/groups/:groupId/screenshot',
       // Try GCS first, fallback to local
       if (storage && bucketName) {
         try {
+          console.log(`Uploading group screenshot to GCS bucket: ${bucketName}`);
           const bucket = storage.bucket(bucketName);
           const fileName = `challenges/${challengeId}/groups/${groupId}_${Date.now()}_${req.file.originalname}`;
           const file = bucket.file(fileName);
@@ -15559,8 +15560,9 @@ app.post('/api/challenges/:id/groups/:groupId/screenshot',
           });
 
           screenshotUrl = `https://storage.googleapis.com/${bucketName}/${fileName}`;
+          console.log(`GCS upload successful: ${screenshotUrl}`);
         } catch (gcsErr) {
-          console.error('GCS upload failed, using local storage:', gcsErr);
+          console.error('GCS upload failed, falling back to local storage:', gcsErr.message);
           // Fallback to local
           const uploadDir = path.join(__dirname, 'uploads', 'challenges', challengeId.toString(), 'groups');
           if (!fs.existsSync(uploadDir)) {
@@ -15572,6 +15574,7 @@ app.post('/api/challenges/:id/groups/:groupId/screenshot',
         }
       } else {
         // Local storage
+        console.log('GCS not configured, using local storage for group screenshot');
         const uploadDir = path.join(__dirname, 'uploads', 'challenges', challengeId.toString(), 'groups');
         if (!fs.existsSync(uploadDir)) {
           fs.mkdirSync(uploadDir, { recursive: true });
@@ -15944,6 +15947,7 @@ app.post('/api/challenges/:id/shots/:shotId/detail',
       // Try GCS first, fallback to local
       if (storage && bucketName) {
         try {
+          console.log(`Uploading shot detail to GCS bucket: ${bucketName}`);
           const bucket = storage.bucket(bucketName);
           const fileName = `challenges/${challengeId}/shots/${shotId}_${Date.now()}_${req.file.originalname}`;
           const file = bucket.file(fileName);
@@ -15953,8 +15957,9 @@ app.post('/api/challenges/:id/shots/:shotId/detail',
           });
 
           detailUrl = `https://storage.googleapis.com/${bucketName}/${fileName}`;
+          console.log(`GCS upload successful: ${detailUrl}`);
         } catch (gcsErr) {
-          console.error('GCS upload failed, using local storage:', gcsErr);
+          console.error('GCS upload failed, falling back to local storage:', gcsErr.message);
           const uploadDir = path.join(__dirname, 'uploads', 'challenges', challengeId.toString(), 'shots');
           if (!fs.existsSync(uploadDir)) {
             fs.mkdirSync(uploadDir, { recursive: true });
@@ -15964,6 +15969,7 @@ app.post('/api/challenges/:id/shots/:shotId/detail',
           detailUrl = `/uploads/challenges/${challengeId}/shots/${fileName}`;
         }
       } else {
+        console.log('GCS not configured, using local storage for shot detail');
         const uploadDir = path.join(__dirname, 'uploads', 'challenges', challengeId.toString(), 'shots');
         if (!fs.existsSync(uploadDir)) {
           fs.mkdirSync(uploadDir, { recursive: true });
