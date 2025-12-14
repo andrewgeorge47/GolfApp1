@@ -2240,4 +2240,38 @@ export const updateFeatureTest = (id: number, data: Partial<FeatureTest>) =>
 export const deleteFeatureTest = (id: number) =>
   api.delete<{ message: string; id: number }>(`/feature-testing/${id}`);
 
+// ========================================
+// User Onboarding Types
+// ========================================
+
+export interface OnboardingStatus {
+  welcome_completed: boolean;
+  welcome_completed_at?: string;
+  quiz_score?: number;
+  waiver_acknowledged: boolean;
+  waiver_acknowledged_at?: string;
+  ctp_tutorial_completed: boolean;
+  ctp_tutorial_completed_at?: string;
+  onboarding_complete: boolean;
+}
+
+// ========================================
+// User Onboarding API Functions
+// ========================================
+
+export const getOnboardingStatus = () =>
+  api.get<OnboardingStatus>('/user/onboarding-status');
+
+export const completeWelcome = (quizScore: number) =>
+  api.post('/user/onboarding/welcome', { quiz_score: quizScore });
+
+export const completeWaiver = () =>
+  api.post('/user/onboarding/waiver');
+
+export const completeCTPTutorial = () =>
+  api.post('/user/onboarding/ctp-tutorial');
+
+export const resetOnboarding = () =>
+  api.delete('/user/onboarding');
+
 export default api; 

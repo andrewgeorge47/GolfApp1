@@ -68,7 +68,7 @@ const PaymentForm: React.FC<{
     ? (challengeType?.default_reup_fee || 3)
     : (challenge.entry_fee || challengeType?.default_entry_fee || 5);
 
-  const shotsPerGroup = challengeType?.shots_per_group || 5;
+  const shotsPerGroup = challengeType?.shots_per_group || 4;
   const payoutConfig = challengeType?.payout_config;
 
   // Create payment intent when modal opens

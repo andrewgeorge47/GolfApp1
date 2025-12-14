@@ -17833,6 +17833,8 @@ app.get('/api/user/onboarding-status', authenticateToken, async (req, res) => {
         quiz_score,
         waiver_acknowledged,
         waiver_acknowledged_at,
+        ctp_tutorial_completed,
+        ctp_tutorial_completed_at,
         (welcome_completed AND waiver_acknowledged) as onboarding_complete
        FROM user_onboarding
        WHERE user_id = $1 AND club_name = $2`,
@@ -17844,6 +17846,7 @@ app.get('/api/user/onboarding-status', authenticateToken, async (req, res) => {
       return res.json({
         welcome_completed: false,
         waiver_acknowledged: false,
+        ctp_tutorial_completed: false,
         onboarding_complete: false
       });
     }
@@ -17936,6 +17939,35 @@ app.post('/api/user/onboarding/waiver', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Error saving waiver acknowledgement:', err);
     res.status(500).json({ error: 'Failed to save waiver acknowledgement' });
+  }
+});
+
+// POST /api/user/onboarding/ctp-tutorial - Complete CTP tutorial
+app.post('/api/user/onboarding/ctp-tutorial', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.member_id;
+    const clubName = req.body?.club || req.user.club || 'No. 5';
+
+    // Upsert the onboarding record to mark CTP tutorial as completed
+    const result = await pool.query(
+      `INSERT INTO user_onboarding (user_id, club_name, ctp_tutorial_completed, ctp_tutorial_completed_at)
+       VALUES ($1, $2, TRUE, NOW())
+       ON CONFLICT (user_id, club_name)
+       DO UPDATE SET
+         ctp_tutorial_completed = TRUE,
+         ctp_tutorial_completed_at = NOW()
+       RETURNING *`,
+      [userId, clubName]
+    );
+
+    res.json({
+      success: true,
+      message: 'CTP tutorial completed successfully',
+      data: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error saving CTP tutorial completion:', err);
+    res.status(500).json({ error: 'Failed to save CTP tutorial progress' });
   }
 });
 
