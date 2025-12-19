@@ -14,6 +14,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { getLeague, getLeagueStandings } from '../services/api';
 
 interface League {
   id: number;
@@ -73,303 +74,72 @@ const LeagueStandings: React.FC<LeagueStandingsProps> = ({ leagueId }) => {
 
   const loadStandings = async () => {
     if (!leagueId) return;
-    
+
     setLoading(true);
     try {
-      // Mock data for demonstration
-      const mockData: StandingsData = {
+      // Fetch league details
+      const leagueResponse = await getLeague(leagueId);
+      const leagueData = leagueResponse.data;
+
+      // Fetch standings
+      const standingsResponse = await getLeagueStandings(leagueId);
+      const standingsAPIData = standingsResponse.data;
+
+      // Transform API data to component format
+      const allStandings: TeamStanding[] = [];
+      const divisionsRecord: Record<string, TeamStanding[]> = {};
+
+      standingsAPIData.divisions.forEach((division: any) => {
+        const divisionStandings: TeamStanding[] = division.teams.map((team: any) => ({
+          league_id: leagueId,
+          division_id: division.division_id,
+          division_name: division.division_name,
+          team_id: team.team_id,
+          team_name: team.team_name,
+          captain_id: 0, // Not provided by API
+          captain_name: team.captain_name || 'Unknown',
+          matches_played: team.wins + team.ties + team.losses,
+          wins: team.wins,
+          ties: team.ties,
+          losses: team.losses,
+          total_points: team.total_points,
+          league_points: team.total_points,
+          aggregate_net_score: team.aggregate_net_score,
+          second_half_net_score: 0, // Not provided by API
+          final_week_net_score: 0, // Not provided by API
+          division_rank: team.rank_in_division,
+          rank_in_division: team.rank_in_division,
+          playoff_qualified: team.playoff_qualified,
+          recent_form: '' // Not provided by API
+        }));
+
+        divisionsRecord[division.division_name] = divisionStandings;
+        allStandings.push(...divisionStandings);
+      });
+
+      const transformedData: StandingsData = {
         league: {
-          id: leagueId,
-          name: "UAL Season 2 Winter 2025",
-          season: "Winter 2025",
-          playoff_format: "top_per_division",
-          divisions_count: 2
+          id: leagueData.id,
+          name: leagueData.name,
+          season: leagueData.season || '',
+          playoff_format: leagueData.playoff_format || 'top_per_division',
+          divisions_count: standingsAPIData.divisions.length
         },
-        standings: [
-          {
-            league_id: leagueId,
-            division_id: 1,
-            division_name: "Division A",
-            team_id: 1,
-            team_name: "Team Alpha",
-            captain_id: 101,
-            captain_name: "John Smith",
-            matches_played: 8,
-            wins: 6,
-            ties: 1,
-            losses: 1,
-            total_points: 13.0,
-            league_points: 13.0,
-            aggregate_net_score: 142,
-            second_half_net_score: 68,
-            final_week_net_score: 34,
-            division_rank: 1,
-            rank_in_division: 1,
-            playoff_qualified: true,
-            recent_form: "WWLWT"
-          },
-          {
-            league_id: leagueId,
-            division_id: 1,
-            division_name: "Division A",
-            team_id: 2,
-            team_name: "Team Beta",
-            captain_id: 102,
-            captain_name: "Sarah Johnson",
-            matches_played: 8,
-            wins: 5,
-            ties: 2,
-            losses: 1,
-            total_points: 12.0,
-            league_points: 12.0,
-            aggregate_net_score: 148,
-            second_half_net_score: 72,
-            final_week_net_score: 36,
-            division_rank: 2,
-            rank_in_division: 2,
-            playoff_qualified: false,
-            recent_form: "WLWTW"
-          },
-          {
-            league_id: leagueId,
-            division_id: 1,
-            division_name: "Division A",
-            team_id: 3,
-            team_name: "Team Gamma",
-            captain_id: 103,
-            captain_name: "Mike Davis",
-            matches_played: 8,
-            wins: 4,
-            ties: 1,
-            losses: 3,
-            total_points: 9.0,
-            league_points: 9.0,
-            aggregate_net_score: 155,
-            second_half_net_score: 78,
-            final_week_net_score: 39,
-            division_rank: 3,
-            rank_in_division: 3,
-            playoff_qualified: false,
-            recent_form: "LWLTL"
-          },
-          {
-            league_id: leagueId,
-            division_id: 2,
-            division_name: "Division B",
-            team_id: 4,
-            team_name: "Team Delta",
-            captain_id: 104,
-            captain_name: "Emily Wilson",
-            matches_played: 8,
-            wins: 7,
-            ties: 0,
-            losses: 1,
-            total_points: 14.0,
-            league_points: 14.0,
-            aggregate_net_score: 138,
-            second_half_net_score: 65,
-            final_week_net_score: 32,
-            division_rank: 1,
-            rank_in_division: 1,
-            playoff_qualified: true,
-            recent_form: "WWWWL"
-          },
-          {
-            league_id: leagueId,
-            division_id: 2,
-            division_name: "Division B",
-            team_id: 5,
-            team_name: "Team Epsilon",
-            captain_id: 105,
-            captain_name: "David Brown",
-            matches_played: 8,
-            wins: 5,
-            ties: 1,
-            losses: 2,
-            total_points: 11.5,
-            league_points: 11.5,
-            aggregate_net_score: 145,
-            second_half_net_score: 70,
-            final_week_net_score: 35,
-            division_rank: 2,
-            rank_in_division: 2,
-            playoff_qualified: false,
-            recent_form: "WLTWW"
-          },
-          {
-            league_id: leagueId,
-            division_id: 2,
-            division_name: "Division B",
-            team_id: 6,
-            team_name: "Team Zeta",
-            captain_id: 106,
-            captain_name: "Lisa Anderson",
-            matches_played: 8,
-            wins: 3,
-            ties: 2,
-            losses: 3,
-            total_points: 8.0,
-            league_points: 8.0,
-            aggregate_net_score: 162,
-            second_half_net_score: 82,
-            final_week_net_score: 41,
-            division_rank: 3,
-            rank_in_division: 3,
-            playoff_qualified: false,
-            recent_form: "TLWLT"
-          }
-        ],
-        divisions: {
-          "Division A": [
-            {
-              league_id: leagueId,
-              division_id: 1,
-              division_name: "Division A",
-              team_id: 1,
-              team_name: "Team Alpha",
-              captain_id: 101,
-              captain_name: "John Smith",
-              matches_played: 8,
-              wins: 6,
-              ties: 1,
-              losses: 1,
-              total_points: 13.0,
-              league_points: 13.0,
-              aggregate_net_score: 142,
-              second_half_net_score: 68,
-              final_week_net_score: 34,
-              division_rank: 1,
-              rank_in_division: 1,
-              playoff_qualified: true,
-              recent_form: "WWLWT"
-            },
-            {
-              league_id: leagueId,
-              division_id: 1,
-              division_name: "Division A",
-              team_id: 2,
-              team_name: "Team Beta",
-              captain_id: 102,
-              captain_name: "Sarah Johnson",
-              matches_played: 8,
-              wins: 5,
-              ties: 2,
-              losses: 1,
-              total_points: 12.0,
-              league_points: 12.0,
-              aggregate_net_score: 148,
-              second_half_net_score: 72,
-              final_week_net_score: 36,
-              division_rank: 2,
-              rank_in_division: 2,
-              playoff_qualified: false,
-              recent_form: "WLWTW"
-            },
-            {
-              league_id: leagueId,
-              division_id: 1,
-              division_name: "Division A",
-              team_id: 3,
-              team_name: "Team Gamma",
-              captain_id: 103,
-              captain_name: "Mike Davis",
-              matches_played: 8,
-              wins: 4,
-              ties: 1,
-              losses: 3,
-              total_points: 9.0,
-              league_points: 9.0,
-              aggregate_net_score: 155,
-              second_half_net_score: 78,
-              final_week_net_score: 39,
-              division_rank: 3,
-              rank_in_division: 3,
-              playoff_qualified: false,
-              recent_form: "LWLTL"
-            }
-          ],
-          "Division B": [
-            {
-              league_id: leagueId,
-              division_id: 2,
-              division_name: "Division B",
-              team_id: 4,
-              team_name: "Team Delta",
-              captain_id: 104,
-              captain_name: "Emily Wilson",
-              matches_played: 8,
-              wins: 7,
-              ties: 0,
-              losses: 1,
-              total_points: 14.0,
-              league_points: 14.0,
-              aggregate_net_score: 138,
-              second_half_net_score: 65,
-              final_week_net_score: 32,
-              division_rank: 1,
-              rank_in_division: 1,
-              playoff_qualified: true,
-              recent_form: "WWWWL"
-            },
-            {
-              league_id: leagueId,
-              division_id: 2,
-              division_name: "Division B",
-              team_id: 5,
-              team_name: "Team Epsilon",
-              captain_id: 105,
-              captain_name: "David Brown",
-              matches_played: 8,
-              wins: 5,
-              ties: 1,
-              losses: 2,
-              total_points: 11.5,
-              league_points: 11.5,
-              aggregate_net_score: 145,
-              second_half_net_score: 70,
-              final_week_net_score: 35,
-              division_rank: 2,
-              rank_in_division: 2,
-              playoff_qualified: false,
-              recent_form: "WLTWW"
-            },
-            {
-              league_id: leagueId,
-              division_id: 2,
-              division_name: "Division B",
-              team_id: 6,
-              team_name: "Team Zeta",
-              captain_id: 106,
-              captain_name: "Lisa Anderson",
-              matches_played: 8,
-              wins: 3,
-              ties: 2,
-              losses: 3,
-              total_points: 8.0,
-              league_points: 8.0,
-              aggregate_net_score: 162,
-              second_half_net_score: 82,
-              final_week_net_score: 41,
-              division_rank: 3,
-              rank_in_division: 3,
-              playoff_qualified: false,
-              recent_form: "TLWLT"
-            }
-          ]
-        },
-        playoff_format: "top_per_division"
+        standings: allStandings,
+        divisions: divisionsRecord,
+        playoff_format: leagueData.playoff_format || 'top_per_division'
       };
-      
-      setStandingsData(mockData);
-      setActiveDivision("Division A");
-      
-      // Simulate loading delay
-      setTimeout(() => {
-        setLoading(false);
-      }, 500);
-    } catch (error) {
+
+      setStandingsData(transformedData);
+
+      // Set first division as active if available
+      if (standingsAPIData.divisions.length > 0) {
+        setActiveDivision(standingsAPIData.divisions[0].division_name);
+      }
+    } catch (error: any) {
       console.error('Error loading standings:', error);
-      toast.error('Failed to load standings');
+      toast.error(error.response?.data?.error || 'Failed to load standings');
+    } finally {
       setLoading(false);
     }
   };

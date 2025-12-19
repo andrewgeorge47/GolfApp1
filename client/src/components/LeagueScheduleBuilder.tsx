@@ -16,14 +16,14 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import { 
-  Button, 
-  Card, 
-  CardHeader, 
-  CardContent, 
-  Modal, 
-  ModalHeader, 
-  ModalContent, 
+import {
+  Button,
+  Card,
+  CardHeader,
+  CardContent,
+  Modal,
+  ModalHeader,
+  ModalContent,
   ModalFooter,
   FormDialog,
   Input,
@@ -34,6 +34,16 @@ import {
   Loading,
   Spinner
 } from './ui';
+import {
+  getLeagueDivisions,
+  getLeagueTeams,
+  getLeagueSchedule,
+  getLeagueMatchups,
+  generateLeagueSchedule,
+  generateLeagueMatchups,
+  deleteMatchup,
+  getSimulatorCourses
+} from '../services/api';
 
 interface ScheduleWeek {
   id: number;
@@ -79,7 +89,11 @@ interface Course {
   par: number;
 }
 
-const LeagueScheduleBuilder: React.FC = () => {
+interface LeagueScheduleBuilderProps {
+  leagueId: number;
+}
+
+const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId }) => {
   const [divisions, setDivisions] = useState<Division[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [scheduleWeeks, setScheduleWeeks] = useState<ScheduleWeek[]>([]);
@@ -108,119 +122,89 @@ const LeagueScheduleBuilder: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (leagueId) {
+      loadData();
+    }
+  }, [leagueId]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      // TODO: Replace with actual API calls
-      // Mock data for now
-      const mockDivisions: Division[] = [
-        {
-          id: 1,
-          name: 'Division A',
-          teams: [
-            { id: 1, name: 'Team Alpha', division_id: 1, captain_name: 'John Doe' },
-            { id: 2, name: 'Team Beta', division_id: 1, captain_name: 'Jane Smith' },
-            { id: 3, name: 'Team Gamma', division_id: 1, captain_name: 'Bob Johnson' },
-            { id: 4, name: 'Team Delta', division_id: 1, captain_name: 'Alice Brown' }
-          ]
-        },
-        {
-          id: 2,
-          name: 'Division B',
-          teams: [
-            { id: 5, name: 'Team Echo', division_id: 2, captain_name: 'Charlie Wilson' },
-            { id: 6, name: 'Team Foxtrot', division_id: 2, captain_name: 'David Lee' },
-            { id: 7, name: 'Team Golf', division_id: 2, captain_name: 'Emma Davis' },
-            { id: 8, name: 'Team Hotel', division_id: 2, captain_name: 'Frank Miller' }
-          ]
-        }
-      ];
+      // Load divisions
+      const divisionsResponse = await getLeagueDivisions(leagueId);
+      const divisionsData = divisionsResponse.data;
 
-      const mockCourses: Course[] = [
-        { id: 1, name: 'Augusta National', location: 'Augusta, GA', par: 72 },
-        { id: 2, name: 'Pebble Beach', location: 'Pebble Beach, CA', par: 72 },
-        { id: 3, name: 'St. Andrews', location: 'St. Andrews, Scotland', par: 72 },
-        { id: 4, name: 'TPC Sawgrass', location: 'Ponte Vedra Beach, FL', par: 72 }
-      ];
+      // Load teams
+      const teamsResponse = await getLeagueTeams(leagueId);
+      const teamsData = teamsResponse.data;
 
-      const mockScheduleWeeks: ScheduleWeek[] = [
-        {
-          id: 1,
-          week_number: 1,
-          start_date: '2024-03-01',
-          end_date: '2024-03-07',
-          course_id: 1,
-          course_name: 'Augusta National',
-          status: 'completed',
-          matches: [
-            {
-              id: 1,
-              team1_id: 1,
-              team1_name: 'Team Alpha',
-              team2_id: 2,
-              team2_name: 'Team Beta',
-              division_id: 1,
-              week_id: 1,
-              status: 'completed',
-              team1_score: 2,
-              team2_score: 1
-            },
-            {
-              id: 2,
-              team1_id: 3,
-              team1_name: 'Team Gamma',
-              team2_id: 4,
-              team2_name: 'Team Delta',
-              division_id: 1,
-              week_id: 1,
-              status: 'completed',
-              team1_score: 1,
-              team2_score: 2
-            }
-          ]
-        },
-        {
-          id: 2,
-          week_number: 2,
-          start_date: '2024-03-08',
-          end_date: '2024-03-14',
-          course_id: 2,
-          course_name: 'Pebble Beach',
-          status: 'active',
-          matches: [
-            {
-              id: 3,
-              team1_id: 1,
-              team1_name: 'Team Alpha',
-              team2_id: 3,
-              team2_name: 'Team Gamma',
-              division_id: 1,
-              week_id: 2,
-              status: 'scheduled'
-            },
-            {
-              id: 4,
-              team1_id: 2,
-              team1_name: 'Team Beta',
-              team2_id: 4,
-              team2_name: 'Team Delta',
-              division_id: 1,
-              week_id: 2,
-              status: 'scheduled'
-            }
-          ]
-        }
-      ];
+      // Group teams by division
+      const divisionsWithTeams: Division[] = divisionsData.map((div: any) => ({
+        id: div.id,
+        name: div.division_name,
+        teams: teamsData
+          .filter((team: any) => team.division_id === div.id)
+          .map((team: any) => ({
+            id: team.id,
+            name: team.name,
+            division_id: team.division_id,
+            captain_name: team.captain_name || 'Unknown'
+          }))
+      }));
 
-      setDivisions(mockDivisions);
-      setCourses(mockCourses);
-      setScheduleWeeks(mockScheduleWeeks);
-    } catch (error) {
+      // Load courses
+      const coursesResponse = await getSimulatorCourses('', '', 100);
+      const coursesData: Course[] = (coursesResponse.data.courses || []).map((course: any) => ({
+        id: course.id,
+        name: course.name,
+        location: course.location || '',
+        par: course.par || 72
+      }));
+
+      // Load schedule
+      const scheduleResponse = await getLeagueSchedule(leagueId);
+      const scheduleData = scheduleResponse.data;
+
+      // Load matchups
+      const matchupsResponse = await getLeagueMatchups(leagueId);
+      const matchupsData = matchupsResponse.data;
+
+      // Transform schedule data with matchups
+      const transformedSchedule: ScheduleWeek[] = scheduleData.map((week: any) => {
+        // Get matchups for this week
+        const weekMatchups = matchupsData
+          .filter((m: any) => m.week_number === week.week_number)
+          .map((m: any) => ({
+            id: m.id,
+            team1_id: m.team1_id,
+            team1_name: m.team1_name,
+            team2_id: m.team2_id,
+            team2_name: m.team2_name,
+            division_id: m.division_id,
+            week_id: week.id,
+            status: m.status as 'scheduled' | 'in_progress' | 'completed',
+            team1_score: m.team1_points,
+            team2_score: m.team2_points
+          }));
+
+        return {
+          id: week.id,
+          week_number: week.week_number,
+          start_date: week.week_start_date,
+          end_date: week.week_end_date,
+          course_id: week.course_id || 0,
+          course_name: week.course_name || 'No course assigned',
+          status: week.status as 'scheduled' | 'active' | 'completed',
+          matches: weekMatchups
+        };
+      });
+
+      setDivisions(divisionsWithTeams);
+      setCourses(coursesData);
+      setScheduleWeeks(transformedSchedule);
+    } catch (error: any) {
       console.error('Error loading data:', error);
-      toast.error('Failed to load data');
+      toast.error(error.response?.data?.error || 'Failed to load data');
     } finally {
       setLoading(false);
     }
@@ -277,40 +261,12 @@ const LeagueScheduleBuilder: React.FC = () => {
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      const course = courses.find(c => c.id === weekForm.course_id);
-      if (!course) {
-        toast.error('Selected course not found');
-        return;
-      }
+    toast.info('Use "Auto-Generate Schedule" from the main league page to create weeks');
+    setShowCreateWeekForm(false);
+    setIsSubmitting(false);
 
-      const newWeek: ScheduleWeek = {
-        id: Date.now(), // Temporary ID
-        week_number: weekForm.week_number,
-        start_date: weekForm.start_date,
-        end_date: weekForm.end_date,
-        course_id: weekForm.course_id,
-        course_name: course.name,
-        status: 'scheduled',
-        matches: []
-      };
-
-      setScheduleWeeks(prev => [...prev, newWeek]);
-      setShowCreateWeekForm(false);
-      setWeekForm({
-        week_number: scheduleWeeks.length + 1,
-        start_date: '',
-        end_date: '',
-        course_id: 0
-      });
-      toast.success('Week created successfully');
-    } catch (error) {
-      console.error('Error creating week:', error);
-      toast.error('Failed to create week');
-    } finally {
-      setIsSubmitting(false);
-    }
+    // TODO: Backend endpoint needed for creating individual schedule weeks
+    // Current API only supports bulk schedule generation
   };
 
   const handleCreateMatch = async () => {
@@ -318,49 +274,14 @@ const LeagueScheduleBuilder: React.FC = () => {
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      const team1 = divisions
-        .find(d => d.id === matchForm.division_id)
-        ?.teams.find(t => t.id === matchForm.team1_id);
-      const team2 = divisions
-        .find(d => d.id === matchForm.division_id)
-        ?.teams.find(t => t.id === matchForm.team2_id);
+    toast.info('Use "Auto-Generate" to create matchups for a week');
+    setShowMatchForm(false);
+    setEditingMatch(null);
+    setMatchForm({ team1_id: 0, team2_id: 0, division_id: 0 });
+    setIsSubmitting(false);
 
-      if (!team1 || !team2) {
-        toast.error('Selected teams not found');
-        return;
-      }
-
-      const newMatch: Match = {
-        id: Date.now(), // Temporary ID
-        team1_id: matchForm.team1_id,
-        team1_name: team1.name,
-        team2_id: matchForm.team2_id,
-        team2_name: team2.name,
-        division_id: matchForm.division_id,
-        week_id: editingMatch?.week_id || 0,
-        status: 'scheduled'
-      };
-
-      setScheduleWeeks(prev => 
-        prev.map(week => 
-          week.id === (editingMatch?.week_id || 0)
-            ? { ...week, matches: [...week.matches, newMatch] }
-            : week
-        )
-      );
-
-      setShowMatchForm(false);
-      setEditingMatch(null);
-      setMatchForm({ team1_id: 0, team2_id: 0, division_id: 0 });
-      toast.success('Match created successfully');
-    } catch (error) {
-      console.error('Error creating match:', error);
-      toast.error('Failed to create match');
-    } finally {
-      setIsSubmitting(false);
-    }
+    // TODO: Backend endpoint needed for creating individual matchups
+    // Current API only supports bulk matchup generation
   };
 
   const handleDeleteWeek = async (weekId: number) => {
@@ -368,13 +289,10 @@ const LeagueScheduleBuilder: React.FC = () => {
       return;
     }
 
-    try {
-      setScheduleWeeks(prev => prev.filter(week => week.id !== weekId));
-      toast.success('Week deleted successfully');
-    } catch (error) {
-      console.error('Error deleting week:', error);
-      toast.error('Failed to delete week');
-    }
+    toast.warning('Week deletion not yet implemented - contact admin to regenerate schedule');
+
+    // TODO: Backend endpoint needed for deleting individual schedule weeks
+    // For now, admin can regenerate the entire schedule if needed
   };
 
   const handleDeleteMatch = async (weekId: number, matchId: number) => {
@@ -383,17 +301,18 @@ const LeagueScheduleBuilder: React.FC = () => {
     }
 
     try {
-      setScheduleWeeks(prev => 
-        prev.map(week => 
+      await deleteMatchup(matchId);
+      setScheduleWeeks(prev =>
+        prev.map(week =>
           week.id === weekId
             ? { ...week, matches: week.matches.filter(match => match.id !== matchId) }
             : week
         )
       );
       toast.success('Match deleted successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting match:', error);
-      toast.error('Failed to delete match');
+      toast.error(error.response?.data?.error || 'Failed to delete match');
     }
   };
 
@@ -402,37 +321,22 @@ const LeagueScheduleBuilder: React.FC = () => {
       const week = scheduleWeeks.find(w => w.id === weekId);
       if (!week) return;
 
-      // Clear existing matches for this week
-      const updatedWeek: ScheduleWeek = { ...week, matches: [] };
-      
-      // Generate round-robin matches for each division
-      divisions.forEach(division => {
-        const teams = division.teams;
-        for (let i = 0; i < teams.length; i += 2) {
-          if (i + 1 < teams.length) {
-            const newMatch: Match = {
-              id: Date.now() + Math.random(), // Temporary ID
-              team1_id: teams[i].id,
-              team1_name: teams[i].name,
-              team2_id: teams[i + 1].id,
-              team2_name: teams[i + 1].name,
-              division_id: division.id,
-              week_id: weekId,
-              status: 'scheduled'
-            };
-            updatedWeek.matches.push(newMatch);
-          }
-        }
+      if (!window.confirm('This will regenerate matchups for ALL weeks in the league. Continue?')) {
+        return;
+      }
+
+      // Generate matchups for the entire league
+      await generateLeagueMatchups(leagueId, {
+        week_number: week.week_number
       });
 
-      setScheduleWeeks(prev => 
-        prev.map(w => w.id === weekId ? updatedWeek : w)
-      );
-      
-      toast.success('Matches auto-generated successfully');
-    } catch (error) {
+      // Reload data to get the new matchups
+      await loadData();
+
+      toast.success('Matchups generated successfully');
+    } catch (error: any) {
       console.error('Error auto-generating matches:', error);
-      toast.error('Failed to auto-generate matches');
+      toast.error(error.response?.data?.error || 'Failed to auto-generate matches');
     }
   };
 

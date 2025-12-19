@@ -26,8 +26,7 @@ const AdminLanding: React.FC = () => {
       description: 'Create clubs and configure booking settings',
       icon: Building2,
       route: '/admin/clubs',
-      features: ['Club Creation', 'Booking Settings'],
-      badge: 'Coming Soon'
+      features: ['Club Creation', 'Booking Settings']
     },
     {
       id: 'engagement',
@@ -71,9 +70,6 @@ const AdminLanding: React.FC = () => {
                 <div className="p-3 bg-brand-neon-green/10 rounded-lg">
                   <IconComponent className="w-8 h-8 text-brand-neon-green" />
                 </div>
-                {section.badge && (
-                  <Badge variant="success" size="sm">{section.badge}</Badge>
-                )}
               </div>
 
               <h3 className="text-xl font-bold mb-2">{section.title}</h3>

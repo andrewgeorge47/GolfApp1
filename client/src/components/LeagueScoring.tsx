@@ -16,44 +16,46 @@ import { toast } from 'react-toastify';
 import HybridScoreEntry from './HybridScoreEntry';
 import MatchScoringView from './MatchScoringView';
 import ScoreVerification from './ScoreVerification';
-// TODO: Re-enable when league endpoints are rebuilt with permission system
-// import {
-//   getLeagueMatchups,
-//   getMatchupScores,
-//   getMatchupLineups,
-//   type LeagueMatchup,
-//   type WeeklyLineup,
-//   type IndividualScore,
-//   type AlternateShotScore
-// } from '../services/api';
+import { getLeagueMatchups, type LeagueMatchup } from '../services/api';
 
-// Temporary stub types until league endpoints are rebuilt
-interface LeagueMatchup {
-  id: number;
-  league_id: number;
-  week_number: number;
-  [key: string]: any; // Allow any additional properties
-}
-
+// Additional interfaces needed for component state
 interface WeeklyLineup {
   id: number;
   matchup_id?: number;
   team_id?: number;
+  team_name?: string;
   week_number?: number;
-  [key: string]: any; // Allow any additional properties
+  player1_id?: number;
+  player1_name?: string;
+  player1_handicap?: number;
+  player2_id?: number;
+  player2_name?: string;
+  player2_handicap?: number;
+  player3_id?: number;
+  player3_name?: string;
+  player3_handicap?: number;
+  [key: string]: any;
 }
 
 interface IndividualScore {
   id: number;
   matchup_id?: number;
   player_id?: number;
-  [key: string]: any; // Allow any additional properties
+  player_name?: string;
+  gross_total?: number;
+  net_total?: number;
+  hole_scores?: any;
+  [key: string]: any;
 }
 
 interface AlternateShotScore {
   id: number;
   matchup_id?: number;
-  [key: string]: any; // Allow any additional properties
+  team_id?: number;
+  gross_total?: number;
+  net_total?: number;
+  hole_scores?: any;
+  [key: string]: any;
 }
 
 interface LeagueScoringProps {
@@ -86,80 +88,20 @@ const LeagueScoring: React.FC<LeagueScoringProps> = ({
 
   const loadMatchups = async () => {
     try {
-      // Mock data for demonstration
-      const mockMatchups: LeagueMatchup[] = [
-        {
-          id: 1,
-          league_id: 1,
-          week_number: currentWeek,
-          division_id: 1,
-          team1_id: 1,
-          team1_name: "Eagle Hunters",
-          team2_id: 2,
-          team2_name: "Birdie Brigade",
-          course_id: 1,
-          course_name: "Augusta National",
-          course_rating: 76.2,
-          course_slope: 148,
-          course_par: 72,
-          hole_indexes: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],
-          status: "in_progress",
-          winner_team_id: 0,
-          team1_individual_net: 0,
-          team2_individual_net: 0,
-          team1_alternate_shot_net: 0,
-          team2_alternate_shot_net: 0,
-          team1_total_net: 0,
-          team2_total_net: 0,
-          team1_points: 0,
-          team2_points: 0,
-          match_date: "2025-01-15T10:00:00Z",
-          completed_at: "",
-          verified_at: "",
-          verified_by: 0
-        },
-        {
-          id: 2,
-          league_id: 1,
-          week_number: currentWeek,
-          division_id: 1,
-          team1_id: 3,
-          team1_name: "Par Masters",
-          team2_id: 4,
-          team2_name: "Bogey Busters",
-          course_id: 2,
-          course_name: "Pebble Beach",
-          course_rating: 75.5,
-          course_slope: 142,
-          course_par: 72,
-          hole_indexes: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],
-          status: "scores_submitted",
-          winner_team_id: 0,
-          team1_individual_net: 0,
-          team2_individual_net: 0,
-          team1_alternate_shot_net: 0,
-          team2_alternate_shot_net: 0,
-          team1_total_net: 0,
-          team2_total_net: 0,
-          team1_points: 0,
-          team2_points: 0,
-          match_date: "2025-01-15T10:00:00Z",
-          completed_at: "",
-          verified_at: "",
-          verified_by: 0
-        }
-      ];
-      
-      setMatchups(mockMatchups);
-      
+      // Load matchups from API
+      const response = await getLeagueMatchups(leagueId, { week_number: currentWeek });
+      const apiMatchups = response.data;
+
+      setMatchups(apiMatchups);
+
       // Auto-select first matchup if none selected
-      if (mockMatchups.length > 0 && !selectedMatchup) {
-        setSelectedMatchup(mockMatchups[0]);
-        loadMatchupDetails(mockMatchups[0].id);
+      if (apiMatchups.length > 0 && !selectedMatchup) {
+        setSelectedMatchup(apiMatchups[0]);
+        loadMatchupDetails(apiMatchups[0].id);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading matchups:', error);
-      toast.error('Failed to load matchups');
+      toast.error(error.response?.data?.error || 'Failed to load matchups');
     } finally {
       setLoading(false);
     }

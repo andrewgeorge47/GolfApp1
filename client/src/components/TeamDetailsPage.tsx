@@ -20,6 +20,7 @@ import {
   Activity
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { getCaptainDashboard, getLeagueMatchups, getLeagueStandings } from '../services/api';
 
 interface Team {
   id: number;
@@ -106,7 +107,7 @@ const TeamDetailsPage: React.FC<TeamDetailsPageProps> = ({
   const [teamData, setTeamData] = useState<TeamDetailsData | null>(null);
   const [matchHistory, setMatchHistory] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'roster' | 'matches' | 'trends'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'roster' | 'matches' | 'trends' | 'players'>('overview');
 
   useEffect(() => {
     loadTeamDetails();
@@ -116,229 +117,166 @@ const TeamDetailsPage: React.FC<TeamDetailsPageProps> = ({
   const loadTeamDetails = async () => {
     setLoading(true);
     try {
-      // Mock data for demonstration
-      const mockData: TeamDetailsData = {
+      if (!leagueId) {
+        toast.error('League ID is required');
+        setLoading(false);
+        return;
+      }
+
+      // Fetch team data from captain dashboard
+      const dashboardResponse = await getCaptainDashboard(teamId, leagueId);
+      const dashboardData = dashboardResponse.data;
+
+      // Fetch standings to get additional team info
+      const standingsResponse = await getLeagueStandings(leagueId);
+      const standingsData = standingsResponse.data;
+
+      // Find this team in standings
+      let teamStandingsInfo = null;
+      for (const division of standingsData.divisions) {
+        const teamInDivision = division.teams.find((t: any) => t.team_id === teamId);
+        if (teamInDivision) {
+          teamStandingsInfo = {
+            ...teamInDivision,
+            division_name: division.division_name
+          };
+          break;
+        }
+      }
+
+      // Calculate team statistics from match history (will be loaded separately)
+      const stats: TeamStatistics = {
+        total_matches: dashboardData.standings?.wins + dashboardData.standings?.losses + dashboardData.standings?.ties || 0,
+        wins: dashboardData.standings?.wins || 0,
+        ties: dashboardData.standings?.ties || 0,
+        losses: dashboardData.standings?.losses || 0,
+        total_points: dashboardData.standings?.league_points || 0,
+        avg_total_net: 0, // TODO: Calculate from match history
+        best_total_net: 0, // TODO: Calculate from match history
+        worst_total_net: 0, // TODO: Calculate from match history
+        win_percentage: ((dashboardData.standings?.wins || 0) / Math.max(1, (dashboardData.standings?.wins || 0) + (dashboardData.standings?.losses || 0) + (dashboardData.standings?.ties || 0))) * 100
+      };
+
+      // Transform player statistics from roster
+      const playerStats: PlayerStatistics[] = dashboardData.roster.map((member: any) => ({
+        member_id: member.user_member_id,
+        player_name: `${member.first_name} ${member.last_name}`,
+        matches_played: 0, // TODO: Get from match history
+        avg_gross: 0, // TODO: Calculate from scores
+        best_gross: 0, // TODO: Calculate from scores
+        avg_net: 0, // TODO: Calculate from scores
+        best_net: 0, // TODO: Calculate from scores
+        handicap: member.handicap || 0,
+        role: member.is_captain ? 'captain' : 'member'
+      }));
+
+      const transformedData: TeamDetailsData = {
         team: {
-          id: teamId,
-          name: "Team Alpha",
-          captain_id: 101,
-          captain_name: "John Smith",
-          league_id: leagueId || 1,
-          league_name: "UAL Season 2 Winter 2025",
-          division_id: 1,
-          division_name: "Division A",
-          league_points: 13.0,
-          aggregate_net_score: 142,
-          second_half_net_score: 68,
-          final_week_net_score: 34
+          id: dashboardData.team.id,
+          name: dashboardData.team.name,
+          captain_id: dashboardData.team.captain_id,
+          captain_name: dashboardData.roster.find((m: any) => m.is_captain)?.first_name + ' ' +
+                        dashboardData.roster.find((m: any) => m.is_captain)?.last_name || 'Unknown',
+          league_id: leagueId,
+          league_name: 'Unknown', // TODO: Get from league data
+          division_id: dashboardData.team.division_id || 0,
+          division_name: teamStandingsInfo?.division_name || 'Unknown',
+          league_points: teamStandingsInfo?.total_points || 0,
+          aggregate_net_score: teamStandingsInfo?.aggregate_net_score || 0,
+          second_half_net_score: 0, // TODO: Get from standings view
+          final_week_net_score: 0 // TODO: Get from standings view
         },
-        statistics: {
-          total_matches: 8,
-          wins: 6,
-          ties: 1,
-          losses: 1,
-          total_points: 13.0,
-          avg_total_net: 17.75,
-          best_total_net: 32,
-          worst_total_net: 40,
-          win_percentage: 81.3
-        },
-        player_statistics: [
-          {
-            member_id: 101,
-            player_name: "John Smith",
-            matches_played: 8,
-            avg_gross: 12.5,
-            best_gross: 11,
-            avg_net: 10.8,
-            best_net: 9,
-            handicap: 12,
-            role: "captain"
-          },
-          {
-            member_id: 102,
-            player_name: "Sarah Johnson",
-            matches_played: 7,
-            avg_gross: 13.2,
-            best_gross: 12,
-            avg_net: 11.5,
-            best_net: 10,
-            handicap: 14,
-            role: "member"
-          },
-          {
-            member_id: 103,
-            player_name: "Mike Davis",
-            matches_played: 6,
-            avg_gross: 14.0,
-            best_gross: 13,
-            avg_net: 12.2,
-            best_net: 11,
-            handicap: 16,
-            role: "member"
-          },
-          {
-            member_id: 104,
-            player_name: "Emily Wilson",
-            matches_played: 5,
-            avg_gross: 13.8,
-            best_gross: 12,
-            avg_net: 12.0,
-            best_net: 10,
-            handicap: 15,
-            role: "member"
-          }
-        ],
+        statistics: stats,
+        player_statistics: playerStats,
         standings: {
           team_id: teamId,
-          rank_in_division: 1,
-          division_name: "Division A",
-          league_points: 13.0,
-          playoff_qualified: true
+          rank_in_division: teamStandingsInfo?.rank_in_division || 0,
+          division_name: teamStandingsInfo?.division_name || 'Unknown',
+          league_points: teamStandingsInfo?.total_points || 0,
+          playoff_qualified: teamStandingsInfo?.playoff_qualified || false
         }
       };
-      
-      setTeamData(mockData);
-      
-      // Simulate loading delay
-      setTimeout(() => {
-        setLoading(false);
-      }, 500);
-    } catch (error) {
+
+      setTeamData(transformedData);
+    } catch (error: any) {
       console.error('Error loading team details:', error);
-      toast.error('Failed to load team details');
+      toast.error(error.response?.data?.error || 'Failed to load team details');
+    } finally {
       setLoading(false);
     }
   };
 
   const loadMatchHistory = async () => {
+    if (!leagueId) return;
+
     try {
-      // Mock match history data
-      const mockMatches: Match[] = [
-        {
-          id: 1,
-          league_id: leagueId || 1,
-          week_number: 8,
-          opponent_name: "Team Beta",
-          opponent_id: 2,
-          team_score: 34,
-          opponent_score: 36,
-          result: "W",
-          course_name: "Pebble Beach",
-          status: "completed",
-          week_start_date: "2025-01-22",
-          week_end_date: "2025-01-28",
-          league_name: "UAL Season 2 Winter 2025",
-          division_name: "Division A"
-        },
-        {
-          id: 2,
-          league_id: leagueId || 1,
-          week_number: 7,
-          opponent_name: "Team Gamma",
-          opponent_id: 3,
-          team_score: 32,
-          opponent_score: 38,
-          result: "W",
-          course_name: "Augusta National",
-          status: "completed",
-          week_start_date: "2025-01-15",
-          week_end_date: "2025-01-21",
-          league_name: "UAL Season 2 Winter 2025",
-          division_name: "Division A"
-        },
-        {
-          id: 3,
-          league_id: leagueId || 1,
-          week_number: 6,
-          opponent_name: "Team Delta",
-          opponent_id: 4,
-          team_score: 35,
-          opponent_score: 35,
-          result: "T",
-          course_name: "St. Andrews",
-          status: "completed",
-          week_start_date: "2025-01-08",
-          week_end_date: "2025-01-14",
-          league_name: "UAL Season 2 Winter 2025",
-          division_name: "Division A"
-        },
-        {
-          id: 4,
-          league_id: leagueId || 1,
-          week_number: 5,
-          opponent_name: "Team Epsilon",
-          opponent_id: 5,
-          team_score: 38,
-          opponent_score: 33,
-          result: "L",
-          course_name: "Cypress Point",
-          status: "completed",
-          week_start_date: "2025-01-01",
-          week_end_date: "2025-01-07",
-          league_name: "UAL Season 2 Winter 2025",
-          division_name: "Division A"
-        },
-        {
-          id: 5,
-          league_id: leagueId || 1,
-          week_number: 4,
-          opponent_name: "Team Zeta",
-          opponent_id: 6,
-          team_score: 33,
-          opponent_score: 37,
-          result: "W",
-          course_name: "Pine Valley",
-          status: "completed",
-          week_start_date: "2024-12-25",
-          week_end_date: "2024-12-31",
-          league_name: "UAL Season 2 Winter 2025",
-          division_name: "Division A"
+      const response = await getLeagueMatchups(leagueId);
+      const allMatches = response.data;
+
+      // Filter matches for this team
+      const teamMatches = allMatches.filter((match: any) =>
+        match.team1_id === teamId || match.team2_id === teamId
+      );
+
+      // Transform to Match format
+      const transformedMatches: Match[] = teamMatches.map((match: any) => {
+        const isTeam1 = match.team1_id === teamId;
+        const teamScore = isTeam1 ? match.team1_total_net : match.team2_total_net;
+        const opponentScore = isTeam1 ? match.team2_total_net : match.team1_total_net;
+
+        let result = 'pending';
+        if (match.status === 'completed' && teamScore && opponentScore) {
+          if (teamScore < opponentScore) result = 'won';
+          else if (teamScore > opponentScore) result = 'lost';
+          else result = 'tied';
         }
-      ];
-      
-      setMatchHistory(mockMatches);
-    } catch (error) {
+
+        return {
+          id: match.id,
+          league_id: match.league_id,
+          week_number: match.week_number,
+          opponent_name: isTeam1 ? match.team2_name : match.team1_name,
+          opponent_id: isTeam1 ? match.team2_id : match.team1_id,
+          team_score: teamScore || 0,
+          opponent_score: opponentScore || 0,
+          result,
+          course_name: match.course_name || 'TBD',
+          status: match.status,
+          week_start_date: match.week_start_date || '',
+          week_end_date: match.week_end_date || '',
+          league_name: 'Unknown', // TODO: Get from league data
+          division_name: match.division_name || 'Unknown'
+        };
+      });
+
+      setMatchHistory(transformedMatches);
+    } catch (error: any) {
       console.error('Error loading match history:', error);
-      toast.error('Failed to load match history');
+      toast.error(error.response?.data?.error || 'Failed to load match history');
     }
   };
 
+  // Helper functions
   const getResultIcon = (result: string) => {
     switch (result) {
-      case 'W': return <TrendingUp className="w-4 h-4 text-green-500" />;
-      case 'L': return <TrendingDown className="w-4 h-4 text-red-500" />;
-      case 'T': return <Minus className="w-4 h-4 text-yellow-500" />;
-      default: return <Clock className="w-4 h-4 text-gray-400" />;
+      case 'won': return <TrendingUp className="w-4 h-4 text-green-500" />;
+      case 'lost': return <TrendingDown className="w-4 h-4 text-red-500" />;
+      case 'tied': return <Trophy className="w-4 h-4 text-yellow-500" />;
+      default: return null;
     }
   };
 
   const getResultColor = (result: string) => {
     switch (result) {
-      case 'W': return 'bg-green-100 text-green-800';
-      case 'L': return 'bg-red-100 text-red-800';
-      case 'T': return 'bg-yellow-100 text-yellow-800';
+      case 'won': return 'bg-green-100 text-green-800';
+      case 'lost': return 'bg-red-100 text-red-800';
+      case 'tied': return 'bg-yellow-100 text-yellow-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
 
-  const getPlayoffBadge = (qualified: boolean) => {
-    if (qualified) {
-      return (
-        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-          <Award className="w-3 h-3 mr-1" />
-          Playoff Qualified
-        </span>
-      );
-    }
-    return null;
-  };
-
-  const getRoleIcon = (role: string) => {
-    if (role === 'captain') {
-      return <Star className="w-4 h-4 text-yellow-500" />;
-    }
-    return <User className="w-4 h-4 text-neutral-400" />;
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString();
   };
 
   if (loading) {
@@ -353,7 +291,8 @@ const TeamDetailsPage: React.FC<TeamDetailsPageProps> = ({
     return (
       <div className="text-center py-8">
         <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-        <p className="text-gray-600">No team data available</p>
+        <h3 className="text-lg font-medium text-gray-900 mb-2">No Team Data</h3>
+        <p className="text-gray-600">Unable to load team information.</p>
       </div>
     );
   }
@@ -363,83 +302,44 @@ const TeamDetailsPage: React.FC<TeamDetailsPageProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-3">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5 text-neutral-600" />
-            </button>
-          )}
-          <div className="flex-shrink-0 h-12 w-12">
-            <div className="h-12 w-12 rounded-full bg-brand-neon-green flex items-center justify-center">
-              <span className="text-lg font-medium text-brand-black">
-                {teamData.team.name.charAt(0)}
-              </span>
-            </div>
-          </div>
+          <Users className="w-8 h-8 text-brand-neon-green" />
           <div>
-            <h1 className="text-2xl font-bold text-brand-black">{teamData.team.name}</h1>
-            <p className="text-neutral-600">
-              {teamData.team.league_name} - {teamData.team.division_name}
-            </p>
+            <h1 className="text-2xl font-bold text-brand-black">Team Details</h1>
+            <p className="text-neutral-600">{teamData.team.name}</p>
           </div>
         </div>
-        
-        <div className="flex items-center space-x-3">
-          {getPlayoffBadge(teamData.standings.playoff_qualified)}
-          <button
-            onClick={() => {
-              loadTeamDetails();
-              loadMatchHistory();
-            }}
-            className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-            <span>Refresh</span>
-          </button>
-        </div>
+
+        <button
+          onClick={loadTeamDetails}
+          className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors"
+        >
+          <RefreshCw className="w-4 h-4" />
+          <span>Refresh</span>
+        </button>
       </div>
 
-      {/* Team Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-lg border border-neutral-200">
-          <div className="flex items-center">
-            <Trophy className="w-8 h-8 text-brand-neon-green" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-neutral-600">League Points</p>
-              <p className="text-2xl font-bold text-brand-black">{teamData.team.league_points}</p>
-            </div>
+      {/* Team Overview */}
+      <div className="bg-white border border-neutral-200 rounded-lg p-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="text-center">
+            <Award className="w-8 h-8 text-brand-neon-green mx-auto mb-2" />
+            <p className="text-sm text-neutral-600">League Points</p>
+            <p className="text-2xl font-bold text-brand-black">{teamData.team.league_points}</p>
           </div>
-        </div>
-        
-        <div className="bg-white p-6 rounded-lg border border-neutral-200">
-          <div className="flex items-center">
-            <Target className="w-8 h-8 text-green-500" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-neutral-600">Division Rank</p>
-              <p className="text-2xl font-bold text-brand-black">#{teamData.standings.rank_in_division}</p>
-            </div>
+          <div className="text-center">
+            <Target className="w-8 h-8 text-blue-500 mx-auto mb-2" />
+            <p className="text-sm text-neutral-600">League Position</p>
+            <p className="text-2xl font-bold text-brand-black">{teamData.standings.rank_in_division}</p>
           </div>
-        </div>
-        
-        <div className="bg-white p-6 rounded-lg border border-neutral-200">
-          <div className="flex items-center">
-            <BarChart3 className="w-8 h-8 text-blue-500" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-neutral-600">Win %</p>
-              <p className="text-2xl font-bold text-brand-black">{teamData.statistics.win_percentage.toFixed(1)}%</p>
-            </div>
+          <div className="text-center">
+            <Trophy className="w-8 h-8 text-yellow-500 mx-auto mb-2" />
+            <p className="text-sm text-neutral-600">Total Matches</p>
+            <p className="text-2xl font-bold text-brand-black">{teamData.statistics.total_matches}</p>
           </div>
-        </div>
-        
-        <div className="bg-white p-6 rounded-lg border border-neutral-200">
-          <div className="flex items-center">
-            <Activity className="w-8 h-8 text-purple-500" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-neutral-600">Matches Played</p>
-              <p className="text-2xl font-bold text-brand-black">{teamData.statistics.total_matches}</p>
-            </div>
+          <div className="text-center">
+            <TrendingUp className="w-8 h-8 text-green-500 mx-auto mb-2" />
+            <p className="text-sm text-neutral-600">Win %</p>
+            <p className="text-2xl font-bold text-brand-black">{teamData.statistics.win_percentage.toFixed(1)}%</p>
           </div>
         </div>
       </div>
@@ -455,19 +355,8 @@ const TeamDetailsPage: React.FC<TeamDetailsPageProps> = ({
                 : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
             }`}
           >
-            <BarChart3 className="w-4 h-4 inline mr-2" />
-            Overview
-          </button>
-          <button
-            onClick={() => setActiveTab('roster')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'roster'
-                ? 'border-brand-neon-green text-brand-neon-green'
-                : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
-            }`}
-          >
             <Users className="w-4 h-4 inline mr-2" />
-            Roster
+            Overview
           </button>
           <button
             onClick={() => setActiveTab('matches')}
@@ -481,222 +370,97 @@ const TeamDetailsPage: React.FC<TeamDetailsPageProps> = ({
             Match History
           </button>
           <button
-            onClick={() => setActiveTab('trends')}
+            onClick={() => setActiveTab('players')}
             className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'trends'
+              activeTab === 'players'
                 ? 'border-brand-neon-green text-brand-neon-green'
                 : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
             }`}
           >
-            <TrendingUp className="w-4 h-4 inline mr-2" />
-            Scoring Trends
+            <Award className="w-4 h-4 inline mr-2" />
+            Player Statistics
           </button>
         </nav>
       </div>
 
       {/* Tab Content */}
-      <div className="min-h-[600px]">
+      <div className="min-h-[400px]">
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* Team Performance */}
+            {/* Team Statistics */}
             <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
               <div className="px-6 py-4 border-b border-neutral-200">
-                <h3 className="text-lg font-semibold text-brand-black">Team Performance</h3>
+                <h3 className="text-lg font-semibold text-brand-black">Team Statistics</h3>
               </div>
               <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <h4 className="text-sm font-medium text-neutral-700 mb-3">Match Record</h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-sm text-neutral-600">Wins:</span>
-                        <span className="text-sm font-medium text-green-600">{teamData.statistics.wins}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-neutral-600">Ties:</span>
-                        <span className="text-sm font-medium text-yellow-600">{teamData.statistics.ties}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-neutral-600">Losses:</span>
-                        <span className="text-sm font-medium text-red-600">{teamData.statistics.losses}</span>
-                      </div>
-                      <div className="flex justify-between border-t pt-2">
-                        <span className="text-sm font-medium text-neutral-700">Total Points:</span>
-                        <span className="text-sm font-bold text-brand-black">{teamData.statistics.total_points}</span>
-                      </div>
-                    </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="text-center p-4 bg-green-50 rounded-lg">
+                    <Trophy className="w-8 h-8 text-green-600 mx-auto mb-2" />
+                    <p className="text-sm text-neutral-600">Wins</p>
+                    <p className="text-2xl font-bold text-green-600">{teamData.statistics.wins}</p>
                   </div>
-                  
-                  <div>
-                    <h4 className="text-sm font-medium text-neutral-700 mb-3">Scoring Statistics</h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-sm text-neutral-600">Average Net:</span>
-                        <span className="text-sm font-medium text-brand-black">{teamData.statistics.avg_total_net.toFixed(1)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-neutral-600">Best Net:</span>
-                        <span className="text-sm font-medium text-green-600">{teamData.statistics.best_total_net}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-neutral-600">Worst Net:</span>
-                        <span className="text-sm font-medium text-red-600">{teamData.statistics.worst_total_net}</span>
-                      </div>
-                      <div className="flex justify-between border-t pt-2">
-                        <span className="text-sm font-medium text-neutral-700">Aggregate Net:</span>
-                        <span className="text-sm font-bold text-brand-black">{teamData.team.aggregate_net_score}</span>
-                      </div>
-                    </div>
+                  <div className="text-center p-4 bg-red-50 rounded-lg">
+                    <Target className="w-8 h-8 text-red-600 mx-auto mb-2" />
+                    <p className="text-sm text-neutral-600">Losses</p>
+                    <p className="text-2xl font-bold text-red-600">{teamData.statistics.losses}</p>
+                  </div>
+                  <div className="text-center p-4 bg-yellow-50 rounded-lg">
+                    <Award className="w-8 h-8 text-yellow-600 mx-auto mb-2" />
+                    <p className="text-sm text-neutral-600">Ties</p>
+                    <p className="text-2xl font-bold text-yellow-600">{teamData.statistics.ties}</p>
+                  </div>
+                  <div className="text-center p-4 bg-blue-50 rounded-lg">
+                    <Trophy className="w-8 h-8 text-blue-600 mx-auto mb-2" />
+                    <p className="text-sm text-neutral-600">Total Points</p>
+                    <p className="text-2xl font-bold text-blue-600">{teamData.statistics.total_points}</p>
                   </div>
                 </div>
-              </div>
-            </div>
-
-            {/* Tiebreaker Information */}
-            <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
-              <div className="px-6 py-4 border-b border-neutral-200">
-                <h3 className="text-lg font-semibold text-brand-black">Tiebreaker Information</h3>
-              </div>
-              <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-brand-black">{teamData.team.league_points}</div>
-                    <div className="text-sm text-neutral-600">Total Points</div>
+                <div className="mt-6 grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-neutral-600">Avg Total Net</p>
+                    <p className="text-lg font-bold text-brand-black">{teamData.statistics.avg_total_net.toFixed(2)}</p>
                   </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-brand-black">{teamData.team.aggregate_net_score}</div>
-                    <div className="text-sm text-neutral-600">Aggregate Net</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-brand-black">{teamData.team.second_half_net_score}</div>
-                    <div className="text-sm text-neutral-600">Second Half Net</div>
+                  <div>
+                    <p className="text-sm text-neutral-600">Best Total Net</p>
+                    <p className="text-lg font-bold text-brand-black">{teamData.statistics.best_total_net}</p>
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'roster' && (
-          <div className="space-y-6">
-            {/* Roster Table */}
-            <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
-              <div className="px-6 py-4 border-b border-neutral-200">
-                <h3 className="text-lg font-semibold text-brand-black">Team Roster</h3>
-                <p className="text-sm text-neutral-600">Player statistics and performance</p>
-              </div>
-              
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-neutral-200">
-                  <thead className="bg-neutral-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Player
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Role
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Handicap
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Matches Played
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Avg Gross
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Avg Net
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Best Net
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-neutral-200">
-                    {teamData.player_statistics.map((player) => (
-                      <tr key={player.member_id} className="hover:bg-neutral-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <div className="flex-shrink-0 h-10 w-10">
-                              <div className="h-10 w-10 rounded-full bg-neutral-200 flex items-center justify-center">
-                                <User className="w-5 h-5 text-neutral-600" />
-                              </div>
-                            </div>
-                            <div className="ml-4">
-                              <div className="text-sm font-medium text-brand-black">
-                                {player.player_name}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-brand-black">
-                          <div className="flex items-center">
-                            {getRoleIcon(player.role)}
-                            <span className="ml-1 capitalize">{player.role}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-brand-black">
-                          {player.handicap}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-brand-black">
-                          {player.matches_played}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-brand-black">
-                          {player.avg_gross.toFixed(1)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-brand-black">
-                          {player.avg_net.toFixed(1)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-brand-black">
-                          <span className="text-green-600 font-medium">{player.best_net}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
             </div>
           </div>
         )}
 
         {activeTab === 'matches' && (
-          <div className="space-y-6">
-            {/* Match History */}
-            <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
-              <div className="px-6 py-4 border-b border-neutral-200">
-                <h3 className="text-lg font-semibold text-brand-black">Match History</h3>
-                <p className="text-sm text-neutral-600">Recent match results and performance</p>
-              </div>
-              
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-neutral-200">
-                  <thead className="bg-neutral-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Week
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Date
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Opponent
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Course
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Score
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Result
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-neutral-200">
+          <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
+            <div className="px-6 py-4 border-b border-neutral-200">
+              <h3 className="text-lg font-semibold text-brand-black">Match History</h3>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-neutral-200">
+                <thead className="bg-neutral-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                      Week
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                      Opponent
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                      Course
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                      Score
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                      Result
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-neutral-200">
                     {matchHistory.map((match) => (
                       <tr key={match.id} className="hover:bg-neutral-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-brand-black">
@@ -749,7 +513,6 @@ const TeamDetailsPage: React.FC<TeamDetailsPageProps> = ({
                 </table>
               </div>
             </div>
-          </div>
         )}
 
         {activeTab === 'trends' && (

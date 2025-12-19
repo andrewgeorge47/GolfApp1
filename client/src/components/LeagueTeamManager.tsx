@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Users, 
-  Plus, 
-  Edit3, 
-  Trash2, 
-  Save, 
+import {
+  Users,
+  Plus,
+  Edit3,
+  Trash2,
+  Save,
   X,
   ChevronRight,
   ChevronDown,
@@ -17,6 +17,21 @@ import {
   Filter
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import {
+  getLeagueTeams,
+  createLeagueTeam,
+  updateLeagueTeam,
+  deleteLeagueTeam,
+  getLeagueDivisions,
+  getPlayers,
+  getTeamMembers,
+  addTeamMember,
+  removeTeamMember,
+  getLeagueSignupLinks,
+  getLeagueSignupRegistrations,
+  type LeagueSignupLink,
+  type LeagueSignupRegistration
+} from '../services/api';
 
 interface Team {
   id: number;
@@ -57,12 +72,19 @@ interface Division {
   name: string;
 }
 
-const LeagueTeamManager: React.FC = () => {
+interface LeagueTeamManagerProps {
+  leagueId: number;
+}
+
+const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
   const [teams, setTeams] = useState<Team[]>([]);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
   const [divisions, setDivisions] = useState<Division[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedTeam, setExpandedTeam] = useState<number | null>(null);
+  const [signupLinks, setSignupLinks] = useState<LeagueSignupLink[]>([]);
+  const [signupRegistrations, setSignupRegistrations] = useState<Map<number, LeagueSignupRegistration[]>>(new Map());
+  const [selectedSignupFilter, setSelectedSignupFilter] = useState<number | null>(null);
   
   // Filters and search
   const [searchTerm, setSearchTerm] = useState('');
@@ -81,99 +103,102 @@ const LeagueTeamManager: React.FC = () => {
   // Member management state
   const [showAddMemberForm, setShowAddMemberForm] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<number | null>(null);
+  const [createFormSignupFilter, setCreateFormSignupFilter] = useState<number | null>(null);
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (leagueId) {
+      loadData();
+    }
+  }, [leagueId]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      // TODO: Replace with actual API calls
-      // Mock data for now
-      const mockTeams: Team[] = [
-        {
-          id: 1,
-          name: 'Team Alpha',
-          captain_id: 1,
-          captain_name: 'John Doe',
-          division_id: 1,
-          division_name: 'Division A',
-          wins: 8,
-          losses: 2,
-          ties: 1,
-          total_points: 17,
-          created_at: '2024-01-15T10:00:00Z',
-          members: [
-            { id: 1, user_id: 1, first_name: 'John', last_name: 'Doe', handicap: 5, role: 'captain', joined_at: '2024-01-15T10:00:00Z' },
-            { id: 2, user_id: 2, first_name: 'Jane', last_name: 'Smith', handicap: 8, role: 'member', joined_at: '2024-01-20T10:00:00Z' },
-            { id: 3, user_id: 3, first_name: 'Bob', last_name: 'Johnson', handicap: 12, role: 'member', joined_at: '2024-01-25T10:00:00Z' }
-          ]
-        },
-        {
-          id: 2,
-          name: 'Team Beta',
-          captain_id: 4,
-          captain_name: 'Alice Brown',
-          division_id: 1,
-          division_name: 'Division A',
-          wins: 6,
-          losses: 4,
-          ties: 1,
-          total_points: 13,
-          created_at: '2024-01-16T10:00:00Z',
-          members: [
-            { id: 4, user_id: 4, first_name: 'Alice', last_name: 'Brown', handicap: 7, role: 'captain', joined_at: '2024-01-16T10:00:00Z' },
-            { id: 5, user_id: 5, first_name: 'Charlie', last_name: 'Wilson', handicap: 10, role: 'member', joined_at: '2024-01-22T10:00:00Z' }
-          ]
-        },
-        {
-          id: 3,
-          name: 'Team Gamma',
-          captain_id: 6,
-          captain_name: 'David Lee',
-          division_id: 2,
-          division_name: 'Division B',
-          wins: 7,
-          losses: 3,
-          ties: 1,
-          total_points: 15,
-          created_at: '2024-01-17T10:00:00Z',
-          members: [
-            { id: 6, user_id: 6, first_name: 'David', last_name: 'Lee', handicap: 15, role: 'captain', joined_at: '2024-01-17T10:00:00Z' },
-            { id: 7, user_id: 7, first_name: 'Emma', last_name: 'Davis', handicap: 9, role: 'member', joined_at: '2024-01-23T10:00:00Z' },
-            { id: 8, user_id: 8, first_name: 'Frank', last_name: 'Miller', handicap: 11, role: 'member', joined_at: '2024-01-28T10:00:00Z' }
-          ]
+      // Load teams for this league
+      const teamsResponse = await getLeagueTeams(leagueId);
+      const teamsData = teamsResponse.data;
+
+      // Load divisions for this league
+      const divisionsResponse = await getLeagueDivisions(leagueId);
+      const divisionsData = divisionsResponse.data;
+
+      // Load available users/players
+      const usersResponse = await getPlayers();
+      const usersData = usersResponse.data;
+
+      // Load signup links for this league
+      const linksResponse = await getLeagueSignupLinks(leagueId);
+      const linksData = linksResponse.data;
+      setSignupLinks(linksData);
+
+      // Load registrations for each linked signup
+      const registrationsMap = new Map<number, LeagueSignupRegistration[]>();
+      for (const link of linksData) {
+        try {
+          const regsResponse = await getLeagueSignupRegistrations(leagueId, link.signup_id);
+          registrationsMap.set(link.signup_id, regsResponse.data);
+        } catch (error) {
+          console.error(`Error loading registrations for signup ${link.signup_id}:`, error);
         }
-      ];
+      }
+      setSignupRegistrations(registrationsMap);
 
-      const mockUsers: User[] = [
-        { id: 1, first_name: 'John', last_name: 'Doe', handicap: 5, club: 'Neighborhood National', email: 'john@example.com' },
-        { id: 2, first_name: 'Jane', last_name: 'Smith', handicap: 8, club: 'Neighborhood National', email: 'jane@example.com' },
-        { id: 3, first_name: 'Bob', last_name: 'Johnson', handicap: 12, club: 'Neighborhood National', email: 'bob@example.com' },
-        { id: 4, first_name: 'Alice', last_name: 'Brown', handicap: 7, club: 'Neighborhood National', email: 'alice@example.com' },
-        { id: 5, first_name: 'Charlie', last_name: 'Wilson', handicap: 10, club: 'Neighborhood National', email: 'charlie@example.com' },
-        { id: 6, first_name: 'David', last_name: 'Lee', handicap: 15, club: 'Neighborhood National', email: 'david@example.com' },
-        { id: 7, first_name: 'Emma', last_name: 'Davis', handicap: 9, club: 'Neighborhood National', email: 'emma@example.com' },
-        { id: 8, first_name: 'Frank', last_name: 'Miller', handicap: 11, club: 'Neighborhood National', email: 'frank@example.com' },
-        { id: 9, first_name: 'Grace', last_name: 'Taylor', handicap: 6, club: 'Neighborhood National', email: 'grace@example.com' },
-        { id: 10, first_name: 'Henry', last_name: 'Anderson', handicap: 14, club: 'Neighborhood National', email: 'henry@example.com' }
-      ];
+      // Transform teams data and load members for each team
+      const transformedTeams: Team[] = await Promise.all(
+        teamsData.map(async (team: any) => {
+          // Fetch members for this team
+          let members: TeamMember[] = [];
+          try {
+            const membersResponse = await getTeamMembers(team.id);
+            members = membersResponse.data.map((m: any) => ({
+              id: m.id,
+              user_id: m.user_member_id,
+              first_name: m.first_name,
+              last_name: m.last_name,
+              handicap: m.handicap || 0,
+              role: m.is_captain ? 'captain' : 'member',
+              joined_at: m.joined_at
+            }));
+          } catch (error) {
+            console.error(`Error loading members for team ${team.id}:`, error);
+          }
 
-      const mockDivisions: Division[] = [
-        { id: 1, name: 'Division A' },
-        { id: 2, name: 'Division B' }
-      ];
+          return {
+            id: team.id,
+            name: team.name,
+            captain_id: team.captain_id,
+            captain_name: team.captain_name || 'Unknown',
+            division_id: team.division_id || 0,
+            division_name: divisionsData.find((d: any) => d.id === team.division_id)?.division_name || 'No Division',
+            wins: 0, // Will be populated from standings
+            losses: 0,
+            ties: 0,
+            total_points: team.league_points || 0,
+            created_at: team.created_at,
+            members
+          };
+        })
+      );
 
-      setTeams(mockTeams);
-      setAvailableUsers(mockUsers);
-      setDivisions(mockDivisions);
-    } catch (error) {
+      setTeams(transformedTeams);
+      setDivisions(divisionsData.map((d: any) => ({
+        id: d.id,
+        name: d.division_name
+      })));
+      setAvailableUsers(usersData.map((user: any) => ({
+        id: user.member_id,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        handicap: user.handicap || 0,
+        club: user.club || 'Unknown',
+        email: user.email || ''
+      })));
+    } catch (error: any) {
       console.error('Error loading data:', error);
-      toast.error('Failed to load data');
+      toast.error(error.response?.data?.error || 'Failed to load data');
     } finally {
       setLoading(false);
     }
@@ -207,24 +232,32 @@ const LeagueTeamManager: React.FC = () => {
     try {
       const captain = availableUsers.find(u => u.id === teamForm.captain_id);
       const division = divisions.find(d => d.id === teamForm.division_id);
-      
+
       if (!captain || !division) {
         toast.error('Selected captain or division not found');
+        setIsSubmitting(false);
         return;
       }
 
-      const newTeam: Team = {
-        id: Date.now(), // Temporary ID
+      // Create team via API
+      const response = await createLeagueTeam(leagueId, {
         name: teamForm.name,
         captain_id: teamForm.captain_id,
+        division_id: teamForm.division_id
+      });
+
+      const createdTeam: Team = {
+        id: response.data.id,
+        name: response.data.name,
+        captain_id: response.data.captain_id,
         captain_name: `${captain.first_name} ${captain.last_name}`,
-        division_id: teamForm.division_id,
+        division_id: response.data.division_id || 0,
         division_name: division.name,
         wins: 0,
         losses: 0,
         ties: 0,
         total_points: 0,
-        created_at: new Date().toISOString(),
+        created_at: response.data.created_at || new Date().toISOString(),
         members: [
           {
             id: Date.now() + 1,
@@ -238,9 +271,10 @@ const LeagueTeamManager: React.FC = () => {
         ]
       };
 
-      setTeams(prev => [...prev, newTeam]);
+      setTeams(prev => [...prev, createdTeam]);
       setShowCreateForm(false);
       setTeamForm({ name: '', captain_id: 0, division_id: 0 });
+      setCreateFormSignupFilter(null);
       toast.success('Team created successfully');
     } catch (error) {
       console.error('Error creating team:', error);
@@ -256,11 +290,12 @@ const LeagueTeamManager: React.FC = () => {
     }
 
     try {
+      await deleteLeagueTeam(leagueId, teamId);
       setTeams(prev => prev.filter(team => team.id !== teamId));
       toast.success('Team deleted successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting team:', error);
-      toast.error('Failed to delete team');
+      toast.error(error.response?.data?.error || 'Failed to delete team');
     }
   };
 
@@ -269,49 +304,96 @@ const LeagueTeamManager: React.FC = () => {
       const user = availableUsers.find(u => u.id === userId);
       if (!user) return;
 
+      // Add member via API
+      const response = await addTeamMember(teamId, userId);
+      const apiMember = response.data;
+
       const newMember: TeamMember = {
-        id: Date.now(),
-        user_id: user.id,
-        first_name: user.first_name,
-        last_name: user.last_name,
-        handicap: user.handicap,
-        role: 'member',
-        joined_at: new Date().toISOString()
+        id: apiMember.id,
+        user_id: apiMember.user_member_id,
+        first_name: apiMember.first_name,
+        last_name: apiMember.last_name,
+        handicap: apiMember.handicap || 0,
+        role: apiMember.is_captain ? 'captain' : 'member',
+        joined_at: apiMember.joined_at
       };
 
-      setTeams(prev => 
-        prev.map(team => 
+      setTeams(prev =>
+        prev.map(team =>
           team.id === teamId
             ? { ...team, members: [...team.members, newMember] }
             : team
         )
       );
       toast.success('Member added to team');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding member:', error);
-      toast.error('Failed to add member');
+      toast.error(error.response?.data?.error || 'Failed to add member');
     }
   };
 
   const handleRemoveMemberFromTeam = async (teamId: number, memberId: number) => {
     try {
-      setTeams(prev => 
-        prev.map(team => 
+      // Remove member via API
+      await removeTeamMember(teamId, memberId);
+
+      setTeams(prev =>
+        prev.map(team =>
           team.id === teamId
             ? { ...team, members: team.members.filter(member => member.id !== memberId) }
             : team
         )
       );
       toast.success('Member removed from team');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error removing member:', error);
-      toast.error('Failed to remove member');
+      toast.error(error.response?.data?.error || 'Failed to remove member');
     }
   };
 
   const getAvailableUsersForTeam = (team: Team) => {
     const teamUserIds = team.members.map(member => member.user_id);
-    return availableUsers.filter(user => !teamUserIds.includes(user.id));
+    let users = availableUsers.filter(user => !teamUserIds.includes(user.id));
+
+    // Filter by signup if selected
+    if (selectedSignupFilter) {
+      const registrations = signupRegistrations.get(selectedSignupFilter) || [];
+      const registeredUserIds = registrations.map(r => r.user_id);
+      users = users.filter(user => registeredUserIds.includes(user.id));
+    }
+
+    return users;
+  };
+
+  const getAvailableUsersForCreateForm = () => {
+    // Get all users who are not already captains of teams
+    const captainIds = teams.map(team => team.captain_id);
+    let users = availableUsers.filter(user => !captainIds.includes(user.id));
+
+    // Filter by signup if selected
+    if (createFormSignupFilter) {
+      const registrations = signupRegistrations.get(createFormSignupFilter) || [];
+      const registeredUserIds = registrations.map(r => r.user_id);
+      users = users.filter(user => registeredUserIds.includes(user.id));
+    }
+
+    return users;
+  };
+
+  const getUserRegistrationData = (userId: number, signupId?: number) => {
+    if (signupId) {
+      const registrations = signupRegistrations.get(signupId) || [];
+      return registrations.find(r => r.user_id === userId);
+    }
+
+    // If no specific signup, check all signups
+    const allRegistrations = Array.from(signupRegistrations.values());
+    for (const registrations of allRegistrations) {
+      const registration = registrations.find(r => r.user_id === userId);
+      if (registration) return registration;
+    }
+
+    return null;
   };
 
   const filteredTeams = teams.filter(team => {
@@ -372,7 +454,7 @@ const LeagueTeamManager: React.FC = () => {
             <p className="text-neutral-600">Create and manage league teams</p>
           </div>
         </div>
-        
+
         <button
           onClick={() => setShowCreateForm(true)}
           className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors"
@@ -381,6 +463,32 @@ const LeagueTeamManager: React.FC = () => {
           <span>Create Team</span>
         </button>
       </div>
+
+      {/* Linked Signups Info */}
+      {signupLinks.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
+            <Users className="w-4 h-4 mr-2" />
+            Linked Signups ({signupLinks.length})
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {signupLinks.map((link) => {
+              const registrationCount = signupRegistrations.get(link.signup_id)?.length || 0;
+              return (
+                <span
+                  key={link.id}
+                  className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-800"
+                >
+                  {link.signup_title} ({registrationCount} registered)
+                </span>
+              );
+            })}
+          </div>
+          <p className="text-xs text-blue-700 mt-2">
+            You can filter users by signup registration when adding team members
+          </p>
+        </div>
+      )}
 
       {/* Filters and Search */}
       <div className="bg-white p-4 rounded-lg border border-neutral-200">
@@ -588,7 +696,10 @@ const LeagueTeamManager: React.FC = () => {
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold text-brand-black">Create Team</h2>
               <button
-                onClick={() => setShowCreateForm(false)}
+                onClick={() => {
+                  setShowCreateForm(false);
+                  setCreateFormSignupFilter(null);
+                }}
                 className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
               >
                 <X className="w-5 h-5" />
@@ -633,6 +744,34 @@ const LeagueTeamManager: React.FC = () => {
                 {formErrors.division_id && <p className="text-red-500 text-sm mt-1">{formErrors.division_id}</p>}
               </div>
 
+              {/* Signup Filter */}
+              {signupLinks.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-2">
+                    Filter by Signup Registration
+                  </label>
+                  <select
+                    value={createFormSignupFilter || ''}
+                    onChange={(e) => {
+                      setCreateFormSignupFilter(e.target.value ? parseInt(e.target.value) : null);
+                      // Reset captain selection when changing filter
+                      setTeamForm(prev => ({ ...prev, captain_id: 0 }));
+                    }}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                  >
+                    <option value="">All Users</option>
+                    {signupLinks.map((link) => (
+                      <option key={link.id} value={link.signup_id}>
+                        {link.signup_title} ({signupRegistrations.get(link.signup_id)?.length || 0} registered)
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Filter captains by signup registration
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-neutral-700 mb-2">
                   Captain *
@@ -645,19 +784,51 @@ const LeagueTeamManager: React.FC = () => {
                   }`}
                 >
                   <option value={0}>Select captain...</option>
-                  {availableUsers.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.first_name} {user.last_name} (HCP: {user.handicap})
-                    </option>
-                  ))}
+                  {getAvailableUsersForCreateForm().map((user) => {
+                    const registrationData = getUserRegistrationData(user.id, createFormSignupFilter || undefined);
+                    return (
+                      <option key={user.id} value={user.id}>
+                        {user.first_name} {user.last_name} (HCP: {user.handicap})
+                        {registrationData ? ' ✓ Registered' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
                 {formErrors.captain_id && <p className="text-red-500 text-sm mt-1">{formErrors.captain_id}</p>}
+
+                {/* Show registration data for selected captain */}
+                {teamForm.captain_id > 0 && (() => {
+                  const registrationData = getUserRegistrationData(teamForm.captain_id, createFormSignupFilter || undefined);
+                  if (registrationData) {
+                    return (
+                      <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs">
+                        <div className="font-semibold text-blue-900 mb-2">Registration Information:</div>
+                        {registrationData.registration_data && typeof registrationData.registration_data === 'object' && (
+                          <div className="space-y-1 text-blue-800 mb-2">
+                            {Object.entries(registrationData.registration_data).map(([key, value]) => (
+                              <div key={key}>
+                                <span className="font-medium">{key}:</span> {String(value)}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="text-blue-600">
+                          Registered: {new Date(registrationData.registered_at).toLocaleDateString()}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
 
               <div className="flex justify-end space-x-3">
                 <button
                   type="button"
-                  onClick={() => setShowCreateForm(false)}
+                  onClick={() => {
+                    setShowCreateForm(false);
+                    setCreateFormSignupFilter(null);
+                  }}
                   className="px-4 py-2 text-neutral-600 hover:text-neutral-800 transition-colors"
                 >
                   Cancel
@@ -697,7 +868,7 @@ const LeagueTeamManager: React.FC = () => {
               {selectedTeam && (() => {
                 const team = teams.find(t => t.id === selectedTeam);
                 const availableUsers = team ? getAvailableUsersForTeam(team) : [];
-                
+
                 return (
                   <>
                     <div>
@@ -705,39 +876,88 @@ const LeagueTeamManager: React.FC = () => {
                         Add a member to <strong>{team?.name}</strong>
                       </p>
                     </div>
-                    
+
+                    {/* Signup Filter */}
+                    {signupLinks.length > 0 && (
+                      <div>
+                        <label className="block text-sm font-medium text-neutral-700 mb-2">
+                          Filter by Signup Registration
+                        </label>
+                        <select
+                          value={selectedSignupFilter || ''}
+                          onChange={(e) => setSelectedSignupFilter(e.target.value ? parseInt(e.target.value) : null)}
+                          className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                        >
+                          <option value="">All Users</option>
+                          {signupLinks.map((link) => (
+                            <option key={link.id} value={link.signup_id}>
+                              {link.signup_title} ({signupRegistrations.get(link.signup_id)?.length || 0} registered)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
                     {availableUsers.length === 0 ? (
                       <div className="text-center py-8 text-neutral-500">
                         <Users className="w-12 h-12 mx-auto mb-4 text-neutral-300" />
                         <p>No available users to add</p>
-                        <p className="text-sm">All users are already on teams</p>
+                        {selectedSignupFilter ? (
+                          <p className="text-sm">No registered users available from this signup</p>
+                        ) : (
+                          <p className="text-sm">All users are already on teams</p>
+                        )}
                       </div>
                     ) : (
-                      <div className="space-y-2 max-h-64 overflow-y-auto">
-                        {availableUsers.map((user) => (
-                          <div key={user.id} className="flex items-center justify-between p-3 border border-neutral-200 rounded-lg">
-                            <div>
-                              <div className="font-medium text-brand-black">
-                                {user.first_name} {user.last_name}
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {availableUsers.map((user) => {
+                          const registrationData = getUserRegistrationData(user.id, selectedSignupFilter || undefined);
+
+                          return (
+                            <div key={user.id} className="flex items-start justify-between p-3 border border-neutral-200 rounded-lg">
+                              <div className="flex-1">
+                                <div className="font-medium text-brand-black">
+                                  {user.first_name} {user.last_name}
+                                </div>
+                                <div className="text-sm text-neutral-600">
+                                  HCP: {user.handicap} • {user.club}
+                                </div>
+
+                                {/* Show registration data if available */}
+                                {registrationData && (
+                                  <div className="mt-2 p-2 bg-blue-50 rounded text-xs">
+                                    <div className="font-semibold text-blue-900 mb-1">Registration Data:</div>
+                                    {registrationData.registration_data && typeof registrationData.registration_data === 'object' && (
+                                      <div className="space-y-1 text-blue-800">
+                                        {Object.entries(registrationData.registration_data).map(([key, value]) => (
+                                          <div key={key}>
+                                            <span className="font-medium">{key}:</span> {String(value)}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    <div className="text-blue-600 mt-1">
+                                      Registered: {new Date(registrationData.registered_at).toLocaleDateString()}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
-                              <div className="text-sm text-neutral-600">
-                                HCP: {user.handicap} • {user.club}
-                              </div>
+
+                              <button
+                                onClick={() => {
+                                  handleAddMemberToTeam(selectedTeam, user.id);
+                                  setShowAddMemberForm(false);
+                                  setSelectedTeam(null);
+                                  setSelectedSignupFilter(null);
+                                }}
+                                className="flex items-center space-x-2 px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors ml-3"
+                              >
+                                <UserPlus className="w-4 h-4" />
+                                <span>Add</span>
+                              </button>
                             </div>
-                            
-                            <button
-                              onClick={() => {
-                                handleAddMemberToTeam(selectedTeam, user.id);
-                                setShowAddMemberForm(false);
-                                setSelectedTeam(null);
-                              }}
-                              className="flex items-center space-x-2 px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors"
-                            >
-                              <UserPlus className="w-4 h-4" />
-                              <span>Add</span>
-                            </button>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </>

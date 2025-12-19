@@ -18,7 +18,7 @@ const AdminClubs: React.FC = () => {
       description: 'Create new golf clubs and configure club settings and membership data.',
       icon: Home,
       route: '/admin/club-management',
-      isNew: true,
+      isNew: false,
       features: [
         'Create new golf clubs',
         'Configure club settings',
@@ -57,17 +57,6 @@ const AdminClubs: React.FC = () => {
         subtitle="Create and manage golf clubs and their booking systems"
       />
 
-      <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="font-semibold text-blue-900 text-sm mb-1">Club Creation Enhancement</p>
-            <p className="text-sm text-blue-800">
-              Club creation functionality is being enhanced to work with the new club tables.
-            </p>
-          </div>
-        </div>
-      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {clubManagementTools.map((tool) => {

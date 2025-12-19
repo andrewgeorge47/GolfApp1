@@ -19,10 +19,17 @@ import {
   Eye
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import { createTournament, getTournaments, updateTournament, deleteTournament } from '../services/api';
+import {
+  createLeague,
+  getLeagues,
+  updateLeague as updateLeagueAPI,
+  deleteLeague as deleteLeagueAPI,
+  League as APILeague
+} from '../services/api';
 import LeagueDivisionManager from './LeagueDivisionManager';
 import LeagueScheduleBuilder from './LeagueScheduleBuilder';
 import LeagueTeamManager from './LeagueTeamManager';
+import LeagueSignupLinker from './LeagueSignupLinker';
 import { 
   Button, 
   Card, 
@@ -54,7 +61,7 @@ interface League {
   teams_per_division: number;
   scoring_rules: ScoringRules;
   format: 'round_robin' | 'playoff' | 'hybrid';
-  status: 'draft' | 'active' | 'completed' | 'paused';
+  status: 'draft' | 'registration' | 'active' | 'playoffs' | 'completed' | 'paused';
   created_at: string;
   updated_at: string;
 }
@@ -95,8 +102,9 @@ interface ScoringRules {
 const LeagueManagement: React.FC = () => {
   const [leagues, setLeagues] = useState<League[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'create' | 'divisions' | 'schedule' | 'teams'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'create' | 'divisions' | 'schedule' | 'teams' | 'signups'>('overview');
   const [expandedLeague, setExpandedLeague] = useState<number | null>(null);
+  const [selectedLeague, setSelectedLeague] = useState<number | null>(null);
   
   // League creation form state
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -126,31 +134,32 @@ const LeagueManagement: React.FC = () => {
   const loadLeagues = async () => {
     setLoading(true);
     try {
-      // TODO: Replace with actual API call
-      // For now, using mock data
-      const mockLeagues: League[] = [
-        {
-          id: 1,
-          name: 'Spring 2024 League',
-          season: 'Spring 2024',
-          start_date: '2024-03-01',
-          end_date: '2024-05-31',
-          divisions: [],
-          teams_per_division: 8,
-          scoring_rules: {
-            points_per_win: 2,
-            points_per_tie: 1,
-            points_per_loss: 0,
-            playoff_format: 'single_elimination',
-            tiebreaker_criteria: ['head_to_head', 'aggregate_score']
-          },
-          format: 'round_robin',
-          status: 'active',
-          created_at: '2024-02-15T10:00:00Z',
-          updated_at: '2024-02-15T10:00:00Z'
-        }
-      ];
-      setLeagues(mockLeagues);
+      const response = await getLeagues();
+      const apiLeagues = response.data;
+
+      // Transform API leagues to component format
+      const transformedLeagues: League[] = apiLeagues.map(league => ({
+        id: league.id,
+        name: league.name,
+        season: league.season || '',
+        start_date: league.start_date,
+        end_date: league.end_date,
+        divisions: [], // Will be loaded separately if needed
+        teams_per_division: league.teams_per_division || 8,
+        scoring_rules: {
+          points_per_win: league.points_for_win || 2,
+          points_per_tie: league.points_for_tie || 1,
+          points_per_loss: league.points_for_loss || 0,
+          playoff_format: (league.playoff_format || 'single_elimination') as any,
+          tiebreaker_criteria: ['head_to_head', 'aggregate_score', 'handicap_differential']
+        },
+        format: (league.format || 'round_robin') as any,
+        status: league.status,
+        created_at: league.created_at,
+        updated_at: league.updated_at
+      }));
+
+      setLeagues(transformedLeagues);
     } catch (error) {
       console.error('Error loading leagues:', error);
       toast.error('Failed to load leagues');
@@ -197,18 +206,56 @@ const LeagueManagement: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      // TODO: Replace with actual API call
+      const leagueData: Partial<APILeague> = {
+        name: leagueForm.name,
+        season: leagueForm.season,
+        start_date: leagueForm.start_date,
+        end_date: leagueForm.end_date,
+        teams_per_division: leagueForm.teams_per_division,
+        format: leagueForm.format,
+        points_for_win: leagueForm.scoring_rules.points_per_win,
+        points_for_tie: leagueForm.scoring_rules.points_per_tie,
+        points_for_loss: leagueForm.scoring_rules.points_per_loss,
+        playoff_format: leagueForm.scoring_rules.playoff_format,
+        // Default UAL settings
+        individual_holes: 9,
+        alternate_shot_holes: 9,
+        active_players_per_week: 3,
+        roster_size_min: 4,
+        roster_size_max: 5,
+        weeks_per_season: 18,
+        divisions_count: 2
+      };
+
+      const response = await createLeague(leagueData);
+      const createdLeague = response.data;
+
+      // Transform to component format and add to list
       const newLeague: League = {
-        id: Date.now(), // Temporary ID
-        ...leagueForm,
+        id: createdLeague.id,
+        name: createdLeague.name,
+        season: createdLeague.season || '',
+        start_date: createdLeague.start_date,
+        end_date: createdLeague.end_date,
         divisions: [],
-        status: 'draft',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        teams_per_division: createdLeague.teams_per_division || 8,
+        scoring_rules: {
+          points_per_win: createdLeague.points_for_win || 2,
+          points_per_tie: createdLeague.points_for_tie || 1,
+          points_per_loss: createdLeague.points_for_loss || 0,
+          playoff_format: (createdLeague.playoff_format || 'single_elimination') as any,
+          tiebreaker_criteria: ['head_to_head', 'aggregate_score', 'handicap_differential']
+        },
+        format: (createdLeague.format || 'round_robin') as any,
+        status: createdLeague.status,
+        created_at: createdLeague.created_at,
+        updated_at: createdLeague.updated_at
       };
 
       setLeagues(prev => [...prev, newLeague]);
       setShowCreateForm(false);
+
+      // Reset form
       setLeagueForm({
         name: '',
         season: '',
@@ -224,10 +271,11 @@ const LeagueManagement: React.FC = () => {
           tiebreaker_criteria: ['head_to_head', 'aggregate_score', 'handicap_differential']
         }
       });
+
       toast.success('League created successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating league:', error);
-      toast.error('Failed to create league');
+      toast.error(error.response?.data?.error || 'Failed to create league');
     } finally {
       setIsSubmitting(false);
     }
@@ -239,29 +287,29 @@ const LeagueManagement: React.FC = () => {
     }
 
     try {
-      // TODO: Replace with actual API call
+      await deleteLeagueAPI(leagueId);
       setLeagues(prev => prev.filter(league => league.id !== leagueId));
       toast.success('League deleted successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting league:', error);
-      toast.error('Failed to delete league');
+      toast.error(error.response?.data?.error || 'Failed to delete league');
     }
   };
 
   const handleUpdateLeagueStatus = async (leagueId: number, status: League['status']) => {
     try {
-      // TODO: Replace with actual API call
-      setLeagues(prev => 
-        prev.map(league => 
-          league.id === leagueId 
+      await updateLeagueAPI(leagueId, { status });
+      setLeagues(prev =>
+        prev.map(league =>
+          league.id === leagueId
             ? { ...league, status, updated_at: new Date().toISOString() }
             : league
         )
       );
       toast.success(`League status updated to ${status}`);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating league status:', error);
-      toast.error('Failed to update league status');
+      toast.error(error.response?.data?.error || 'Failed to update league status');
     }
   };
 
@@ -361,6 +409,17 @@ const LeagueManagement: React.FC = () => {
             <Users className="w-4 h-4 inline mr-2" />
             Teams
           </button>
+          <button
+            onClick={() => setActiveTab('signups')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'signups'
+                ? 'border-brand-neon-green text-brand-neon-green'
+                : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
+            }`}
+          >
+            <Calendar className="w-4 h-4 inline mr-2" />
+            Signups
+          </button>
         </nav>
       </div>
 
@@ -456,13 +515,27 @@ const LeagueManagement: React.FC = () => {
                           onChange={(e) => handleUpdateLeagueStatus(league.id, e.target.value as League['status'])}
                           options={[
                             { value: 'draft', label: 'Draft' },
+                            { value: 'registration', label: 'Registration' },
                             { value: 'active', label: 'Active' },
+                            { value: 'playoffs', label: 'Playoffs' },
                             { value: 'paused', label: 'Paused' },
                             { value: 'completed', label: 'Completed' }
                           ]}
                           selectSize="sm"
                         />
-                        
+
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          icon={Settings}
+                          onClick={() => {
+                            setSelectedLeague(league.id);
+                            setActiveTab('divisions');
+                          }}
+                        >
+                          Manage
+                        </Button>
+
                         <Button
                           variant="danger"
                           size="sm"
@@ -537,9 +610,42 @@ const LeagueManagement: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'divisions' && <LeagueDivisionManager />}
-        {activeTab === 'schedule' && <LeagueScheduleBuilder />}
-        {activeTab === 'teams' && <LeagueTeamManager />}
+        {activeTab === 'divisions' && selectedLeague && <LeagueDivisionManager leagueId={selectedLeague} />}
+        {activeTab === 'divisions' && !selectedLeague && (
+          <div className="text-center py-12">
+            <p className="text-neutral-500">Please select a league from the Overview tab to manage divisions</p>
+            <Button variant="primary" onClick={() => setActiveTab('overview')} className="mt-4">
+              Go to Overview
+            </Button>
+          </div>
+        )}
+        {activeTab === 'schedule' && selectedLeague && <LeagueScheduleBuilder leagueId={selectedLeague} />}
+        {activeTab === 'schedule' && !selectedLeague && (
+          <div className="text-center py-12">
+            <p className="text-neutral-500">Please select a league from the Overview tab to manage schedule</p>
+            <Button variant="primary" onClick={() => setActiveTab('overview')} className="mt-4">
+              Go to Overview
+            </Button>
+          </div>
+        )}
+        {activeTab === 'teams' && selectedLeague && <LeagueTeamManager leagueId={selectedLeague} />}
+        {activeTab === 'teams' && !selectedLeague && (
+          <div className="text-center py-12">
+            <p className="text-neutral-500">Please select a league from the Overview tab to manage teams</p>
+            <Button variant="primary" onClick={() => setActiveTab('overview')} className="mt-4">
+              Go to Overview
+            </Button>
+          </div>
+        )}
+        {activeTab === 'signups' && selectedLeague && <LeagueSignupLinker leagueId={selectedLeague} />}
+        {activeTab === 'signups' && !selectedLeague && (
+          <div className="text-center py-12">
+            <p className="text-neutral-500">Please select a league from the Overview tab to manage signups</p>
+            <Button variant="primary" onClick={() => setActiveTab('overview')} className="mt-4">
+              Go to Overview
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Create League Modal */}

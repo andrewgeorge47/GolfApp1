@@ -155,8 +155,6 @@ const ChallengeCompactCard: React.FC<ChallengeCompactCardProps> = ({
         setIsReup(false);
         setShowGroupPurchaseModal(true);
       }
-
-      toast.success('Tutorial completed! Ready to enter the challenge.');
     } catch (err) {
       console.error('Error completing CTP tutorial:', err);
       toast.error('Failed to save tutorial progress');
@@ -171,7 +169,6 @@ const ChallengeCompactCard: React.FC<ChallengeCompactCardProps> = ({
         payment_amount: 0,
         payment_notes: 'Free challenge entry'
       });
-      toast.success('Successfully entered challenge!');
       onEnterSuccess?.();
     } catch (error: any) {
       console.error('Error entering free challenge:', error);

@@ -67,6 +67,11 @@ const WeeklyChallengeAdmin: React.FC = () => {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEntryVerifyModal, setShowEntryVerifyModal] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<ChallengeEntry | null>(null);
+  const [showShotEditModal, setShowShotEditModal] = useState(false);
+  const [selectedShot, setSelectedShot] = useState<any | null>(null);
+  const [editShotFeet, setEditShotFeet] = useState('');
+  const [editShotInches, setEditShotInches] = useState('');
+  const [editShotReason, setEditShotReason] = useState('');
 
   // Create form state
   const [newChallenge, setNewChallenge] = useState({
@@ -107,7 +112,8 @@ const WeeklyChallengeAdmin: React.FC = () => {
       gameplay: 'Force Realistic',
       fairway_firmness: 'Normal',
       green_firmness: 'Normal',
-      wind: 'None'
+      wind: 'None',
+      teebox: 'Blue'
     },
     trackmanSettings: {
       pins: 'Medium',
@@ -379,7 +385,8 @@ const WeeklyChallengeAdmin: React.FC = () => {
         gameplay: challenge.gspro_settings?.gameplay || 'Force Realistic',
         fairway_firmness: challenge.gspro_settings?.fairway_firmness || 'Normal',
         green_firmness: challenge.gspro_settings?.green_firmness || 'Normal',
-        wind: challenge.gspro_settings?.wind || 'None'
+        wind: challenge.gspro_settings?.wind || 'None',
+        teebox: challenge.gspro_settings?.teebox || 'Blue'
       },
       trackmanSettings: {
         pins: challenge.trackman_settings?.pins || 'Medium',
@@ -517,7 +524,8 @@ const WeeklyChallengeAdmin: React.FC = () => {
           gameplay: 'Force Realistic',
           fairway_firmness: 'Normal',
           green_firmness: 'Normal',
-          wind: 'None'
+          wind: 'None',
+          teebox: 'Blue'
         },
         trackmanSettings: {
           pins: 'Medium',
@@ -584,6 +592,38 @@ const WeeklyChallengeAdmin: React.FC = () => {
     } catch (err) {
       console.error('Error verifying entry:', err);
       toast.error('Failed to verify entry');
+    }
+  };
+
+  const handleEditAndVerifyShot = async () => {
+    if (!selectedShot || !selectedChallenge) return;
+
+    const feet = parseInt(editShotFeet) || 0;
+    const inches = parseInt(editShotInches) || 0;
+
+    if (feet < 0 || inches < 0 || inches >= 12) {
+      toast.error('Invalid distance (inches must be 0-11)');
+      return;
+    }
+
+    const totalInches = (feet * 12) + inches;
+
+    try {
+      const { verifyShot } = await import('../services/api');
+      await verifyShot(selectedChallenge.id, selectedShot.id, {
+        override_distance_inches: totalInches,
+        override_reason: editShotReason || undefined
+      });
+      toast.success('Shot verified with updated distance!');
+      setShowShotEditModal(false);
+      setSelectedShot(null);
+      setEditShotFeet('');
+      setEditShotInches('');
+      setEditShotReason('');
+      selectChallenge(selectedChallenge, false);
+    } catch (err) {
+      console.error('Error verifying shot:', err);
+      toast.error('Failed to verify shot');
     }
   };
 
@@ -665,7 +705,8 @@ const WeeklyChallengeAdmin: React.FC = () => {
         gameplay: 'Force Realistic',
         fairway_firmness: 'Normal',
         green_firmness: 'Normal',
-        wind: 'None'
+        wind: 'None',
+        teebox: 'Blue'
       },
       trackmanSettings: {
         pins: 'Medium',
@@ -935,22 +976,40 @@ const WeeklyChallengeAdmin: React.FC = () => {
                                             {shot.verified ? 'OK' : 'Pending'}
                                           </Badge>
                                           {!shot.verified && (
-                                            <Button
-                                              variant="success"
-                                              size="xs"
-                                              onClick={async () => {
-                                                try {
-                                                  const { verifyShot } = await import('../services/api');
-                                                  await verifyShot(selectedChallenge!.id, shot.id);
-                                                  toast.success('Shot verified!');
-                                                  selectChallenge(selectedChallenge!, false);
-                                                } catch (err) {
-                                                  toast.error('Failed to verify shot');
-                                                }
-                                              }}
-                                            >
-                                              <CheckCircle className="w-3 h-3" />
-                                            </Button>
+                                            <>
+                                              <Button
+                                                variant="primary"
+                                                size="xs"
+                                                onClick={() => {
+                                                  setSelectedShot(shot);
+                                                  const totalInches = shot.distance_from_pin_inches || 0;
+                                                  const feet = Math.floor(totalInches / 12);
+                                                  const inches = totalInches % 12;
+                                                  setEditShotFeet(feet.toString());
+                                                  setEditShotInches(inches.toString());
+                                                  setEditShotReason('');
+                                                  setShowShotEditModal(true);
+                                                }}
+                                              >
+                                                <Edit className="w-3 h-3" />
+                                              </Button>
+                                              <Button
+                                                variant="success"
+                                                size="xs"
+                                                onClick={async () => {
+                                                  try {
+                                                    const { verifyShot } = await import('../services/api');
+                                                    await verifyShot(selectedChallenge!.id, shot.id);
+                                                    toast.success('Shot verified!');
+                                                    selectChallenge(selectedChallenge!, false);
+                                                  } catch (err) {
+                                                    toast.error('Failed to verify shot');
+                                                  }
+                                                }}
+                                              >
+                                                <CheckCircle className="w-3 h-3" />
+                                              </Button>
+                                            </>
                                           )}
                                         </div>
                                       </div>
@@ -1710,6 +1769,24 @@ const WeeklyChallengeAdmin: React.FC = () => {
                           <option value="Random">Random</option>
                         </select>
                       </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Tee Box</label>
+                        <select
+                          value={challengeSettings.gsproSettings.teebox}
+                          onChange={(e) => setChallengeSettings({
+                            ...challengeSettings,
+                            gsproSettings: { ...challengeSettings.gsproSettings, teebox: e.target.value }
+                          })}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        >
+                          <option value="Black">Black</option>
+                          <option value="Blue">Blue</option>
+                          <option value="White">White</option>
+                          <option value="Yellow">Yellow</option>
+                          <option value="Green">Green</option>
+                          <option value="Red">Red</option>
+                        </select>
+                      </div>
                     </div>
                     )}
                   </div>
@@ -2016,6 +2093,83 @@ const WeeklyChallengeAdmin: React.FC = () => {
             </Button>
             <Button variant="primary" size="sm" responsive onClick={handleVerifyEntry}>
               Verify
+            </Button>
+          </ModalFooter>
+        </Modal>
+      )}
+
+      {/* Edit Shot Modal */}
+      {showShotEditModal && selectedShot && (
+        <Modal open={true} onClose={() => setShowShotEditModal(false)} size="md">
+          <ModalHeader>
+            Edit & Verify Shot
+          </ModalHeader>
+          <ModalContent>
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-gray-600 mb-2">
+                  Shot #{selectedShot.shot_number}
+                </p>
+                <p className="text-sm text-gray-600">
+                  Reported Distance: <strong>{formatDistance(selectedShot.distance_from_pin_inches)}</strong>
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Corrected Distance
+                </label>
+                <div className="flex gap-3 items-end">
+                  <div className="flex-1">
+                    <Input
+                      label="Feet"
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={editShotFeet}
+                      onChange={(e) => setEditShotFeet(e.target.value)}
+                      required
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <Input
+                      label="Inches"
+                      type="number"
+                      min="0"
+                      max="11"
+                      value={editShotInches}
+                      onChange={(e) => setEditShotInches(e.target.value)}
+                      required
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Total: {((parseInt(editShotFeet) || 0) * 12) + (parseInt(editShotInches) || 0)} inches
+                </p>
+              </div>
+
+              <Textarea
+                label="Correction Reason (optional)"
+                rows={3}
+                value={editShotReason}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setEditShotReason(e.target.value)}
+                placeholder="Explain why the distance was corrected..."
+              />
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <p className="text-xs text-gray-600">
+                  This will update the shot distance and mark it as verified. Use this when the photo shows a different distance than what was submitted.
+                </p>
+              </div>
+            </div>
+          </ModalContent>
+          <ModalFooter>
+            <Button variant="secondary" size="sm" responsive onClick={() => setShowShotEditModal(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" responsive onClick={handleEditAndVerifyShot}>
+              Update & Verify
             </Button>
           </ModalFooter>
         </Modal>

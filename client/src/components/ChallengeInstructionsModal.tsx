@@ -22,6 +22,7 @@ interface ChallengeInstructionsModalProps {
     fairway_firmness?: string;
     green_firmness?: string;
     wind?: string;
+    teebox?: string;
   };
   trackmanSettings?: {
     pins?: string;
@@ -180,6 +181,12 @@ const ChallengeInstructionsModal: React.FC<ChallengeInstructionsModalProps> = ({
                   <div>
                     <span className="text-gray-600">Wind:</span>{' '}
                     <span className="font-medium">{gsproSettings.wind}</span>
+                  </div>
+                )}
+                {gsproSettings.teebox && (
+                  <div>
+                    <span className="text-gray-600">Tee Box:</span>{' '}
+                    <span className="font-medium">{gsproSettings.teebox}</span>
                   </div>
                 )}
               </div>

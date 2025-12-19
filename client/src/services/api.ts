@@ -402,6 +402,310 @@ export const getLeaguePlayers = () => api.get('/league/players');
 export const addLeaguePlayer = (userId: number) => api.post('/league/players', { user_id: userId });
 export const removeLeaguePlayer = (userId: number) => api.delete(`/league/players/${userId}`);
 
+// Leagues CRUD
+export interface League {
+  id: number;
+  name: string;
+  season?: string;
+  description?: string;
+  start_date: string;
+  end_date: string;
+  status: 'draft' | 'registration' | 'active' | 'playoffs' | 'paused' | 'completed';
+  teams_per_division?: number;
+  divisions_count?: number;
+  weeks_per_season?: number;
+  playoff_format?: string;
+  points_for_win?: number;
+  points_for_tie?: number;
+  points_for_loss?: number;
+  format?: string;
+  individual_holes?: number;
+  alternate_shot_holes?: number;
+  active_players_per_week?: number;
+  roster_size_min?: number;
+  roster_size_max?: number;
+  created_by?: number;
+  created_by_name?: string;
+  team_count?: number;
+  division_count?: number;
+  weeks_scheduled?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LeagueDivision {
+  id: number;
+  league_id: number;
+  division_name: string;
+  division_order?: number;
+  created_at: string;
+}
+
+export interface LeagueTeam {
+  id: number;
+  league_id: number;
+  division_id?: number;
+  name: string;
+  captain_id: number;
+  captain_name?: string;
+  league_points?: number;
+  aggregate_net_score?: number;
+  created_at: string;
+}
+
+export interface LeagueMatchup {
+  id: number;
+  league_id: number;
+  schedule_id?: number;
+  week_number: number;
+  division_id?: number;
+  division_name?: string;
+  team1_id: number;
+  team1_name?: string;
+  team1_captain_id?: number;
+  team1_captain_name?: string;
+  team2_id: number;
+  team2_name?: string;
+  team2_captain_id?: number;
+  team2_captain_name?: string;
+  course_id?: number;
+  course_name?: string;
+  course_par?: number;
+  course_rating?: number;
+  course_slope?: number;
+  hole_indexes?: number[];
+  status: string;
+  winner_team_id?: number;
+  team1_individual_net?: number;
+  team2_individual_net?: number;
+  team1_alternate_shot_net?: number;
+  team2_alternate_shot_net?: number;
+  team1_total_net?: number;
+  team2_total_net?: number;
+  team1_points?: number;
+  team2_points?: number;
+  match_date?: string;
+  completed_at?: string;
+  verified_at?: string;
+  verified_by?: number;
+  week_start_date?: string;
+  week_end_date?: string;
+}
+
+export interface LeagueStandings {
+  league_id: number;
+  divisions: {
+    division_id: number;
+    division_name: string;
+    teams: {
+      team_id: number;
+      team_name: string;
+      captain_name: string;
+      wins: number;
+      ties: number;
+      losses: number;
+      total_points: number;
+      aggregate_net_score: number;
+      rank_in_division: number;
+      playoff_qualified: boolean;
+    }[];
+  }[];
+}
+
+export const getLeagues = (params?: { status?: string }) =>
+  api.get<League[]>('/leagues', { params });
+
+export const getLeague = (leagueId: number) =>
+  api.get<League>(`/leagues/${leagueId}`);
+
+export const createLeague = (leagueData: Partial<League>) =>
+  api.post<League>('/leagues', leagueData);
+
+export const updateLeague = (leagueId: number, leagueData: Partial<League>) =>
+  api.put<League>(`/leagues/${leagueId}`, leagueData);
+
+export const deleteLeague = (leagueId: number) =>
+  api.delete(`/leagues/${leagueId}`);
+
+// League Divisions
+export const getLeagueDivisions = (leagueId: number) =>
+  api.get<LeagueDivision[]>(`/leagues/${leagueId}/divisions`);
+
+export const createLeagueDivision = (leagueId: number, divisionData: { division_name: string }) =>
+  api.post<LeagueDivision>(`/leagues/${leagueId}/divisions`, divisionData);
+
+export const updateLeagueDivision = (leagueId: number, divisionId: number, divisionData: Partial<LeagueDivision>) =>
+  api.put<LeagueDivision>(`/leagues/${leagueId}/divisions/${divisionId}`, divisionData);
+
+export const deleteLeagueDivision = (leagueId: number, divisionId: number) =>
+  api.delete(`/leagues/${leagueId}/divisions/${divisionId}`);
+
+// League Teams
+export const getLeagueTeams = (leagueId: number) =>
+  api.get<LeagueTeam[]>(`/leagues/${leagueId}/teams`);
+
+export const createLeagueTeam = (leagueId: number, teamData: { name: string; captain_id: number; division_id?: number }) =>
+  api.post<LeagueTeam>(`/leagues/${leagueId}/teams`, teamData);
+
+export const updateLeagueTeam = (leagueId: number, teamId: number, teamData: Partial<LeagueTeam>) =>
+  api.put<LeagueTeam>(`/leagues/${leagueId}/teams/${teamId}`, teamData);
+
+export const deleteLeagueTeam = (leagueId: number, teamId: number) =>
+  api.delete(`/leagues/${leagueId}/teams/${teamId}`);
+
+// Team Members
+export interface TeamMember {
+  id: number;
+  user_member_id: number;
+  is_captain: boolean;
+  joined_at: string;
+  first_name: string;
+  last_name: string;
+  handicap: number;
+  club?: string;
+  email_address?: string;
+}
+
+export const getTeamMembers = (teamId: number) =>
+  api.get<TeamMember[]>(`/teams/${teamId}/members`);
+
+export const addTeamMember = (teamId: number, userId: number) =>
+  api.post<TeamMember>(`/teams/${teamId}/members`, { user_id: userId });
+
+export const removeTeamMember = (teamId: number, memberId: number) =>
+  api.delete(`/teams/${teamId}/members/${memberId}`);
+
+// League Schedule & Matchups
+export const generateLeagueSchedule = (leagueId: number, scheduleData: { weeks: number; start_date: string }) =>
+  api.post(`/leagues/${leagueId}/schedule/generate`, scheduleData);
+
+export const getLeagueSchedule = (leagueId: number) =>
+  api.get(`/leagues/${leagueId}/schedule`);
+
+export const getLeagueWeekSchedule = (leagueId: number, weekNumber: number) =>
+  api.get(`/leagues/${leagueId}/schedule/week/${weekNumber}`);
+
+export const generateLeagueMatchups = (leagueId: number, matchupData: { week_number: number; division_id?: number }) =>
+  api.post<LeagueMatchup[]>(`/leagues/${leagueId}/matchups/generate`, matchupData);
+
+export const getLeagueMatchups = (leagueId: number, params?: { week_number?: number; division_id?: number }) =>
+  api.get<LeagueMatchup[]>(`/leagues/${leagueId}/matchups`, { params });
+
+export const getLeagueWeekMatchups = (leagueId: number, weekNumber: number) =>
+  api.get<LeagueMatchup[]>(`/leagues/${leagueId}/matchups/week/${weekNumber}`);
+
+export const updateMatchup = (matchupId: number, matchupData: Partial<LeagueMatchup>) =>
+  api.put<LeagueMatchup>(`/matchups/${matchupId}`, matchupData);
+
+export const deleteMatchup = (matchupId: number) =>
+  api.delete(`/matchups/${matchupId}`);
+
+// League Standings
+export const getLeagueStandings = (leagueId: number, params?: { division_id?: number }) =>
+  api.get<LeagueStandings>(`/leagues/${leagueId}/standings`, { params });
+
+export const getDivisionStandings = (leagueId: number, divisionId: number) =>
+  api.get(`/leagues/${leagueId}/divisions/${divisionId}/standings`);
+
+// League-Signup Integration
+export interface LeagueSignupLink {
+  id: number;
+  league_id: number;
+  signup_id: number;
+  signup_title?: string;
+  signup_description?: string;
+  signup_status?: string;
+  entry_fee?: number;
+  auto_sync: boolean;
+  last_synced_at?: string;
+  synced_by?: number;
+  synced_by_name?: string;
+  sync_count: number;
+  paid_registrations?: number;
+  created_at: string;
+}
+
+export interface LeagueSignupRegistration {
+  id: number;
+  user_id: number;
+  registration_data?: any;
+  registered_at: string;
+  first_name: string;
+  last_name: string;
+  email_address: string;
+  handicap: number;
+  club?: string;
+  payment_method?: string;
+  payment_status?: string;
+  payment_date?: string;
+}
+
+export const getLeagueSignupLinks = (leagueId: number) =>
+  api.get<LeagueSignupLink[]>(`/leagues/${leagueId}/signup-links`);
+
+export const createLeagueSignupLink = (leagueId: number, linkData: { signup_id: number; auto_sync?: boolean }) =>
+  api.post<LeagueSignupLink>(`/leagues/${leagueId}/signup-links`, linkData);
+
+export const deleteLeagueSignupLink = (leagueId: number, linkId: number) =>
+  api.delete(`/leagues/${leagueId}/signup-links/${linkId}`);
+
+export const getLeagueSignupRegistrations = (leagueId: number, signupId: number) =>
+  api.get<LeagueSignupRegistration[]>(`/leagues/${leagueId}/signups/${signupId}/registrations`);
+
+export const updateSignupLinkSync = (leagueId: number, linkId: number) =>
+  api.patch<LeagueSignupLink>(`/leagues/${leagueId}/signup-links/${linkId}/sync`);
+
+// Score Submission
+export const submitIndividualScores = (matchupId: number, scoreData: {
+  lineup_id?: number;
+  team_id: number;
+  player_id: number;
+  assigned_holes: number[];
+  hole_scores: Record<string, any>;
+  gross_total: number;
+  net_total: number;
+  player_handicap: number;
+  course_handicap: number;
+}) => api.post(`/matchups/${matchupId}/scores/individual`, scoreData);
+
+export const submitAlternateShotScores = (matchupId: number, scoreData: {
+  lineup_id?: number;
+  team_id: number;
+  hole_scores: Record<string, any>;
+  gross_total: number;
+  net_total: number;
+  team_handicap: number;
+  team_course_handicap: number;
+}) => api.post(`/matchups/${matchupId}/scores/alternate-shot`, scoreData);
+
+export const calculateMatchupResult = (matchupId: number) =>
+  api.post(`/matchups/${matchupId}/calculate-result`);
+
+export const verifyMatchupScores = (matchupId: number) =>
+  api.put(`/matchups/${matchupId}/verify`);
+
+// Captain Dashboard
+export interface CaptainDashboardData {
+  team: any;
+  roster: any[];
+  upcomingMatches: any[];
+  standings: any;
+}
+
+export const getCaptainDashboard = (teamId: number, leagueId: number) =>
+  api.get<CaptainDashboardData>(`/captain/team/${teamId}/dashboard`, { params: { league_id: leagueId } });
+
+// Player Availability
+export const submitTeamAvailability = (teamId: number, availabilityData: {
+  league_id: number;
+  week_number: number;
+  is_available: boolean;
+  availability_notes?: string;
+}) => api.post(`/teams/${teamId}/availability`, availabilityData);
+
+export const getTeamAvailability = (teamId: number, weekNumber: number, leagueId: number) =>
+  api.get(`/teams/${teamId}/availability/week/${weekNumber}`, { params: { league_id: leagueId } });
+
 // Matches
 export const getMatches = () => api.get<Match[]>('/matches');
 export const createMatch = (matchData: Partial<Match>) => api.post<Match>('/matches', matchData);
@@ -1285,6 +1589,7 @@ export interface WeeklyChallenge {
     fairway_firmness?: string;
     green_firmness?: string;
     wind?: string;
+    teebox?: string;
   };
   trackman_settings?: {
     pins?: string;

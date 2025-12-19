@@ -204,8 +204,6 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
       } else {
         setShowEntryModal(true);
       }
-
-      toast.success('Tutorial completed! Ready to enter the challenge.');
     } catch (err) {
       console.error('Error completing CTP tutorial:', err);
       toast.error('Failed to save tutorial progress');

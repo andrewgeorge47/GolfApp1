@@ -17,6 +17,7 @@ import { format, parse, startOfWeek, getDay, addDays, startOfDay, endOfDay } fro
 import { useAuth } from '../AuthContext';
 import { toast } from 'react-toastify';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
+import { submitTeamAvailability, getTeamAvailability, getLeagueSchedule } from '../services/api';
 
 interface AvailabilityEvent {
   id: string;
@@ -60,10 +61,13 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
-const PlayerAvailabilityCalendar: React.FC = () => {
+interface PlayerAvailabilityCalendarProps {
+  teamId: number;
+  leagueId: number;
+}
+
+const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({ teamId, leagueId }) => {
   const { user } = useAuth();
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [availableWeeks, setAvailableWeeks] = useState<Week[]>([]);
   const [selectedWeek, setSelectedWeek] = useState<Week | null>(null);
   const [events, setEvents] = useState<AvailabilityEvent[]>([]);
@@ -78,289 +82,127 @@ const PlayerAvailabilityCalendar: React.FC = () => {
   const [calendarDate, setCalendarDate] = useState(new Date());
 
   useEffect(() => {
-    loadUserTeams();
-  }, []);
-
-  useEffect(() => {
-    if (selectedTeam) {
-      loadAvailableWeeks(selectedTeam.league_id);
+    if (teamId && leagueId) {
+      loadAvailableWeeks(leagueId);
     }
-  }, [selectedTeam]);
+  }, [teamId, leagueId]);
 
   useEffect(() => {
-    if (selectedWeek) {
+    if (selectedWeek && teamId) {
       loadCurrentAvailability();
       generateAvailabilityEvents();
     }
-  }, [selectedWeek, selectedTeam]);
+  }, [selectedWeek, teamId]);
 
-  const loadUserTeams = async () => {
+  const loadAvailableWeeks = async (leagueId: number) => {
     setLoading(true);
     try {
-      // Mock data for preview
-      const mockTeams: Team[] = [
-        {
-          id: 1,
-          name: "Team Alpha",
-          league_id: 1
-        },
-        {
-          id: 2,
-          name: "Team Beta",
-          league_id: 2
-        }
-      ];
-      
-      setTeams(mockTeams);
-      if (mockTeams.length > 0) {
-        setSelectedTeam(mockTeams[0]);
+      const response = await getLeagueSchedule(leagueId);
+      const scheduleData = response.data;
+
+      const weeks: Week[] = scheduleData.map((week: any) => ({
+        week_number: week.week_number,
+        week_start_date: week.week_start_date,
+        week_end_date: week.week_end_date,
+        is_current_week: week.status === 'active'
+      }));
+
+      setAvailableWeeks(weeks);
+
+      // Select current week or first week
+      const currentWeek = weeks.find(w => w.is_current_week) || weeks[0];
+      if (currentWeek) {
+        setSelectedWeek(currentWeek);
       }
-    } catch (error) {
-      console.error('Error loading user teams:', error);
-      toast.error('Failed to load your teams');
+    } catch (error: any) {
+      console.error('Error loading available weeks:', error);
+      toast.error(error.response?.data?.error || 'Failed to load weeks');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadAvailableWeeks = async (leagueId: number) => {
+  const loadCurrentAvailability = async () => {
+    if (!selectedWeek || !teamId) return;
+
     try {
-      // Mock data for preview
-      const mockWeeks: Week[] = [
-        {
-          week_number: 6,
-          week_start_date: "2025-01-08",
-          week_end_date: "2025-01-14",
-          is_current_week: false
-        },
-        {
-          week_number: 7,
-          week_start_date: "2025-01-15",
-          week_end_date: "2025-01-21",
-          is_current_week: false
-        },
-        {
-          week_number: 8,
-          week_start_date: "2025-01-22",
-          week_end_date: "2025-01-28",
-          is_current_week: true
-        },
-        {
-          week_number: 9,
-          week_start_date: "2025-01-29",
-          week_end_date: "2025-02-04",
-          is_current_week: false
-        },
-        {
-          week_number: 10,
-          week_start_date: "2025-02-05",
-          week_end_date: "2025-02-11",
-          is_current_week: false
+      const response = await getTeamAvailability(teamId, selectedWeek.week_number, leagueId);
+      const availability = response.data;
+
+      if (availability && availability.length > 0) {
+        const userAvail = availability.find((a: any) => a.user_id === user?.member_id);
+        if (userAvail) {
+          setCurrentAvailability({
+            is_available: userAvail.is_available,
+            availability_notes: userAvail.availability_notes || '',
+            last_updated: userAvail.updated_at
+          });
+          return;
         }
-      ];
-      
-      setAvailableWeeks(mockWeeks);
-      const currentWeek = mockWeeks.find(week => week.is_current_week);
-      if (currentWeek) {
-        setSelectedWeek(currentWeek);
-      } else if (mockWeeks.length > 0) {
-        setSelectedWeek(mockWeeks[0]);
       }
-    } catch (error) {
-      console.error('Error loading available weeks:', error);
-      toast.error('Failed to load available weeks');
+
+      // No availability set yet
+      setCurrentAvailability({
+        is_available: true,
+        availability_notes: '',
+        last_updated: undefined
+      });
+    } catch (error: any) {
+      console.error('Error loading current availability:', error);
+      // Default to available if not set
+      setCurrentAvailability({
+        is_available: true,
+        availability_notes: '',
+        last_updated: undefined
+      });
     }
   };
 
-  const loadCurrentAvailability = async () => {
-    if (!selectedTeam || !selectedWeek) return;
+  const handleSubmitAvailability = async (isAvailable: boolean, notes: string) => {
+    if (!selectedWeek || !teamId) return;
 
+    setSubmitting(true);
     try {
-      // Mock data for preview - simulate some existing availability
-      const mockAvailability = {
-        is_available: selectedWeek.week_number === 8, // Available for current week
-        availability_notes: selectedWeek.week_number === 8 ? "Available Tuesday and Thursday evenings" : "",
-        last_updated: "2025-01-20T10:30:00Z"
-      };
-      
-      setCurrentAvailability(mockAvailability);
-    } catch (error) {
-      console.error('Error loading current availability:', error);
+      await submitTeamAvailability(teamId, {
+        league_id: leagueId,
+        week_number: selectedWeek.week_number,
+        is_available: isAvailable,
+        availability_notes: notes
+      });
+
+      toast.success('Availability updated successfully');
+      await loadCurrentAvailability();
+    } catch (error: any) {
+      console.error('Error submitting availability:', error);
+      toast.error(error.response?.data?.error || 'Failed to update availability');
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const generateAvailabilityEvents = () => {
     if (!selectedWeek) return;
 
-    const weekStart = new Date(selectedWeek.week_start_date);
-    const weekEnd = new Date(selectedWeek.week_end_date);
-    
-    // Generate time slots for each day of the week
-    const timeSlots: AvailabilityEvent[] = [];
-    
-    for (let day = 0; day < 7; day++) {
-      const currentDay = addDays(weekStart, day);
-      
-      // Generate morning slots (6 AM - 12 PM)
-      for (let hour = 6; hour < 12; hour++) {
-        const start = new Date(currentDay);
-        start.setHours(hour, 0, 0, 0);
-        const end = new Date(start);
-        end.setHours(hour + 1, 0, 0, 0);
-        
-        timeSlots.push({
-          id: `morning-${day}-${hour}`,
-          title: 'Available',
-          start,
-          end,
-          isAvailable: false,
-          weekNumber: selectedWeek.week_number
-        });
-      }
-      
-      // Generate afternoon slots (12 PM - 6 PM)
-      for (let hour = 12; hour < 18; hour++) {
-        const start = new Date(currentDay);
-        start.setHours(hour, 0, 0, 0);
-        const end = new Date(start);
-        end.setHours(hour + 1, 0, 0, 0);
-        
-        timeSlots.push({
-          id: `afternoon-${day}-${hour}`,
-          title: 'Available',
-          start,
-          end,
-          isAvailable: false,
-          weekNumber: selectedWeek.week_number
-        });
-      }
-      
-      // Generate evening slots (6 PM - 10 PM)
-      for (let hour = 18; hour < 22; hour++) {
-        const start = new Date(currentDay);
-        start.setHours(hour, 0, 0, 0);
-        const end = new Date(start);
-        end.setHours(hour + 1, 0, 0, 0);
-        
-        timeSlots.push({
-          id: `evening-${day}-${hour}`,
-          title: 'Available',
-          start,
-          end,
-          isAvailable: false,
-          weekNumber: selectedWeek.week_number
-        });
-      }
-    }
-    
-    setEvents(timeSlots);
-  };
+    const events: AvailabilityEvent[] = [];
+    const startDate = new Date(selectedWeek.week_start_date);
+    const endDate = new Date(selectedWeek.week_end_date);
 
-  const handleSelectSlot = ({ start, end }: { start: Date; end: Date }) => {
-    const eventId = events.find(event => 
-      event.start.getTime() === start.getTime() && event.end.getTime() === end.getTime()
-    )?.id;
-    
-    if (eventId) {
-      setEvents(prevEvents => 
-        prevEvents.map(event => 
-          event.id === eventId 
-            ? { ...event, isAvailable: !event.isAvailable }
-            : event
-        )
-      );
-    }
-  };
-
-  const handleEventClick = (event: AvailabilityEvent) => {
-    setEvents(prevEvents => 
-      prevEvents.map(e => 
-        e.id === event.id 
-          ? { ...e, isAvailable: !e.isAvailable }
-          : e
-      )
-    );
-  };
-
-  const eventStyleGetter = (event: AvailabilityEvent) => {
-    const style: React.CSSProperties = {
-      backgroundColor: event.isAvailable ? '#10B981' : '#E5E7EB',
-      color: event.isAvailable ? 'white' : '#6B7280',
-      borderRadius: '4px',
-      border: 'none',
-      padding: '2px 4px',
-      fontSize: '10px',
-      fontWeight: '500',
-      cursor: 'pointer',
-    };
-    
-    return { style };
-  };
-
-  const components = {
-    event: (props: any) => {
-      const event = props.event as AvailabilityEvent;
-      return (
-        <div className="flex items-center justify-center w-full h-full">
-          {event.isAvailable ? (
-            <CheckCircle className="w-3 h-3" />
-          ) : (
-            <XCircle className="w-3 h-3" />
-          )}
-        </div>
-      );
-    },
-  };
-
-  const handleSubmit = async () => {
-    if (!selectedTeam || !selectedWeek) {
-      toast.error('Please select a team and week');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      // Calculate availability from events
-      const availableSlots = events.filter(event => event.isAvailable);
-      const isAvailable = availableSlots.length > 0;
-      const notes = availableSlots.length > 0 
-        ? `Available for ${availableSlots.length} time slots this week`
-        : 'Not available this week';
-
-      // Mock submission for preview
-      const mockResult = {
-        is_available: isAvailable,
-        availability_notes: notes,
-        updated_at: new Date().toISOString()
-      };
-      
-      setCurrentAvailability({
-        is_available: mockResult.is_available,
-        availability_notes: mockResult.availability_notes,
-        last_updated: mockResult.updated_at
-      });
-
-      toast.success('Availability submitted successfully!');
-    } catch (error) {
-      console.error('Error submitting availability:', error);
-      toast.error('Failed to submit availability. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric'
+    // Create an event for the selected week
+    events.push({
+      id: `week-${selectedWeek.week_number}`,
+      title: currentAvailability?.is_available ? 'Available' : 'Unavailable',
+      start: startDate,
+      end: endDate,
+      isAvailable: currentAvailability?.is_available || false,
+      notes: currentAvailability?.availability_notes,
+      weekNumber: selectedWeek.week_number
     });
+
+    setEvents(events);
   };
 
-  const formatWeekRange = (startDate: string, endDate: string) => {
-    const start = formatDate(startDate);
-    const end = formatDate(endDate);
-    return `${start} - ${end}`;
+  const selectWeek = (week: Week) => {
+    setSelectedWeek(week);
   };
 
   const getCurrentWeekIndex = () => {
@@ -389,12 +231,12 @@ const PlayerAvailabilityCalendar: React.FC = () => {
     );
   }
 
-  if (teams.length === 0) {
+  if (!selectedWeek) {
     return (
       <div className="text-center py-8">
         <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-gray-900 mb-2">No Teams Found</h3>
-        <p className="text-gray-600">You are not currently a member of any teams.</p>
+        <h3 className="text-lg font-medium text-gray-900 mb-2">No Schedule Available</h3>
+        <p className="text-gray-600">No schedule weeks found for this league.</p>
       </div>
     );
   }
@@ -407,12 +249,12 @@ const PlayerAvailabilityCalendar: React.FC = () => {
           <Calendar className="w-8 h-8 text-brand-neon-green" />
           <div>
             <h1 className="text-2xl font-bold text-brand-black">Availability Calendar</h1>
-            <p className="text-neutral-600">Drag and click to mark your available times</p>
+            <p className="text-neutral-600">Mark your availability for Week {selectedWeek.week_number}</p>
           </div>
         </div>
-        
-        <button 
-          onClick={loadUserTeams}
+
+        <button
+          onClick={() => loadAvailableWeeks(leagueId)}
           className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors"
         >
           <RefreshCw className="w-4 h-4" />
@@ -420,185 +262,102 @@ const PlayerAvailabilityCalendar: React.FC = () => {
         </button>
       </div>
 
-      {/* Team Selection */}
+      {/* Week Selection */}
       <div className="bg-white border border-neutral-200 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-brand-black mb-4">Select Team</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {teams.map((team) => (
-            <button
-              key={team.id}
-              onClick={() => setSelectedTeam(team)}
-              className={`p-4 rounded-lg border-2 transition-colors text-left ${
-                selectedTeam?.id === team.id
-                  ? 'border-brand-neon-green bg-green-50'
-                  : 'border-neutral-200 hover:border-neutral-300'
-              }`}
-            >
-              <h4 className="font-semibold text-brand-black">{team.name}</h4>
-              <p className="text-sm text-neutral-600">League ID: {team.league_id}</p>
-            </button>
-          ))}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={goToPreviousWeek}
+            disabled={getCurrentWeekIndex() === 0}
+            className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <div className="text-center">
+            <h3 className="text-lg font-semibold">Week {selectedWeek.week_number}</h3>
+            <p className="text-sm text-gray-600">
+              {new Date(selectedWeek.week_start_date).toLocaleDateString()} -{' '}
+              {new Date(selectedWeek.week_end_date).toLocaleDateString()}
+            </p>
+          </div>
+          <button
+            onClick={goToNextWeek}
+            disabled={getCurrentWeekIndex() === availableWeeks.length - 1}
+            className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
         </div>
       </div>
 
-      {/* Week Selection */}
-      {selectedTeam && (
-        <div className="bg-white border border-neutral-200 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-brand-black">Select Week</h3>
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={goToPreviousWeek}
-                disabled={getCurrentWeekIndex() === 0}
-                className="p-2 rounded-lg border border-neutral-300 hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={goToNextWeek}
-                disabled={getCurrentWeekIndex() === availableWeeks.length - 1}
-                className="p-2 rounded-lg border border-neutral-300 hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+      {/* Availability Status */}
+      <div className="bg-white border border-neutral-200 rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-4">Your Availability</h3>
+        <div className="flex items-center space-x-4 mb-4">
+          <button
+            onClick={() => handleSubmitAvailability(true, currentAvailability?.availability_notes || '')}
+            disabled={submitting}
+            className={`flex-1 p-4 rounded-lg border-2 transition-colors ${
+              currentAvailability?.is_available
+                ? 'border-green-500 bg-green-50'
+                : 'border-gray-200 hover:border-green-300'
+            }`}
+          >
+            <div className="flex items-center justify-center space-x-2">
+              <CheckCircle className="w-5 h-5 text-green-600" />
+              <span className="font-medium">Available</span>
             </div>
-          </div>
-          
-          {selectedWeek && (
-            <div className="text-center">
-              <h4 className="text-xl font-semibold text-brand-black">
-                Week {selectedWeek.week_number}
-              </h4>
-              <p className="text-lg text-neutral-600">
-                {formatWeekRange(selectedWeek.week_start_date, selectedWeek.week_end_date)}
-              </p>
-              {selectedWeek.is_current_week && (
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-brand-neon-green text-brand-black mt-2">
-                  Current Week
+          </button>
+          <button
+            onClick={() => handleSubmitAvailability(false, '')}
+            disabled={submitting}
+            className={`flex-1 p-4 rounded-lg border-2 transition-colors ${
+              currentAvailability?.is_available === false
+                ? 'border-red-500 bg-red-50'
+                : 'border-gray-200 hover:border-red-300'
+            }`}
+          >
+            <div className="flex items-center justify-center space-x-2">
+              <XCircle className="w-5 h-5 text-red-600" />
+              <span className="font-medium">Unavailable</span>
+            </div>
+          </button>
+        </div>
+        {currentAvailability?.last_updated && (
+          <p className="text-sm text-gray-500">
+            Last updated: {new Date(currentAvailability.last_updated).toLocaleString()}
+          </p>
+        )}
+      </div>
+
+      {/* Events Display */}
+      <div className="bg-white border border-neutral-200 rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-4">Schedule Events</h3>
+        <div className="space-y-2">
+          {events.map(event => (
+            <div
+              key={event.id}
+              className={`p-3 rounded-lg ${
+                event.isAvailable ? 'bg-green-100' : 'bg-gray-100'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{event.title}</span>
+                <span className="text-sm text-gray-600">
+                  {event.start.toLocaleString()} - {event.end.toLocaleString()}
                 </span>
-              )}
+              </div>
             </div>
+          ))}
+          {events.length === 0 && (
+            <p className="text-gray-500 text-center py-4">No events for this week</p>
           )}
         </div>
-      )}
+      </div>
 
-      {/* Calendar */}
-      {selectedTeam && selectedWeek && (
-        <div className="bg-white border border-neutral-200 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-brand-black">Availability Calendar</h3>
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setCalendarView('week')}
-                className={`px-3 py-1 rounded-lg text-sm font-medium ${
-                  calendarView === 'week'
-                    ? 'bg-brand-neon-green text-brand-black'
-                    : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
-                }`}
-              >
-                Week View
-              </button>
-              <button
-                onClick={() => setCalendarView('month')}
-                className={`px-3 py-1 rounded-lg text-sm font-medium ${
-                  calendarView === 'month'
-                    ? 'bg-brand-neon-green text-brand-black'
-                    : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
-                }`}
-              >
-                Month View
-              </button>
-            </div>
-          </div>
-          
-          <div className="mb-4 p-3 bg-neutral-50 rounded-lg">
-            <div className="flex items-center space-x-4 text-sm">
-              <div className="flex items-center space-x-2">
-                <CheckCircle className="w-4 h-4 text-green-600" />
-                <span>Available</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <XCircle className="w-4 h-4 text-gray-500" />
-                <span>Not Available</span>
-              </div>
-              <div className="text-neutral-500">
-                Click or drag to toggle availability
-              </div>
-            </div>
-          </div>
-          
-          <div className="h-[600px]">
-            <BigCalendar
-              localizer={localizer}
-              events={events}
-              startAccessor="start"
-              endAccessor="end"
-              style={{ height: '100%' }}
-              selectable
-              onSelectSlot={handleSelectSlot}
-              onSelectEvent={handleEventClick}
-              eventPropGetter={eventStyleGetter}
-              components={components}
-              step={60}
-              timeslots={1}
-              views={{ week: true, month: true }}
-              defaultView={calendarView}
-              view={calendarView}
-              date={calendarDate}
-              onNavigate={date => setCalendarDate(date)}
-              min={new Date(0, 0, 0, 6, 0, 0)}
-              max={new Date(0, 0, 0, 22, 0, 0)}
-              toolbar={true}
-              popup
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Current Status Display */}
-      {currentAvailability && (
-        <div className="bg-white border border-neutral-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-brand-black mb-4">Current Status</h3>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center space-x-2">
-                {currentAvailability.is_available ? (
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                ) : (
-                  <XCircle className="w-5 h-5 text-red-600" />
-                )}
-                <span className={`font-medium ${
-                  currentAvailability.is_available ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  {currentAvailability.is_available ? 'Available' : 'Not Available'}
-                </span>
-              </div>
-              {currentAvailability.availability_notes && (
-                <p className="text-sm text-neutral-500 mt-1">
-                  {currentAvailability.availability_notes}
-                </p>
-              )}
-            </div>
-            {currentAvailability.last_updated && (
-              <p className="text-xs text-neutral-400">
-                Updated: {formatDate(currentAvailability.last_updated)}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Submit Button */}
-      {selectedTeam && selectedWeek && (
-        <div className="flex justify-end">
-          <button
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="flex items-center space-x-2 px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors disabled:opacity-50"
-          >
-            <Save className="w-4 h-4" />
-            <span>{submitting ? 'Submitting...' : 'Submit Availability'}</span>
-          </button>
+      {/* Submit Button - Kept for compatibility but main action is above */}
+      {submitting && (
+        <div className="flex items-center justify-center py-4">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-brand-neon-green"></div>
         </div>
       )}
     </div>

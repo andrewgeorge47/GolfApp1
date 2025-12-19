@@ -18,6 +18,7 @@ import { toast } from 'react-toastify';
 import AvailabilityView from './AvailabilityView';
 import LineupSelector from './LineupSelector';
 import StrategyHelper from './StrategyHelper';
+import { getCaptainDashboard } from '../services/api';
 
 interface Team {
   id: number;
@@ -63,7 +64,12 @@ interface TeamStats {
   total_teams: number;
 }
 
-const CaptainDashboard: React.FC = () => {
+interface CaptainDashboardProps {
+  teamId: number;
+  leagueId: number;
+}
+
+const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId }) => {
   const { user } = useAuth();
   const [team, setTeam] = useState<Team | null>(null);
   const [upcomingMatches, setUpcomingMatches] = useState<UpcomingMatch[]>([]);
@@ -72,106 +78,73 @@ const CaptainDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'overview' | 'availability' | 'lineup' | 'strategy'>('overview');
 
   useEffect(() => {
-    if (user) {
+    if (teamId && leagueId) {
       loadCaptainData();
     }
-  }, [user]);
+  }, [teamId, leagueId]);
 
   const loadCaptainData = async () => {
     setLoading(true);
     try {
-      // TODO: Replace with actual API calls
-      // Mock data for now
-      const mockTeam: Team = {
-        id: 1,
-        name: 'Eagle Hunters',
-        captain_id: user?.member_id || 1,
-        captain_name: `${user?.first_name} ${user?.last_name}`,
-        members: [
-          {
-            id: 1,
-            user_id: user?.member_id || 1,
-            first_name: user?.first_name || 'John',
-            last_name: user?.last_name || 'Doe',
-            handicap: 12,
-            role: 'captain',
-            availability_status: 'available'
-          },
-          {
-            id: 2,
-            user_id: 2,
-            first_name: 'Jane',
-            last_name: 'Smith',
-            handicap: 15,
-            role: 'member',
-            availability_status: 'available'
-          },
-          {
-            id: 3,
-            user_id: 3,
-            first_name: 'Mike',
-            last_name: 'Johnson',
-            handicap: 18,
-            role: 'member',
-            availability_status: 'unavailable'
-          },
-          {
-            id: 4,
-            user_id: 4,
-            first_name: 'Sarah',
-            last_name: 'Wilson',
-            handicap: 14,
-            role: 'member',
-            availability_status: 'pending'
-          }
-        ],
-        division_id: 1,
-        division_name: 'Division A',
-        league_id: 1,
-        league_name: 'Spring 2024 League'
+      const response = await getCaptainDashboard(teamId, leagueId);
+      const data = response.data;
+
+      // Transform roster to match TeamMember interface
+      const transformedMembers: TeamMember[] = data.roster.map((member: any) => ({
+        id: member.id,
+        user_id: member.user_member_id,
+        first_name: member.first_name,
+        last_name: member.last_name,
+        handicap: member.handicap || 0,
+        role: member.is_captain ? 'captain' : 'member',
+        availability_status: 'pending' // TODO: Load from availability table
+      }));
+
+      // Transform team data
+      const transformedTeam: Team = {
+        id: data.team.id,
+        name: data.team.name,
+        captain_id: data.team.captain_id,
+        captain_name: transformedMembers.find(m => m.role === 'captain')?.first_name + ' ' +
+                     transformedMembers.find(m => m.role === 'captain')?.last_name || 'Unknown',
+        members: transformedMembers,
+        division_id: data.team.division_id || 0,
+        division_name: 'Unknown', // TODO: Get from league data
+        league_id: leagueId,
+        league_name: 'Unknown' // TODO: Get from league data
       };
 
-      const mockUpcomingMatches: UpcomingMatch[] = [
-        {
-          id: 1,
-          week_start_date: '2024-03-18',
-          opponent_team_id: 2,
-          opponent_team_name: 'Birdie Brigade',
-          course_name: 'Augusta National',
-          course_id: 1,
-          lineup_submitted: false,
-          lineup_deadline: '2024-03-17T18:00:00Z',
-          status: 'upcoming'
-        },
-        {
-          id: 2,
-          week_start_date: '2024-03-25',
-          opponent_team_id: 3,
-          opponent_team_name: 'Par Masters',
-          course_name: 'Pebble Beach',
-          course_id: 2,
-          lineup_submitted: true,
-          lineup_deadline: '2024-03-24T18:00:00Z',
-          status: 'upcoming'
-        }
-      ];
+      // Transform upcoming matches
+      const transformedMatches: UpcomingMatch[] = data.upcomingMatches.map((match: any) => ({
+        id: match.id,
+        week_start_date: match.week_start_date,
+        opponent_team_id: match.team1_id === teamId ? match.team2_id : match.team1_id,
+        opponent_team_name: match.opponent_name,
+        course_name: match.course_name || 'TBD',
+        course_id: match.course_id || 0,
+        lineup_submitted: match.status === 'lineup_submitted',
+        lineup_deadline: match.week_start_date, // TODO: Calculate proper deadline
+        status: match.status === 'scheduled' ? 'upcoming' : 'in_progress'
+      }));
 
-      const mockTeamStats: TeamStats = {
-        total_matches: 8,
-        wins: 5,
-        losses: 2,
-        ties: 1,
-        total_points: 11,
-        current_standing: 2,
-        total_teams: 8
+      // Transform standings to stats
+      const standings = data.standings;
+      const transformedStats: TeamStats = {
+        total_matches: standings ? (standings.wins + standings.losses + standings.ties) : 0,
+        wins: standings?.wins || 0,
+        losses: standings?.losses || 0,
+        ties: standings?.ties || 0,
+        total_points: standings?.league_points || 0,
+        current_standing: standings?.division_rank || 0,
+        total_teams: 0 // TODO: Get from league data
       };
 
-      setTeam(mockTeam);
-      setUpcomingMatches(mockUpcomingMatches);
-      setTeamStats(mockTeamStats);
-    } catch (error) {
+      setTeam(transformedTeam);
+      setUpcomingMatches(transformedMatches);
+      setTeamStats(transformedStats);
+    } catch (error: any) {
       console.error('Error loading captain data:', error);
-      toast.error('Failed to load team data');
+      toast.error(error.response?.data?.error || 'Failed to load team data');
     } finally {
       setLoading(false);
     }

@@ -39,6 +39,7 @@ import ClaimAccount from './components/ClaimAccount';
 import ResetPassword from './components/ResetPassword';
 import BookingPage from './components/BookingPage';
 import BookingSettingsAdmin from './components/BookingSettingsAdmin';
+import ClubManagement from './components/ClubManagement';
 import BookingGuard from './components/BookingGuard';
 import OnboardingWorkflow from './components/OnboardingWorkflow';
 import ViewAsModeIndicator from './components/ViewAsModeIndicator';
@@ -101,9 +102,42 @@ const DivisionStandingsWrapper: React.FC = () => {
 const TeamDetailsWrapper: React.FC = () => {
   const { teamId, leagueId } = useParams();
   return (
-    <TeamDetailsPage 
-      teamId={parseInt(teamId || '1')} 
-      leagueId={leagueId ? parseInt(leagueId) : undefined} 
+    <TeamDetailsPage
+      teamId={parseInt(teamId || '1')}
+      leagueId={leagueId ? parseInt(leagueId) : undefined}
+    />
+  );
+};
+
+// Wrapper for CaptainDashboard to handle URL parameters
+const CaptainDashboardWrapper: React.FC = () => {
+  const { teamId, leagueId } = useParams();
+  return (
+    <CaptainDashboard
+      teamId={parseInt(teamId || '1')}
+      leagueId={parseInt(leagueId || '1')}
+    />
+  );
+};
+
+// Wrapper for PlayerAvailabilityCalendar to handle URL parameters
+const PlayerAvailabilityCalendarWrapper: React.FC = () => {
+  const { teamId, leagueId } = useParams();
+  return (
+    <PlayerAvailabilityCalendar
+      teamId={parseInt(teamId || '1')}
+      leagueId={parseInt(leagueId || '1')}
+    />
+  );
+};
+
+// Wrapper for PlayerTeamView to handle URL parameters
+const PlayerTeamViewWrapper: React.FC = () => {
+  const { teamId, leagueId } = useParams();
+  return (
+    <PlayerTeamView
+      teamId={parseInt(teamId || '1')}
+      leagueId={parseInt(leagueId || '1')}
     />
   );
 };
@@ -152,10 +186,8 @@ const WeeklyChallengeCardWrapper: React.FC = () => {
   );
 };
 
-// Wrapper for Challenges page with beta tester badge
+// Wrapper for Challenges page
 const ChallengesPageWrapper: React.FC = () => {
-  const { hasPermission } = usePermissions();
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -163,11 +195,6 @@ const ChallengesPageWrapper: React.FC = () => {
           <Trophy className="w-8 h-8 text-yellow-500" />
           CTP Challenges
         </h1>
-        {hasPermission('access_beta_features') && (
-          <span className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1">
-            🧪 Beta Tester
-          </span>
-        )}
       </div>
       <ChallengesList />
     </div>
@@ -638,7 +665,7 @@ function AppContent() {
         } />
         <Route path="/admin/club-management" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-            <AdminProtectedRoute><BookingSettingsAdmin /></AdminProtectedRoute>
+            <AdminProtectedRoute><ClubManagement /></AdminProtectedRoute>
           </main>
         } />
         <Route path="/tournament-management" element={
@@ -666,9 +693,9 @@ function AppContent() {
             <AdminProtectedRoute><LeagueManagement /></AdminProtectedRoute>
           </main>
         } />
-        <Route path="/captain-dashboard" element={
+        <Route path="/captain-dashboard/:teamId/:leagueId" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-            <ProtectedRoute><CaptainDashboard /></ProtectedRoute>
+            <ProtectedRoute><CaptainDashboardWrapper /></ProtectedRoute>
           </main>
         } />
         <Route path="/league-scoring" element={
@@ -681,9 +708,9 @@ function AppContent() {
             <ProtectedRoute><LeagueScoring /></ProtectedRoute>
           </main>
         } />
-        <Route path="/player/availability" element={
+        <Route path="/player/availability/:teamId/:leagueId" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-            <ProtectedRoute><PlayerAvailabilityCalendar /></ProtectedRoute>
+            <ProtectedRoute><PlayerAvailabilityCalendarWrapper /></ProtectedRoute>
           </main>
         } />
         <Route path="/player/availability-form" element={
@@ -691,9 +718,9 @@ function AppContent() {
             <ProtectedRoute><PlayerAvailabilityForm /></ProtectedRoute>
           </main>
         } />
-        <Route path="/player/team" element={
+        <Route path="/player/team/:teamId/:leagueId" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-            <ProtectedRoute><PlayerTeamView /></ProtectedRoute>
+            <ProtectedRoute><PlayerTeamViewWrapper /></ProtectedRoute>
           </main>
         } />
         <Route path="/league-standings/:leagueId" element={
@@ -771,14 +798,14 @@ function AppContent() {
         {/* Weekly Hole-in-One Challenge Routes */}
         <Route path="/challenges" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-            <BetaProtectedRoute>
+            <ProtectedRoute>
               <ChallengesPageWrapper />
-            </BetaProtectedRoute>
+            </ProtectedRoute>
           </main>
         } />
         <Route path="/challenges/:challengeId" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-            <BetaProtectedRoute><ChallengeLeaderboardWrapper /></BetaProtectedRoute>
+            <ProtectedRoute><ChallengeLeaderboardWrapper /></ProtectedRoute>
           </main>
         } />
         <Route path="/challenges/admin" element={

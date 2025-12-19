@@ -172,7 +172,7 @@ const CTPOnboarding: React.FC<CTPOnboardingProps> = ({
               </div>
               <div>
                 <span className="text-gray-600">Pin Placement:</span>{' '}
-                <span className="font-medium">As designated for challenge</span>
+                <span className="font-medium">Friday</span>
               </div>
               <div>
                 <span className="text-gray-600">Mulligans:</span>{' '}
@@ -180,7 +180,7 @@ const CTPOnboarding: React.FC<CTPOnboardingProps> = ({
               </div>
               <div>
                 <span className="text-gray-600">Tee Box:</span>{' '}
-                <span className="font-medium">As designated for challenge</span>
+                <span className="font-medium">Blue</span>
               </div>
               <div>
                 <span className="text-gray-600">Putting:</span>{' '}
@@ -230,12 +230,6 @@ const CTPOnboarding: React.FC<CTPOnboardingProps> = ({
                 <span>Select only <strong>Hole {challengeHole || '[challenge hole]'}</strong></span>
               </li>
             </ol>
-          </div>
-
-          <div className="text-center">
-            <Button variant="primary" size="sm" className="pointer-events-none">
-              Click Play
-            </Button>
           </div>
 
           {/* Image placeholder for Step 3 */}
@@ -384,7 +378,6 @@ const CTPOnboarding: React.FC<CTPOnboardingProps> = ({
             <p className="text-gray-700 text-sm">
               After finishing, you can tap <strong>Play Again</strong> on the scorecard.
               You'll be taken right back to the tee to do another set of four shots.
-              Want to improve your score? Just re-enter the challenge!
             </p>
           </div>
 

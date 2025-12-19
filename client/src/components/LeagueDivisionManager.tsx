@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Users, 
-  Plus, 
-  Edit3, 
-  Trash2, 
-  Save, 
+import {
+  Users,
+  Plus,
+  Edit3,
+  Trash2,
+  Save,
   X,
   ChevronRight,
   ChevronDown,
@@ -14,6 +14,13 @@ import {
   UserMinus
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import {
+  getLeagueDivisions,
+  createLeagueDivision,
+  deleteLeagueDivision,
+  getLeagueTeams,
+  getPlayers
+} from '../services/api';
 import { 
   Button, 
   Card, 
@@ -67,12 +74,16 @@ interface User {
   club: string;
 }
 
-const LeagueDivisionManager: React.FC = () => {
+interface LeagueDivisionManagerProps {
+  leagueId: number;
+}
+
+const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId }) => {
   const [divisions, setDivisions] = useState<Division[]>([]);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedDivision, setExpandedDivision] = useState<number | null>(null);
-  
+
   // Division creation form state
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [divisionForm, setDivisionForm] = useState({
@@ -92,71 +103,55 @@ const LeagueDivisionManager: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (leagueId) {
+      loadData();
+    }
+  }, [leagueId]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      // TODO: Replace with actual API calls
-      // Mock data for now
-      const mockDivisions: Division[] = [
-        {
-          id: 1,
-          name: 'Division A',
-          max_teams: 8,
-          league_id: 1,
-          teams: [
-            {
-              id: 1,
-              name: 'Team Alpha',
-              captain_id: 1,
-              captain_name: 'John Doe',
-              division_id: 1,
-              members: [
-                { id: 1, user_id: 1, first_name: 'John', last_name: 'Doe', handicap: 5, role: 'captain' },
-                { id: 2, user_id: 2, first_name: 'Jane', last_name: 'Smith', handicap: 8, role: 'member' },
-                { id: 3, user_id: 3, first_name: 'Bob', last_name: 'Johnson', handicap: 12, role: 'member' }
-              ]
-            },
-            {
-              id: 2,
-              name: 'Team Beta',
-              captain_id: 4,
-              captain_name: 'Alice Brown',
-              division_id: 1,
-              members: [
-                { id: 4, user_id: 4, first_name: 'Alice', last_name: 'Brown', handicap: 7, role: 'captain' },
-                { id: 5, user_id: 5, first_name: 'Charlie', last_name: 'Wilson', handicap: 10, role: 'member' }
-              ]
-            }
-          ]
-        },
-        {
-          id: 2,
-          name: 'Division B',
-          max_teams: 8,
-          league_id: 1,
-          teams: []
-        }
-      ];
+      // Load divisions for this league
+      const divisionsResponse = await getLeagueDivisions(leagueId);
+      const divisionsData = divisionsResponse.data;
 
-      const mockUsers: User[] = [
-        { id: 1, first_name: 'John', last_name: 'Doe', handicap: 5, club: 'Neighborhood National' },
-        { id: 2, first_name: 'Jane', last_name: 'Smith', handicap: 8, club: 'Neighborhood National' },
-        { id: 3, first_name: 'Bob', last_name: 'Johnson', handicap: 12, club: 'Neighborhood National' },
-        { id: 4, first_name: 'Alice', last_name: 'Brown', handicap: 7, club: 'Neighborhood National' },
-        { id: 5, first_name: 'Charlie', last_name: 'Wilson', handicap: 10, club: 'Neighborhood National' },
-        { id: 6, first_name: 'David', last_name: 'Lee', handicap: 15, club: 'Neighborhood National' },
-        { id: 7, first_name: 'Emma', last_name: 'Davis', handicap: 9, club: 'Neighborhood National' },
-        { id: 8, first_name: 'Frank', last_name: 'Miller', handicap: 11, club: 'Neighborhood National' }
-      ];
+      // Load teams for this league
+      const teamsResponse = await getLeagueTeams(leagueId);
+      const teamsData = teamsResponse.data;
 
-      setDivisions(mockDivisions);
-      setAvailableUsers(mockUsers);
-    } catch (error) {
+      // Load available users/players
+      const usersResponse = await getPlayers();
+      const usersData = usersResponse.data;
+
+      // Group teams by division
+      const divisionsWithTeams: Division[] = divisionsData.map(div => ({
+        id: div.id,
+        name: div.division_name,
+        max_teams: 8, // Default, can be enhanced later
+        league_id: div.league_id,
+        teams: teamsData
+          .filter((team: any) => team.division_id === div.id)
+          .map((team: any) => ({
+            id: team.id,
+            name: team.name,
+            captain_id: team.captain_id,
+            captain_name: team.captain_name || 'Unknown',
+            division_id: team.division_id,
+            members: [] // Will be loaded separately if needed
+          }))
+      }));
+
+      setDivisions(divisionsWithTeams);
+      setAvailableUsers(usersData.map((user: any) => ({
+        id: user.member_id,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        handicap: user.handicap || 0,
+        club: user.club || 'Unknown'
+      })));
+    } catch (error: any) {
       console.error('Error loading data:', error);
-      toast.error('Failed to load data');
+      toast.error(error.response?.data?.error || 'Failed to load data');
     } finally {
       setLoading(false);
     }
@@ -199,14 +194,19 @@ const LeagueDivisionManager: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      const newDivision: Division = {
-        id: Date.now(), // Temporary ID
-        ...divisionForm,
-        league_id: 1, // TODO: Get from context/props
+      const response = await createLeagueDivision(leagueId, {
+        division_name: divisionForm.name
+      });
+
+      const createdDivision: Division = {
+        id: response.data.id,
+        name: response.data.division_name,
+        max_teams: divisionForm.max_teams,
+        league_id: leagueId,
         teams: []
       };
 
-      setDivisions(prev => [...prev, newDivision]);
+      setDivisions(prev => [...prev, createdDivision]);
       setShowCreateForm(false);
       setDivisionForm({ name: '', max_teams: 8 });
       toast.success('Division created successfully');
@@ -275,11 +275,12 @@ const LeagueDivisionManager: React.FC = () => {
     }
 
     try {
+      await deleteLeagueDivision(leagueId, divisionId);
       setDivisions(prev => prev.filter(division => division.id !== divisionId));
       toast.success('Division deleted successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting division:', error);
-      toast.error('Failed to delete division');
+      toast.error(error.response?.data?.error || 'Failed to delete division');
     }
   };
 

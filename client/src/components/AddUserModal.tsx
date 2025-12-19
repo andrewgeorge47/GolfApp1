@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, UserPlus, Save, AlertCircle } from 'lucide-react';
 import { createUser } from '../services/api';
+import api from '../services/api';
 import { toast } from 'react-toastify';
 
 interface AddUserModalProps {
@@ -19,6 +20,12 @@ interface AddUserForm {
   handicap: string;
 }
 
+interface Club {
+  id: number;
+  club_name: string;
+  is_active: boolean;
+}
+
 const AddUserModal: React.FC<AddUserModalProps> = ({ isOpen, onClose, onUserAdded }) => {
   const [form, setForm] = useState<AddUserForm>({
     member_id: '',
@@ -31,25 +38,37 @@ const AddUserModal: React.FC<AddUserModalProps> = ({ isOpen, onClose, onUserAdde
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Partial<AddUserForm>>({});
+  const [clubs, setClubs] = useState<Club[]>([]);
+  const [loadingClubs, setLoadingClubs] = useState(false);
 
-  const clubs = [
-    'No. 1',
-    'No. 2',
-    'No. 3',
-    'No. 4',
-    'No. 5',
-    'No. 6',
-    'No. 7',
-    'No. 8',
-    'No. 9',
-    'No. 10',
-    'No. 11',
-    'No. 12'
-  ];
+  // Fetch clubs when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      fetchClubs();
+    }
+  }, [isOpen]);
+
+  const fetchClubs = async () => {
+    try {
+      setLoadingClubs(true);
+      const response = await api.get('/clubs');
+      // Filter to only active clubs and sort by name
+      const activeClubs = response.data.filter((club: Club) => club.is_active);
+      setClubs(activeClubs);
+    } catch (error) {
+      console.error('Error fetching clubs:', error);
+      toast.error('Failed to load clubs');
+    } finally {
+      setLoadingClubs(false);
+    }
+  };
 
   const roles = [
     { value: 'Member', label: 'Member' },
     { value: 'Admin', label: 'Admin' },
+    { value: 'Club Pro', label: 'Club Pro' },
+    { value: 'Ambassador', label: 'Ambassador' },
+    { value: 'Beta Tester', label: 'Beta Tester' },
     { value: 'Deactivated', label: 'Deactivated' }
   ];
 
@@ -263,14 +282,15 @@ const AddUserModal: React.FC<AddUserModalProps> = ({ isOpen, onClose, onUserAdde
               id="club"
               value={form.club}
               onChange={(e) => handleInputChange('club', e.target.value)}
+              disabled={loadingClubs}
               className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-brand-neon-green ${
                 errors.club ? 'border-red-500' : 'border-gray-300'
-              }`}
+              } ${loadingClubs ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <option value="">Select a club</option>
+              <option value="">{loadingClubs ? 'Loading clubs...' : 'Select a club'}</option>
               {clubs.map((club) => (
-                <option key={club} value={club}>
-                  {club}
+                <option key={club.id} value={club.club_name}>
+                  {club.club_name}
                 </option>
               ))}
             </select>

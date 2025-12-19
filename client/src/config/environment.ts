@@ -19,12 +19,12 @@ const getApiBaseUrl = (): string => {
 
     // Local development on localhost
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'http://192.168.1.202:3002/api';
+      return 'http://100.114.25.42:3002/api';
     }
 
     // Local development on LAN IP (your local server)
-    if (hostname === '192.168.1.202') {
-      return 'http://192.168.1.202:3002/api';
+    if (hostname === '100.114.25.42') {
+      return 'http://100.114.25.42:3002/api';
     }
 
     // Production domains
