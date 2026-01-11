@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Users, 
-  Calendar, 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Users,
+  CheckCircle,
+  XCircle,
+  Clock,
   AlertCircle,
   Filter,
   Search,
@@ -12,8 +11,8 @@ import {
   ChevronRight,
   RefreshCw
 } from 'lucide-react';
-import { useAuth } from '../AuthContext';
 import { toast } from 'react-toastify';
+import { getLeagueSchedule, getTeamAvailability, submitTeamAvailability } from '../services/api';
 
 interface TeamMember {
   id: number;
@@ -22,7 +21,7 @@ interface TeamMember {
   last_name: string;
   handicap: number;
   role: 'captain' | 'member';
-  availability_status: 'available' | 'unavailable' | 'pending';
+  availability_status?: 'available' | 'unavailable' | 'pending';
   last_updated?: string;
   notes?: string;
 }
@@ -44,8 +43,13 @@ interface TeamMemberAvailability {
   notes?: string;
 }
 
-const AvailabilityView: React.FC = () => {
-  const { user } = useAuth();
+interface AvailabilityViewProps {
+  teamId: number;
+  leagueId: number;
+  members: TeamMember[];
+}
+
+const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, members }) => {
   const [currentWeek, setCurrentWeek] = useState<string>('');
   const [availableWeeks, setAvailableWeeks] = useState<string[]>([]);
   const [weekAvailability, setWeekAvailability] = useState<WeekAvailability | null>(null);
@@ -54,132 +58,134 @@ const AvailabilityView: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'handicap' | 'status'>('name');
 
-  useEffect(() => {
-    loadAvailabilityData();
-  }, []);
-
-  useEffect(() => {
-    if (currentWeek) {
-      loadWeekAvailability(currentWeek);
-    }
-  }, [currentWeek]);
-
-  const loadAvailabilityData = async () => {
+  const loadAvailabilityData = useCallback(async () => {
     setLoading(true);
     try {
-      // TODO: Replace with actual API calls
-      // Mock data for now
-      const mockWeeks = [
-        '2024-03-18',
-        '2024-03-25',
-        '2024-04-01',
-        '2024-04-08',
-        '2024-04-15'
-      ];
-      
-      setAvailableWeeks(mockWeeks);
-      setCurrentWeek(mockWeeks[0]);
+      // Load league schedule
+      const scheduleResponse = await getLeagueSchedule(leagueId);
+      const weeks = scheduleResponse.data.map((w: any) => w.start_date);
+
+      setAvailableWeeks(weeks);
+      if (weeks.length > 0) {
+        setCurrentWeek(weeks[0]);
+      }
     } catch (error) {
       console.error('Error loading availability data:', error);
       toast.error('Failed to load availability data');
     } finally {
       setLoading(false);
     }
-  };
+  }, [leagueId]);
 
-  const loadWeekAvailability = async (weekStartDate: string) => {
+  const loadWeekAvailability = useCallback(async (weekStartDate: string) => {
     try {
-      // TODO: Replace with actual API call
-      // Mock data for now
-      const mockWeekAvailability: WeekAvailability = {
+      // Find the week number from available weeks
+      const weekNumber = availableWeeks.indexOf(weekStartDate) + 1;
+
+      console.log('AvailabilityView - Loading week availability:', {
+        weekStartDate,
+        weekNumber,
+        teamId,
+        leagueId,
+        membersCount: members.length,
+        members
+      });
+
+      // Load availability for this week
+      const availResponse = await getTeamAvailability(teamId, weekNumber, leagueId);
+      const availData = availResponse.data;
+
+      console.log('AvailabilityView - Got availability data:', availData);
+
+      // Create a map of user availability
+      const availabilityMap = new Map();
+      if (availData.availability) {
+        availData.availability.forEach((avail: any) => {
+          availabilityMap.set(avail.user_id, {
+            status: avail.status,
+            notes: avail.notes,
+            last_updated: avail.updated_at
+          });
+        });
+      }
+
+      // Transform team members with availability data
+      const weekEndDate = new Date(new Date(weekStartDate).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const transformedMembers: TeamMemberAvailability[] = members.map(member => {
+        const avail = availabilityMap.get(member.user_id);
+        return {
+          member_id: member.id,
+          first_name: member.first_name,
+          last_name: member.last_name,
+          handicap: member.handicap,
+          role: member.role,
+          availability_status: avail?.status || 'pending',
+          last_updated: avail?.last_updated,
+          notes: avail?.notes
+        };
+      });
+
+      const weekAvail = {
         week_start_date: weekStartDate,
-        week_end_date: new Date(new Date(weekStartDate).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        members: [
-          {
-            member_id: 1,
-            first_name: user?.first_name || 'John',
-            last_name: user?.last_name || 'Doe',
-            handicap: 12,
-            role: 'captain',
-            availability_status: 'available',
-            last_updated: '2024-03-15T10:30:00Z',
-            notes: 'Available all week'
-          },
-          {
-            member_id: 2,
-            first_name: 'Jane',
-            last_name: 'Smith',
-            handicap: 15,
-            role: 'member',
-            availability_status: 'available',
-            last_updated: '2024-03-15T11:00:00Z',
-            notes: 'Available evenings only'
-          },
-          {
-            member_id: 3,
-            first_name: 'Mike',
-            last_name: 'Johnson',
-            handicap: 18,
-            role: 'member',
-            availability_status: 'unavailable',
-            last_updated: '2024-03-14T15:20:00Z',
-            notes: 'Out of town for work'
-          },
-          {
-            member_id: 4,
-            first_name: 'Sarah',
-            last_name: 'Wilson',
-            handicap: 14,
-            role: 'member',
-            availability_status: 'pending',
-            last_updated: '2024-03-13T09:15:00Z',
-            notes: 'Waiting for confirmation'
-          },
-          {
-            member_id: 5,
-            first_name: 'Tom',
-            last_name: 'Brown',
-            handicap: 16,
-            role: 'member',
-            availability_status: 'available',
-            last_updated: '2024-03-15T14:45:00Z',
-            notes: 'Available weekends'
-          }
-        ]
+        week_end_date: weekEndDate,
+        members: transformedMembers
       };
 
-      setWeekAvailability(mockWeekAvailability);
+      console.log('AvailabilityView - Setting week availability:', weekAvail);
+      setWeekAvailability(weekAvail);
     } catch (error) {
       console.error('Error loading week availability:', error);
       toast.error('Failed to load week availability');
     }
-  };
+  }, [teamId, leagueId, members, availableWeeks]);
+
+  useEffect(() => {
+    loadAvailabilityData();
+  }, [loadAvailabilityData]);
+
+  useEffect(() => {
+    if (currentWeek) {
+      loadWeekAvailability(currentWeek);
+    }
+  }, [currentWeek, loadWeekAvailability]);
 
   const updateMemberAvailability = async (memberId: number, status: 'available' | 'unavailable' | 'pending', notes?: string) => {
     try {
-      // TODO: Replace with actual API call
-      if (weekAvailability) {
-        const updatedMembers = weekAvailability.members.map(member => 
-          member.member_id === memberId 
-            ? { 
-                ...member, 
-                availability_status: status, 
-                notes: notes || member.notes,
-                last_updated: new Date().toISOString()
-              }
-            : member
-        );
-        
-        setWeekAvailability({
-          ...weekAvailability,
-          members: updatedMembers
-        });
-        
-        toast.success('Availability updated successfully');
-      }
-    } catch (error) {
+      if (!weekAvailability) return;
+
+      const weekNumber = availableWeeks.indexOf(weekAvailability.week_start_date) + 1;
+      const member = members.find(m => m.id === memberId);
+      if (!member) return;
+
+      // Update via API (submit availability for this member)
+      await submitTeamAvailability(teamId, {
+        league_id: leagueId,
+        week_number: weekNumber,
+        is_available: status === 'available',
+        availability_notes: notes || ''
+      });
+
+      // Update local state
+      const updatedMembers = weekAvailability.members.map(m =>
+        m.member_id === memberId
+          ? {
+              ...m,
+              availability_status: status,
+              notes: notes || m.notes,
+              last_updated: new Date().toISOString()
+            }
+          : m
+      );
+
+      setWeekAvailability({
+        ...weekAvailability,
+        members: updatedMembers
+      });
+
+      toast.success('Availability updated successfully');
+    } catch (error: any) {
       console.error('Error updating availability:', error);
-      toast.error('Failed to update availability');
+      toast.error(error.response?.data?.error || 'Failed to update availability');
     }
   };
 

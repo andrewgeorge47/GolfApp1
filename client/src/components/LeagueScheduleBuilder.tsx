@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Calendar, 
-  Plus, 
-  Edit3, 
-  Trash2, 
-  Save, 
+import {
+  Calendar,
+  Plus,
+  Edit3,
+  Trash2,
+  Save,
   X,
   ChevronRight,
   ChevronDown,
@@ -42,8 +42,10 @@ import {
   generateLeagueSchedule,
   generateLeagueMatchups,
   deleteMatchup,
-  getSimulatorCourses
+  getSimulatorCourses,
+  getLeagues
 } from '../services/api';
+import SimulatorCourseSearch from './SimulatorCourseSearch';
 
 interface ScheduleWeek {
   id: number;
@@ -102,11 +104,13 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
   
   // Week creation form state
   const [showCreateWeekForm, setShowCreateWeekForm] = useState(false);
+  const [showCourseSearch, setShowCourseSearch] = useState(false);
   const [weekForm, setWeekForm] = useState({
     week_number: 1,
     start_date: '',
     end_date: '',
-    course_id: 0
+    course_id: 0,
+    course_name: ''
   });
 
   // Match editing state
@@ -130,6 +134,13 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
   const loadData = async () => {
     setLoading(true);
     try {
+      // Load league settings first
+      const leaguesResponse = await getLeagues();
+      const league = leaguesResponse.data.find((l: any) => l.id === leagueId);
+      const weeksPerSeason = league?.weeks_per_season || 18;
+      const teamsPerDivision = league?.teams_per_division || 8;
+      const startDate = league?.start_date ? new Date(league.start_date) : new Date();
+
       // Load divisions
       const divisionsResponse = await getLeagueDivisions(leagueId);
       const divisionsData = divisionsResponse.data;
@@ -163,11 +174,35 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
 
       // Load schedule
       const scheduleResponse = await getLeagueSchedule(leagueId);
-      const scheduleData = scheduleResponse.data;
+      let scheduleData = scheduleResponse.data;
+
+      // Auto-generate schedule if it doesn't exist based on settings
+      // Only auto-generate if divisions exist (prerequisite)
+      if (scheduleData.length === 0 && weeksPerSeason > 0 && divisionsData.length > 0) {
+        try {
+          await generateLeagueSchedule(leagueId, {
+            weeks: weeksPerSeason,
+            start_date: startDate.toISOString().split('T')[0]
+          });
+          const newScheduleResponse = await getLeagueSchedule(leagueId);
+          scheduleData = newScheduleResponse.data;
+          if (scheduleData.length > 0) {
+            toast.success(`Created ${weeksPerSeason} week schedule based on league settings`);
+          }
+        } catch (err: any) {
+          console.error('Error auto-generating schedule:', err);
+          const errorMessage = err.response?.data?.error || err.message;
+          console.log('Schedule generation error details:', errorMessage);
+          // Silent fail - user can use the "Generate Schedule" button in the empty state
+        }
+      }
 
       // Load matchups
       const matchupsResponse = await getLeagueMatchups(leagueId);
       const matchupsData = matchupsResponse.data;
+
+      // Calculate matches needed per week per division
+      const matchesPerWeek = Math.floor(teamsPerDivision / 2);
 
       // Transform schedule data with matchups
       const transformedSchedule: ScheduleWeek[] = scheduleData.map((week: any) => {
@@ -187,6 +222,25 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
             team2_score: m.team2_points
           }));
 
+        // Create placeholder matches for each division if none exist
+        const placeholderMatches: Match[] = [];
+        if (weekMatchups.length === 0 && divisionsData.length > 0) {
+          divisionsData.forEach((div: any) => {
+            for (let i = 0; i < matchesPerWeek; i++) {
+              placeholderMatches.push({
+                id: -(week.id * 1000 + div.id * 10 + i), // Negative ID for placeholder
+                team1_id: 0,
+                team1_name: 'TBD',
+                team2_id: 0,
+                team2_name: 'TBD',
+                division_id: div.id,
+                week_id: week.id,
+                status: 'scheduled'
+              });
+            }
+          });
+        }
+
         return {
           id: week.id,
           week_number: week.week_number,
@@ -195,7 +249,7 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
           course_id: week.course_id || 0,
           course_name: week.course_name || 'No course assigned',
           status: week.status as 'scheduled' | 'active' | 'completed',
-          matches: weekMatchups
+          matches: weekMatchups.length > 0 ? weekMatchups : placeholderMatches
         };
       });
 
@@ -389,6 +443,45 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
         </Button>
       </div>
 
+      {/* Empty State */}
+      {scheduleWeeks.length === 0 && (
+        <Card variant="elevated">
+          <div className="text-center py-12">
+            <Calendar className="w-16 h-16 mx-auto mb-4 text-neutral-300" />
+            <h3 className="text-lg font-semibold text-brand-black mb-2">No Schedule Yet</h3>
+            <p className="text-neutral-600 mb-6">
+              Generate a schedule based on your league settings to get started
+            </p>
+            <Button
+              onClick={async () => {
+                try {
+                  const leaguesResponse = await getLeagues();
+                  const league = leaguesResponse.data.find((l: any) => l.id === leagueId);
+                  const weeksPerSeason = league?.weeks_per_season || 18;
+                  const startDate = league?.start_date ? new Date(league.start_date) : new Date();
+
+                  setLoading(true);
+                  await generateLeagueSchedule(leagueId, {
+                    weeks: weeksPerSeason,
+                    start_date: startDate.toISOString().split('T')[0]
+                  });
+                  await loadData();
+                  toast.success(`Created ${weeksPerSeason} week schedule`);
+                } catch (err: any) {
+                  console.error('Error generating schedule:', err);
+                  toast.error(err.response?.data?.error || 'Failed to generate schedule');
+                  setLoading(false);
+                }
+              }}
+              icon={Plus}
+              variant="primary"
+            >
+              Generate Schedule
+            </Button>
+          </div>
+        </Card>
+      )}
+
       {/* Schedule Weeks */}
       <div className="space-y-4">
         {scheduleWeeks.map((week) => (
@@ -512,7 +605,10 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
       {/* Create Week Modal */}
       <FormDialog
         open={showCreateWeekForm}
-        onClose={() => setShowCreateWeekForm(false)}
+        onClose={() => {
+          setShowCreateWeekForm(false);
+          setWeekForm({ week_number: 1, start_date: '', end_date: '', course_id: 0, course_name: '' });
+        }}
         onSubmit={(e) => { e.preventDefault(); handleCreateWeek(); }}
         title="Create Week"
         submitText="Create Week"
@@ -545,20 +641,23 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
             required
           />
 
-          <Select
-            label="Course"
-            value={weekForm.course_id}
-            onChange={(e) => setWeekForm(prev => ({ ...prev, course_id: parseInt(e.target.value) }))}
-            options={[
-              { value: 0, label: 'Select course...' },
-              ...courses.map((course) => ({
-                value: course.id,
-                label: `${course.name} ${course.location && `(${course.location})`}`
-              }))
-            ]}
-            error={formErrors.course_id}
-            required
-          />
+          <div>
+            <label className="block text-sm font-medium text-neutral-700 mb-2">
+              Course <span className="text-red-500">*</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => setShowCourseSearch(true)}
+              className="w-full px-4 py-2 text-left border border-neutral-300 rounded-lg hover:border-brand-neon-green focus:ring-2 focus:ring-brand-neon-green focus:border-transparent transition-colors"
+            >
+              {weekForm.course_name || (
+                <span className="text-neutral-400">Click to search courses...</span>
+              )}
+            </button>
+            {formErrors.course_id && (
+              <p className="mt-1 text-sm text-red-600">{formErrors.course_id}</p>
+            )}
+          </div>
         </div>
       </FormDialog>
 
@@ -628,6 +727,22 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
           />
         </div>
       </FormDialog>
+
+      {/* Course Search Modal */}
+      {showCourseSearch && (
+        <SimulatorCourseSearch
+          onCourseSelect={(course) => {
+            setWeekForm(prev => ({
+              ...prev,
+              course_id: course.id,
+              course_name: course.name
+            }));
+            setShowCourseSearch(false);
+          }}
+          onClose={() => setShowCourseSearch(false)}
+          selectedCourseId={weekForm.course_id}
+        />
+      )}
     </div>
   );
 };

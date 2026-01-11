@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Users,
   Plus,
@@ -14,7 +15,10 @@ import {
   Target,
   Award,
   Search,
-  Filter
+  Filter,
+  LayoutDashboard,
+  Calendar,
+  Eye
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import {
@@ -77,6 +81,7 @@ interface LeagueTeamManagerProps {
 }
 
 const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
+  const navigate = useNavigate();
   const [teams, setTeams] = useState<Team[]>([]);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
   const [divisions, setDivisions] = useState<Division[]>([]);
@@ -583,16 +588,47 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
                   
                   <div className="flex items-center space-x-2">
                     <button
+                      onClick={() => navigate(`/captain-dashboard/${team.id}/${leagueId}`)}
+                      className="flex items-center space-x-2 px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors"
+                      title="Captain Dashboard"
+                    >
+                      <LayoutDashboard className="w-4 h-4" />
+                      <span>Captain</span>
+                    </button>
+
+                    <button
+                      onClick={() => navigate(`/player/team/${team.id}/${leagueId}`)}
+                      className="flex items-center space-x-2 px-3 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
+                      title="Player Team View"
+                    >
+                      <Eye className="w-4 h-4" />
+                      <span>Team View</span>
+                    </button>
+
+                    <button
+                      onClick={() => navigate(`/player/availability/${team.id}/${leagueId}`)}
+                      className="flex items-center space-x-2 px-3 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors"
+                      title="Player Availability"
+                    >
+                      <Calendar className="w-4 h-4" />
+                      <span>Availability</span>
+                    </button>
+
+                    <button
                       onClick={() => {
                         setSelectedTeam(team.id);
                         setShowAddMemberForm(true);
+                        // Default to first signup link if available
+                        if (signupLinks.length > 0) {
+                          setSelectedSignupFilter(signupLinks[0].signup_id);
+                        }
                       }}
                       className="flex items-center space-x-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
                     >
                       <UserPlus className="w-4 h-4" />
                       <span>Add Member</span>
                     </button>
-                    
+
                     <button
                       onClick={() => handleDeleteTeam(team.id)}
                       className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -857,6 +893,7 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
                 onClick={() => {
                   setShowAddMemberForm(false);
                   setSelectedTeam(null);
+                  setSelectedSignupFilter(null);
                 }}
                 className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
               >

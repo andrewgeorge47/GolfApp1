@@ -19,7 +19,8 @@ import {
   createLeagueDivision,
   deleteLeagueDivision,
   getLeagueTeams,
-  getPlayers
+  getPlayers,
+  getLeagues
 } from '../services/api';
 import { 
   Button, 
@@ -111,9 +112,49 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
   const loadData = async () => {
     setLoading(true);
     try {
+      // Load league settings first
+      const leaguesResponse = await getLeagues();
+      const league = leaguesResponse.data.find((l: any) => l.id === leagueId);
+      const divisionsCount = league?.divisions_count || 2;
+      const teamsPerDivision = league?.teams_per_division || 8;
+
       // Load divisions for this league
       const divisionsResponse = await getLeagueDivisions(leagueId);
-      const divisionsData = divisionsResponse.data;
+      let divisionsData = divisionsResponse.data;
+
+      // Auto-create divisions if they don't exist or if count doesn't match settings
+      const currentDivisionCount = divisionsData.length;
+
+      if (currentDivisionCount < divisionsCount) {
+        const divisionNames = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+        const createdDivisions = [];
+
+        // Create the missing divisions
+        for (let i = currentDivisionCount; i < divisionsCount; i++) {
+          try {
+            const response = await createLeagueDivision(leagueId, {
+              division_name: `Division ${divisionNames[i] || (i + 1)}`
+            });
+            createdDivisions.push(response.data);
+          } catch (err) {
+            console.error(`Error creating division ${i + 1}:`, err);
+          }
+        }
+
+        // Merge existing and new divisions
+        divisionsData = [...divisionsData, ...createdDivisions];
+
+        if (createdDivisions.length > 0) {
+          if (currentDivisionCount === 0) {
+            toast.success(`Created ${createdDivisions.length} divisions based on league settings`);
+          } else {
+            toast.success(`Added ${createdDivisions.length} more division${createdDivisions.length > 1 ? 's' : ''} to match league settings`);
+          }
+        }
+      } else if (currentDivisionCount > divisionsCount && divisionsCount > 0) {
+        // More divisions exist than configured - show a warning
+        toast.warning(`You have ${currentDivisionCount} divisions but settings specify ${divisionsCount}. You can manually delete extra divisions if needed.`);
+      }
 
       // Load teams for this league
       const teamsResponse = await getLeagueTeams(leagueId);
@@ -124,10 +165,10 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
       const usersData = usersResponse.data;
 
       // Group teams by division
-      const divisionsWithTeams: Division[] = divisionsData.map(div => ({
+      const divisionsWithTeams: Division[] = divisionsData.map((div: any) => ({
         id: div.id,
         name: div.division_name,
-        max_teams: 8, // Default, can be enhanced later
+        max_teams: teamsPerDivision,
         league_id: div.league_id,
         teams: teamsData
           .filter((team: any) => team.division_id === div.id)

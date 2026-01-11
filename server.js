@@ -16324,13 +16324,53 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
 
     // Get team roster
     const roster = await pool.query(
-      `SELECT tm.*, u.first_name, u.last_name, u.email_address, u.handicap
+      `SELECT tm.*, u.first_name, u.last_name, u.email_address, u.sim_handicap as handicap
        FROM team_members tm
        JOIN users u ON tm.user_member_id = u.member_id
        WHERE tm.team_id = $1
        ORDER BY tm.is_captain DESC, u.last_name`,
       [teamId]
     );
+
+    // Ensure captain is in the roster (defensive coding for legacy teams)
+    const captainInRoster = roster.rows.some(member => member.user_member_id === team.rows[0].captain_id);
+    if (!captainInRoster) {
+      console.log(`Captain ${team.rows[0].captain_id} not found in team_members for team ${teamId}, adding now...`);
+
+      // Fetch captain's user data
+      const captainUser = await pool.query(
+        `SELECT u.member_id as user_member_id, u.first_name, u.last_name, u.email_address, u.sim_handicap as handicap
+         FROM users u
+         WHERE u.member_id = $1`,
+        [team.rows[0].captain_id]
+      );
+
+      if (captainUser.rows.length > 0) {
+        // Try to add captain to team_members table (best effort)
+        try {
+          await pool.query(
+            `INSERT INTO team_members (team_id, user_member_id, is_captain, tournament_id)
+             VALUES ($1, $2, true, NULL)`,
+            [teamId, team.rows[0].captain_id]
+          );
+          console.log(`Successfully added captain to team_members table`);
+        } catch (insertErr) {
+          console.log(`Could not insert captain into team_members (may already exist):`, insertErr.message);
+          // Continue anyway - we'll add them to the response
+        }
+
+        // Add captain to roster response
+        roster.rows.unshift({
+          ...captainUser.rows[0],
+          team_id: parseInt(teamId),
+          is_captain: true,
+          tournament_id: null
+        });
+        console.log(`Added captain to roster response`);
+      } else {
+        console.log(`Could not find user data for captain ${team.rows[0].captain_id}`);
+      }
+    }
 
     // Get upcoming matches
     const upcomingMatches = await pool.query(

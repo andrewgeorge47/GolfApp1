@@ -97,7 +97,9 @@ const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({
   const loadAvailableWeeks = async (leagueId: number) => {
     setLoading(true);
     try {
+      console.log('PlayerAvailabilityCalendar - Loading weeks for league:', leagueId);
       const response = await getLeagueSchedule(leagueId);
+      console.log('PlayerAvailabilityCalendar - Got weeks:', response.data);
       const scheduleData = response.data;
 
       const weeks: Week[] = scheduleData.map((week: any) => ({
@@ -125,15 +127,32 @@ const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({
   const loadCurrentAvailability = async () => {
     if (!selectedWeek || !teamId) return;
 
+    console.log('PlayerAvailabilityCalendar - Loading availability:', {
+      teamId,
+      weekNumber: selectedWeek.week_number,
+      leagueId,
+      userId: user?.member_id
+    });
+
     try {
       const response = await getTeamAvailability(teamId, selectedWeek.week_number, leagueId);
       const availability = response.data;
+      console.log('PlayerAvailabilityCalendar - Got availability data:', availability);
 
       if (availability && availability.length > 0) {
-        const userAvail = availability.find((a: any) => a.user_id === user?.member_id);
+        // API returns user_member_id, not user_id
+        const userAvail = availability.find((a: any) =>
+          a.user_id === user?.member_id || a.user_member_id === user?.member_id
+        );
+
+        console.log('PlayerAvailabilityCalendar - Found user availability:', userAvail);
+
         if (userAvail) {
+          // Handle null values (not set yet)
+          const isAvailable = userAvail.is_available !== null ? userAvail.is_available : true;
+
           setCurrentAvailability({
-            is_available: userAvail.is_available,
+            is_available: isAvailable,
             availability_notes: userAvail.availability_notes || '',
             last_updated: userAvail.updated_at
           });
@@ -161,15 +180,24 @@ const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({
   const handleSubmitAvailability = async (isAvailable: boolean, notes: string) => {
     if (!selectedWeek || !teamId) return;
 
+    console.log('PlayerAvailabilityCalendar - Submitting availability:', {
+      teamId,
+      weekNumber: selectedWeek.week_number,
+      leagueId,
+      isAvailable,
+      notes
+    });
+
     setSubmitting(true);
     try {
-      await submitTeamAvailability(teamId, {
+      const result = await submitTeamAvailability(teamId, {
         league_id: leagueId,
         week_number: selectedWeek.week_number,
         is_available: isAvailable,
         availability_notes: notes
       });
 
+      console.log('PlayerAvailabilityCalendar - Submit result:', result);
       toast.success('Availability updated successfully');
       await loadCurrentAvailability();
     } catch (error: any) {

@@ -1,20 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  MapPin, 
-  Target, 
-  Users, 
-  TrendingUp, 
+import React, { useState } from 'react';
+import {
+  MapPin,
+  Target,
+  TrendingUp,
   TrendingDown,
-  Calculator,
   AlertCircle,
   CheckCircle,
   Info,
-  RefreshCw,
   Trophy,
   BarChart3,
   Lightbulb
 } from 'lucide-react';
-import { useAuth } from '../AuthContext';
 import { toast } from 'react-toastify';
 
 interface CourseHole {
@@ -58,6 +54,27 @@ interface StrategyRecommendation {
   alternative_player?: string;
 }
 
+interface TeamMember {
+  id: number;
+  user_id: number;
+  first_name: string;
+  last_name: string;
+  handicap: number;
+  role: 'captain' | 'member';
+}
+
+interface UpcomingMatch {
+  id: number;
+  week_start_date: string;
+  opponent_team_id: number;
+  opponent_team_name: string;
+  course_name: string;
+  course_id: number;
+  lineup_submitted: boolean;
+  lineup_deadline: string;
+  status: 'upcoming' | 'in_progress' | 'completed';
+}
+
 interface MatchStrategy {
   course: Course;
   opponent_team: OpponentTeam;
@@ -68,185 +85,88 @@ interface MatchStrategy {
   handicap_advantage: number;
 }
 
-const StrategyHelper: React.FC = () => {
-  const { user } = useAuth();
-  const [matchStrategy, setMatchStrategy] = useState<MatchStrategy | null>(null);
-  const [loading, setLoading] = useState(true);
+interface StrategyHelperProps {
+  teamId: number;
+  leagueId: number;
+  members: TeamMember[];
+  upcomingMatches: UpcomingMatch[];
+  teamStats: {
+    total_points: number;
+    wins: number;
+    losses: number;
+    ties: number;
+    current_standing: number;
+    total_teams: number;
+  } | null;
+}
+
+const StrategyHelper: React.FC<StrategyHelperProps> = ({ members, upcomingMatches, teamStats }) => {
   const [selectedHole, setSelectedHole] = useState<number | null>(null);
   const [showDetails, setShowDetails] = useState(false);
 
-  useEffect(() => {
-    loadStrategyData();
-  }, []);
+  // Build strategy from provided data
+  const buildMatchStrategy = (): MatchStrategy | null => {
+    if (upcomingMatches.length === 0) return null;
 
-  const loadStrategyData = async () => {
-    setLoading(true);
-    try {
-      // TODO: Replace with actual API calls
-      // Mock data for now
-      const mockCourse: Course = {
-        id: 1,
-        name: 'Augusta National',
-        total_par: 36,
-        total_yardage: 3240,
-        holes: [
-          { hole_number: 1, par: 4, handicap_index: 10, yardage: 445, description: 'Dogleg right, bunker on left' },
-          { hole_number: 2, par: 5, handicap_index: 1, yardage: 575, description: 'Long par 5, water hazard' },
-          { hole_number: 3, par: 4, handicap_index: 6, yardage: 350, description: 'Short par 4, precision required' },
-          { hole_number: 4, par: 3, handicap_index: 3, yardage: 240, description: 'Long par 3, bunkers front and back' },
-          { hole_number: 5, par: 4, handicap_index: 8, yardage: 455, description: 'Uphill par 4, narrow fairway' },
-          { hole_number: 6, par: 3, handicap_index: 5, yardage: 180, description: 'Short par 3, elevation change' },
-          { hole_number: 7, par: 4, handicap_index: 2, yardage: 450, description: 'Tight fairway, trees on both sides' },
-          { hole_number: 8, par: 5, handicap_index: 4, yardage: 570, description: 'Long par 5, strategic bunkering' },
-          { hole_number: 9, par: 4, handicap_index: 7, yardage: 460, description: 'Downhill par 4, water on right' }
-        ]
-      };
+    const nextMatch = upcomingMatches[0];
 
-      const mockOurTeam: Player[] = [
-        {
-          id: 1,
-          first_name: user?.first_name || 'John',
-          last_name: user?.last_name || 'Doe',
-          handicap: 12,
-          strengths: ['Driving accuracy', 'Short game'],
-          weaknesses: ['Long irons', 'Putting'],
-          avg_score_by_hole: { 1: 4.2, 2: 5.8, 3: 4.1, 4: 3.3, 5: 4.5, 6: 3.2, 7: 4.8, 8: 5.9, 9: 4.6 }
-        },
-        {
-          id: 2,
-          first_name: 'Jane',
-          last_name: 'Smith',
-          handicap: 15,
-          strengths: ['Putting', 'Course management'],
-          weaknesses: ['Driving distance', 'Sand shots'],
-          avg_score_by_hole: { 1: 4.5, 2: 6.2, 3: 4.3, 4: 3.5, 5: 4.8, 6: 3.4, 7: 5.1, 8: 6.3, 9: 4.9 }
-        },
-        {
-          id: 3,
-          first_name: 'Mike',
-          last_name: 'Johnson',
-          handicap: 18,
-          strengths: ['Driving distance', 'Recovery shots'],
-          weaknesses: ['Accuracy', 'Short game'],
-          avg_score_by_hole: { 1: 4.8, 2: 6.5, 3: 4.6, 4: 3.8, 5: 5.1, 6: 3.6, 7: 5.4, 8: 6.6, 9: 5.2 }
-        }
-      ];
+    // Build mock course data (in a real app, this would come from the API)
+    const mockCourse: Course = {
+      id: nextMatch.course_id || 1,
+      name: nextMatch.course_name || 'TBD',
+      total_par: 36,
+      total_yardage: 3240,
+      holes: Array.from({ length: 9 }, (_, i) => ({
+        hole_number: i + 1,
+        par: i % 3 === 0 ? 3 : i % 3 === 1 ? 5 : 4,
+        handicap_index: i + 1,
+        yardage: i % 3 === 0 ? 180 : i % 3 === 1 ? 550 : 400,
+        description: `Hole ${i + 1} description`
+      }))
+    };
 
-      const mockOpponentTeam: OpponentTeam = {
-        id: 2,
-        name: 'Birdie Brigade',
-        team_handicap: 14,
-        players: [
-          {
-            id: 4,
-            first_name: 'Alex',
-            last_name: 'Thompson',
-            handicap: 10,
-            strengths: ['All-around game', 'Mental toughness'],
-            weaknesses: ['Course knowledge'],
-            avg_score_by_hole: { 1: 4.0, 2: 5.5, 3: 3.9, 4: 3.1, 5: 4.3, 6: 3.0, 7: 4.6, 8: 5.7, 9: 4.4 }
-          },
-          {
-            id: 5,
-            first_name: 'Sam',
-            last_name: 'Wilson',
-            handicap: 16,
-            strengths: ['Short game', 'Course strategy'],
-            weaknesses: ['Driving accuracy'],
-            avg_score_by_hole: { 1: 4.6, 2: 6.0, 3: 4.4, 4: 3.4, 5: 4.9, 6: 3.3, 7: 5.0, 8: 6.2, 9: 4.8 }
-          },
-          {
-            id: 6,
-            first_name: 'Jordan',
-            last_name: 'Davis',
-            handicap: 16,
-            strengths: ['Putting', 'Course management'],
-            weaknesses: ['Distance control'],
-            avg_score_by_hole: { 1: 4.7, 2: 6.1, 3: 4.5, 4: 3.5, 5: 5.0, 6: 3.4, 7: 5.1, 8: 6.3, 9: 4.9 }
-          }
-        ]
-      };
+    // Convert team members to players
+    const ourTeam: Player[] = members.map(member => ({
+      id: member.id,
+      first_name: member.first_name,
+      last_name: member.last_name,
+      handicap: member.handicap,
+      strengths: ['Consistent play'],
+      weaknesses: [],
+      avg_score_by_hole: {}
+    }));
 
-      const mockRecommendations: StrategyRecommendation[] = [
-        {
-          hole_number: 1,
-          recommended_player: 'John Doe',
-          reason: 'Strong driving accuracy needed for dogleg right',
-          confidence: 'high'
-        },
-        {
-          hole_number: 2,
-          recommended_player: 'Mike Johnson',
-          reason: 'Long par 5 requires driving distance',
-          confidence: 'medium',
-          alternative_player: 'John Doe'
-        },
-        {
-          hole_number: 3,
-          recommended_player: 'Jane Smith',
-          reason: 'Short par 4 requires precision and course management',
-          confidence: 'high'
-        },
-        {
-          hole_number: 4,
-          recommended_player: 'Jane Smith',
-          reason: 'Long par 3 requires accuracy and putting skills',
-          confidence: 'high'
-        },
-        {
-          hole_number: 5,
-          recommended_player: 'John Doe',
-          reason: 'Uphill par 4 needs driving accuracy',
-          confidence: 'medium'
-        },
-        {
-          hole_number: 6,
-          recommended_player: 'Jane Smith',
-          reason: 'Short par 3 with elevation change suits precision player',
-          confidence: 'high'
-        },
-        {
-          hole_number: 7,
-          recommended_player: 'Mike Johnson',
-          reason: 'Tight fairway requires recovery shot ability',
-          confidence: 'low',
-          alternative_player: 'John Doe'
-        },
-        {
-          hole_number: 8,
-          recommended_player: 'Mike Johnson',
-          reason: 'Long par 5 needs driving distance',
-          confidence: 'medium'
-        },
-        {
-          hole_number: 9,
-          recommended_player: 'John Doe',
-          reason: 'Downhill par 4 requires accuracy and course knowledge',
-          confidence: 'high'
-        }
-      ];
+    // Mock opponent team
+    const opponentTeam: OpponentTeam = {
+      id: nextMatch.opponent_team_id,
+      name: nextMatch.opponent_team_name,
+      team_handicap: teamStats ? Math.round(members.reduce((sum, m) => sum + m.handicap, 0) / members.length) : 15,
+      players: []
+    };
 
-      const teamHandicap = Math.round(mockOurTeam.reduce((sum, p) => sum + p.handicap, 0) / mockOurTeam.length);
-      const handicapAdvantage = teamHandicap - mockOpponentTeam.team_handicap;
+    const teamHandicap = teamStats ? Math.round(members.reduce((sum, m) => sum + m.handicap, 0) / members.length) : 15;
+    const handicapAdvantage = teamHandicap - opponentTeam.team_handicap;
 
-      const strategy: MatchStrategy = {
-        course: mockCourse,
-        opponent_team: mockOpponentTeam,
-        our_team: mockOurTeam,
-        recommendations: mockRecommendations,
-        team_handicap: teamHandicap,
-        opponent_handicap: mockOpponentTeam.team_handicap,
-        handicap_advantage: handicapAdvantage
-      };
+    // Generate basic recommendations
+    const recommendations: StrategyRecommendation[] = Array.from({ length: 9 }, (_, i) => ({
+      hole_number: i + 1,
+      recommended_player: members[i % members.length] ? `${members[i % members.length].first_name} ${members[i % members.length].last_name}` : 'TBD',
+      reason: 'Strategic assignment based on hole difficulty',
+      confidence: 'medium' as const
+    }));
 
-      setMatchStrategy(strategy);
-    } catch (error) {
-      console.error('Error loading strategy data:', error);
-      toast.error('Failed to load strategy data');
-    } finally {
-      setLoading(false);
-    }
+    return {
+      course: mockCourse,
+      opponent_team: opponentTeam,
+      our_team: ourTeam,
+      recommendations,
+      team_handicap: teamHandicap,
+      opponent_handicap: opponentTeam.team_handicap,
+      handicap_advantage: handicapAdvantage
+    };
   };
+
+  const matchStrategy = buildMatchStrategy();
 
   const getConfidenceColor = (confidence: string) => {
     switch (confidence) {
@@ -278,14 +198,6 @@ const StrategyHelper: React.FC = () => {
     return <BarChart3 className="w-4 h-4" />;
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-neon-green"></div>
-      </div>
-    );
-  }
-
   if (!matchStrategy) {
     return (
       <div className="text-center py-8">
@@ -307,14 +219,6 @@ const StrategyHelper: React.FC = () => {
             <p className="text-neutral-600">Strategic recommendations for {matchStrategy.course.name}</p>
           </div>
         </div>
-        
-        <button 
-          onClick={loadStrategyData}
-          className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors"
-        >
-          <RefreshCw className="w-4 h-4" />
-          <span>Refresh</span>
-        </button>
       </div>
 
       {/* Match Overview */}

@@ -1,20 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Target, 
-  Users, 
-  Lock, 
-  Unlock, 
-  Save, 
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Target,
+  Users,
+  Save,
   AlertCircle,
   CheckCircle,
-  Clock,
   RefreshCw,
   Calculator,
   Trophy,
-  MapPin,
   X
 } from 'lucide-react';
-import { useAuth } from '../AuthContext';
 import { toast } from 'react-toastify';
 
 interface TeamMember {
@@ -24,7 +19,7 @@ interface TeamMember {
   last_name: string;
   handicap: number;
   role: 'captain' | 'member';
-  availability_status: 'available' | 'unavailable' | 'pending';
+  availability_status?: 'available' | 'unavailable' | 'pending';
 }
 
 interface LineupPlayer {
@@ -57,150 +52,46 @@ interface UpcomingMatch {
   status: 'upcoming' | 'in_progress' | 'completed';
 }
 
-const LineupSelector: React.FC = () => {
-  const { user } = useAuth();
-  const [availableMembers, setAvailableMembers] = useState<TeamMember[]>([]);
+interface LineupSelectorProps {
+  teamId: number;
+  leagueId: number;
+  members: TeamMember[];
+  upcomingMatches: UpcomingMatch[];
+}
+
+const LineupSelector: React.FC<LineupSelectorProps> = ({ teamId, leagueId, members, upcomingMatches }) => {
   const [currentLineup, setCurrentLineup] = useState<WeeklyLineup | null>(null);
-  const [upcomingMatch, setUpcomingMatch] = useState<UpcomingMatch | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [selectedWeek, setSelectedWeek] = useState<string>('');
+  const [selectedMatch, setSelectedMatch] = useState<UpcomingMatch | null>(null);
 
   useEffect(() => {
-    loadLineupData();
+    if (upcomingMatches.length > 0) {
+      setSelectedMatch(upcomingMatches[0]);
+      loadWeekLineup(upcomingMatches[0]);
+    }
+    setLoading(false);
+  }, [upcomingMatches]);
+
+  const loadWeekLineup = useCallback((match: UpcomingMatch) => {
+
+    // Initialize empty lineup for the match
+    const initialLineup: WeeklyLineup = {
+      week_start_date: match.week_start_date,
+      lineup_submitted: match.lineup_submitted,
+      lineup_locked: match.lineup_submitted,
+      players: [],
+      team_handicap: 0,
+      submission_deadline: match.lineup_deadline
+    };
+
+    setCurrentLineup(initialLineup);
   }, []);
-
-  useEffect(() => {
-    if (selectedWeek) {
-      loadWeekLineup(selectedWeek);
-    }
-  }, [selectedWeek]);
-
-  const loadLineupData = async () => {
-    setLoading(true);
-    try {
-      // TODO: Replace with actual API calls
-      // Mock data for now
-      const mockAvailableMembers: TeamMember[] = [
-        {
-          id: 1,
-          user_id: user?.member_id || 1,
-          first_name: user?.first_name || 'John',
-          last_name: user?.last_name || 'Doe',
-          handicap: 12,
-          role: 'captain',
-          availability_status: 'available'
-        },
-        {
-          id: 2,
-          user_id: 2,
-          first_name: 'Jane',
-          last_name: 'Smith',
-          handicap: 15,
-          role: 'member',
-          availability_status: 'available'
-        },
-        {
-          id: 3,
-          user_id: 3,
-          first_name: 'Mike',
-          last_name: 'Johnson',
-          handicap: 18,
-          role: 'member',
-          availability_status: 'available'
-        },
-        {
-          id: 4,
-          user_id: 4,
-          first_name: 'Sarah',
-          last_name: 'Wilson',
-          handicap: 14,
-          role: 'member',
-          availability_status: 'available'
-        },
-        {
-          id: 5,
-          user_id: 5,
-          first_name: 'Tom',
-          last_name: 'Brown',
-          handicap: 16,
-          role: 'member',
-          availability_status: 'available'
-        }
-      ];
-
-      const mockUpcomingMatch: UpcomingMatch = {
-        id: 1,
-        week_start_date: '2024-03-18',
-        opponent_team_id: 2,
-        opponent_team_name: 'Birdie Brigade',
-        course_name: 'Augusta National',
-        course_id: 1,
-        lineup_submitted: false,
-        lineup_deadline: '2024-03-17T18:00:00Z',
-        status: 'upcoming'
-      };
-
-      setAvailableMembers(mockAvailableMembers.filter(member => member.availability_status === 'available'));
-      setUpcomingMatch(mockUpcomingMatch);
-      setSelectedWeek(mockUpcomingMatch.week_start_date);
-    } catch (error) {
-      console.error('Error loading lineup data:', error);
-      toast.error('Failed to load lineup data');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadWeekLineup = async (weekStartDate: string) => {
-    try {
-      // TODO: Replace with actual API call
-      // Mock data for now
-      const mockLineup: WeeklyLineup = {
-        week_start_date: weekStartDate,
-        lineup_submitted: false,
-        lineup_locked: false,
-        players: [
-          {
-            player_id: 1,
-            first_name: user?.first_name || 'John',
-            last_name: user?.last_name || 'Doe',
-            handicap: 12,
-            holes_assigned: [1, 2, 3],
-            position: 'holes_1_3'
-          },
-          {
-            player_id: 2,
-            first_name: 'Jane',
-            last_name: 'Smith',
-            handicap: 15,
-            holes_assigned: [4, 5, 6],
-            position: 'holes_4_6'
-          },
-          {
-            player_id: 3,
-            first_name: 'Mike',
-            last_name: 'Johnson',
-            handicap: 18,
-            holes_assigned: [7, 8, 9],
-            position: 'holes_7_9'
-          }
-        ],
-        team_handicap: 15, // Average of selected players
-        submission_deadline: '2024-03-17T18:00:00Z'
-      };
-
-      setCurrentLineup(mockLineup);
-    } catch (error) {
-      console.error('Error loading week lineup:', error);
-      toast.error('Failed to load week lineup');
-    }
-  };
 
   const assignPlayerToPosition = (playerId: number, position: 'holes_1_3' | 'holes_4_6' | 'holes_7_9') => {
     if (!currentLineup) return;
 
-    const player = availableMembers.find(member => member.id === playerId);
+    const player = members.find(member => member.id === playerId);
     if (!player) return;
 
     // Check if player is already assigned
@@ -255,7 +146,7 @@ const LineupSelector: React.FC = () => {
   };
 
   const submitLineup = async () => {
-    if (!currentLineup) return;
+    if (!currentLineup || !selectedMatch) return;
 
     if (currentLineup.players.length !== 3) {
       toast.error('Please select exactly 3 players for the lineup');
@@ -264,9 +155,10 @@ const LineupSelector: React.FC = () => {
 
     setSaving(true);
     try {
-      // TODO: Replace with actual API call
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
-      
+      // TODO: Add API endpoint for submitting lineups
+      // For now, simulate success
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
       setCurrentLineup({
         ...currentLineup,
         lineup_submitted: true,
@@ -274,9 +166,9 @@ const LineupSelector: React.FC = () => {
       });
 
       toast.success('Lineup submitted successfully!');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error submitting lineup:', error);
-      toast.error('Failed to submit lineup');
+      toast.error(error.response?.data?.error || 'Failed to submit lineup');
     } finally {
       setSaving(false);
     }
@@ -296,23 +188,8 @@ const LineupSelector: React.FC = () => {
     return new Date(deadline) < new Date();
   };
 
-  const getPositionName = (position: string) => {
-    switch (position) {
-      case 'holes_1_3': return 'Holes 1-3';
-      case 'holes_4_6': return 'Holes 4-6';
-      case 'holes_7_9': return 'Holes 7-9';
-      default: return position;
-    }
-  };
-
-  const getPositionColor = (position: string) => {
-    switch (position) {
-      case 'holes_1_3': return 'bg-blue-100 text-blue-800';
-      case 'holes_4_6': return 'bg-green-100 text-green-800';
-      case 'holes_7_9': return 'bg-purple-100 text-purple-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
+  // Filter available members (those marked as available)
+  const availableMembers = members.filter(m => m.availability_status === 'available');
 
   if (loading) {
     return (
@@ -334,36 +211,32 @@ const LineupSelector: React.FC = () => {
           </div>
         </div>
         
-        <div className="flex items-center space-x-2">
-          <button 
-            onClick={loadLineupData}
-            className="flex items-center space-x-2 px-4 py-2 bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-            <span>Refresh</span>
-          </button>
-        </div>
+        {availableMembers.length === 0 && (
+          <div className="text-sm text-red-600">
+            No available players
+          </div>
+        )}
       </div>
 
       {/* Match Information */}
-      {upcomingMatch && (
+      {selectedMatch && (
         <div className="bg-white border border-neutral-200 rounded-lg p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="flex-shrink-0">
                 <Trophy className="w-6 h-6 text-brand-neon-green" />
               </div>
-              
+
               <div>
                 <h3 className="text-lg font-semibold text-brand-black">
-                  vs {upcomingMatch.opponent_team_name}
+                  vs {selectedMatch.opponent_team_name}
                 </h3>
                 <p className="text-sm text-neutral-600">
-                  {formatDate(upcomingMatch.week_start_date)} • {upcomingMatch.course_name}
+                  {formatDate(selectedMatch.week_start_date)} • {selectedMatch.course_name}
                 </p>
               </div>
             </div>
-            
+
             <div className="flex items-center space-x-3">
               {currentLineup?.lineup_submitted ? (
                 <div className="flex items-center text-green-600">
@@ -374,13 +247,13 @@ const LineupSelector: React.FC = () => {
                 <div className="flex items-center text-red-600">
                   <AlertCircle className="w-4 h-4 mr-1" />
                   <span className="text-sm font-medium">
-                    {isLineupDeadlinePassed(upcomingMatch.lineup_deadline) ? 'Deadline Passed' : 'Lineup Due Soon'}
+                    {isLineupDeadlinePassed(selectedMatch.lineup_deadline) ? 'Deadline Passed' : 'Lineup Due Soon'}
                   </span>
                 </div>
               )}
-              
+
               <div className="text-sm text-neutral-600">
-                Deadline: {formatDate(upcomingMatch.lineup_deadline)}
+                Deadline: {formatDate(selectedMatch.lineup_deadline)}
               </div>
             </div>
           </div>

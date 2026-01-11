@@ -20,7 +20,9 @@ import AvailableTournaments from './components/AvailableTournaments';
 import NewWeeklyScoring from './components/NewWeeklyScoring';
 import NewWeeklyLeaderboard from './components/NewWeeklyLeaderboard';
 import AdminPermissionsManager from './components/AdminPermissionsManager';
-import LeagueManagement from './components/LeagueManagement';
+import LeaguesLanding from './components/LeaguesLanding';
+import LeagueAdminPanel from './components/LeagueAdminPanel';
+import AllLeagues from './components/AllLeagues';
 import CaptainDashboard from './components/CaptainDashboard';
 import LeagueScoring from './components/LeagueScoring';
 import PlayerAvailabilityCalendar from './components/PlayerAvailabilityCalendar';
@@ -690,7 +692,12 @@ function AppContent() {
         } />
         <Route path="/admin/league-management" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-            <AdminProtectedRoute><LeagueManagement /></AdminProtectedRoute>
+            <AdminProtectedRoute><LeaguesLanding /></AdminProtectedRoute>
+          </main>
+        } />
+        <Route path="/admin/league/:leagueId" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AdminProtectedRoute><LeagueAdminPanel /></AdminProtectedRoute>
           </main>
         } />
         <Route path="/captain-dashboard/:teamId/:leagueId" element={
@@ -721,6 +728,11 @@ function AppContent() {
         <Route path="/player/team/:teamId/:leagueId" element={
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
             <ProtectedRoute><PlayerTeamViewWrapper /></ProtectedRoute>
+          </main>
+        } />
+        <Route path="/leagues" element={
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+            <AllLeagues />
           </main>
         } />
         <Route path="/league-standings/:leagueId" element={

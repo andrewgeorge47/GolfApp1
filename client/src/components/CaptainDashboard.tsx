@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Users, 
-  Calendar, 
-  Target, 
-  Trophy, 
-  Clock, 
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Users,
+  Calendar,
+  Target,
+  Trophy,
+  Clock,
   AlertCircle,
   CheckCircle,
   XCircle,
@@ -13,12 +13,17 @@ import {
   BarChart3,
   MapPin
 } from 'lucide-react';
-import { useAuth } from '../AuthContext';
 import { toast } from 'react-toastify';
 import AvailabilityView from './AvailabilityView';
 import LineupSelector from './LineupSelector';
 import StrategyHelper from './StrategyHelper';
-import { getCaptainDashboard } from '../services/api';
+import {
+  getCaptainDashboard,
+  getLeague,
+  getLeagueDivisions,
+  getLeagueTeams,
+  getTeamAvailability
+} from '../services/api';
 
 interface Team {
   id: number;
@@ -70,24 +75,69 @@ interface CaptainDashboardProps {
 }
 
 const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId }) => {
-  const { user } = useAuth();
   const [team, setTeam] = useState<Team | null>(null);
   const [upcomingMatches, setUpcomingMatches] = useState<UpcomingMatch[]>([]);
   const [teamStats, setTeamStats] = useState<TeamStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'availability' | 'lineup' | 'strategy'>('overview');
 
-  useEffect(() => {
-    if (teamId && leagueId) {
-      loadCaptainData();
-    }
-  }, [teamId, leagueId]);
-
-  const loadCaptainData = async () => {
+  const loadCaptainData = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await getCaptainDashboard(teamId, leagueId);
-      const data = response.data;
+      // Load all data in parallel
+      const [
+        dashboardResponse,
+        leagueResponse,
+        divisionsResponse,
+        teamsResponse
+      ] = await Promise.all([
+        getCaptainDashboard(teamId, leagueId),
+        getLeague(leagueId),
+        getLeagueDivisions(leagueId),
+        getLeagueTeams(leagueId)
+      ]);
+
+      const data = dashboardResponse.data;
+      const leagueData = leagueResponse.data;
+      const divisionsData = divisionsResponse.data;
+      const teamsData = teamsResponse.data;
+
+      // Debug: Check what's in the roster
+      console.log('Captain Dashboard Data:', {
+        captain_id: data.team.captain_id,
+        roster_count: data.roster?.length || 0,
+        roster: data.roster
+      });
+
+      // Find division info
+      const teamDivisionId = data.team.division_id;
+      const division = divisionsData.find((d: any) => d.id === teamDivisionId);
+      const divisionName = division?.division_name || 'Unknown Division';
+
+      // Count teams in the same division
+      const teamsInDivision = teamsData.filter((t: any) => t.division_id === teamDivisionId);
+      const totalTeamsInDivision = teamsInDivision.length;
+
+      // Load availability for upcoming matches (first match only for now)
+      let memberAvailability: Map<number, string> = new Map();
+      if (data.upcomingMatches.length > 0) {
+        try {
+          const firstMatch = data.upcomingMatches[0];
+          const weekNumber = firstMatch.week_number || 1;
+          const availResponse = await getTeamAvailability(teamId, weekNumber, leagueId);
+          const availData = availResponse.data;
+
+          // Map user_id to availability status
+          if (availData.availability) {
+            availData.availability.forEach((avail: any) => {
+              memberAvailability.set(avail.user_id, avail.status);
+            });
+          }
+        } catch (err) {
+          console.log('Could not load availability:', err);
+          // Continue without availability data
+        }
+      }
 
       // Transform roster to match TeamMember interface
       const transformedMembers: TeamMember[] = data.roster.map((member: any) => ({
@@ -96,9 +146,17 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
         first_name: member.first_name,
         last_name: member.last_name,
         handicap: member.handicap || 0,
-        role: member.is_captain ? 'captain' : 'member',
-        availability_status: 'pending' // TODO: Load from availability table
+        role: member.user_member_id === data.team.captain_id ? 'captain' : 'member',
+        availability_status: (memberAvailability.get(member.user_member_id) as 'available' | 'unavailable' | 'pending') || 'pending'
       }));
+
+      // Ensure captain is in the members list (if not already)
+      const captainInRoster = transformedMembers.some(m => m.user_id === data.team.captain_id);
+      if (!captainInRoster && data.team.captain_id) {
+        console.warn('Captain not found in roster, fetching captain data separately');
+        // The captain should be in the roster, but if not, this is a backend data issue
+        // For now, we'll show a warning and the roster as-is
+      }
 
       // Transform team data
       const transformedTeam: Team = {
@@ -108,10 +166,17 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
         captain_name: transformedMembers.find(m => m.role === 'captain')?.first_name + ' ' +
                      transformedMembers.find(m => m.role === 'captain')?.last_name || 'Unknown',
         members: transformedMembers,
-        division_id: data.team.division_id || 0,
-        division_name: 'Unknown', // TODO: Get from league data
+        division_id: teamDivisionId || 0,
+        division_name: divisionName,
         league_id: leagueId,
-        league_name: 'Unknown' // TODO: Get from league data
+        league_name: leagueData.name || 'Unknown League'
+      };
+
+      // Calculate lineup deadline (24 hours before match start)
+      const calculateDeadline = (matchStart: string): string => {
+        const matchDate = new Date(matchStart);
+        const deadline = new Date(matchDate.getTime() - (24 * 60 * 60 * 1000)); // 24 hours before
+        return deadline.toISOString();
       };
 
       // Transform upcoming matches
@@ -122,9 +187,10 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
         opponent_team_name: match.opponent_name,
         course_name: match.course_name || 'TBD',
         course_id: match.course_id || 0,
-        lineup_submitted: match.status === 'lineup_submitted',
-        lineup_deadline: match.week_start_date, // TODO: Calculate proper deadline
-        status: match.status === 'scheduled' ? 'upcoming' : 'in_progress'
+        lineup_submitted: match.status === 'lineup_submitted' || match.lineup_submitted || false,
+        lineup_deadline: calculateDeadline(match.week_start_date),
+        status: match.status === 'scheduled' ? 'upcoming' :
+                match.status === 'in_progress' ? 'in_progress' : 'completed'
       }));
 
       // Transform standings to stats
@@ -136,7 +202,7 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
         ties: standings?.ties || 0,
         total_points: standings?.league_points || 0,
         current_standing: standings?.division_rank || 0,
-        total_teams: 0 // TODO: Get from league data
+        total_teams: totalTeamsInDivision
       };
 
       setTeam(transformedTeam);
@@ -148,7 +214,13 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
     } finally {
       setLoading(false);
     }
-  };
+  }, [teamId, leagueId]);
+
+  useEffect(() => {
+    if (teamId && leagueId) {
+      loadCaptainData();
+    }
+  }, [teamId, leagueId, loadCaptainData]);
 
   const getAvailabilityStatusColor = (status: string) => {
     switch (status) {
@@ -215,7 +287,7 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
           <Trophy className="w-8 h-8 text-brand-neon-green" />
           <div>
             <h1 className="text-2xl font-bold text-brand-black">Captain Dashboard</h1>
-            <p className="text-neutral-600">{team.name} • {team.division_name}</p>
+            <p className="text-neutral-600">{team.league_name} • {team.division_name} • {team.name}</p>
           </div>
         </div>
         
@@ -359,13 +431,8 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
                           <p className="text-sm text-neutral-600">Handicap: {member.handicap}</p>
                         </div>
                       </div>
-                      
-                      <div className="flex items-center space-x-3">
-                        <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getAvailabilityStatusColor(member.availability_status || 'pending')}`}>
-                          {getAvailabilityStatusIcon(member.availability_status || 'pending')}
-                          <span className="ml-1 capitalize">{member.availability_status || 'pending'}</span>
-                        </div>
-                      </div>
+
+                      {/* Removed availability status - shown in Availability tab instead */}
                     </div>
                   </div>
                 ))}
@@ -473,9 +540,30 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
           </div>
         )}
 
-        {activeTab === 'availability' && <AvailabilityView />}
-        {activeTab === 'lineup' && <LineupSelector />}
-        {activeTab === 'strategy' && <StrategyHelper />}
+        {activeTab === 'availability' && team && (
+          <AvailabilityView
+            teamId={teamId}
+            leagueId={leagueId}
+            members={team.members}
+          />
+        )}
+        {activeTab === 'lineup' && team && (
+          <LineupSelector
+            teamId={teamId}
+            leagueId={leagueId}
+            members={team.members}
+            upcomingMatches={upcomingMatches}
+          />
+        )}
+        {activeTab === 'strategy' && team && (
+          <StrategyHelper
+            teamId={teamId}
+            leagueId={leagueId}
+            members={team.members}
+            upcomingMatches={upcomingMatches}
+            teamStats={teamStats}
+          />
+        )}
       </div>
     </div>
   );
