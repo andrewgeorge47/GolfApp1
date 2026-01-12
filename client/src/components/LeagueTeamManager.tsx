@@ -356,6 +356,39 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
     }
   };
 
+  const handleMoveTeamToDivision = async (teamId: number, newDivisionId: number) => {
+    try {
+      const team = teams.find(t => t.id === teamId);
+      if (!team) return;
+
+      // Don't update if division hasn't changed
+      if (team.division_id === newDivisionId) return;
+
+      const newDivision = divisions.find(d => d.id === newDivisionId);
+      if (!newDivision) {
+        toast.error('Selected division not found');
+        return;
+      }
+
+      // Update team division via API
+      await updateLeagueTeam(leagueId, teamId, { division_id: newDivisionId });
+
+      // Update local state
+      setTeams(prev =>
+        prev.map(t =>
+          t.id === teamId
+            ? { ...t, division_id: newDivisionId, division_name: newDivision.name }
+            : t
+        )
+      );
+
+      toast.success(`Team moved to ${newDivision.name}`);
+    } catch (error: any) {
+      console.error('Error moving team:', error);
+      toast.error(error.response?.data?.error || 'Failed to move team');
+    }
+  };
+
   const getAvailableUsersForTeam = (team: Team) => {
     const teamUserIds = team.members.map(member => member.user_id);
     let users = availableUsers.filter(user => !teamUserIds.includes(user.id));
@@ -697,9 +730,19 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
                     <div>
                       <h4 className="font-semibold text-brand-black mb-3">Team Info</h4>
                       <div className="space-y-3">
-                        <div className="flex justify-between">
+                        <div className="flex justify-between items-center">
                           <span className="text-neutral-600">Division:</span>
-                          <span className="font-medium">{team.division_name}</span>
+                          <select
+                            value={team.division_id}
+                            onChange={(e) => handleMoveTeamToDivision(team.id, parseInt(e.target.value))}
+                            className="px-3 py-1 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent text-sm font-medium bg-white"
+                          >
+                            {divisions.map((division) => (
+                              <option key={division.id} value={division.id}>
+                                {division.name}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-neutral-600">Created:</span>
@@ -710,7 +753,7 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
                         <div className="flex justify-between">
                           <span className="text-neutral-600">Win Rate:</span>
                           <span className="font-medium">
-                            {team.wins + team.losses + team.ties > 0 
+                            {team.wins + team.losses + team.ties > 0
                               ? Math.round((team.wins / (team.wins + team.losses + team.ties)) * 100)
                               : 0}%
                           </span>

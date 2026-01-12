@@ -11,7 +11,8 @@ import {
   Target,
   Award,
   UserPlus,
-  UserMinus
+  UserMinus,
+  ArrowRightLeft
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import {
@@ -19,6 +20,7 @@ import {
   createLeagueDivision,
   deleteLeagueDivision,
   getLeagueTeams,
+  updateLeagueTeam,
   getPlayers,
   getLeagues
 } from '../services/api';
@@ -325,23 +327,46 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
     }
   };
 
-  const handleDeleteTeam = async (divisionId: number, teamId: number) => {
-    if (!window.confirm('Are you sure you want to delete this team?')) {
-      return;
-    }
-
+  const handleMoveTeamToDivision = async (teamId: number, currentDivisionId: number, newDivisionId: number) => {
     try {
-      setDivisions(prev => 
-        prev.map(division => 
-          division.id === divisionId
-            ? { ...division, teams: division.teams.filter(team => team.id !== teamId) }
-            : division
-        )
+      // Don't update if division hasn't changed
+      if (currentDivisionId === newDivisionId) return;
+
+      const newDivision = divisions.find(d => d.id === newDivisionId);
+      if (!newDivision) {
+        toast.error('Selected division not found');
+        return;
+      }
+
+      // Find the team in the current division
+      const currentDivision = divisions.find(d => d.id === currentDivisionId);
+      const team = currentDivision?.teams.find(t => t.id === teamId);
+      if (!team) {
+        toast.error('Team not found');
+        return;
+      }
+
+      // Update team division via API
+      await updateLeagueTeam(leagueId, teamId, { division_id: newDivisionId });
+
+      // Update local state - move team from one division to another
+      setDivisions(prev =>
+        prev.map(division => {
+          if (division.id === currentDivisionId) {
+            // Remove team from current division
+            return { ...division, teams: division.teams.filter(t => t.id !== teamId) };
+          } else if (division.id === newDivisionId) {
+            // Add team to new division with updated division_id
+            return { ...division, teams: [...division.teams, { ...team, division_id: newDivisionId }] };
+          }
+          return division;
+        })
       );
-      toast.success('Team deleted successfully');
-    } catch (error) {
-      console.error('Error deleting team:', error);
-      toast.error('Failed to delete team');
+
+      toast.success(`Team moved to ${newDivision.name}`);
+    } catch (error: any) {
+      console.error('Error moving team:', error);
+      toast.error(error.response?.data?.error || 'Failed to move team');
     }
   };
 
@@ -499,18 +524,25 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {division.teams.map((team) => (
                         <Card key={team.id} variant="outlined">
-                          <div className="flex items-center justify-between mb-3">
-                            <h4 className="font-semibold text-brand-black">{team.name}</h4>
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              icon={Trash2}
-                              onClick={() => handleDeleteTeam(division.id, team.id)}
-                            >
-                              Delete
-                            </Button>
+                          <div className="mb-3">
+                            <h4 className="font-semibold text-brand-black mb-2">{team.name}</h4>
+                            <div className="flex items-center space-x-2">
+                              <ArrowRightLeft className="w-4 h-4 text-neutral-500" />
+                              <span className="text-sm text-neutral-600">Move to:</span>
+                              <select
+                                value={division.id}
+                                onChange={(e) => handleMoveTeamToDivision(team.id, division.id, parseInt(e.target.value))}
+                                className="flex-1 px-2 py-1 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent text-sm bg-white"
+                              >
+                                {divisions.map((div) => (
+                                  <option key={div.id} value={div.id}>
+                                    {div.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                           </div>
-                          
+
                           <div className="space-y-2">
                             <p className="text-sm text-neutral-600">Captain: {team.captain_name}</p>
                             <p className="text-sm text-neutral-600">
