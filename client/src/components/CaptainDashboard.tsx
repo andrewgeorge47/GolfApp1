@@ -9,14 +9,11 @@ import {
   CheckCircle,
   XCircle,
   ChevronRight,
-  Settings,
-  BarChart3,
-  MapPin
+  BarChart3
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import AvailabilityView from './AvailabilityView';
 import LineupSelector from './LineupSelector';
-import StrategyHelper from './StrategyHelper';
 import {
   getCaptainDashboard,
   getLeague,
@@ -79,7 +76,7 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
   const [upcomingMatches, setUpcomingMatches] = useState<UpcomingMatch[]>([]);
   const [teamStats, setTeamStats] = useState<TeamStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'availability' | 'lineup' | 'strategy'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'availability' | 'lineup'>('overview');
 
   const loadCaptainData = useCallback(async () => {
     setLoading(true);
@@ -127,12 +124,22 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
           const availResponse = await getTeamAvailability(teamId, weekNumber, leagueId);
           const availData = availResponse.data;
 
-          // Map user_id to availability status
-          if (availData.availability) {
-            availData.availability.forEach((avail: any) => {
-              memberAvailability.set(avail.user_id, avail.status);
+          console.log('CaptainDashboard - Availability data:', availData);
+
+          // API returns array of team members with availability
+          // Format: [{ user_member_id, is_available, availability_notes, time_slots, ... }]
+          if (Array.isArray(availData)) {
+            availData.forEach((avail: any) => {
+              // Convert is_available boolean to status string
+              let status = 'pending';
+              if (avail.is_available !== null && avail.is_available !== undefined) {
+                status = avail.is_available ? 'available' : 'unavailable';
+              }
+              memberAvailability.set(avail.user_member_id, status);
             });
           }
+
+          console.log('CaptainDashboard - Member availability map:', memberAvailability);
         } catch (err) {
           console.log('Could not load availability:', err);
           // Continue without availability data
@@ -282,32 +289,23 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <Trophy className="w-8 h-8 text-brand-neon-green" />
-          <div>
-            <h1 className="text-2xl font-bold text-brand-black">Captain Dashboard</h1>
-            <p className="text-neutral-600">{team.league_name} • {team.division_name} • {team.name}</p>
-          </div>
-        </div>
-        
-        <div className="flex items-center space-x-2">
-          <button className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors">
-            <Settings className="w-4 h-4" />
-            <span>Team Settings</span>
-          </button>
+      <div className="flex items-center space-x-3">
+        <Trophy className="w-8 h-8 text-brand-neon-green" />
+        <div>
+          <h1 className="text-2xl font-bold text-white">Captain Dashboard</h1>
+          <p className="text-white/80">{team.league_name} • {team.division_name} • {team.name}</p>
         </div>
       </div>
 
       {/* Tab Navigation */}
-      <div className="border-b border-neutral-200">
+      <div className="border-b border-white/20">
         <nav className="flex space-x-8">
           <button
             onClick={() => setActiveTab('overview')}
             className={`py-2 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'overview'
                 ? 'border-brand-neon-green text-brand-neon-green'
-                : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
+                : 'border-transparent text-white/70 hover:text-white hover:border-white/30'
             }`}
           >
             <BarChart3 className="w-4 h-4 inline mr-2" />
@@ -318,7 +316,7 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
             className={`py-2 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'availability'
                 ? 'border-brand-neon-green text-brand-neon-green'
-                : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
+                : 'border-transparent text-white/70 hover:text-white hover:border-white/30'
             }`}
           >
             <Users className="w-4 h-4 inline mr-2" />
@@ -329,22 +327,11 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
             className={`py-2 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'lineup'
                 ? 'border-brand-neon-green text-brand-neon-green'
-                : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
+                : 'border-transparent text-white/70 hover:text-white hover:border-white/30'
             }`}
           >
             <Target className="w-4 h-4 inline mr-2" />
             Lineup
-          </button>
-          <button
-            onClick={() => setActiveTab('strategy')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'strategy'
-                ? 'border-brand-neon-green text-brand-neon-green'
-                : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
-            }`}
-          >
-            <MapPin className="w-4 h-4 inline mr-2" />
-            Strategy
           </button>
         </nav>
       </div>
@@ -353,59 +340,12 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
       <div className="min-h-[600px]">
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* Team Overview Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-white p-6 rounded-lg border border-neutral-200">
-                <div className="flex items-center">
-                  <Users className="w-8 h-8 text-brand-neon-green" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-neutral-600">Team Members</p>
-                    <p className="text-2xl font-bold text-brand-black">{team.members.length}</p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-white p-6 rounded-lg border border-neutral-200">
-                <div className="flex items-center">
-                  <Trophy className="w-8 h-8 text-green-500" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-neutral-600">Current Standing</p>
-                    <p className="text-2xl font-bold text-brand-black">
-                      {teamStats?.current_standing || 'N/A'} of {teamStats?.total_teams || 'N/A'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-white p-6 rounded-lg border border-neutral-200">
-                <div className="flex items-center">
-                  <Target className="w-8 h-8 text-blue-500" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-neutral-600">Total Points</p>
-                    <p className="text-2xl font-bold text-brand-black">{teamStats?.total_points || 0}</p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-white p-6 rounded-lg border border-neutral-200">
-                <div className="flex items-center">
-                  <Calendar className="w-8 h-8 text-purple-500" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-neutral-600">Upcoming Matches</p>
-                    <p className="text-2xl font-bold text-brand-black">
-                      {upcomingMatches.filter(m => m.status === 'upcoming').length}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
             {/* Team Members */}
             <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
               <div className="px-6 py-4 border-b border-neutral-200">
                 <h3 className="text-lg font-semibold text-brand-black">Team Members</h3>
               </div>
-              
+
               <div className="divide-y divide-neutral-200">
                 {team.members.map((member) => (
                   <div key={member.id} className="p-6">
@@ -418,7 +358,7 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
                             </span>
                           </div>
                         </div>
-                        
+
                         <div>
                           <h4 className="text-lg font-semibold text-brand-black">
                             {member.first_name} {member.last_name}
@@ -431,8 +371,6 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
                           <p className="text-sm text-neutral-600">Handicap: {member.handicap}</p>
                         </div>
                       </div>
-
-                      {/* Removed availability status - shown in Availability tab instead */}
                     </div>
                   </div>
                 ))}
@@ -444,7 +382,7 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
               <div className="px-6 py-4 border-b border-neutral-200">
                 <h3 className="text-lg font-semibold text-brand-black">Upcoming Matches</h3>
               </div>
-              
+
               <div className="divide-y divide-neutral-200">
                 {upcomingMatches.map((match) => (
                   <div key={match.id} className="p-6">
@@ -453,7 +391,7 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
                         <div className="flex-shrink-0">
                           <Calendar className="w-6 h-6 text-neutral-500" />
                         </div>
-                        
+
                         <div>
                           <h4 className="text-lg font-semibold text-brand-black">
                             vs {match.opponent_team_name}
@@ -463,12 +401,12 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
                           </p>
                         </div>
                       </div>
-                      
+
                       <div className="flex items-center space-x-3">
                         <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getMatchStatusColor(match.status)}`}>
                           {match.status.charAt(0).toUpperCase() + match.status.slice(1)}
                         </span>
-                        
+
                         {match.lineup_submitted ? (
                           <div className="flex items-center text-green-600">
                             <CheckCircle className="w-4 h-4 mr-1" />
@@ -482,7 +420,7 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
                             </span>
                           </div>
                         )}
-                        
+
                         <button className="flex items-center space-x-1 px-3 py-1 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors">
                           <span className="text-sm">Manage</span>
                           <ChevronRight className="w-4 h-4" />
@@ -501,8 +439,8 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
               </div>
               
               <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <button 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <button
                     onClick={() => setActiveTab('availability')}
                     className="flex items-center space-x-3 p-4 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors"
                   >
@@ -512,8 +450,8 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
                       <p className="text-sm text-neutral-600">View team member availability</p>
                     </div>
                   </button>
-                  
-                  <button 
+
+                  <button
                     onClick={() => setActiveTab('lineup')}
                     className="flex items-center space-x-3 p-4 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors"
                   >
@@ -521,17 +459,6 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
                     <div className="text-left">
                       <h4 className="font-medium text-brand-black">Set Lineup</h4>
                       <p className="text-sm text-neutral-600">Select active players</p>
-                    </div>
-                  </button>
-                  
-                  <button 
-                    onClick={() => setActiveTab('strategy')}
-                    className="flex items-center space-x-3 p-4 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors"
-                  >
-                    <MapPin className="w-6 h-6 text-brand-neon-green" />
-                    <div className="text-left">
-                      <h4 className="font-medium text-brand-black">Strategy Helper</h4>
-                      <p className="text-sm text-neutral-600">Plan your approach</p>
                     </div>
                   </button>
                 </div>
@@ -553,15 +480,6 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
             leagueId={leagueId}
             members={team.members}
             upcomingMatches={upcomingMatches}
-          />
-        )}
-        {activeTab === 'strategy' && team && (
-          <StrategyHelper
-            teamId={teamId}
-            leagueId={leagueId}
-            members={team.members}
-            upcomingMatches={upcomingMatches}
-            teamStats={teamStats}
           />
         )}
       </div>

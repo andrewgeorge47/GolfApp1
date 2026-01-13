@@ -57,7 +57,7 @@ interface TeamMember {
   user_id: number;
   first_name: string;
   last_name: string;
-  handicap: number;
+  sim_handicap: number;
   role: 'captain' | 'member';
   joined_at: string;
 }
@@ -66,7 +66,7 @@ interface User {
   id: number;
   first_name: string;
   last_name: string;
-  handicap: number;
+  sim_handicap: number;
   club: string;
   email: string;
 }
@@ -87,9 +87,12 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
   const [divisions, setDivisions] = useState<Division[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedTeam, setExpandedTeam] = useState<number | null>(null);
+  const [loadingTeamMembers, setLoadingTeamMembers] = useState<Set<number>>(new Set());
+  const [teamsWithLoadedMembers, setTeamsWithLoadedMembers] = useState<Set<number>>(new Set());
   const [signupLinks, setSignupLinks] = useState<LeagueSignupLink[]>([]);
   const [signupRegistrations, setSignupRegistrations] = useState<Map<number, LeagueSignupRegistration[]>>(new Map());
   const [selectedSignupFilter, setSelectedSignupFilter] = useState<number | null>(null);
+  const [loadingSignupRegistrations, setLoadingSignupRegistrations] = useState(false);
   
   // Filters and search
   const [searchTerm, setSearchTerm] = useState('');
@@ -122,71 +125,39 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load teams for this league
-      const teamsResponse = await getLeagueTeams(leagueId);
+      // Load all base data in parallel
+      const [teamsResponse, divisionsResponse, usersResponse, linksResponse] = await Promise.all([
+        getLeagueTeams(leagueId),
+        getLeagueDivisions(leagueId),
+        getPlayers(),
+        getLeagueSignupLinks(leagueId)
+      ]);
+
       const teamsData = teamsResponse.data;
-
-      // Load divisions for this league
-      const divisionsResponse = await getLeagueDivisions(leagueId);
       const divisionsData = divisionsResponse.data;
-
-      // Load available users/players
-      const usersResponse = await getPlayers();
       const usersData = usersResponse.data;
-
-      // Load signup links for this league
-      const linksResponse = await getLeagueSignupLinks(leagueId);
       const linksData = linksResponse.data;
+
       setSignupLinks(linksData);
 
-      // Load registrations for each linked signup
-      const registrationsMap = new Map<number, LeagueSignupRegistration[]>();
-      for (const link of linksData) {
-        try {
-          const regsResponse = await getLeagueSignupRegistrations(leagueId, link.signup_id);
-          registrationsMap.set(link.signup_id, regsResponse.data);
-        } catch (error) {
-          console.error(`Error loading registrations for signup ${link.signup_id}:`, error);
-        }
-      }
-      setSignupRegistrations(registrationsMap);
+      // NOTE: Signup registrations are now lazy-loaded when modals open
+      // This saves 3-5 API calls on initial load
 
-      // Transform teams data and load members for each team
-      const transformedTeams: Team[] = await Promise.all(
-        teamsData.map(async (team: any) => {
-          // Fetch members for this team
-          let members: TeamMember[] = [];
-          try {
-            const membersResponse = await getTeamMembers(team.id);
-            members = membersResponse.data.map((m: any) => ({
-              id: m.id,
-              user_id: m.user_member_id,
-              first_name: m.first_name,
-              last_name: m.last_name,
-              handicap: m.handicap || 0,
-              role: m.is_captain ? 'captain' : 'member',
-              joined_at: m.joined_at
-            }));
-          } catch (error) {
-            console.error(`Error loading members for team ${team.id}:`, error);
-          }
-
-          return {
-            id: team.id,
-            name: team.name,
-            captain_id: team.captain_id,
-            captain_name: team.captain_name || 'Unknown',
-            division_id: team.division_id || 0,
-            division_name: divisionsData.find((d: any) => d.id === team.division_id)?.division_name || 'No Division',
-            wins: 0, // Will be populated from standings
-            losses: 0,
-            ties: 0,
-            total_points: team.league_points || 0,
-            created_at: team.created_at,
-            members
-          };
-        })
-      );
+      // Transform teams data WITHOUT loading members (lazy-loaded on expand)
+      const transformedTeams: Team[] = teamsData.map((team: any) => ({
+        id: team.id,
+        name: team.name,
+        captain_id: team.captain_id,
+        captain_name: team.captain_name || 'Unknown',
+        division_id: team.division_id || 0,
+        division_name: divisionsData.find((d: any) => d.id === team.division_id)?.division_name || 'No Division',
+        wins: 0, // Will be populated from standings
+        losses: 0,
+        ties: 0,
+        total_points: team.league_points || 0,
+        created_at: team.created_at,
+        members: [] // Members lazy-loaded when team is expanded
+      }));
 
       setTeams(transformedTeams);
       setDivisions(divisionsData.map((d: any) => ({
@@ -197,7 +168,7 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
         id: user.member_id,
         first_name: user.first_name,
         last_name: user.last_name,
-        handicap: user.handicap || 0,
+        sim_handicap: user.sim_handicap || 0,
         club: user.club || 'Unknown',
         email: user.email || ''
       })));
@@ -206,6 +177,104 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
       toast.error(error.response?.data?.error || 'Failed to load data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Lazy-load team members when team is expanded
+  const loadTeamMembers = async (teamId: number) => {
+    // Skip if already loaded or currently loading
+    if (teamsWithLoadedMembers.has(teamId) || loadingTeamMembers.has(teamId)) {
+      return;
+    }
+
+    setLoadingTeamMembers(prev => new Set(prev).add(teamId));
+
+    try {
+      const membersResponse = await getTeamMembers(teamId);
+      const members: TeamMember[] = membersResponse.data
+        .map((m: any): TeamMember => ({
+          id: m.id,
+          user_id: m.user_member_id,
+          first_name: m.first_name,
+          last_name: m.last_name,
+          sim_handicap: m.sim_handicap || 0,
+          role: (m.is_captain ? 'captain' : 'member') as 'captain' | 'member',
+          joined_at: m.joined_at
+        }))
+        // Sort alphabetically by last name, then first name
+        // Captain always appears first
+        .sort((a, b) => {
+          // Captain always at the top
+          if (a.role === 'captain') return -1;
+          if (b.role === 'captain') return 1;
+
+          // Then sort alphabetically
+          const lastNameCompare = a.last_name.localeCompare(b.last_name);
+          if (lastNameCompare !== 0) return lastNameCompare;
+          return a.first_name.localeCompare(b.first_name);
+        });
+
+      setTeams(prev =>
+        prev.map(team =>
+          team.id === teamId ? { ...team, members } : team
+        )
+      );
+
+      setTeamsWithLoadedMembers(prev => new Set(prev).add(teamId));
+    } catch (error) {
+      console.error(`Error loading members for team ${teamId}:`, error);
+      toast.error('Failed to load team members');
+    } finally {
+      setLoadingTeamMembers(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(teamId);
+        return newSet;
+      });
+    }
+  };
+
+  // Lazy-load signup registrations when needed (parallelized)
+  const loadSignupRegistrations = async () => {
+    if (loadingSignupRegistrations || signupRegistrations.size > 0) {
+      return; // Already loaded or loading
+    }
+
+    setLoadingSignupRegistrations(true);
+
+    try {
+      // Load all signup registrations in parallel
+      const registrationPromises = signupLinks.map(link =>
+        getLeagueSignupRegistrations(leagueId, link.signup_id)
+          .then(response => ({ signupId: link.signup_id, data: response.data }))
+          .catch(error => {
+            console.error(`Error loading registrations for signup ${link.signup_id}:`, error);
+            return { signupId: link.signup_id, data: [] };
+          })
+      );
+
+      const results = await Promise.all(registrationPromises);
+
+      const registrationsMap = new Map<number, LeagueSignupRegistration[]>();
+      results.forEach(result => {
+        registrationsMap.set(result.signupId, result.data);
+      });
+
+      setSignupRegistrations(registrationsMap);
+    } catch (error) {
+      console.error('Error loading signup registrations:', error);
+    } finally {
+      setLoadingSignupRegistrations(false);
+    }
+  };
+
+  // Handle team expansion with lazy loading
+  const handleTeamExpand = (teamId: number) => {
+    const newExpandedTeam = expandedTeam === teamId ? null : teamId;
+    setExpandedTeam(newExpandedTeam);
+
+    // Load members if expanding and not already loaded
+    if (newExpandedTeam !== null) {
+      loadTeamMembers(newExpandedTeam);
     }
   };
 
@@ -269,7 +338,7 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
             user_id: captain.id,
             first_name: captain.first_name,
             last_name: captain.last_name,
-            handicap: captain.handicap,
+            sim_handicap: captain.sim_handicap,
             role: 'captain',
             joined_at: new Date().toISOString()
           }
@@ -318,17 +387,29 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
         user_id: apiMember.user_member_id,
         first_name: apiMember.first_name,
         last_name: apiMember.last_name,
-        handicap: apiMember.handicap || 0,
+        sim_handicap: apiMember.sim_handicap || 0,
         role: apiMember.is_captain ? 'captain' : 'member',
         joined_at: apiMember.joined_at
       };
 
       setTeams(prev =>
-        prev.map(team =>
-          team.id === teamId
-            ? { ...team, members: [...team.members, newMember] }
-            : team
-        )
+        prev.map(team => {
+          if (team.id === teamId) {
+            // Add new member and sort alphabetically (captain first)
+            const updatedMembers = [...team.members, newMember].sort((a, b) => {
+              // Captain always at the top
+              if (a.role === 'captain') return -1;
+              if (b.role === 'captain') return 1;
+
+              // Then sort alphabetically
+              const lastNameCompare = a.last_name.localeCompare(b.last_name);
+              if (lastNameCompare !== 0) return lastNameCompare;
+              return a.first_name.localeCompare(b.first_name);
+            });
+            return { ...team, members: updatedMembers };
+          }
+          return team;
+        })
       );
       toast.success('Member added to team');
     } catch (error: any) {
@@ -390,8 +471,16 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
   };
 
   const getAvailableUsersForTeam = (team: Team) => {
-    const teamUserIds = team.members.map(member => member.user_id);
-    let users = availableUsers.filter(user => !teamUserIds.includes(user.id));
+    // Get all users who are already on ANY team (not just this team)
+    const allTeamMemberIds = new Set<number>();
+    teams.forEach(t => {
+      t.members.forEach(member => {
+        allTeamMemberIds.add(member.user_id);
+      });
+    });
+
+    // Filter out users who are already on any team
+    let users = availableUsers.filter(user => !allTeamMemberIds.has(user.id));
 
     // Filter by signup if selected
     if (selectedSignupFilter) {
@@ -400,13 +489,25 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
       users = users.filter(user => registeredUserIds.includes(user.id));
     }
 
-    return users;
+    // Sort alphabetically by last name, then first name
+    return users.sort((a, b) => {
+      const lastNameCompare = a.last_name.localeCompare(b.last_name);
+      if (lastNameCompare !== 0) return lastNameCompare;
+      return a.first_name.localeCompare(b.first_name);
+    });
   };
 
   const getAvailableUsersForCreateForm = () => {
-    // Get all users who are not already captains of teams
-    const captainIds = teams.map(team => team.captain_id);
-    let users = availableUsers.filter(user => !captainIds.includes(user.id));
+    // Get all users who are already on any team
+    const allTeamMemberIds = new Set<number>();
+    teams.forEach(t => {
+      t.members.forEach(member => {
+        allTeamMemberIds.add(member.user_id);
+      });
+    });
+
+    // Filter out users who are already on any team (including as captain)
+    let users = availableUsers.filter(user => !allTeamMemberIds.has(user.id));
 
     // Filter by signup if selected
     if (createFormSignupFilter) {
@@ -415,7 +516,12 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
       users = users.filter(user => registeredUserIds.includes(user.id));
     }
 
-    return users;
+    // Sort alphabetically by last name, then first name
+    return users.sort((a, b) => {
+      const lastNameCompare = a.last_name.localeCompare(b.last_name);
+      if (lastNameCompare !== 0) return lastNameCompare;
+      return a.first_name.localeCompare(b.first_name);
+    });
   };
 
   const getUserRegistrationData = (userId: number, signupId?: number) => {
@@ -494,7 +600,11 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
         </div>
 
         <button
-          onClick={() => setShowCreateForm(true)}
+          onClick={() => {
+            setShowCreateForm(true);
+            // Lazy-load signup registrations when modal opens
+            loadSignupRegistrations();
+          }}
           className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors"
         >
           <Plus className="w-5 h-5" />
@@ -588,7 +698,7 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                   <button
-                    onClick={() => setExpandedTeam(expandedTeam === team.id ? null : team.id)}
+                    onClick={() => handleTeamExpand(team.id)}
                     className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
                   >
                     {expandedTeam === team.id ? (
@@ -655,6 +765,8 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
                         if (signupLinks.length > 0) {
                           setSelectedSignupFilter(signupLinks[0].signup_id);
                         }
+                        // Lazy-load signup registrations when modal opens
+                        loadSignupRegistrations();
                       }}
                       className="flex items-center space-x-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
                     >
@@ -677,9 +789,14 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div>
                       <h4 className="font-semibold text-brand-black mb-3">Team Members ({team.members.length})</h4>
-                      <div className="space-y-2">
-                        {team.members.map((member) => (
-                          <div key={member.id} className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
+                      {loadingTeamMembers.has(team.id) ? (
+                        <div className="flex items-center justify-center py-8">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-brand-neon-green"></div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {team.members.map((member) => (
+                            <div key={member.id} className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
                             <div className="flex items-center space-x-3">
                               {member.role === 'captain' && <Crown className="w-4 h-4 text-yellow-500" />}
                               <div>
@@ -687,7 +804,7 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
                                   {member.first_name} {member.last_name}
                                 </div>
                                 <div className="text-sm text-neutral-600">
-                                  HCP: {member.handicap}
+                                  HCP: {member.sim_handicap}
                                 </div>
                               </div>
                             </div>
@@ -702,7 +819,8 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
                             )}
                           </div>
                         ))}
-                      </div>
+                        </div>
+                      )}
                     </div>
                     
                     <div>
@@ -867,7 +985,7 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
                     const registrationData = getUserRegistrationData(user.id, createFormSignupFilter || undefined);
                     return (
                       <option key={user.id} value={user.id}>
-                        {user.first_name} {user.last_name} (HCP: {user.handicap})
+                        {user.first_name} {user.last_name} (HCP: {user.sim_handicap})
                         {registrationData ? ' ✓ Registered' : ''}
                       </option>
                     );
@@ -1000,7 +1118,7 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
                                   {user.first_name} {user.last_name}
                                 </div>
                                 <div className="text-sm text-neutral-600">
-                                  HCP: {user.handicap} • {user.club}
+                                  HCP: {user.sim_handicap} • {user.club}
                                 </div>
 
                                 {/* Show registration data if available */}

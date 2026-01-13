@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Users, 
-  Calendar, 
-  Trophy, 
+import {
+  Users,
+  Calendar,
+  Trophy,
   Target,
   Award,
   Clock,
@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { toast } from 'react-toastify';
 import { getCaptainDashboard } from '../services/api';
@@ -113,6 +114,7 @@ const getStatusIcon = (status: string) => {
 
 const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [teamData, setTeamData] = useState<TeamData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'roster' | 'schedule' | 'stats'>('roster');
@@ -224,11 +226,11 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
         </div>
         
         <button
-          onClick={loadTeamData}
+          onClick={() => navigate(`/player/availability/${teamId}/${leagueId}`)}
           className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors"
         >
-          <RefreshCw className="w-4 h-4" />
-          <span>Refresh</span>
+          <Calendar className="w-4 h-4" />
+          <span>Set Availability</span>
         </button>
       </div>
 

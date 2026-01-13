@@ -561,7 +561,7 @@ export interface TeamMember {
   joined_at: string;
   first_name: string;
   last_name: string;
-  handicap: number;
+  sim_handicap: number;
   club?: string;
   email_address?: string;
 }
@@ -701,6 +701,11 @@ export const submitTeamAvailability = (teamId: number, availabilityData: {
   week_number: number;
   is_available: boolean;
   availability_notes?: string;
+  time_slots?: Array<{
+    day: string;
+    start_time: string;
+    end_time: string;
+  }>;
 }) => api.post(`/teams/${teamId}/availability`, availabilityData);
 
 export const getTeamAvailability = (teamId: number, weekNumber: number, leagueId: number) =>

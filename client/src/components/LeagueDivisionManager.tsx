@@ -65,7 +65,7 @@ interface TeamMember {
   user_id: number;
   first_name: string;
   last_name: string;
-  handicap: number;
+  sim_handicap: number;
   role: 'captain' | 'member';
 }
 
@@ -73,7 +73,7 @@ interface User {
   id: number;
   first_name: string;
   last_name: string;
-  handicap: number;
+  sim_handicap: number;
   club: string;
 }
 
@@ -189,7 +189,7 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
         id: user.member_id,
         first_name: user.first_name,
         last_name: user.last_name,
-        handicap: user.handicap || 0,
+        sim_handicap: user.sim_handicap || 0,
         club: user.club || 'Unknown'
       })));
     } catch (error: any) {
@@ -286,7 +286,7 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
             user_id: captain.id,
             first_name: captain.first_name,
             last_name: captain.last_name,
-            handicap: captain.handicap,
+            sim_handicap: captain.sim_handicap,
             role: 'captain'
           }
         ]
@@ -380,20 +380,32 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
         user_id: user.id,
         first_name: user.first_name,
         last_name: user.last_name,
-        handicap: user.handicap,
+        sim_handicap: user.sim_handicap,
         role: 'member'
       };
 
-      setDivisions(prev => 
-        prev.map(division => 
+      setDivisions(prev =>
+        prev.map(division =>
           division.id === divisionId
             ? {
                 ...division,
-                teams: division.teams.map(team =>
-                  team.id === teamId
-                    ? { ...team, members: [...team.members, newMember] }
-                    : team
-                )
+                teams: division.teams.map(team => {
+                  if (team.id === teamId) {
+                    // Add new member and sort alphabetically (captain first)
+                    const updatedMembers = [...team.members, newMember].sort((a, b) => {
+                      // Captain always at the top
+                      if (a.role === 'captain') return -1;
+                      if (b.role === 'captain') return 1;
+
+                      // Then sort alphabetically
+                      const lastNameCompare = a.last_name.localeCompare(b.last_name);
+                      if (lastNameCompare !== 0) return lastNameCompare;
+                      return a.first_name.localeCompare(b.first_name);
+                    });
+                    return { ...team, members: updatedMembers };
+                  }
+                  return team;
+                })
               }
             : division
         )
@@ -429,8 +441,25 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
   };
 
   const getAvailableUsersForTeam = (team: Team) => {
-    const teamUserIds = team.members.map(member => member.user_id);
-    return availableUsers.filter(user => !teamUserIds.includes(user.id));
+    // Get all users who are already on ANY team across ALL divisions
+    const allTeamMemberIds = new Set<number>();
+    divisions.forEach(division => {
+      division.teams.forEach(t => {
+        t.members.forEach(member => {
+          allTeamMemberIds.add(member.user_id);
+        });
+      });
+    });
+
+    // Filter out users who are already on any team
+    const users = availableUsers.filter(user => !allTeamMemberIds.has(user.id));
+
+    // Sort alphabetically by last name, then first name
+    return users.sort((a, b) => {
+      const lastNameCompare = a.last_name.localeCompare(b.last_name);
+      if (lastNameCompare !== 0) return lastNameCompare;
+      return a.first_name.localeCompare(b.first_name);
+    });
   };
 
   if (loading) {
@@ -551,7 +580,7 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
                             
                             <div className="space-y-1">
                               {team.members.map((member) => (
-                                <div key={member.id} className="flex items-center justify-between text-sm">
+                                <div key={member.id} className="flex items-center text-sm">
                                   <span className="text-neutral-700">
                                     {member.first_name} {member.last_name}
                                     {member.role === 'captain' && (
@@ -560,41 +589,9 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
                                       </Badge>
                                     )}
                                   </span>
-                                  {member.role !== 'captain' && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      icon={UserMinus}
-                                      onClick={() => handleRemoveMemberFromTeam(division.id, team.id, member.id)}
-                                    >
-                                      Remove
-                                    </Button>
-                                  )}
                                 </div>
                               ))}
                             </div>
-                            
-                            {getAvailableUsersForTeam(team).length > 0 && (
-                              <div className="mt-3">
-                                <Select
-                                  onChange={(e) => {
-                                    const userId = parseInt(e.target.value);
-                                    if (userId) {
-                                      handleAddMemberToTeam(division.id, team.id, userId);
-                                      e.target.value = '';
-                                    }
-                                  }}
-                                  options={[
-                                    { value: '', label: 'Add member...' },
-                                    ...getAvailableUsersForTeam(team).map((user) => ({
-                                      value: user.id.toString(),
-                                      label: `${user.first_name} ${user.last_name} (HCP: ${user.handicap})`
-                                    }))
-                                  ]}
-                                  selectSize="sm"
-                                />
-                              </div>
-                            )}
                           </div>
                         </Card>
                       ))}
@@ -668,7 +665,7 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
               { value: 0, label: 'Select captain...' },
               ...availableUsers.map((user) => ({
                 value: user.id,
-                label: `${user.first_name} ${user.last_name} (HCP: ${user.handicap})`
+                label: `${user.first_name} ${user.last_name} (HCP: ${user.sim_handicap})`
               }))
             ]}
             error={formErrors.captain_id}

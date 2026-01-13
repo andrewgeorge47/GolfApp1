@@ -1,18 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Users,
-  CheckCircle,
-  XCircle,
-  Clock,
   AlertCircle,
-  Filter,
-  Search,
   ChevronLeft,
   ChevronRight,
-  RefreshCw
+  Calendar
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import { getLeagueSchedule, getTeamAvailability, submitTeamAvailability } from '../services/api';
+import { getLeagueSchedule, getTeamAvailability } from '../services/api';
 
 interface TeamMember {
   id: number;
@@ -32,6 +26,12 @@ interface WeekAvailability {
   members: TeamMemberAvailability[];
 }
 
+interface TimeSlot {
+  day: string;
+  start_time: string;
+  end_time: string;
+}
+
 interface TeamMemberAvailability {
   member_id: number;
   first_name: string;
@@ -41,6 +41,7 @@ interface TeamMemberAvailability {
   availability_status: 'available' | 'unavailable' | 'pending';
   last_updated?: string;
   notes?: string;
+  time_slots?: TimeSlot[];
 }
 
 interface AvailabilityViewProps {
@@ -54,17 +55,16 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
   const [availableWeeks, setAvailableWeeks] = useState<string[]>([]);
   const [weekAvailability, setWeekAvailability] = useState<WeekAvailability | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filterStatus, setFilterStatus] = useState<'all' | 'available' | 'unavailable' | 'pending'>('all');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState<'name' | 'handicap' | 'status'>('name');
 
   const loadAvailabilityData = useCallback(async () => {
     setLoading(true);
     try {
       // Load league schedule
       const scheduleResponse = await getLeagueSchedule(leagueId);
-      const weeks = scheduleResponse.data.map((w: any) => w.start_date);
+      console.log('Schedule response:', scheduleResponse.data);
+      const weeks = scheduleResponse.data.map((w: any) => w.week_start_date);
 
+      console.log('Available weeks:', weeks);
       setAvailableWeeks(weeks);
       if (weeks.length > 0) {
         setCurrentWeek(weeks[0]);
@@ -86,9 +86,7 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
         weekStartDate,
         weekNumber,
         teamId,
-        leagueId,
-        membersCount: members.length,
-        members
+        leagueId
       });
 
       // Load availability for this week
@@ -97,31 +95,43 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
 
       console.log('AvailabilityView - Got availability data:', availData);
 
-      // Create a map of user availability
-      const availabilityMap = new Map();
-      if (availData.availability) {
-        availData.availability.forEach((avail: any) => {
-          availabilityMap.set(avail.user_id, {
-            status: avail.status,
-            notes: avail.notes,
-            last_updated: avail.updated_at
-          });
-        });
-      }
+      // Parse the availData - it comes as an array directly from the API
+      // Each row contains: user_member_id, first_name, last_name, email, handicap, is_captain,
+      // is_available, availability_notes, time_slots, submitted_at, updated_at
+      const availabilityData = Array.isArray(availData) ? availData : [];
 
-      // Transform team members with availability data
+      // Transform the API data directly into our TeamMemberAvailability format
       const weekEndDate = new Date(new Date(weekStartDate).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-      const transformedMembers: TeamMemberAvailability[] = members.map(member => {
-        const avail = availabilityMap.get(member.user_id);
+
+      const transformedMembers: TeamMemberAvailability[] = availabilityData.map((row: any) => {
+        // Parse time_slots if it exists
+        let timeSlots: TimeSlot[] = [];
+        if (row.time_slots) {
+          try {
+            timeSlots = typeof row.time_slots === 'string'
+              ? JSON.parse(row.time_slots)
+              : row.time_slots;
+          } catch (e) {
+            console.error('Error parsing time_slots for user', row.user_member_id, ':', e);
+          }
+        }
+
+        // Determine status: if is_available is null, they haven't submitted yet (pending)
+        let status: 'available' | 'unavailable' | 'pending' = 'pending';
+        if (row.is_available !== null && row.is_available !== undefined) {
+          status = row.is_available ? 'available' : 'unavailable';
+        }
+
         return {
-          member_id: member.id,
-          first_name: member.first_name,
-          last_name: member.last_name,
-          handicap: member.handicap,
-          role: member.role,
-          availability_status: avail?.status || 'pending',
-          last_updated: avail?.last_updated,
-          notes: avail?.notes
+          member_id: row.user_member_id,
+          first_name: row.first_name,
+          last_name: row.last_name,
+          handicap: row.handicap || 0,
+          role: row.is_captain ? 'captain' : 'member',
+          availability_status: status,
+          last_updated: row.updated_at,
+          notes: row.availability_notes,
+          time_slots: timeSlots
         };
       });
 
@@ -137,7 +147,7 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
       console.error('Error loading week availability:', error);
       toast.error('Failed to load week availability');
     }
-  }, [teamId, leagueId, members, availableWeeks]);
+  }, [teamId, leagueId, availableWeeks]);
 
   useEffect(() => {
     loadAvailabilityData();
@@ -148,64 +158,6 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
       loadWeekAvailability(currentWeek);
     }
   }, [currentWeek, loadWeekAvailability]);
-
-  const updateMemberAvailability = async (memberId: number, status: 'available' | 'unavailable' | 'pending', notes?: string) => {
-    try {
-      if (!weekAvailability) return;
-
-      const weekNumber = availableWeeks.indexOf(weekAvailability.week_start_date) + 1;
-      const member = members.find(m => m.id === memberId);
-      if (!member) return;
-
-      // Update via API (submit availability for this member)
-      await submitTeamAvailability(teamId, {
-        league_id: leagueId,
-        week_number: weekNumber,
-        is_available: status === 'available',
-        availability_notes: notes || ''
-      });
-
-      // Update local state
-      const updatedMembers = weekAvailability.members.map(m =>
-        m.member_id === memberId
-          ? {
-              ...m,
-              availability_status: status,
-              notes: notes || m.notes,
-              last_updated: new Date().toISOString()
-            }
-          : m
-      );
-
-      setWeekAvailability({
-        ...weekAvailability,
-        members: updatedMembers
-      });
-
-      toast.success('Availability updated successfully');
-    } catch (error: any) {
-      console.error('Error updating availability:', error);
-      toast.error(error.response?.data?.error || 'Failed to update availability');
-    }
-  };
-
-  const getAvailabilityStatusColor = (status: string) => {
-    switch (status) {
-      case 'available': return 'text-green-600 bg-green-100';
-      case 'unavailable': return 'text-red-600 bg-red-100';
-      case 'pending': return 'text-yellow-600 bg-yellow-100';
-      default: return 'text-gray-600 bg-gray-100';
-    }
-  };
-
-  const getAvailabilityStatusIcon = (status: string) => {
-    switch (status) {
-      case 'available': return <CheckCircle className="w-4 h-4" />;
-      case 'unavailable': return <XCircle className="w-4 h-4" />;
-      case 'pending': return <Clock className="w-4 h-4" />;
-      default: return <AlertCircle className="w-4 h-4" />;
-    }
-  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -239,34 +191,16 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
     }
   };
 
-  const filteredMembers = weekAvailability?.members.filter(member => {
-    const matchesFilter = filterStatus === 'all' || member.availability_status === filterStatus;
-    const matchesSearch = searchTerm === '' || 
-      `${member.first_name} ${member.last_name}`.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesFilter && matchesSearch;
-  }).sort((a, b) => {
-    switch (sortBy) {
-      case 'name':
-        return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
-      case 'handicap':
-        return a.handicap - b.handicap;
-      case 'status':
-        return a.availability_status.localeCompare(b.availability_status);
-      default:
-        return 0;
-    }
+  // Get members sorted by captain first, then by name
+  const sortedMembers = weekAvailability?.members.sort((a, b) => {
+    if (a.role === 'captain' && b.role !== 'captain') return -1;
+    if (a.role !== 'captain' && b.role === 'captain') return 1;
+    return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
   }) || [];
 
-  const getStatusCounts = () => {
-    if (!weekAvailability) return { available: 0, unavailable: 0, pending: 0 };
-    
-    return weekAvailability.members.reduce((counts, member) => {
-      counts[member.availability_status]++;
-      return counts;
-    }, { available: 0, unavailable: 0, pending: 0 });
-  };
+  // Get players who haven't submitted
+  const pendingPlayers = sortedMembers.filter(m => m.availability_status === 'pending');
 
-  const statusCounts = getStatusCounts();
 
   if (loading) {
     return (
@@ -278,25 +212,6 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <Users className="w-8 h-8 text-brand-neon-green" />
-          <div>
-            <h1 className="text-2xl font-bold text-brand-black">Team Availability</h1>
-            <p className="text-neutral-600">Manage team member availability for upcoming matches</p>
-          </div>
-        </div>
-        
-        <button 
-          onClick={loadAvailabilityData}
-          className="flex items-center space-x-2 px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors"
-        >
-          <RefreshCw className="w-4 h-4" />
-          <span>Refresh</span>
-        </button>
-      </div>
-
       {/* Week Selector */}
       <div className="bg-white border border-neutral-200 rounded-lg p-6">
         <div className="flex items-center justify-between mb-4">
@@ -331,183 +246,129 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
         )}
       </div>
 
-      {/* Status Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-6 rounded-lg border border-neutral-200">
-          <div className="flex items-center">
-            <CheckCircle className="w-8 h-8 text-green-500" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-neutral-600">Available</p>
-              <p className="text-2xl font-bold text-brand-black">{statusCounts.available}</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white p-6 rounded-lg border border-neutral-200">
-          <div className="flex items-center">
-            <XCircle className="w-8 h-8 text-red-500" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-neutral-600">Unavailable</p>
-              <p className="text-2xl font-bold text-brand-black">{statusCounts.unavailable}</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white p-6 rounded-lg border border-neutral-200">
-          <div className="flex items-center">
-            <Clock className="w-8 h-8 text-yellow-500" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-neutral-600">Pending</p>
-              <p className="text-2xl font-bold text-brand-black">{statusCounts.pending}</p>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Team Availability Overview */}
+      {weekAvailability && weekAvailability.members.some(m => m.time_slots && m.time_slots.length > 0) && (() => {
+        // Group all time slots by day
+        const timeSlotsByDay: { [day: string]: Array<{ slot: TimeSlot; players: string[] }> } = {};
 
-      {/* Filters and Search */}
-      <div className="bg-white border border-neutral-200 rounded-lg p-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <Filter className="w-4 h-4 text-neutral-500" />
-              <span className="text-sm font-medium text-neutral-700">Filter by status:</span>
-            </div>
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as any)}
-              className="px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-            >
-              <option value="all">All Members</option>
-              <option value="available">Available</option>
-              <option value="unavailable">Unavailable</option>
-              <option value="pending">Pending</option>
-            </select>
-          </div>
-          
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <span className="text-sm font-medium text-neutral-700">Sort by:</span>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-              >
-                <option value="name">Name</option>
-                <option value="handicap">Handicap</option>
-                <option value="status">Status</option>
-              </select>
-            </div>
-            
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-neutral-400" />
-              <input
-                type="text"
-                placeholder="Search members..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 pr-4 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
+        weekAvailability.members.forEach(member => {
+          if (member.availability_status === 'available' && member.time_slots) {
+            member.time_slots.forEach(slot => {
+              if (!timeSlotsByDay[slot.day]) {
+                timeSlotsByDay[slot.day] = [];
+              }
 
-      {/* Team Members Availability */}
-      <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
-        <div className="px-6 py-4 border-b border-neutral-200">
-          <h3 className="text-lg font-semibold text-brand-black">Team Members</h3>
-        </div>
-        
-        <div className="divide-y divide-neutral-200">
-          {filteredMembers.map((member) => (
-            <div key={member.member_id} className="p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  <div className="flex-shrink-0">
-                    <div className="w-12 h-12 bg-brand-neon-green rounded-full flex items-center justify-center">
-                      <span className="text-brand-black font-semibold">
-                        {member.first_name[0]}{member.last_name[0]}
+              // Find if this exact time slot already exists
+              const existingSlot = timeSlotsByDay[slot.day].find(
+                s => s.slot.start_time === slot.start_time && s.slot.end_time === slot.end_time
+              );
+
+              const playerName = `${member.first_name} ${member.last_name}`;
+
+              if (existingSlot) {
+                existingSlot.players.push(playerName);
+              } else {
+                timeSlotsByDay[slot.day].push({
+                  slot,
+                  players: [playerName]
+                });
+              }
+            });
+          }
+        });
+
+        // Sort days in week order
+        const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const sortedDays = Object.keys(timeSlotsByDay).sort(
+          (a, b) => daysOrder.indexOf(a) - daysOrder.indexOf(b)
+        );
+
+        // Only render if there are available slots
+        if (sortedDays.length === 0) return null;
+
+        // Format time helper
+        const formatTime = (time: string) => {
+          const [hours, minutes] = time.split(':').map(Number);
+          const period = hours >= 12 ? 'PM' : 'AM';
+          const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+          return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
+        };
+
+        return (
+          <div className="bg-gradient-to-br from-brand-dark-green to-brand-muted-green rounded-lg p-4 sm:p-6 text-white">
+            <h3 className="text-base sm:text-lg font-semibold mb-4 flex items-center">
+              <Calendar className="w-5 h-5 mr-2" />
+              Team Availability Overview
+            </h3>
+            <div className="space-y-4">
+              {sortedDays.map(day => (
+                <div key={day}>
+                  <h4 className="text-sm font-semibold mb-2 text-brand-neon-green">{day}</h4>
+                  <div className="space-y-2">
+                    {timeSlotsByDay[day]
+                      .sort((a, b) => a.slot.start_time.localeCompare(b.slot.start_time))
+                      .map((item, idx) => (
+                        <div key={idx} className="bg-white/10 backdrop-blur-sm rounded-lg p-3">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <div className="font-medium text-sm">
+                              {formatTime(item.slot.start_time)} - {formatTime(item.slot.end_time)}
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {item.players.map((player, pIdx) => (
+                                <span
+                                  key={pIdx}
+                                  className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-brand-neon-green text-brand-dark-green"
+                                >
+                                  {player}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Pending Players Alert */}
+      {pendingPlayers.length > 0 && (
+        <div className="bg-yellow-50 border-l-4 border-yellow-400 rounded-lg overflow-hidden">
+          <div className="p-4">
+            <div className="flex items-center mb-3">
+              <AlertCircle className="w-5 h-5 text-yellow-600 mr-2 flex-shrink-0" />
+              <h3 className="text-sm font-semibold text-yellow-800">
+                {pendingPlayers.length} {pendingPlayers.length === 1 ? 'player hasn\'t' : 'players haven\'t'} submitted availability yet
+              </h3>
+            </div>
+            <div className="space-y-2">
+              {pendingPlayers.map(player => (
+                <div key={player.member_id} className="flex items-center justify-between bg-white/60 rounded-lg p-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-8 h-8 bg-yellow-200 rounded-full flex items-center justify-center flex-shrink-0">
+                      <span className="text-xs font-semibold text-yellow-800">
+                        {player.first_name[0]}{player.last_name[0]}
                       </span>
                     </div>
-                  </div>
-                  
-                  <div>
-                    <h4 className="text-lg font-semibold text-brand-black">
-                      {member.first_name} {member.last_name}
-                      {member.role === 'captain' && (
-                        <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-brand-neon-green text-brand-black">
-                          Captain
-                        </span>
-                      )}
-                    </h4>
-                    <p className="text-sm text-neutral-600">Handicap: {member.handicap}</p>
-                    {member.notes && (
-                      <p className="text-sm text-neutral-500 mt-1">{member.notes}</p>
-                    )}
-                    {member.last_updated && (
-                      <p className="text-xs text-neutral-400 mt-1">
-                        Last updated: {formatDate(member.last_updated)}
-                      </p>
-                    )}
+                    <div>
+                      <div className="font-medium text-sm text-gray-900">
+                        {player.first_name} {player.last_name}
+                        {player.role === 'captain' && (
+                          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-brand-neon-green text-brand-dark-green">
+                            Captain
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-600">Handicap: {player.handicap}</div>
+                    </div>
                   </div>
                 </div>
-                
-                <div className="flex items-center space-x-3">
-                  <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getAvailabilityStatusColor(member.availability_status)}`}>
-                    {getAvailabilityStatusIcon(member.availability_status)}
-                    <span className="ml-1 capitalize">{member.availability_status}</span>
-                  </div>
-                  
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => updateMemberAvailability(member.member_id, 'available')}
-                      className={`p-2 rounded-lg transition-colors ${
-                        member.availability_status === 'available' 
-                          ? 'bg-green-100 text-green-600' 
-                          : 'text-green-600 hover:bg-green-50'
-                      }`}
-                      title="Mark as Available"
-                    >
-                      <CheckCircle className="w-4 h-4" />
-                    </button>
-                    
-                    <button
-                      onClick={() => updateMemberAvailability(member.member_id, 'unavailable')}
-                      className={`p-2 rounded-lg transition-colors ${
-                        member.availability_status === 'unavailable' 
-                          ? 'bg-red-100 text-red-600' 
-                          : 'text-red-600 hover:bg-red-50'
-                      }`}
-                      title="Mark as Unavailable"
-                    >
-                      <XCircle className="w-4 h-4" />
-                    </button>
-                    
-                    <button
-                      onClick={() => updateMemberAvailability(member.member_id, 'pending')}
-                      className={`p-2 rounded-lg transition-colors ${
-                        member.availability_status === 'pending' 
-                          ? 'bg-yellow-100 text-yellow-600' 
-                          : 'text-yellow-600 hover:bg-yellow-50'
-                      }`}
-                      title="Mark as Pending"
-                    >
-                      <Clock className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* No Results */}
-      {filteredMembers.length === 0 && (
-        <div className="text-center py-8">
-          <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No Members Found</h3>
-          <p className="text-gray-600">Try adjusting your filters or search terms.</p>
+          </div>
         </div>
       )}
     </div>

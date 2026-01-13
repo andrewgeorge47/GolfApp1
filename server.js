@@ -14572,7 +14572,7 @@ app.get('/api/teams/:teamId/members', authenticateToken, async (req, res) => {
     // Get team members
     const result = await pool.query(
       `SELECT tm.id, tm.user_member_id, tm.is_captain, tm.joined_at,
-              u.first_name, u.last_name, u.handicap, u.club, u.email_address
+              u.first_name, u.last_name, u.sim_handicap, u.club, u.email_address
        FROM team_members tm
        JOIN users u ON tm.user_member_id = u.member_id
        WHERE tm.team_id = $1
@@ -14645,7 +14645,7 @@ app.post('/api/teams/:teamId/members', authenticateToken, async (req, res) => {
     // Get user details to return
     const member = await pool.query(
       `SELECT tm.id, tm.user_member_id, tm.is_captain, tm.joined_at,
-              u.first_name, u.last_name, u.handicap, u.club, u.email_address
+              u.first_name, u.last_name, u.sim_handicap, u.club, u.email_address
        FROM team_members tm
        JOIN users u ON tm.user_member_id = u.member_id
        WHERE tm.id = $1`,
@@ -15836,7 +15836,7 @@ async function updateTeamStandings(teamId, leagueId) {
 app.post('/api/teams/:teamId/availability', authenticateToken, async (req, res) => {
   try {
     const { teamId } = req.params;
-    const { league_id, week_number, is_available, availability_notes } = req.body;
+    const { league_id, week_number, is_available, availability_notes, time_slots } = req.body;
     const userId = req.user.member_id;
 
     if (!league_id || !week_number) {
@@ -15853,18 +15853,33 @@ app.post('/api/teams/:teamId/availability', authenticateToken, async (req, res) 
       return res.status(403).json({ error: 'You are not a member of this team' });
     }
 
+    // Ensure time_slots column exists (migration)
+    try {
+      await pool.query(`
+        ALTER TABLE team_member_availability
+        ADD COLUMN IF NOT EXISTS time_slots JSONB
+      `);
+    } catch (migrationErr) {
+      console.log('Column time_slots may already exist:', migrationErr.message);
+    }
+
+    // If time_slots provided, use that; otherwise fall back to is_available
+    const availabilityValue = time_slots ? (time_slots.length > 0) : (is_available !== false);
+    const timeSlotsValue = time_slots ? JSON.stringify(time_slots) : null;
+
     // Upsert availability
     const result = await pool.query(
       `INSERT INTO team_member_availability
-        (team_id, user_id, league_id, week_number, is_available, availability_notes)
-       VALUES ($1, $2, $3, $4, $5, $6)
+        (team_id, user_id, league_id, week_number, is_available, availability_notes, time_slots)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (team_id, user_id, league_id, week_number)
        DO UPDATE SET
          is_available = EXCLUDED.is_available,
          availability_notes = EXCLUDED.availability_notes,
+         time_slots = EXCLUDED.time_slots,
          updated_at = CURRENT_TIMESTAMP
        RETURNING *`,
-      [teamId, userId, league_id, week_number, is_available !== false, availability_notes]
+      [teamId, userId, league_id, week_number, availabilityValue, availability_notes, timeSlotsValue]
     );
 
     res.status(201).json(result.rows[0]);
@@ -15895,6 +15910,7 @@ app.get('/api/teams/:teamId/availability/week/:weekNumber', authenticateToken, a
         tm.is_captain,
         tma.is_available,
         tma.availability_notes,
+        tma.time_slots,
         tma.submitted_at,
         tma.updated_at
       FROM team_members tm

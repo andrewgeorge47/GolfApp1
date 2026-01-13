@@ -11,6 +11,7 @@ import {
   X
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { getTeamAvailability } from '../services/api';
 
 interface TeamMember {
   id: number;
@@ -64,6 +65,7 @@ const LineupSelector: React.FC<LineupSelectorProps> = ({ teamId, leagueId, membe
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedMatch, setSelectedMatch] = useState<UpcomingMatch | null>(null);
+  const [membersWithAvailability, setMembersWithAvailability] = useState<TeamMember[]>(members);
 
   useEffect(() => {
     if (upcomingMatches.length > 0) {
@@ -73,25 +75,70 @@ const LineupSelector: React.FC<LineupSelectorProps> = ({ teamId, leagueId, membe
     setLoading(false);
   }, [upcomingMatches]);
 
-  const loadWeekLineup = useCallback((match: UpcomingMatch) => {
+  const loadWeekLineup = useCallback(async (match: UpcomingMatch) => {
+    setLoading(true);
+    try {
+      // Initialize empty lineup for the match
+      const initialLineup: WeeklyLineup = {
+        week_start_date: match.week_start_date,
+        lineup_submitted: match.lineup_submitted,
+        lineup_locked: match.lineup_submitted,
+        players: [],
+        team_handicap: 0,
+        submission_deadline: match.lineup_deadline
+      };
 
-    // Initialize empty lineup for the match
-    const initialLineup: WeeklyLineup = {
-      week_start_date: match.week_start_date,
-      lineup_submitted: match.lineup_submitted,
-      lineup_locked: match.lineup_submitted,
-      players: [],
-      team_handicap: 0,
-      submission_deadline: match.lineup_deadline
-    };
+      setCurrentLineup(initialLineup);
 
-    setCurrentLineup(initialLineup);
-  }, []);
+      // Load availability for this specific week
+      const weekNumber = upcomingMatches.findIndex(m => m.id === match.id) + 1;
+      console.log('LineupSelector - Loading availability for week:', weekNumber);
+
+      const availResponse = await getTeamAvailability(teamId, weekNumber, leagueId);
+      const availData = availResponse.data;
+
+      console.log('LineupSelector - Availability data:', availData);
+
+      // Create availability map
+      const availabilityMap = new Map<number, 'available' | 'unavailable' | 'pending'>();
+      if (Array.isArray(availData)) {
+        availData.forEach((avail: any) => {
+          let status: 'available' | 'unavailable' | 'pending' = 'pending';
+          if (avail.is_available !== null && avail.is_available !== undefined) {
+            status = avail.is_available ? 'available' : 'unavailable';
+          }
+          availabilityMap.set(avail.user_member_id, status);
+        });
+      }
+
+      console.log('LineupSelector - Availability map:', availabilityMap);
+
+      // Update members with week-specific availability
+      const updatedMembers = members.map(member => ({
+        ...member,
+        availability_status: availabilityMap.get(member.user_id) || 'pending'
+      }));
+
+      console.log('LineupSelector - Updated members:', updatedMembers);
+
+      setMembersWithAvailability(updatedMembers);
+    } catch (error) {
+      console.error('Error loading week lineup:', error);
+      toast.error('Failed to load availability data');
+    } finally {
+      setLoading(false);
+    }
+  }, [teamId, leagueId, members, upcomingMatches]);
+
+  const handleMatchChange = (match: UpcomingMatch) => {
+    setSelectedMatch(match);
+    loadWeekLineup(match);
+  };
 
   const assignPlayerToPosition = (playerId: number, position: 'holes_1_3' | 'holes_4_6' | 'holes_7_9') => {
     if (!currentLineup) return;
 
-    const player = members.find(member => member.id === playerId);
+    const player = membersWithAvailability.find(member => member.id === playerId);
     if (!player) return;
 
     // Check if player is already assigned
@@ -188,8 +235,8 @@ const LineupSelector: React.FC<LineupSelectorProps> = ({ teamId, leagueId, membe
     return new Date(deadline) < new Date();
   };
 
-  // Filter available members (those marked as available)
-  const availableMembers = members.filter(m => m.availability_status === 'available');
+  // Filter available members (those marked as available for the selected week)
+  const availableMembers = membersWithAvailability.filter(m => m.availability_status === 'available');
 
   if (loading) {
     return (
@@ -217,6 +264,29 @@ const LineupSelector: React.FC<LineupSelectorProps> = ({ teamId, leagueId, membe
           </div>
         )}
       </div>
+
+      {/* Match Selector */}
+      {upcomingMatches.length > 0 && (
+        <div className="bg-white border border-neutral-200 rounded-lg p-4">
+          <label className="block text-sm font-medium text-brand-black mb-2">
+            Select Match Week:
+          </label>
+          <select
+            value={selectedMatch?.id || ''}
+            onChange={(e) => {
+              const match = upcomingMatches.find(m => m.id === parseInt(e.target.value));
+              if (match) handleMatchChange(match);
+            }}
+            className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+          >
+            {upcomingMatches.map((match, index) => (
+              <option key={match.id} value={match.id}>
+                Week {index + 1}: vs {match.opponent_team_name} - {new Date(match.week_start_date).toLocaleDateString()}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Match Information */}
       {selectedMatch && (
