@@ -16325,17 +16325,23 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
     const { teamId } = req.params;
     const { league_id } = req.query;
 
-    // Verify user is captain
+    // Verify team exists
     const team = await pool.query('SELECT * FROM tournament_teams WHERE id = $1', [teamId]);
     if (team.rows.length === 0) {
       return res.status(404).json({ error: 'Team not found' });
     }
 
-    const isAdmin = req.user.role === 'Admin';
-    const isCaptain = team.rows[0].captain_id === req.user.member_id;
+    // Verify user is a member of this team
+    const membership = await pool.query(
+      'SELECT * FROM team_members WHERE team_id = $1 AND user_member_id = $2',
+      [teamId, req.user.member_id]
+    );
 
-    if (!isAdmin && !isCaptain) {
-      return res.status(403).json({ error: 'Only team captain or admin can view dashboard' });
+    const isAdmin = req.user.role === 'Admin';
+    const isTeamMember = membership.rows.length > 0;
+
+    if (!isAdmin && !isTeamMember) {
+      return res.status(403).json({ error: 'Only team members can view this page' });
     }
 
     // Get team roster
