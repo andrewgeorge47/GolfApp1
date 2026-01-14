@@ -21188,6 +21188,7 @@ app.get('/api/user/teams-leagues', authenticateToken, async (req, res) => {
       LEFT JOIN league_divisions ld ON tt.division_id = ld.id
       LEFT JOIN tournaments t ON tm.tournament_id = t.id
       WHERE tm.user_member_id = $1
+        AND tt.league_id IS NOT NULL
       ORDER BY
         CASE
           WHEN l.status = 'active' THEN 1
