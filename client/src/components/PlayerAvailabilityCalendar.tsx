@@ -70,6 +70,7 @@ const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({
   const [pendingTimeSlots, setPendingTimeSlots] = useState<any[]>([]);
   const [leagueName, setLeagueName] = useState<string>('');
   const [teamName, setTeamName] = useState<string>('');
+  const [isCaptain, setIsCaptain] = useState<boolean>(false);
 
   useEffect(() => {
     if (teamId && leagueId) {
@@ -155,6 +156,13 @@ const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({
         );
 
         console.log('User availability:', userAvail);
+
+        // Check if user is a captain
+        if (userAvail && userAvail.is_captain) {
+          setIsCaptain(true);
+        } else {
+          setIsCaptain(false);
+        }
 
         if (userAvail && userAvail.time_slots) {
           // Parse time slots from database (handle both string and object formats)
@@ -430,9 +438,17 @@ const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({
   }
 
   // Calculate calendar date range for the selected week
-  // Calendar displays weeks starting on Sunday, so we need to find the Sunday that contains the week_start_date
+  // If today falls within the selected week, show today's week, otherwise show the league week
+  const today = new Date();
   const leagueWeekStart = new Date(selectedWeek.week_start_date);
-  const calendarWeekStart = startOfWeek(leagueWeekStart, { weekStartsOn: 0 }); // 0 = Sunday
+  const leagueWeekEnd = new Date(selectedWeek.week_end_date);
+
+  // Check if today is within the selected league week
+  const todayInSelectedWeek = today >= startOfDay(leagueWeekStart) && today <= startOfDay(leagueWeekEnd);
+
+  // Use today if it's in the selected week, otherwise use the league week start
+  const dateToDisplay = todayInSelectedWeek ? today : leagueWeekStart;
+  const calendarWeekStart = startOfWeek(dateToDisplay, { weekStartsOn: 0 }); // 0 = Sunday
 
   return (
     <div className="w-full sm:max-w-6xl sm:mx-auto relative pb-0 sm:pb-6">
@@ -443,7 +459,13 @@ const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({
       <div className="sm:hidden bg-brand-dark-green text-white px-2 py-3">
         <div className="flex items-center justify-between mb-2">
           <button
-            onClick={() => navigate(`/player/team/${teamId}/${leagueId}`)}
+            onClick={() => {
+              if (isCaptain) {
+                navigate(`/captain-dashboard/${teamId}/${leagueId}`);
+              } else {
+                navigate(`/player/team/${teamId}/${leagueId}`);
+              }
+            }}
             className="p-2 hover:bg-white/10 rounded-lg flex-shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -472,9 +494,15 @@ const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({
           <div className="flex-1">
             <div className="flex items-center space-x-3 mb-3">
               <button
-                onClick={() => navigate(`/player/team/${teamId}/${leagueId}`)}
+                onClick={() => {
+                  if (isCaptain) {
+                    navigate(`/captain/dashboard/${teamId}/${leagueId}`);
+                  } else {
+                    navigate(`/player/team/${teamId}/${leagueId}`);
+                  }
+                }}
                 className="p-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg transition-colors"
-                title="Back to Team Page"
+                title={isCaptain ? "Back to Captain Dashboard" : "Back to Team Page"}
               >
                 <ArrowLeft className="w-5 h-5 text-white" />
               </button>

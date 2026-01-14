@@ -371,9 +371,16 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
                 <div className="px-6 py-4 border-b border-neutral-200">
                   <h3 className="text-lg font-semibold text-brand-black">Match Schedule</h3>
                 </div>
-                
-                <div className="divide-y divide-neutral-200">
-                  {teamData.upcomingMatches.map((match) => (
+
+                {teamData.upcomingMatches.length === 0 ? (
+                  <div className="p-12 text-center">
+                    <Calendar className="w-16 h-16 text-neutral-300 mx-auto mb-4" />
+                    <h3 className="text-xl font-semibold text-neutral-600 mb-2">Coming Soon</h3>
+                    <p className="text-neutral-500">Match schedule will be available soon</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-neutral-200">
+                    {teamData.upcomingMatches.map((match) => (
                     <div key={match.id} className="p-6">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-4">
@@ -422,7 +429,8 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
                       </div>
                     </div>
                   ))}
-                </div>
+                  </div>
+                )}
               </div>
             )}
 

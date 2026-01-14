@@ -21157,6 +21157,60 @@ app.get('/api/user/registrations/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/user/teams-leagues - Get all teams/leagues the user belongs to
+app.get('/api/user/teams-leagues', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.member_id;
+    console.log('GET /api/user/teams-leagues - userId:', userId);
+
+    const { rows } = await pool.query(
+      `SELECT
+        tt.id as team_id,
+        tt.name as team_name,
+        tt.color,
+        tt.captain_id,
+        tm.is_captain,
+        l.id as league_id,
+        l.name as league_name,
+        l.season,
+        l.status as league_status,
+        l.start_date as league_start_date,
+        l.end_date as league_end_date,
+        ld.id as division_id,
+        ld.division_name,
+        t.id as tournament_id,
+        t.name as tournament_name,
+        t.status as tournament_status,
+        t.type as tournament_type
+      FROM team_members tm
+      JOIN tournament_teams tt ON tm.team_id = tt.id
+      LEFT JOIN leagues l ON tt.league_id = l.id
+      LEFT JOIN league_divisions ld ON tt.division_id = ld.id
+      LEFT JOIN tournaments t ON tm.tournament_id = t.id
+      WHERE tm.user_member_id = $1
+      ORDER BY
+        CASE
+          WHEN l.status = 'active' THEN 1
+          WHEN l.status = 'registration' THEN 2
+          WHEN l.status = 'playoffs' THEN 3
+          WHEN l.status = 'completed' THEN 4
+          ELSE 5
+        END,
+        l.start_date DESC NULLS LAST,
+        tt.name`,
+      [userId]
+    );
+
+    console.log('GET /api/user/teams-leagues - Found rows:', rows.length);
+    console.log('GET /api/user/teams-leagues - Data:', JSON.stringify(rows, null, 2));
+
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching user teams/leagues:', err);
+    res.status(500).json({ error: 'Failed to fetch teams and leagues' });
+  }
+});
+
 // ========================================
 // Golf Simulator Recommendation System
 // ========================================

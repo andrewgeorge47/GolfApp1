@@ -6,6 +6,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { useNavigate } from 'react-router-dom';
 import { getLeagueSchedule, getTeamAvailability } from '../services/api';
 
 interface TeamMember {
@@ -51,6 +52,7 @@ interface AvailabilityViewProps {
 }
 
 const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, members }) => {
+  const navigate = useNavigate();
   const [currentWeek, setCurrentWeek] = useState<string>('');
   const [availableWeeks, setAvailableWeeks] = useState<string[]>([]);
   const [weekAvailability, setWeekAvailability] = useState<WeekAvailability | null>(null);
@@ -244,6 +246,17 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
             </p>
           </div>
         )}
+      </div>
+
+      {/* Set My Availability Button */}
+      <div className="flex justify-center">
+        <button
+          onClick={() => navigate(`/player/availability/${teamId}/${leagueId}`)}
+          className="flex items-center space-x-2 px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors font-medium"
+        >
+          <Calendar className="w-5 h-5" />
+          <span>Manage My Availability</span>
+        </button>
       </div>
 
       {/* Team Availability Overview */}

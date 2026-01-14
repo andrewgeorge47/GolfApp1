@@ -12,6 +12,7 @@ import {
   BarChart3
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { useNavigate } from 'react-router-dom';
 import AvailabilityView from './AvailabilityView';
 import LineupSelector from './LineupSelector';
 import {
@@ -72,6 +73,7 @@ interface CaptainDashboardProps {
 }
 
 const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId }) => {
+  const navigate = useNavigate();
   const [team, setTeam] = useState<Team | null>(null);
   const [upcomingMatches, setUpcomingMatches] = useState<UpcomingMatch[]>([]);
   const [teamStats, setTeamStats] = useState<TeamStats | null>(null);
@@ -432,38 +434,6 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
               </div>
             </div>
 
-            {/* Quick Actions */}
-            <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
-              <div className="px-6 py-4 border-b border-neutral-200">
-                <h3 className="text-lg font-semibold text-brand-black">Quick Actions</h3>
-              </div>
-              
-              <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <button
-                    onClick={() => setActiveTab('availability')}
-                    className="flex items-center space-x-3 p-4 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors"
-                  >
-                    <Users className="w-6 h-6 text-brand-neon-green" />
-                    <div className="text-left">
-                      <h4 className="font-medium text-brand-black">Check Availability</h4>
-                      <p className="text-sm text-neutral-600">View team member availability</p>
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={() => setActiveTab('lineup')}
-                    className="flex items-center space-x-3 p-4 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors"
-                  >
-                    <Target className="w-6 h-6 text-brand-neon-green" />
-                    <div className="text-left">
-                      <h4 className="font-medium text-brand-black">Set Lineup</h4>
-                      <p className="text-sm text-neutral-600">Select active players</p>
-                    </div>
-                  </button>
-                </div>
-              </div>
-            </div>
           </div>
         )}
 

@@ -951,6 +951,7 @@ export const createTournament = (data: {
 export const getTournaments = () => api.get('/tournaments');
 export const getTournament = (id: number) => api.get(`/tournaments/${id}`);
 export const getUserTournaments = (userId: number) => api.get(`/tournaments/user/${userId}`);
+export const getUserTeamsAndLeagues = () => api.get('/user/teams-leagues');
 export const getTournamentsByStatus = (status: string) => api.get(`/tournaments/status/${status}`);
 export const getAvailableTournaments = () => api.get('/tournaments/available');
 export const updateTournament = (id: number, data: {

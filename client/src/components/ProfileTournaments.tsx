@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Edit, Trash2, Users, Calendar, Trophy, Search, MapPin, Settings, DollarSign, BarChart3 } from 'lucide-react';
-import { getTournaments, getUserTournaments, createTournament, updateTournament, deleteTournament, updateTournamentRegistration, getSimulatorCourses } from '../services/api';
+import { getTournaments, getUserTournaments, getUserTeamsAndLeagues, createTournament, updateTournament, deleteTournament, updateTournamentRegistration, getSimulatorCourses } from '../services/api';
 import { useAuth } from '../AuthContext';
 import { toast } from 'react-toastify';
 
@@ -47,13 +47,34 @@ interface TournamentFormErrors {
   course?: string;
 }
 
+interface UserTeamLeague {
+  team_id: number;
+  team_name: string;
+  color?: string;
+  captain_id: number;
+  is_captain: boolean;
+  league_id?: number;
+  league_name?: string;
+  season?: string;
+  league_status?: string;
+  league_start_date?: string;
+  league_end_date?: string;
+  division_id?: number;
+  division_name?: string;
+  tournament_id?: number;
+  tournament_name?: string;
+  tournament_status?: string;
+  tournament_type?: string;
+}
+
 const ProfileTournaments: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [participatingTournaments, setParticipatingTournaments] = useState<Tournament[]>([]);
+  const [userTeamsLeagues, setUserTeamsLeagues] = useState<UserTeamLeague[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'created' | 'participating'>('created');
+  const [activeTab, setActiveTab] = useState<'created' | 'participating' | 'leagues'>('created');
 
   // Tournament form state
   const [showTournamentForm, setShowTournamentForm] = useState(false);
@@ -155,15 +176,19 @@ const ProfileTournaments: React.FC = () => {
     const fetchTournaments = async () => {
       setLoading(true);
       try {
-        const [allTournamentsRes, participatingRes] = await Promise.all([
+        const [allTournamentsRes, participatingRes, teamsLeaguesRes] = await Promise.all([
           getTournaments(),
-          getUserTournaments(user?.member_id || 0)
+          getUserTournaments(user?.member_id || 0),
+          getUserTeamsAndLeagues()
         ]);
-        
+
         console.log('All tournaments:', allTournamentsRes.data);
         console.log('Participating tournaments:', participatingRes.data);
+        console.log('User teams/leagues RAW:', teamsLeaguesRes);
+        console.log('User teams/leagues DATA:', teamsLeaguesRes.data);
+        console.log('User teams/leagues LENGTH:', teamsLeaguesRes.data?.length);
         console.log('User member_id:', user?.member_id, 'Type:', typeof user?.member_id);
-        
+
         const myTournaments = allTournamentsRes.data.filter((t: Tournament) => {
           console.log('Tournament:', t.name, 'created_by:', t.created_by, 'Type:', typeof t.created_by);
           // Show all tournaments for admins, or tournaments created by this user
@@ -172,14 +197,16 @@ const ProfileTournaments: React.FC = () => {
           }
           return t.created_by === user?.member_id;
         });
-        
+
         console.log('My tournaments:', myTournaments);
         setTournaments(myTournaments);
         setParticipatingTournaments(participatingRes.data);
+        setUserTeamsLeagues(teamsLeaguesRes.data);
       } catch (err) {
         console.error('Error fetching tournaments:', err);
         setTournaments([]);
         setParticipatingTournaments([]);
+        setUserTeamsLeagues([]);
       } finally {
         setLoading(false);
       }
@@ -400,37 +427,120 @@ const ProfileTournaments: React.FC = () => {
         >
           Participating ({participatingTournaments.length})
         </button>
+        <button
+          onClick={() => setActiveTab('leagues')}
+          className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'leagues'
+              ? 'bg-white text-brand-black shadow-sm'
+              : 'text-neutral-600 hover:text-neutral-800'
+          }`}
+        >
+          Leagues ({userTeamsLeagues.length})
+        </button>
       </div>
       {loading ? (
         <div className="text-center py-12 text-neutral-500">Loading tournaments...</div>
-      ) : (activeTab === 'created' ? tournaments : participatingTournaments).length === 0 ? (
-        <div className="text-center py-12 text-neutral-600">
-          <Trophy className="w-12 h-12 mx-auto mb-2 text-neutral-400" />
-          <p className="text-lg font-medium mb-2">
-            {activeTab === 'created' 
-              ? (user?.role?.toLowerCase() === 'admin' ? 'No Tournaments Found' : 'No Tournaments Created Yet')
-              : 'No Participating Tournaments'
-            }
-          </p>
-          <p className="text-sm text-neutral-500 mb-4">
-            {activeTab === 'created' 
-              ? (user?.role?.toLowerCase() === 'admin' 
-                ? 'There are no tournaments in the system yet. Create the first tournament to get started!'
-                : 'This section shows tournaments you\'ve created. Create your first tournament to get started!'
-              )
-              : 'You haven\'t registered for any tournaments yet. Check the available tournaments to join!'
-            }
-          </p>
-          {activeTab === 'created' && (
-            <button onClick={() => setShowTournamentForm(true)} className="mt-4 px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center">
-              <Plus className="w-4 h-4 mr-2" />
-              {user?.role?.toLowerCase() === 'admin' ? 'Create Tournament' : 'Create Your First Tournament'}
-            </button>
-          )}
-        </div>
-      ) : (
+      ) : (() => {
+          const data = activeTab === 'created' ? tournaments : activeTab === 'participating' ? participatingTournaments : userTeamsLeagues;
+          return data.length === 0 ? (
+            <div className="text-center py-12 text-neutral-600">
+              <Trophy className="w-12 h-12 mx-auto mb-2 text-neutral-400" />
+              <p className="text-lg font-medium mb-2">
+                {activeTab === 'created'
+                  ? (user?.role?.toLowerCase() === 'admin' ? 'No Tournaments Found' : 'No Tournaments Created Yet')
+                  : activeTab === 'participating'
+                  ? 'No Participating Tournaments'
+                  : 'No Leagues Found'
+                }
+              </p>
+              <p className="text-sm text-neutral-500 mb-4">
+                {activeTab === 'created'
+                  ? (user?.role?.toLowerCase() === 'admin'
+                    ? 'There are no tournaments in the system yet. Create the first tournament to get started!'
+                    : 'This section shows tournaments you\'ve created. Create your first tournament to get started!'
+                  )
+                  : activeTab === 'participating'
+                  ? 'You haven\'t registered for any tournaments yet. Check the available tournaments to join!'
+                  : 'You are not part of any leagues yet. Join a league to get started!'
+                }
+              </p>
+              {activeTab === 'created' && (
+                <button onClick={() => setShowTournamentForm(true)} className="mt-4 px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors flex items-center">
+                  <Plus className="w-4 h-4 mr-2" />
+                  {user?.role?.toLowerCase() === 'admin' ? 'Create Tournament' : 'Create Your First Tournament'}
+                </button>
+              )}
+            </div>
+          ) : null;
+        })() || (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(activeTab === 'created' ? tournaments : participatingTournaments).map(tournament => (
+          {activeTab === 'leagues' ? (
+            userTeamsLeagues.map(league => (
+              <div key={`${league.team_id}-${league.league_id || league.tournament_id}`} className="p-4 bg-white border border-neutral-200 rounded-lg shadow-sm hover:border-brand-neon-green transition-all group">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold text-brand-black group-hover:text-brand-neon-green transition-colors">
+                    {league.team_name}
+                  </h3>
+                  {league.is_captain && (
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-brand-neon-green text-brand-dark-green">
+                      Captain
+                    </span>
+                  )}
+                </div>
+                <div className="text-sm text-neutral-600 mb-2">
+                  {league.league_name ? (
+                    <>
+                      <div className="font-medium">{league.league_name}</div>
+                      {league.season && <div className="text-xs">{league.season}</div>}
+                      {league.division_name && (
+                        <div className="text-xs text-neutral-500">{league.division_name}</div>
+                      )}
+                    </>
+                  ) : league.tournament_name ? (
+                    <div className="font-medium">{league.tournament_name}</div>
+                  ) : (
+                    <div className="text-neutral-500">Team</div>
+                  )}
+                </div>
+                {league.league_status && (
+                  <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium mb-2 ${
+                    league.league_status === 'active' ? 'bg-green-100 text-green-800' :
+                    league.league_status === 'registration' ? 'bg-blue-100 text-blue-800' :
+                    league.league_status === 'playoffs' ? 'bg-purple-100 text-purple-800' :
+                    league.league_status === 'completed' ? 'bg-gray-100 text-gray-800' :
+                    'bg-yellow-100 text-yellow-800'
+                  }`}>
+                    {league.league_status}
+                  </span>
+                )}
+                {league.league_start_date && (
+                  <div className="text-xs text-neutral-500 mb-2">
+                    <Calendar className="inline w-4 h-4 mr-1" />
+                    {new Date(league.league_start_date).toLocaleDateString()}
+                    {league.league_end_date && ` - ${new Date(league.league_end_date).toLocaleDateString()}`}
+                  </div>
+                )}
+                <div className="flex items-center space-x-2 mt-2">
+                  <button
+                    onClick={() => {
+                      if (league.league_id && league.team_id) {
+                        if (league.is_captain) {
+                          navigate(`/captain/dashboard/${league.team_id}/${league.league_id}`);
+                        } else {
+                          navigate(`/player/team/${league.team_id}/${league.league_id}`);
+                        }
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 bg-brand-neon-green text-brand-black rounded text-sm hover:bg-green-400 transition-colors flex items-center justify-center font-medium"
+                  >
+                    <Users className="w-4 h-4 mr-1" />
+                    {league.is_captain ? 'Captain Dashboard' : 'View Team'}
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            (activeTab === 'created' ? tournaments : participatingTournaments).map(tournament => (
             <div key={tournament.id} className="p-4 bg-white border border-neutral-200 rounded-lg shadow-sm hover:border-brand-neon-green transition-all group">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold text-brand-black group-hover:text-brand-neon-green transition-colors">
@@ -488,7 +598,8 @@ const ProfileTournaments: React.FC = () => {
                 )}
               </div>
             </div>
-          ))}
+          ))
+          )}
         </div>
       )}
 

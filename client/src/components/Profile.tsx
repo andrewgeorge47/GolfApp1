@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
-import api, { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser, getUserTournaments } from '../services/api';
+import api, { getUserProfile, updateUser, getMatches, User, UserProfile, Match, saveScorecard, getUserSimStats, getUserGrassStats, getUserCombinedStats, getUserCourseRecords, uploadProfilePhoto, SimStats, UserCourseRecord, getCurrentUser, getUserTournaments, getUserTeamsAndLeagues } from '../services/api';
 import { User as UserIcon, Edit3, Save, X, Target, TrendingUp, MapPin, Clock, Circle, Settings, Camera, BarChart3, Award, Trophy, Calendar, DollarSign, MessageSquare, Eye, CheckCircle, Info, AlertTriangle, Sparkles } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import TrackRoundModal from './TrackRoundModal';
@@ -24,8 +24,10 @@ const Profile: React.FC = () => {
   const [combinedStats, setCombinedStats] = useState<SimStats | null>(null);
   const [courseRecords, setCourseRecords] = useState<UserCourseRecord[]>([]);
   const [userTournaments, setUserTournaments] = useState<any[]>([]);
+  const [userLeagues, setUserLeagues] = useState<any[]>([]);
   const [showAllTournaments, setShowAllTournaments] = useState(false);
   const [statsTab, setStatsTab] = useState<'overview' | 'sim' | 'records'>('overview');
+  const [tournamentsTab, setTournamentsTab] = useState<'tournaments' | 'leagues'>('leagues');
   const [formData, setFormData] = useState({
     first_name: user?.first_name || '',
     last_name: user?.last_name || '',
@@ -61,13 +63,14 @@ const Profile: React.FC = () => {
         console.log('Fetching data for user ID:', user.member_id);
         console.log('User data:', user);
         
-        const [profileResponse, matchesResponse, simStatsResponse, combinedStatsResponse, courseRecordsResponse, userTournamentsResponse] = await Promise.all([
+        const [profileResponse, matchesResponse, simStatsResponse, combinedStatsResponse, courseRecordsResponse, userTournamentsResponse, userLeaguesResponse] = await Promise.all([
           getUserProfile(user.member_id),
           getMatches(),
           getUserSimStats(user.member_id),
           getUserCombinedStats(user.member_id),
           getUserCourseRecords(user.member_id),
-          getUserTournaments(user.member_id)
+          getUserTournaments(user.member_id),
+          getUserTeamsAndLeagues()
         ]);
 
         console.log('Sim stats response:', simStatsResponse.data);
@@ -99,9 +102,11 @@ const Profile: React.FC = () => {
         setCombinedStats(combinedStatsResponse.data);
         setCourseRecords(courseRecordsResponse.data);
         setUserTournaments(userTournamentsResponse.data);
-        
+        setUserLeagues(userLeaguesResponse.data);
+
         // Debug: Log tournament data to verify has_submitted_score is included
         console.log('User tournaments with score submission status:', userTournamentsResponse.data);
+        console.log('User leagues/teams:', userLeaguesResponse.data);
         
         // After updating stats, we need to refresh the user data to get updated handicaps
         // This will be handled by the parent component or context
@@ -1371,25 +1376,49 @@ const Profile: React.FC = () => {
         </div>
       )}
 
-      {/* My Tournaments */}
+      {/* Compete */}
       {user && (
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
+          <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-bold text-brand-black flex items-center">
               <Trophy className="w-6 h-6 mr-3" />
-              My Tournaments
+              Compete
             </h2>
             <Link
-              to="/tournaments"
-              className="flex items-center justify-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors w-full sm:w-auto"
+              to="/signups"
+              className="flex items-center justify-center px-4 py-2 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors whitespace-nowrap"
             >
               <Award className="w-4 h-4 mr-2" />
-              Browse All Tournaments
+              Sign Up
             </Link>
           </div>
-          
+
+          {/* Tab Switcher */}
+          <div className="flex space-x-1 mb-6 bg-neutral-100 p-1 rounded-lg">
+            <button
+              onClick={() => setTournamentsTab('leagues')}
+              className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                tournamentsTab === 'leagues'
+                  ? 'bg-white text-brand-black shadow-sm'
+                  : 'text-neutral-600 hover:text-neutral-800'
+              }`}
+            >
+              Leagues ({userLeagues.length})
+            </button>
+            <button
+              onClick={() => setTournamentsTab('tournaments')}
+              className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                tournamentsTab === 'tournaments'
+                  ? 'bg-white text-brand-black shadow-sm'
+                  : 'text-neutral-600 hover:text-neutral-800'
+              }`}
+            >
+              Tournaments ({userTournaments.length})
+            </button>
+          </div>
+
           {/* Tournament Summary */}
-          {userTournaments.length > 0 && (
+          {tournamentsTab === 'tournaments' && userTournaments.length > 0 && (
             <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
               <div className="flex items-center text-sm text-blue-800">
                 <Info className="w-4 h-4 mr-2" />
@@ -1399,8 +1428,10 @@ const Profile: React.FC = () => {
               </div>
             </div>
           )}
-          
-          {userTournaments.length > 0 ? (
+
+          {/* Tournaments Tab Content */}
+          {tournamentsTab === 'tournaments' && (
+            userTournaments.length > 0 ? (
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {getDisplayedTournaments().map((tournament) => (
@@ -1513,15 +1544,90 @@ const Profile: React.FC = () => {
             <div className="text-center py-8">
               <Trophy className="w-16 h-16 text-gray-400 mx-auto mb-4" />
               <h3 className="text-xl font-medium text-gray-900 mb-2">No Tournaments Yet</h3>
-              <p className="text-gray-600 mb-6">You haven't registered for any tournaments yet. Browse available tournaments to get started!</p>
+              <p className="text-gray-600 mb-6">You haven't registered for any tournaments yet. Sign up to get started!</p>
               <Link
-                to="/tournaments"
+                to="/signups"
                 className="inline-flex items-center px-6 py-3 bg-brand-neon-green text-brand-black rounded-lg font-medium hover:bg-green-400 transition-colors"
               >
                 <Award className="w-4 h-4 mr-2" />
-                Browse Tournaments
+                Sign Up
               </Link>
             </div>
+          )
+          )}
+
+          {/* Leagues Tab Content */}
+          {tournamentsTab === 'leagues' && (
+            userLeagues.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {userLeagues.map((league) => (
+                <div key={`${league.team_id}-${league.league_id}`} className="p-4 bg-white border border-neutral-200 rounded-lg shadow-sm hover:border-brand-neon-green transition-all group">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold text-brand-black group-hover:text-brand-neon-green transition-colors">
+                      {league.team_name}
+                    </h3>
+                    {league.is_captain && (
+                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-brand-neon-green text-brand-dark-green">
+                        Captain
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm text-neutral-600 mb-2">
+                    {league.league_name && (
+                      <>
+                        <div className="font-medium">{league.league_name}</div>
+                        {league.season && <div className="text-xs">{league.season}</div>}
+                        {league.division_name && (
+                          <div className="text-xs text-neutral-500">{league.division_name}</div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  {league.league_status && (
+                    <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium mb-2 ${
+                      league.league_status === 'active' ? 'bg-green-100 text-green-800' :
+                      league.league_status === 'registration' ? 'bg-blue-100 text-blue-800' :
+                      league.league_status === 'playoffs' ? 'bg-purple-100 text-purple-800' :
+                      league.league_status === 'completed' ? 'bg-gray-100 text-gray-800' :
+                      'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {league.league_status}
+                    </span>
+                  )}
+                  {league.league_start_date && (
+                    <div className="text-xs text-neutral-500 mb-2">
+                      <Calendar className="inline w-4 h-4 mr-1" />
+                      {new Date(league.league_start_date).toLocaleDateString()}
+                      {league.league_end_date && ` - ${new Date(league.league_end_date).toLocaleDateString()}`}
+                    </div>
+                  )}
+                  <div className="flex items-center space-x-2 mt-3">
+                    <button
+                      onClick={() => {
+                        if (league.league_id && league.team_id) {
+                          if (league.is_captain) {
+                            navigate(`/captain-dashboard/${league.team_id}/${league.league_id}`);
+                          } else {
+                            navigate(`/player/team/${league.team_id}/${league.league_id}`);
+                          }
+                        }
+                      }}
+                      className="flex-1 px-3 py-2 bg-brand-neon-green text-brand-black rounded-lg text-sm hover:bg-green-400 transition-colors flex items-center justify-center font-medium"
+                    >
+                      <Trophy className="w-4 h-4 mr-1" />
+                      {league.is_captain ? 'Captain Dashboard' : 'View Team'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <Trophy className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-xl font-medium text-gray-900 mb-2">No Leagues Yet</h3>
+              <p className="text-gray-600 mb-6">You haven't joined any leagues yet. Check with your club to join a league!</p>
+            </div>
+          )
           )}
         </div>
       )}
