@@ -15867,6 +15867,15 @@ app.post('/api/teams/:teamId/availability', authenticateToken, async (req, res) 
     const availabilityValue = time_slots ? (time_slots.length > 0) : (is_available !== false);
     const timeSlotsValue = time_slots ? JSON.stringify(time_slots) : null;
 
+    console.log('Submitting availability:', {
+      teamId,
+      userId,
+      league_id,
+      week_number,
+      availabilityValue,
+      time_slots_count: time_slots?.length
+    });
+
     // Upsert availability
     const result = await pool.query(
       `INSERT INTO team_member_availability

@@ -173,16 +173,26 @@ const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({
 
           console.log('Parsed time slots:', timeSlotsData);
 
-          // Get the calendar week start once (Sunday of the week containing the league week start)
-          const leagueWeekStart = new Date(selectedWeek.week_start_date);
-          const calendarWeekStart = startOfWeek(leagueWeekStart, { weekStartsOn: 0 }); // 0 = Sunday
-          console.log('League week start:', leagueWeekStart);
-          console.log('Calendar week start (Sunday):', calendarWeekStart);
+          // Use the actual league week start date (parse as local date, not UTC)
+          const [year, month, day] = selectedWeek.week_start_date.split('-').map(Number);
+          const leagueWeekStart = new Date(year, month - 1, day); // Parse as local date
+          const calendarWeekStart = leagueWeekStart;
+          console.log('League week start (parsed):', leagueWeekStart);
+          console.log('League week start (ISO):', leagueWeekStart.toISOString());
+          console.log('League week start day:', leagueWeekStart.getDay());
+          console.log('Calendar week start:', calendarWeekStart);
 
           const slots: TimeSlot[] = timeSlotsData.map((slot: any) => {
             // slot format: { day: "Monday", start_time: "18:00", end_time: "21:00" }
-            const dayOffset = getDayOffset(slot.day);
-            const slotDate = addDays(calendarWeekStart, dayOffset);
+            // Find the actual date for this day name within the league week
+            const targetDayIndex = getDayOffset(slot.day);
+            const weekStartDayIndex = leagueWeekStart.getDay();
+
+            // Calculate days from league week start to reach the target day
+            let daysToAdd = targetDayIndex - weekStartDayIndex;
+            if (daysToAdd < 0) daysToAdd += 7; // Wrap to next week if needed
+
+            const slotDate = addDays(calendarWeekStart, daysToAdd);
 
             const [startHour, startMin] = slot.start_time.split(':').map(Number);
             const [endHour, endMin] = slot.end_time.split(':').map(Number);
@@ -446,9 +456,8 @@ const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({
   // Check if today is within the selected league week
   const todayInSelectedWeek = today >= startOfDay(leagueWeekStart) && today <= startOfDay(leagueWeekEnd);
 
-  // Use today if it's in the selected week, otherwise use the league week start
-  const dateToDisplay = todayInSelectedWeek ? today : leagueWeekStart;
-  const calendarWeekStart = startOfWeek(dateToDisplay, { weekStartsOn: 0 }); // 0 = Sunday
+  // Use the actual league week start date (don't adjust to Sunday)
+  const calendarWeekStart = leagueWeekStart;
 
   return (
     <div className="w-full sm:max-w-6xl sm:mx-auto relative pb-0 sm:pb-6">
