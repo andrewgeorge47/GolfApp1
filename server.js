@@ -16633,7 +16633,7 @@ app.get('/api/teams/:teamId/availability/week/:weekNumber', authenticateToken, a
         u.first_name,
         u.last_name,
         u.email_address,
-        u.handicap,
+        u.sim_handicap as handicap,
         tm.is_captain,
         tma.is_available,
         tma.captain_override,
