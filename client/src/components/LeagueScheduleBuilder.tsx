@@ -13,7 +13,9 @@ import {
   Users,
   Target,
   RotateCcw,
-  CheckCircle
+  CheckCircle,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import {
@@ -41,7 +43,13 @@ import {
   getLeagueMatchups,
   generateLeagueSchedule,
   generateLeagueMatchups,
+  createMatchup,
+  updateMatchup,
   deleteMatchup,
+  updateWeekSchedule,
+  updateWeekStatus,
+  publishWeek,
+  unpublishWeek,
   getSimulatorCourses,
   getLeagues
 } from '../services/api';
@@ -56,6 +64,7 @@ interface ScheduleWeek {
   course_name: string;
   matches: Match[];
   status: 'scheduled' | 'active' | 'completed';
+  is_published: boolean;
 }
 
 interface Match {
@@ -101,10 +110,12 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
   const [scheduleWeeks, setScheduleWeeks] = useState<ScheduleWeek[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedWeek, setExpandedWeek] = useState<number | null>(null);
-  
+
   // Week creation form state
   const [showCreateWeekForm, setShowCreateWeekForm] = useState(false);
   const [showCourseSearch, setShowCourseSearch] = useState(false);
+  const [showWeekEditModal, setShowWeekEditModal] = useState(false);
+  const [editingWeekId, setEditingWeekId] = useState<number | null>(null);
   const [weekForm, setWeekForm] = useState({
     week_number: 1,
     start_date: '',
@@ -116,6 +127,7 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
   // Match editing state
   const [editingMatch, setEditingMatch] = useState<Match | null>(null);
   const [showMatchForm, setShowMatchForm] = useState(false);
+  const [currentWeekId, setCurrentWeekId] = useState<number | null>(null);
   const [matchForm, setMatchForm] = useState({
     team1_id: 0,
     team2_id: 0,
@@ -175,6 +187,7 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
       // Load schedule
       const scheduleResponse = await getLeagueSchedule(leagueId);
       let scheduleData = scheduleResponse.data;
+      console.log('Schedule data loaded:', scheduleData);
 
       // Auto-generate schedule if it doesn't exist based on settings
       // Only auto-generate if divisions exist (prerequisite)
@@ -249,10 +262,12 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
           course_id: week.course_id || 0,
           course_name: week.course_name || 'No course assigned',
           status: week.status as 'scheduled' | 'active' | 'completed',
+          is_published: week.is_published || false,
           matches: weekMatchups.length > 0 ? weekMatchups : placeholderMatches
         };
       });
 
+      console.log('Transformed schedule:', transformedSchedule);
       setDivisions(divisionsWithTeams);
       setCourses(coursesData);
       setScheduleWeeks(transformedSchedule);
@@ -328,14 +343,41 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
       return;
     }
 
-    toast.info('Use "Auto-Generate" to create matchups for a week');
-    setShowMatchForm(false);
-    setEditingMatch(null);
-    setMatchForm({ team1_id: 0, team2_id: 0, division_id: 0 });
-    setIsSubmitting(false);
+    if (!currentWeekId) {
+      toast.error('No week selected');
+      return;
+    }
 
-    // TODO: Backend endpoint needed for creating individual matchups
-    // Current API only supports bulk matchup generation
+    setIsSubmitting(true);
+
+    try {
+      const week = scheduleWeeks.find(w => w.id === currentWeekId);
+      if (!week) {
+        toast.error('Week not found');
+        return;
+      }
+
+      await createMatchup({
+        league_id: leagueId,
+        schedule_id: week.id,
+        week_number: week.week_number,
+        team1_id: matchForm.team1_id,
+        team2_id: matchForm.team2_id,
+        division_id: matchForm.division_id
+      });
+
+      toast.success('Matchup created successfully');
+      await loadData();
+      setShowMatchForm(false);
+      setEditingMatch(null);
+      setMatchForm({ team1_id: 0, team2_id: 0, division_id: 0 });
+      setCurrentWeekId(null);
+    } catch (error: any) {
+      console.error('Error creating matchup:', error);
+      toast.error(error.response?.data?.error || 'Failed to create matchup');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDeleteWeek = async (weekId: number) => {
@@ -391,6 +433,155 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
     } catch (error: any) {
       console.error('Error auto-generating matches:', error);
       toast.error(error.response?.data?.error || 'Failed to auto-generate matches');
+    }
+  };
+
+  const handleUpdateWeekCourse = async (weekId: number, courseId: number) => {
+    try {
+      const response = await updateWeekSchedule(leagueId, weekId, { course_id: courseId });
+      console.log('Update response:', response.data);
+      await loadData();
+      console.log('Data reloaded');
+      toast.success('Course updated successfully');
+      setEditingWeekId(null);
+    } catch (error: any) {
+      console.error('Error updating course:', error);
+      toast.error(error.response?.data?.error || 'Failed to update course');
+    }
+  };
+
+  const handleSaveWeekDetails = async () => {
+    if (!editingWeekId) return;
+
+    // Validation
+    if (!weekForm.start_date || !weekForm.end_date) {
+      toast.error('Please provide both start and end dates');
+      return;
+    }
+
+    const startDate = new Date(weekForm.start_date);
+    const endDate = new Date(weekForm.end_date);
+
+    if (endDate < startDate) {
+      toast.error('End date must be after start date');
+      return;
+    }
+
+    try {
+      await updateWeekSchedule(leagueId, editingWeekId, {
+        week_start_date: weekForm.start_date,
+        week_end_date: weekForm.end_date,
+        course_id: weekForm.course_id || undefined
+      });
+      await loadData();
+      toast.success('Week details updated successfully');
+      setShowWeekEditModal(false);
+      setEditingWeekId(null);
+      setWeekForm({
+        week_number: 1,
+        start_date: '',
+        end_date: '',
+        course_id: 0,
+        course_name: ''
+      });
+    } catch (error: any) {
+      console.error('Error updating week details:', error);
+      toast.error(error.response?.data?.error || 'Failed to update week details');
+    }
+  };
+
+  const handleRemoveWeekCourse = async (weekId: number) => {
+    try {
+      await updateWeekSchedule(leagueId, weekId, { course_id: null as any });
+      await loadData();
+      toast.success('Course removed successfully');
+      setEditingWeekId(null);
+      setShowCourseSearch(false);
+    } catch (error: any) {
+      console.error('Error removing course:', error);
+      toast.error(error.response?.data?.error || 'Failed to remove course');
+    }
+  };
+
+  const handleUpdateWeekStatus = async (weekId: number, status: 'scheduled' | 'active' | 'completed') => {
+    try {
+      await updateWeekStatus(leagueId, weekId, status);
+      await loadData();
+      toast.success(`Week status updated to ${status}`);
+    } catch (error: any) {
+      console.error('Error updating week status:', error);
+      toast.error(error.response?.data?.error || 'Failed to update week status');
+    }
+  };
+
+  const handlePublishWeek = async (weekId: number) => {
+    const week = scheduleWeeks.find(w => w.id === weekId);
+    if (!week) return;
+
+    if (!week.course_id) {
+      toast.error('Please assign a course before publishing');
+      return;
+    }
+
+    if (week.matches.length === 0 || week.matches[0].team1_id === 0) {
+      toast.error('Please generate matchups before publishing');
+      return;
+    }
+
+    if (!window.confirm('Publishing will lock this week\'s schedule and make it visible to captains and players. Continue?')) {
+      return;
+    }
+
+    try {
+      await publishWeek(leagueId, weekId);
+      toast.success('Week published successfully');
+      await loadData();
+    } catch (error: any) {
+      console.error('Error publishing week:', error);
+      toast.error(error.response?.data?.error || 'Failed to publish week');
+    }
+  };
+
+  const handleUnpublishWeek = async (weekId: number) => {
+    if (!window.confirm('Unpublishing will unlock this week for editing and hide it from players. Continue?')) {
+      return;
+    }
+
+    try {
+      await unpublishWeek(leagueId, weekId);
+      toast.success('Week unpublished successfully');
+      await loadData();
+    } catch (error: any) {
+      console.error('Error unpublishing week:', error);
+      toast.error(error.response?.data?.error || 'Failed to unpublish week');
+    }
+  };
+
+  const handleEditMatch = async (matchId: number) => {
+    if (!editingMatch) return;
+
+    if (!validateMatchForm()) {
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      await updateMatchup(matchId, {
+        team1_id: matchForm.team1_id,
+        team2_id: matchForm.team2_id
+      });
+
+      toast.success('Matchup updated successfully');
+      await loadData();
+      setShowMatchForm(false);
+      setEditingMatch(null);
+      setMatchForm({ team1_id: 0, team2_id: 0, division_id: 0 });
+    } catch (error: any) {
+      console.error('Error updating matchup:', error);
+      toast.error(error.response?.data?.error || 'Failed to update matchup');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -511,44 +702,113 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
                   </div>
                 </div>
                 
-                <StatusBadge status={week.status === 'scheduled' ? 'pending' : week.status === 'active' ? 'active' : 'completed'} />
-              </div>
-              
-              <div className="flex items-center space-x-2">
-                <div className="flex items-center space-x-2 text-sm text-neutral-600">
-                  <MapPin className="w-4 h-4" />
-                  <span>{week.course_name}</span>
+                {/* Status Selector */}
+                <div className="flex items-center space-x-2">
+                  <label className="text-xs text-neutral-600">Status:</label>
+                  <select
+                    value={week.status}
+                    onChange={(e) => handleUpdateWeekStatus(week.id, e.target.value as 'scheduled' | 'active' | 'completed')}
+                    className="px-3 py-1 text-sm border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                    disabled={week.is_published}
+                  >
+                    <option value="scheduled">📅 Scheduled (Pending)</option>
+                    <option value="active">🎯 Active (In Progress)</option>
+                    <option value="completed">✅ Completed</option>
+                  </select>
                 </div>
-                
-                <Button
-                  onClick={() => handleAutoGenerateMatches(week.id)}
-                  icon={RotateCcw}
-                  variant="secondary"
-                  size="sm"
-                >
-                  Auto-Generate
-                </Button>
-                
-                <Button
-                  onClick={() => {
-                    setEditingMatch({ ...week.matches[0], week_id: week.id } as any);
-                    setShowMatchForm(true);
-                  }}
-                  icon={Plus}
-                  variant="success"
-                  size="sm"
-                >
-                  Add Match
-                </Button>
-                
-                <Button
-                  variant="danger"
-                  size="sm"
-                  icon={Trash2}
-                  onClick={() => handleDeleteWeek(week.id)}
-                >
-                  Delete
-                </Button>
+
+                {week.is_published && (
+                  <Badge variant="success" icon={Lock}>
+                    Published
+                  </Badge>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-2">
+                {/* Course Selection */}
+                <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 text-sm text-neutral-600">
+                    <MapPin className="w-4 h-4" />
+                    <span>{week.course_name}</span>
+                  </div>
+                  {!week.is_published && (
+                    <Button
+                      onClick={() => {
+                        setEditingWeekId(week.id);
+                        setWeekForm({
+                          week_number: week.week_number,
+                          start_date: week.start_date,
+                          end_date: week.end_date,
+                          course_id: week.course_id || 0,
+                          course_name: week.course_name || ''
+                        });
+                        setShowWeekEditModal(true);
+                      }}
+                      icon={Edit3}
+                      variant="ghost"
+                      size="sm"
+                    >
+                      Edit
+                    </Button>
+                  )}
+                </div>
+
+                {/* Publish/Unpublish Button */}
+                {week.is_published ? (
+                  <Button
+                    onClick={() => handleUnpublishWeek(week.id)}
+                    icon={Unlock}
+                    variant="secondary"
+                    size="sm"
+                  >
+                    Unpublish
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => handlePublishWeek(week.id)}
+                    icon={Lock}
+                    variant="success"
+                    size="sm"
+                  >
+                    Publish
+                  </Button>
+                )}
+
+                {/* Action Buttons (disabled when published) */}
+                {!week.is_published && (
+                  <>
+                    <Button
+                      onClick={() => handleAutoGenerateMatches(week.id)}
+                      icon={RotateCcw}
+                      variant="secondary"
+                      size="sm"
+                    >
+                      Auto-Generate
+                    </Button>
+
+                    <Button
+                      onClick={() => {
+                        setCurrentWeekId(week.id);
+                        setShowMatchForm(true);
+                        setMatchForm({ team1_id: 0, team2_id: 0, division_id: 0 });
+                      }}
+                      icon={Plus}
+                      variant="success"
+                      size="sm"
+                    >
+                      Add Match
+                    </Button>
+
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      icon={Trash2}
+                      onClick={() => handleDeleteWeek(week.id)}
+                    >
+                      Delete
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
               
@@ -582,15 +842,39 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
                                 </div>
                               )}
                             </div>
-                            
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              icon={Trash2}
-                              onClick={() => handleDeleteMatch(week.id, match.id)}
-                            >
-                              Delete
-                            </Button>
+
+                            <div className="flex items-center space-x-2">
+                              {!week.is_published && match.team1_id > 0 && (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  icon={Edit3}
+                                  onClick={() => {
+                                    setEditingMatch(match);
+                                    setCurrentWeekId(week.id);
+                                    setMatchForm({
+                                      team1_id: match.team1_id,
+                                      team2_id: match.team2_id,
+                                      division_id: match.division_id
+                                    });
+                                    setShowMatchForm(true);
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                              )}
+
+                              {!week.is_published && (
+                                <Button
+                                  variant="danger"
+                                  size="sm"
+                                  icon={Trash2}
+                                  onClick={() => handleDeleteMatch(week.id, match.id)}
+                                >
+                                  Delete
+                                </Button>
+                              )}
+                            </div>
                           </div>
                         </Card>
                       ))}
@@ -661,16 +945,25 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
         </div>
       </FormDialog>
 
-      {/* Create Match Modal */}
+      {/* Create/Edit Match Modal */}
       <FormDialog
         open={showMatchForm}
         onClose={() => {
           setShowMatchForm(false);
           setEditingMatch(null);
+          setMatchForm({ team1_id: 0, team2_id: 0, division_id: 0 });
+          setCurrentWeekId(null);
         }}
-        onSubmit={(e) => { e.preventDefault(); handleCreateMatch(); }}
-        title="Create Match"
-        submitText="Create Match"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (editingMatch && editingMatch.id > 0) {
+            handleEditMatch(editingMatch.id);
+          } else {
+            handleCreateMatch();
+          }
+        }}
+        title={editingMatch && editingMatch.id > 0 ? "Edit Match" : "Create Match"}
+        submitText={editingMatch && editingMatch.id > 0 ? "Save Changes" : "Create Match"}
         loading={isSubmitting}
       >
         <div className="space-y-4">
@@ -728,10 +1021,95 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
         </div>
       </FormDialog>
 
+      {/* Week Edit Modal */}
+      {showWeekEditModal && (
+        <FormDialog
+          title={`Edit Week ${weekForm.week_number} Details`}
+          open={showWeekEditModal}
+          onClose={() => {
+            setShowWeekEditModal(false);
+            setEditingWeekId(null);
+            setWeekForm({
+              week_number: 1,
+              start_date: '',
+              end_date: '',
+              course_id: 0,
+              course_name: ''
+            });
+          }}
+          onSubmit={handleSaveWeekDetails}
+          submitText="Save Changes"
+          size="lg"
+        >
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Start Date"
+                type="date"
+                value={weekForm.start_date}
+                onChange={(e) => setWeekForm({ ...weekForm, start_date: e.target.value })}
+                required
+              />
+              <Input
+                label="End Date"
+                type="date"
+                value={weekForm.end_date}
+                onChange={(e) => setWeekForm({ ...weekForm, end_date: e.target.value })}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-2">
+                Course Assignment
+              </label>
+              {weekForm.course_name ? (
+                <div className="flex items-center justify-between p-3 bg-brand-neon-green/10 border border-brand-neon-green rounded-lg">
+                  <div className="flex items-center space-x-2">
+                    <MapPin className="w-5 h-5 text-brand-neon-green" />
+                    <span className="font-medium text-brand-black">{weekForm.course_name}</span>
+                  </div>
+                  <div className="flex space-x-2">
+                    <Button
+                      onClick={() => setShowCourseSearch(true)}
+                      icon={Edit3}
+                      variant="ghost"
+                      size="sm"
+                    >
+                      Change
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setWeekForm({ ...weekForm, course_id: 0, course_name: '' });
+                      }}
+                      icon={Trash2}
+                      variant="ghost"
+                      size="sm"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  onClick={() => setShowCourseSearch(true)}
+                  icon={Plus}
+                  variant="secondary"
+                  className="w-full"
+                >
+                  Assign Course
+                </Button>
+              )}
+            </div>
+          </div>
+        </FormDialog>
+      )}
+
       {/* Course Search Modal */}
       {showCourseSearch && (
         <SimulatorCourseSearch
           onCourseSelect={(course) => {
+            // Update the weekForm when course is selected
             setWeekForm(prev => ({
               ...prev,
               course_id: course.id,
@@ -739,8 +1117,15 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
             }));
             setShowCourseSearch(false);
           }}
-          onClose={() => setShowCourseSearch(false)}
+          onClose={() => {
+            setShowCourseSearch(false);
+          }}
+          onCourseRemove={() => {
+            setWeekForm(prev => ({ ...prev, course_id: 0, course_name: '' }));
+            setShowCourseSearch(false);
+          }}
           selectedCourseId={weekForm.course_id}
+          selectedCourseName={weekForm.course_name}
         />
       )}
     </div>

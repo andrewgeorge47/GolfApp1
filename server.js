@@ -14028,7 +14028,7 @@ app.post('/api/leagues', authenticateToken, requirePermission('manage_tournament
         format, individual_holes, alternate_shot_holes,
         active_players_per_week, roster_size_min, roster_size_max,
         created_by, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'draft')
+      ) VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'draft')
       RETURNING *`,
       [
         name, season, description, start_date, end_date,
@@ -14128,7 +14128,13 @@ app.put('/api/leagues/:id', authenticateToken, requirePermission('manage_tournam
       playoff_format,
       points_for_win,
       points_for_tie,
-      points_for_loss
+      points_for_loss,
+      format,
+      individual_holes,
+      alternate_shot_holes,
+      active_players_per_week,
+      roster_size_min,
+      roster_size_max
     } = req.body;
 
     // Build dynamic update query
@@ -14149,11 +14155,11 @@ app.put('/api/leagues/:id', authenticateToken, requirePermission('manage_tournam
       values.push(description);
     }
     if (start_date !== undefined) {
-      updates.push(`start_date = $${paramCount++}`);
+      updates.push(`start_date = $${paramCount++}::date`);
       values.push(start_date);
     }
     if (end_date !== undefined) {
-      updates.push(`end_date = $${paramCount++}`);
+      updates.push(`end_date = $${paramCount++}::date`);
       values.push(end_date);
     }
     if (status !== undefined) {
@@ -14187,6 +14193,30 @@ app.put('/api/leagues/:id', authenticateToken, requirePermission('manage_tournam
     if (points_for_loss !== undefined) {
       updates.push(`points_for_loss = $${paramCount++}`);
       values.push(points_for_loss);
+    }
+    if (format !== undefined) {
+      updates.push(`format = $${paramCount++}`);
+      values.push(format);
+    }
+    if (individual_holes !== undefined) {
+      updates.push(`individual_holes = $${paramCount++}`);
+      values.push(individual_holes);
+    }
+    if (alternate_shot_holes !== undefined) {
+      updates.push(`alternate_shot_holes = $${paramCount++}`);
+      values.push(alternate_shot_holes);
+    }
+    if (active_players_per_week !== undefined) {
+      updates.push(`active_players_per_week = $${paramCount++}`);
+      values.push(active_players_per_week);
+    }
+    if (roster_size_min !== undefined) {
+      updates.push(`roster_size_min = $${paramCount++}`);
+      values.push(roster_size_min);
+    }
+    if (roster_size_max !== undefined) {
+      updates.push(`roster_size_max = $${paramCount++}`);
+      values.push(roster_size_max);
     }
 
     if (updates.length === 0) {
@@ -14743,7 +14773,7 @@ app.post('/api/leagues/:leagueId/schedule/generate', authenticateToken, requireP
 
       const result = await pool.query(
         `INSERT INTO league_schedule (league_id, week_number, week_start_date, week_end_date, status)
-         VALUES ($1, $2, $3, $4, 'scheduled')
+         VALUES ($1, $2, $3::date, $4::date, 'scheduled')
          RETURNING *`,
         [leagueId, week, weekStart.toISOString().split('T')[0], weekEnd.toISOString().split('T')[0]]
       );
@@ -14776,12 +14806,27 @@ app.get('/api/leagues/:leagueId/schedule', async (req, res) => {
     const { leagueId } = req.params;
 
     const result = await pool.query(
-      `SELECT ls.*,
+      `SELECT ls.id,
+        ls.league_id,
+        ls.week_number,
+        ls.week_start_date,
+        ls.week_end_date,
+        ls.is_playoff,
+        ls.status,
+        ls.notes,
+        ls.created_at,
+        ls.updated_at,
+        ls.is_published,
+        ls.course_id,
+        sc.name as course_name,
         COUNT(DISTINCT lm.id) AS matchup_count
       FROM league_schedule ls
       LEFT JOIN league_matchups lm ON ls.id = lm.schedule_id
+      LEFT JOIN simulator_courses_combined sc ON ls.course_id = sc.id
       WHERE ls.league_id = $1
-      GROUP BY ls.id
+      GROUP BY ls.id, ls.league_id, ls.week_number, ls.week_start_date, ls.week_end_date,
+               ls.is_playoff, ls.status, ls.notes, ls.created_at, ls.updated_at,
+               ls.is_published, ls.course_id, sc.name
       ORDER BY ls.week_number`,
       [leagueId]
     );
@@ -14812,6 +14857,215 @@ app.get('/api/leagues/:leagueId/schedule/week/:weekNumber', async (req, res) => 
   } catch (err) {
     console.error('Error fetching week:', err);
     res.status(500).json({ error: 'Failed to fetch week' });
+  }
+});
+
+// PUT /api/leagues/:leagueId/schedule/:weekId - Update week schedule (Admin only)
+app.put('/api/leagues/:leagueId/schedule/:weekId', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  try {
+    const { leagueId, weekId } = req.params;
+    const { course_id, week_start_date, week_end_date } = req.body;
+
+    // Check if week exists and belongs to the league
+    const weekCheck = await pool.query(
+      'SELECT * FROM league_schedule WHERE id = $1 AND league_id = $2',
+      [weekId, leagueId]
+    );
+
+    if (weekCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Week not found' });
+    }
+
+    // Check if week is published (locked)
+    if (weekCheck.rows[0].is_published) {
+      return res.status(403).json({ error: 'Cannot edit published week. Unpublish first to make changes.' });
+    }
+
+    // Build update query dynamically
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (course_id !== undefined) {
+      updates.push(`course_id = $${paramCount}`);
+      values.push(course_id);
+      paramCount++;
+    }
+
+    if (week_start_date !== undefined) {
+      updates.push(`week_start_date = $${paramCount}::date`);
+      values.push(week_start_date);
+      paramCount++;
+    }
+
+    if (week_end_date !== undefined) {
+      updates.push(`week_end_date = $${paramCount}::date`);
+      values.push(week_end_date);
+      paramCount++;
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updates.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(weekId);
+
+    await pool.query(
+      `UPDATE league_schedule
+       SET ${updates.join(', ')}
+       WHERE id = $${paramCount}`,
+      values
+    );
+
+    // Fetch the updated week with course name
+    const result = await pool.query(
+      `SELECT ls.*, sc.name as course_name
+       FROM league_schedule ls
+       LEFT JOIN simulator_courses_combined sc ON ls.course_id = sc.id
+       WHERE ls.id = $1`,
+      [weekId]
+    );
+
+    res.json({
+      message: 'Week updated successfully',
+      week: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error updating week:', err);
+    res.status(500).json({ error: 'Failed to update week' });
+  }
+});
+
+// PUT /api/leagues/:leagueId/schedule/:weekId/status - Update week status (Admin only)
+app.put('/api/leagues/:leagueId/schedule/:weekId/status', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  try {
+    const { leagueId, weekId } = req.params;
+    const { status } = req.body;
+
+    // Validate status
+    const validStatuses = ['scheduled', 'active', 'completed'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: 'Invalid status. Must be: scheduled, active, or completed' });
+    }
+
+    // Check if week exists and belongs to the league
+    const weekCheck = await pool.query(
+      'SELECT * FROM league_schedule WHERE id = $1 AND league_id = $2',
+      [weekId, leagueId]
+    );
+
+    if (weekCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Week not found' });
+    }
+
+    // Update status
+    await pool.query(
+      `UPDATE league_schedule
+       SET status = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [status, weekId]
+    );
+
+    // Fetch the updated week with course name
+    const result = await pool.query(
+      `SELECT ls.*, sc.name as course_name
+       FROM league_schedule ls
+       LEFT JOIN simulator_courses_combined sc ON ls.course_id = sc.id
+       WHERE ls.id = $1`,
+      [weekId]
+    );
+
+    res.json({
+      message: `Week status updated to ${status}`,
+      week: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error updating week status:', err);
+    res.status(500).json({ error: 'Failed to update week status' });
+  }
+});
+
+// POST /api/leagues/:leagueId/schedule/:weekId/publish - Publish/lock week schedule (Admin only)
+app.post('/api/leagues/:leagueId/schedule/:weekId/publish', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  try {
+    const { leagueId, weekId } = req.params;
+
+    // Check if week exists and belongs to the league
+    const weekCheck = await pool.query(
+      'SELECT * FROM league_schedule WHERE id = $1 AND league_id = $2',
+      [weekId, leagueId]
+    );
+
+    if (weekCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Week not found' });
+    }
+
+    // Check if week has a course assigned
+    if (!weekCheck.rows[0].course_id) {
+      return res.status(400).json({ error: 'Cannot publish week without a course assigned' });
+    }
+
+    // Check if week has matchups
+    const matchupCheck = await pool.query(
+      'SELECT COUNT(*) FROM league_matchups WHERE schedule_id = $1',
+      [weekId]
+    );
+
+    if (parseInt(matchupCheck.rows[0].count) === 0) {
+      return res.status(400).json({ error: 'Cannot publish week without matchups. Generate matchups first.' });
+    }
+
+    // Publish the week
+    const result = await pool.query(
+      `UPDATE league_schedule
+       SET is_published = true, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING *`,
+      [weekId]
+    );
+
+    res.json({
+      message: 'Week published successfully. Schedule is now locked and visible to captains/players.',
+      week: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error publishing week:', err);
+    res.status(500).json({ error: 'Failed to publish week' });
+  }
+});
+
+// POST /api/leagues/:leagueId/schedule/:weekId/unpublish - Unpublish/unlock week schedule (Admin only)
+app.post('/api/leagues/:leagueId/schedule/:weekId/unpublish', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  try {
+    const { leagueId, weekId } = req.params;
+
+    // Check if week exists and belongs to the league
+    const weekCheck = await pool.query(
+      'SELECT * FROM league_schedule WHERE id = $1 AND league_id = $2',
+      [weekId, leagueId]
+    );
+
+    if (weekCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Week not found' });
+    }
+
+    // Unpublish the week
+    const result = await pool.query(
+      `UPDATE league_schedule
+       SET is_published = false, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING *`,
+      [weekId]
+    );
+
+    res.json({
+      message: 'Week unpublished successfully. Schedule is now unlocked for editing.',
+      week: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error unpublishing week:', err);
+    res.status(500).json({ error: 'Failed to unpublish week' });
   }
 });
 
@@ -15066,16 +15320,112 @@ app.get('/api/matchups/:matchupId', async (req, res) => {
   }
 });
 
+// POST /api/matchups - Create a single matchup (Admin only)
+app.post('/api/matchups', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  try {
+    const { league_id, schedule_id, week_number, team1_id, team2_id, division_id } = req.body;
+
+    // Validate required fields
+    if (!league_id || !schedule_id || !week_number || !team1_id || !team2_id || !division_id) {
+      return res.status(400).json({ error: 'league_id, schedule_id, week_number, team1_id, team2_id, and division_id are required' });
+    }
+
+    // Validate teams are different
+    if (team1_id === team2_id) {
+      return res.status(400).json({ error: 'Teams must be different' });
+    }
+
+    // Check if week is published (locked)
+    const weekCheck = await pool.query(
+      'SELECT is_published FROM league_schedule WHERE id = $1',
+      [schedule_id]
+    );
+
+    if (weekCheck.rows.length > 0 && weekCheck.rows[0].is_published) {
+      return res.status(403).json({ error: 'Cannot create matchup for published week. Unpublish first to make changes.' });
+    }
+
+    // Check if teams exist and belong to the same division
+    const team1 = await pool.query(
+      'SELECT * FROM tournament_teams WHERE id = $1 AND league_id = $2 AND division_id = $3',
+      [team1_id, league_id, division_id]
+    );
+
+    const team2 = await pool.query(
+      'SELECT * FROM tournament_teams WHERE id = $1 AND league_id = $2 AND division_id = $3',
+      [team2_id, league_id, division_id]
+    );
+
+    if (team1.rows.length === 0) {
+      return res.status(404).json({ error: 'Team 1 not found or not in the specified division' });
+    }
+
+    if (team2.rows.length === 0) {
+      return res.status(404).json({ error: 'Team 2 not found or not in the specified division' });
+    }
+
+    // Create matchup
+    const result = await pool.query(
+      `INSERT INTO league_matchups
+        (league_id, schedule_id, week_number, team1_id, team2_id, division_id, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'scheduled')
+       RETURNING *`,
+      [league_id, schedule_id, week_number, team1_id, team2_id, division_id]
+    );
+
+    res.status(201).json({
+      message: 'Matchup created successfully',
+      matchup: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error creating matchup:', err);
+    res.status(500).json({ error: 'Failed to create matchup' });
+  }
+});
+
 // PUT /api/matchups/:id - Update matchup (Admin only)
 app.put('/api/matchups/:matchupId', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { matchupId } = req.params;
-    const { course_id, course_name, course_rating, course_slope, course_par, hole_indexes, match_date, status } = req.body;
+    const { team1_id, team2_id, course_id, course_name, course_rating, course_slope, course_par, hole_indexes, match_date, status } = req.body;
+
+    // Check if matchup exists and get schedule_id
+    const matchup = await pool.query(
+      'SELECT * FROM league_matchups WHERE id = $1',
+      [matchupId]
+    );
+
+    if (matchup.rows.length === 0) {
+      return res.status(404).json({ error: 'Matchup not found' });
+    }
+
+    // Check if week is published (locked)
+    const weekCheck = await pool.query(
+      'SELECT is_published FROM league_schedule WHERE id = $1',
+      [matchup.rows[0].schedule_id]
+    );
+
+    if (weekCheck.rows.length > 0 && weekCheck.rows[0].is_published) {
+      return res.status(403).json({ error: 'Cannot edit matchup for published week. Unpublish first to make changes.' });
+    }
+
+    // Validate teams are different if both provided
+    if (team1_id && team2_id && team1_id === team2_id) {
+      return res.status(400).json({ error: 'Teams must be different' });
+    }
 
     const updates = [];
     const values = [];
     let paramCount = 1;
 
+    if (team1_id !== undefined) {
+      updates.push(`team1_id = $${paramCount++}`);
+      values.push(team1_id);
+    }
+    if (team2_id !== undefined) {
+      updates.push(`team2_id = $${paramCount++}`);
+      values.push(team2_id);
+    }
     if (course_id !== undefined) {
       updates.push(`course_id = $${paramCount++}`);
       values.push(course_id);
@@ -15137,11 +15487,28 @@ app.delete('/api/matchups/:matchupId', authenticateToken, requirePermission('man
   try {
     const { matchupId } = req.params;
 
-    const result = await pool.query('DELETE FROM league_matchups WHERE id = $1 RETURNING *', [matchupId]);
+    // Check if matchup exists and get schedule_id
+    const matchup = await pool.query(
+      'SELECT * FROM league_matchups WHERE id = $1',
+      [matchupId]
+    );
 
-    if (result.rows.length === 0) {
+    if (matchup.rows.length === 0) {
       return res.status(404).json({ error: 'Matchup not found' });
     }
+
+    // Check if week is published (locked)
+    const weekCheck = await pool.query(
+      'SELECT is_published FROM league_schedule WHERE id = $1',
+      [matchup.rows[0].schedule_id]
+    );
+
+    if (weekCheck.rows.length > 0 && weekCheck.rows[0].is_published) {
+      return res.status(403).json({ error: 'Cannot delete matchup for published week. Unpublish first to make changes.' });
+    }
+
+    // Delete matchup
+    const result = await pool.query('DELETE FROM league_matchups WHERE id = $1 RETURNING *', [matchupId]);
 
     res.json({ message: 'Matchup deleted successfully', matchup: result.rows[0] });
   } catch (err) {
@@ -15610,6 +15977,357 @@ app.post('/api/matchups/:matchupId/scores/alternate-shot', authenticateToken, as
   }
 });
 
+// POST /api/leagues/matchups/:matchupId/scores - Submit full league match scores (front 9 + back 9)
+app.post('/api/leagues/matchups/:matchupId/scores', (req, res, next) => {
+  console.log('=== Request received for score submission ===');
+  console.log('Headers:', req.headers.authorization ? 'Token present' : 'No token');
+  next();
+}, authenticateToken, async (req, res) => {
+  console.log('=== After authentication - Score Submission Endpoint Hit ===');
+  console.log('Matchup ID:', req.params.matchupId);
+  console.log('Request body keys:', Object.keys(req.body));
+  console.log('User:', req.user?.member_id);
+
+  try {
+    const { matchupId } = req.params;
+    const {
+      team_id,
+      front_nine_scores,
+      back_nine_scores,
+      hole_assignments,
+      team_handicap,
+      players,
+      total_gross,
+      total_net
+    } = req.body;
+
+    // Validation
+    if (!team_id || !front_nine_scores || !back_nine_scores || !hole_assignments || !players) {
+      return res.status(400).json({
+        error: 'team_id, front_nine_scores, back_nine_scores, hole_assignments, and players are required'
+      });
+    }
+
+    // Verify matchup exists and user has permission
+    const matchupCheck = await pool.query(
+      `SELECT lm.*, tt.captain_id
+       FROM league_matchups lm
+       JOIN tournament_teams tt ON (tt.id = lm.team1_id OR tt.id = lm.team2_id)
+       WHERE lm.id = $1 AND tt.id = $2`,
+      [matchupId, team_id]
+    );
+
+    if (matchupCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Matchup not found or access denied' });
+    }
+
+    // Check if user is captain or admin
+    const isCaptain = matchupCheck.rows.some(row => row.captain_id === req.user.member_id);
+    const isAdmin = req.user.permissions?.includes('manage_tournaments');
+
+    if (!isCaptain && !isAdmin) {
+      return res.status(403).json({ error: 'Only team captain or admin can submit scores' });
+    }
+
+    // Create lineup if needed (or get existing one)
+    // First check if lineup exists for this matchup and team
+    const lineupCheck = await pool.query(
+      `SELECT id FROM league_lineups WHERE matchup_id = $1 AND team_id = $2`,
+      [matchupId, team_id]
+    );
+
+    let lineupId;
+    if (lineupCheck.rows.length > 0) {
+      lineupId = lineupCheck.rows[0].id;
+    } else {
+      // Create lineup from players
+      const lineupResult = await pool.query(
+        `INSERT INTO league_lineups (
+          matchup_id, team_id, player1_id, player2_id, player3_id,
+          player1_handicap, player2_handicap, player3_handicap,
+          submitted_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+        RETURNING id`,
+        [
+          matchupId, team_id,
+          players[0].user_id, players[1].user_id, players[2].user_id,
+          players[0].handicap, players[1].handicap, players[2].handicap
+        ]
+      );
+      lineupId = lineupResult.rows[0].id;
+    }
+
+    // Submit individual scores for each player (front 9)
+    const individualScoreResults = [];
+    for (const player of players) {
+      // Find holes assigned to this player
+      const assignedHoles = Object.entries(hole_assignments)
+        .filter(([hole, playerId]) => playerId === player.id)
+        .map(([hole]) => parseInt(hole));
+
+      // Get hole scores for this player
+      const playerHoleScores = assignedHoles.reduce((acc, hole) => {
+        if (front_nine_scores[hole]) {
+          acc[hole] = front_nine_scores[hole];
+        }
+        return acc;
+      }, {});
+
+      // Calculate totals for this player
+      const grossTotal = Object.values(playerHoleScores).reduce((sum, score) => sum + (score.gross || 0), 0);
+      const netTotal = Object.values(playerHoleScores).reduce((sum, score) => sum + (score.net || 0), 0);
+
+      const result = await pool.query(
+        `INSERT INTO match_individual_scores (
+          matchup_id, lineup_id, team_id, player_id,
+          assigned_holes, hole_scores, gross_total, net_total,
+          player_handicap, course_handicap
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        ON CONFLICT (matchup_id, player_id)
+        DO UPDATE SET
+          lineup_id = EXCLUDED.lineup_id,
+          assigned_holes = EXCLUDED.assigned_holes,
+          hole_scores = EXCLUDED.hole_scores,
+          gross_total = EXCLUDED.gross_total,
+          net_total = EXCLUDED.net_total,
+          player_handicap = EXCLUDED.player_handicap,
+          course_handicap = EXCLUDED.course_handicap,
+          updated_at = CURRENT_TIMESTAMP
+        RETURNING *`,
+        [
+          matchupId, lineupId, team_id, player.user_id,
+          assignedHoles, // Pass array directly for integer[] type
+          JSON.stringify(playerHoleScores), // Keep JSON for jsonb type
+          grossTotal, netTotal,
+          player.handicap, // player_handicap as decimal
+          Math.round(player.handicap) // course_handicap as integer
+        ]
+      );
+      individualScoreResults.push(result.rows[0]);
+    }
+
+    // Submit alternate shot scores (back 9)
+    const backNineGross = Object.values(back_nine_scores).reduce((sum, score) => sum + (score.gross || 0), 0);
+    const backNineNet = Object.values(back_nine_scores).reduce((sum, score) => sum + (score.net || 0), 0);
+
+    const alternateShotResult = await pool.query(
+      `INSERT INTO match_alternate_shot_scores (
+        matchup_id, lineup_id, team_id,
+        hole_scores, gross_total, net_total,
+        team_handicap, team_course_handicap
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (matchup_id, team_id)
+      DO UPDATE SET
+        lineup_id = EXCLUDED.lineup_id,
+        hole_scores = EXCLUDED.hole_scores,
+        gross_total = EXCLUDED.gross_total,
+        net_total = EXCLUDED.net_total,
+        team_handicap = EXCLUDED.team_handicap,
+        team_course_handicap = EXCLUDED.team_course_handicap,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *`,
+      [
+        matchupId, lineupId, team_id,
+        JSON.stringify(back_nine_scores), backNineGross, backNineNet,
+        team_handicap, // team_handicap as decimal
+        Math.round(team_handicap) // team_course_handicap as integer
+      ]
+    );
+
+    // Update matchup status
+    await pool.query(
+      `UPDATE league_matchups
+       SET status = 'scores_submitted',
+       updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [matchupId]
+    );
+
+    res.status(201).json({
+      message: 'Scores submitted successfully',
+      lineup_id: lineupId,
+      individual_scores: individualScoreResults,
+      alternate_shot_scores: alternateShotResult.rows[0],
+      total_net: total_net
+    });
+  } catch (err) {
+    console.error('Error submitting league match scores:', err);
+    console.error('Error stack:', err.stack);
+    res.status(500).json({ error: err.message || 'Failed to submit scores' });
+  }
+});
+
+// GET /api/leagues/:leagueId/scores - Get all scores for a league
+app.get('/api/leagues/:leagueId/scores', authenticateToken, async (req, res) => {
+  try {
+    const { leagueId } = req.params;
+
+    // Get all matchups with their scores
+    const result = await pool.query(
+      `SELECT
+        lm.id as matchup_id,
+        lm.week_number,
+        ls.week_start_date,
+        ls.week_end_date,
+        ld.division_name,
+        lm.team1_id,
+        t1.name as team1_name,
+        lm.team2_id,
+        t2.name as team2_name,
+        ls.course_id,
+        c.name as course_name,
+        lm.status,
+        (
+          SELECT COUNT(*) > 0
+          FROM match_individual_scores mis
+          WHERE mis.matchup_id = lm.id AND mis.team_id = lm.team1_id
+        ) as team1_has_scores,
+        (
+          SELECT COUNT(*) > 0
+          FROM match_individual_scores mis
+          WHERE mis.matchup_id = lm.id AND mis.team_id = lm.team2_id
+        ) as team2_has_scores,
+        (
+          SELECT COALESCE(SUM(mis.net_total), 0)
+          FROM match_individual_scores mis
+          WHERE mis.matchup_id = lm.id AND mis.team_id = lm.team1_id
+        ) + (
+          SELECT COALESCE(mass.net_total, 0)
+          FROM match_alternate_shot_scores mass
+          WHERE mass.matchup_id = lm.id AND mass.team_id = lm.team1_id
+        ) as team1_net_total,
+        (
+          SELECT COALESCE(SUM(mis.net_total), 0)
+          FROM match_individual_scores mis
+          WHERE mis.matchup_id = lm.id AND mis.team_id = lm.team2_id
+        ) + (
+          SELECT COALESCE(mass.net_total, 0)
+          FROM match_alternate_shot_scores mass
+          WHERE mass.matchup_id = lm.id AND mass.team_id = lm.team2_id
+        ) as team2_net_total,
+        (
+          SELECT COALESCE(SUM(mis.gross_total), 0)
+          FROM match_individual_scores mis
+          WHERE mis.matchup_id = lm.id AND mis.team_id = lm.team1_id
+        ) + (
+          SELECT COALESCE(mass.gross_total, 0)
+          FROM match_alternate_shot_scores mass
+          WHERE mass.matchup_id = lm.id AND mass.team_id = lm.team1_id
+        ) as team1_gross_total,
+        (
+          SELECT COALESCE(SUM(mis.gross_total), 0)
+          FROM match_individual_scores mis
+          WHERE mis.matchup_id = lm.id AND mis.team_id = lm.team2_id
+        ) + (
+          SELECT COALESCE(mass.gross_total, 0)
+          FROM match_alternate_shot_scores mass
+          WHERE mass.matchup_id = lm.id AND mass.team_id = lm.team2_id
+        ) as team2_gross_total
+      FROM league_matchups lm
+      JOIN tournament_teams t1 ON lm.team1_id = t1.id
+      JOIN tournament_teams t2 ON lm.team2_id = t2.id
+      LEFT JOIN league_divisions ld ON lm.division_id = ld.id
+      LEFT JOIN league_schedule ls ON lm.schedule_id = ls.id
+      LEFT JOIN simulator_courses_combined c ON ls.course_id = c.id
+      WHERE lm.league_id = $1
+      ORDER BY lm.week_number, lm.id`,
+      [leagueId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching league scores:', err);
+    res.status(500).json({ error: 'Failed to fetch league scores' });
+  }
+});
+
+// GET /api/leagues/matchups/:matchupId/scores/:teamId - Get existing scores for a team in a matchup
+app.get('/api/leagues/matchups/:matchupId/scores/:teamId', authenticateToken, async (req, res) => {
+  try {
+    const { matchupId, teamId } = req.params;
+
+    // Get individual scores (front 9)
+    const individualScores = await pool.query(
+      `SELECT player_id, assigned_holes, hole_scores, gross_total, net_total, player_handicap
+       FROM match_individual_scores
+       WHERE matchup_id = $1 AND team_id = $2`,
+      [matchupId, teamId]
+    );
+
+    // Get alternate shot scores (back 9)
+    const alternateShotScores = await pool.query(
+      `SELECT hole_scores, gross_total, net_total, team_handicap
+       FROM match_alternate_shot_scores
+       WHERE matchup_id = $1 AND team_id = $2`,
+      [matchupId, teamId]
+    );
+
+    res.json({
+      individual_scores: individualScores.rows,
+      alternate_shot_scores: alternateShotScores.rows.length > 0 ? alternateShotScores.rows[0] : null
+    });
+  } catch (err) {
+    console.error('Error fetching matchup scores:', err);
+    res.status(500).json({ error: 'Failed to fetch scores' });
+  }
+});
+
+// DELETE /api/leagues/matchups/:matchupId/scores/:teamId - Delete scores for one team in a matchup
+app.delete('/api/leagues/matchups/:matchupId/scores/:teamId', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  try {
+    const { matchupId, teamId } = req.params;
+
+    // Verify matchup exists
+    const matchupCheck = await pool.query(
+      'SELECT id, league_id FROM league_matchups WHERE id = $1',
+      [matchupId]
+    );
+
+    if (matchupCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Matchup not found' });
+    }
+
+    // Delete individual scores for this team
+    await pool.query(
+      'DELETE FROM match_individual_scores WHERE matchup_id = $1 AND team_id = $2',
+      [matchupId, teamId]
+    );
+
+    // Delete alternate shot scores for this team
+    await pool.query(
+      'DELETE FROM match_alternate_shot_scores WHERE matchup_id = $1 AND team_id = $2',
+      [matchupId, teamId]
+    );
+
+    // Delete lineup for this team
+    await pool.query(
+      'DELETE FROM league_lineups WHERE matchup_id = $1 AND team_id = $2',
+      [matchupId, teamId]
+    );
+
+    // Check if any scores remain for this matchup
+    const remainingScores = await pool.query(
+      `SELECT COUNT(*) as count FROM match_individual_scores WHERE matchup_id = $1`,
+      [matchupId]
+    );
+
+    // Only update matchup status back to scheduled if no scores remain
+    if (parseInt(remainingScores.rows[0].count) === 0) {
+      await pool.query(
+        `UPDATE league_matchups
+         SET status = 'scheduled', updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [matchupId]
+      );
+    }
+
+    res.json({ message: 'Team scores deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting team scores:', err);
+    res.status(500).json({ error: 'Failed to delete team scores' });
+  }
+});
+
 // --------------------------------------------
 // Score Verification & Results
 // --------------------------------------------
@@ -15918,6 +16636,7 @@ app.get('/api/teams/:teamId/availability/week/:weekNumber', authenticateToken, a
         u.handicap,
         tm.is_captain,
         tma.is_available,
+        tma.captain_override,
         tma.availability_notes,
         tma.time_slots,
         tma.submitted_at,
@@ -16008,6 +16727,66 @@ app.put('/api/availability/:availabilityId', authenticateToken, async (req, res)
   } catch (err) {
     console.error('Error updating availability:', err);
     res.status(500).json({ error: 'Failed to update availability' });
+  }
+});
+
+// PUT /api/teams/:teamId/availability/:userId/captain-override - Captain override player availability
+app.put('/api/teams/:teamId/availability/:userId/captain-override', authenticateToken, async (req, res) => {
+  try {
+    const { teamId, userId } = req.params;
+    const { league_id, week_number, captain_override } = req.body;
+
+    if (!league_id || !week_number || captain_override === undefined) {
+      return res.status(400).json({ error: 'league_id, week_number, and captain_override are required' });
+    }
+
+    // Verify user is the team captain
+    const captainCheck = await pool.query(
+      `SELECT tt.captain_id FROM tournament_teams tt WHERE tt.id = $1`,
+      [teamId]
+    );
+
+    if (captainCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    const isAuthorized = captainCheck.rows[0].captain_id === req.user.member_id ||
+                         req.user.permissions?.includes('manage_tournaments');
+
+    if (!isAuthorized) {
+      return res.status(403).json({ error: 'Only team captain or admin can override availability' });
+    }
+
+    // Ensure the column exists (migration may not have run yet)
+    try {
+      await pool.query(`
+        ALTER TABLE team_member_availability
+        ADD COLUMN IF NOT EXISTS captain_override BOOLEAN DEFAULT false
+      `);
+    } catch (migrationErr) {
+      console.log('Column captain_override may already exist:', migrationErr.message);
+    }
+
+    // Upsert availability record with captain override
+    const result = await pool.query(
+      `INSERT INTO team_member_availability
+        (team_id, user_id, league_id, week_number, captain_override, is_available)
+       VALUES ($1, $2, $3, $4, $5, COALESCE((
+         SELECT is_available FROM team_member_availability
+         WHERE team_id = $1 AND user_id = $2 AND league_id = $3 AND week_number = $4
+       ), NULL))
+       ON CONFLICT (team_id, user_id, league_id, week_number)
+       DO UPDATE SET
+         captain_override = EXCLUDED.captain_override,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [teamId, userId, league_id, week_number, captain_override]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error setting captain override:', err);
+    res.status(500).json({ error: 'Failed to set captain override' });
   }
 });
 
@@ -16405,7 +17184,8 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
 
     // Get upcoming matches
     const upcomingMatches = await pool.query(
-      `SELECT lm.*, ls.week_start_date, ls.week_end_date,
+      `SELECT lm.*, ls.week_start_date, ls.week_end_date, ls.course_id,
+        sc.name as course_name,
         CASE
           WHEN lm.team1_id = $1 THEN t2.name
           ELSE t1.name
@@ -16414,6 +17194,7 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
        JOIN league_schedule ls ON lm.schedule_id = ls.id
        LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
        LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
+       LEFT JOIN simulator_courses_combined sc ON ls.course_id = sc.id
        WHERE (lm.team1_id = $1 OR lm.team2_id = $1)
          AND lm.league_id = $2
          AND lm.status IN ('scheduled', 'lineup_submitted')

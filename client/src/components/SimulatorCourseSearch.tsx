@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, MapPin, X, Loader2, Trophy } from 'lucide-react';
+import { Search, MapPin, X, Loader2, Trophy, Trash2, Edit3 } from 'lucide-react';
 import { getSimulatorCourses } from '../services/api';
 
 interface Course {
@@ -15,45 +15,34 @@ interface SimulatorCourseSearchProps {
   onCourseSelect: (course: Course) => void;
   onClose: () => void;
   selectedCourseId?: number;
+  selectedCourseName?: string;
+  onCourseRemove?: () => void;
 }
 
 const SimulatorCourseSearch: React.FC<SimulatorCourseSearchProps> = ({
   onCourseSelect,
   onClose,
-  selectedCourseId
+  selectedCourseId,
+  selectedCourseName,
+  onCourseRemove
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [courses, setCourses] = useState<Course[]>([]);
-  const [filteredCourses, setFilteredCourses] = useState<Course[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState(2000);
+  const [showSearch, setShowSearch] = useState(!selectedCourseId);
 
-  useEffect(() => {
-    loadCourses();
-  }, []);
-
-  useEffect(() => {
-    if (searchTerm.trim() === '') {
-      setFilteredCourses(courses);
-    } else {
-      const searchLower = searchTerm.toLowerCase();
-      const filtered = courses.filter(
-        course =>
-          course.name.toLowerCase().includes(searchLower) ||
-          course.location?.toLowerCase().includes(searchLower) ||
-          course.designer?.toLowerCase().includes(searchLower)
-      );
-      setFilteredCourses(filtered);
-    }
-  }, [searchTerm, courses]);
-
-  const loadCourses = async () => {
+  const loadCourses = async (search: string) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await getSimulatorCourses();
-      setCourses(response.data);
-      setFilteredCourses(response.data);
+      // Fetch with a higher limit, or all if search is empty
+      const limit = search.trim() === '' ? 100 : 5000;
+      const response = await getSimulatorCourses(search, '', limit);
+      const coursesData = response.data.courses || [];
+      setCourses(coursesData);
+      setTotalCount(response.data.total || coursesData.length);
     } catch (err: any) {
       setError(err.message || 'Failed to load courses');
       console.error('Error loading courses:', err);
@@ -62,9 +51,30 @@ const SimulatorCourseSearch: React.FC<SimulatorCourseSearchProps> = ({
     }
   };
 
+  // Debounce search to avoid too many API calls
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadCourses(searchTerm);
+    }, 300); // Wait 300ms after user stops typing
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm]);
+
   const handleCourseSelect = (course: Course) => {
     onCourseSelect(course);
     onClose();
+  };
+
+  const handleRemoveCourse = () => {
+    if (onCourseRemove) {
+      onCourseRemove();
+    }
+    setShowSearch(true);
+  };
+
+  const handleChangeCourse = () => {
+    setShowSearch(true);
   };
 
   return (
@@ -77,8 +87,14 @@ const SimulatorCourseSearch: React.FC<SimulatorCourseSearchProps> = ({
               <Trophy className="w-6 h-6 text-brand-neon-green" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-brand-black">Select Course</h2>
-              <p className="text-sm text-neutral-600">Search from available simulator courses</p>
+              <h2 className="text-xl font-bold text-brand-black">
+                {!showSearch && selectedCourseId ? 'Selected Course' : 'Select Course'}
+              </h2>
+              <p className="text-sm text-neutral-600">
+                {!showSearch && selectedCourseId
+                  ? 'Change or remove the course assignment'
+                  : 'Search from available simulator courses'}
+              </p>
             </div>
           </div>
           <button
@@ -89,7 +105,45 @@ const SimulatorCourseSearch: React.FC<SimulatorCourseSearchProps> = ({
           </button>
         </div>
 
+        {/* Currently Selected Course Display */}
+        {!showSearch && selectedCourseId && selectedCourseName && (
+          <div className="p-6 border-b border-neutral-200">
+            <div className="bg-brand-neon-green/10 border-2 border-brand-neon-green rounded-lg p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <div className="bg-brand-neon-green rounded-full p-3">
+                    <Trophy className="w-8 h-8 text-brand-dark-green" />
+                  </div>
+                  <div>
+                    <div className="text-sm text-neutral-600 mb-1">Current Course</div>
+                    <h3 className="text-2xl font-bold text-brand-black">{selectedCourseName}</h3>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={handleChangeCourse}
+                    className="flex items-center space-x-2 px-4 py-2 bg-brand-dark-green text-white rounded-lg hover:bg-brand-muted-green transition-colors"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                    <span>Change Course</span>
+                  </button>
+                  {onCourseRemove && (
+                    <button
+                      onClick={handleRemoveCourse}
+                      className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Remove Course</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Search Bar */}
+        {showSearch && (
         <div className="p-6 border-b border-neutral-200">
           <div className="relative">
             <input
@@ -101,37 +155,43 @@ const SimulatorCourseSearch: React.FC<SimulatorCourseSearchProps> = ({
               autoFocus
             />
             <Search className="absolute left-3 top-3.5 w-5 h-5 text-neutral-400" />
+            {loading && (
+              <Loader2 className="absolute right-3 top-3.5 w-5 h-5 animate-spin text-brand-neon-green" />
+            )}
           </div>
           <div className="mt-2 text-sm text-neutral-600">
-            Showing {filteredCourses.length} of {courses.length} courses
+            {searchTerm.trim() === '' ? (
+              <>Showing first 100 courses. Type to search all {totalCount.toLocaleString()}+ courses</>
+            ) : (
+              <>Found {courses.length.toLocaleString()} courses matching "{searchTerm}"</>
+            )}
           </div>
         </div>
+        )}
 
         {/* Content */}
+        {showSearch && (
         <div className="flex-1 overflow-y-auto p-6">
-          {loading && (
-            <div className="text-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin mx-auto text-brand-neon-green" />
-              <p className="mt-2 text-neutral-600">Loading courses...</p>
-            </div>
-          )}
-
           {error && (
             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
               {error}
             </div>
           )}
 
-          {!loading && !error && filteredCourses.length === 0 && (
+          {!error && courses.length === 0 && !loading && (
             <div className="text-center py-12">
               <Trophy className="w-12 h-12 mx-auto mb-4 text-neutral-300" />
-              <p className="text-neutral-600">No courses found matching your search</p>
+              <p className="text-neutral-600">
+                {searchTerm.trim() === ''
+                  ? 'Start typing to search for courses...'
+                  : 'No courses found matching your search'}
+              </p>
             </div>
           )}
 
-          {!loading && !error && filteredCourses.length > 0 && (
+          {!error && courses.length > 0 && (
             <div className="space-y-3">
-              {filteredCourses.map((course) => (
+              {courses.map((course) => (
                 <div
                   key={course.id}
                   className={`border rounded-lg p-4 hover:border-brand-neon-green hover:bg-brand-neon-green/5 transition-all cursor-pointer ${
@@ -193,6 +253,7 @@ const SimulatorCourseSearch: React.FC<SimulatorCourseSearchProps> = ({
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

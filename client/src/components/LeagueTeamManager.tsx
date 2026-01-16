@@ -17,7 +17,6 @@ import {
   Search,
   Filter,
   LayoutDashboard,
-  Calendar,
   Eye
 } from 'lucide-react';
 import { toast } from 'react-toastify';
@@ -168,7 +167,7 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
         id: user.member_id,
         first_name: user.first_name,
         last_name: user.last_name,
-        sim_handicap: user.sim_handicap || 0,
+        sim_handicap: typeof user.sim_handicap === 'string' ? parseFloat(user.sim_handicap) : (user.sim_handicap || 0),
         club: user.club || 'Unknown',
         email: user.email || ''
       })));
@@ -184,20 +183,24 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
   const loadTeamMembers = async (teamId: number) => {
     // Skip if already loaded or currently loading
     if (teamsWithLoadedMembers.has(teamId) || loadingTeamMembers.has(teamId)) {
+      console.log('Skipping load for team', teamId, '- already loaded or loading');
       return;
     }
 
+    console.log('Loading members for team:', teamId);
     setLoadingTeamMembers(prev => new Set(prev).add(teamId));
 
     try {
       const membersResponse = await getTeamMembers(teamId);
+      console.log('Raw members response:', membersResponse.data);
+
       const members: TeamMember[] = membersResponse.data
         .map((m: any): TeamMember => ({
           id: m.id,
           user_id: m.user_member_id,
           first_name: m.first_name,
           last_name: m.last_name,
-          sim_handicap: m.sim_handicap || 0,
+          sim_handicap: typeof m.sim_handicap === 'string' ? parseFloat(m.sim_handicap) : (m.sim_handicap || 0),
           role: (m.is_captain ? 'captain' : 'member') as 'captain' | 'member',
           joined_at: m.joined_at
         }))
@@ -214,6 +217,8 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
           return a.first_name.localeCompare(b.first_name);
         });
 
+      console.log('Mapped members:', members);
+
       setTeams(prev =>
         prev.map(team =>
           team.id === teamId ? { ...team, members } : team
@@ -221,6 +226,7 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
       );
 
       setTeamsWithLoadedMembers(prev => new Set(prev).add(teamId));
+      console.log('Members loaded and team updated for:', teamId);
     } catch (error) {
       console.error(`Error loading members for team ${teamId}:`, error);
       toast.error('Failed to load team members');
@@ -338,7 +344,7 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
             user_id: captain.id,
             first_name: captain.first_name,
             last_name: captain.last_name,
-            sim_handicap: captain.sim_handicap,
+            sim_handicap: parseFloat(captain.sim_handicap as any) || 0,
             role: 'captain',
             joined_at: new Date().toISOString()
           }
@@ -387,7 +393,7 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
         user_id: apiMember.user_member_id,
         first_name: apiMember.first_name,
         last_name: apiMember.last_name,
-        sim_handicap: apiMember.sim_handicap || 0,
+        sim_handicap: typeof apiMember.sim_handicap === 'string' ? parseFloat(apiMember.sim_handicap) : (apiMember.sim_handicap || 0),
         role: apiMember.is_captain ? 'captain' : 'member',
         joined_at: apiMember.joined_at
       };
@@ -549,7 +555,7 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
 
   const sortedTeams = [...filteredTeams].sort((a, b) => {
     let aValue: any, bValue: any;
-    
+
     switch (sortBy) {
       case 'name':
         aValue = a.name.toLowerCase();
@@ -578,6 +584,41 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
       return aValue < bValue ? 1 : -1;
     }
   });
+
+  // Calculate team handicap and percentage of players with sim rounds
+  const calculateTeamHandicap = (team: Team) => {
+    if (!team.members || team.members.length === 0) {
+      console.log('No members for team:', team.name);
+      return { average: 0, percentage: 0, hasData: false };
+    }
+
+    console.log('Calculating handicap for team:', team.name, 'Members:', team.members);
+
+    // Calculate average sim handicap
+    const totalHandicap = team.members.reduce((sum, member) => {
+      // Parse as float since API might return string
+      const handicap = typeof member.sim_handicap === 'string' ? parseFloat(member.sim_handicap) : (member.sim_handicap || 0);
+      console.log(`Member ${member.first_name} ${member.last_name} handicap:`, handicap, '(from', member.sim_handicap, ')');
+      return sum + handicap;
+    }, 0);
+    const average = totalHandicap / team.members.length;
+
+    // Calculate percentage of players with at least 1 sim round
+    // Assumption: if sim_handicap !== 0 (includes negative handicaps), player has at least 1 sim round
+    const playersWithRounds = team.members.filter(member => {
+      const handicap = typeof member.sim_handicap === 'string' ? parseFloat(member.sim_handicap) : (member.sim_handicap || 0);
+      return handicap !== 0; // Include negative handicaps (scratch or better players)
+    }).length;
+    const percentage = (playersWithRounds / team.members.length) * 100;
+
+    console.log('Team handicap calculation:', { totalHandicap, average, playersWithRounds, percentage });
+
+    return {
+      average: isNaN(average) ? 0 : Math.round(average * 10) / 10,
+      percentage: isNaN(percentage) ? 0 : Math.round(percentage),
+      hasData: true
+    };
+  };
 
   if (loading) {
     return (
@@ -723,12 +764,32 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
                       {team.wins}-{team.losses}-{team.ties}
                     </div>
                   </div>
-                  
+
                   <div className="text-right">
                     <div className="text-sm text-neutral-600">Points</div>
                     <div className="font-semibold text-brand-neon-green">{team.total_points}</div>
                   </div>
-                  
+
+                  {/* Team Handicap */}
+                  <div className="text-right">
+                    <div className="text-sm text-neutral-600">Team Handicap</div>
+                    {loadingTeamMembers.has(team.id) ? (
+                      <div className="text-sm text-neutral-500">Loading...</div>
+                    ) : teamsWithLoadedMembers.has(team.id) ? (
+                      <div className="font-semibold text-brand-neon-green">
+                        {(() => {
+                          const { average, percentage, hasData } = calculateTeamHandicap(team);
+                          if (!hasData) {
+                            return <span className="text-sm text-neutral-400">No data</span>;
+                          }
+                          return `${average.toFixed(1)} (${percentage}%)`;
+                        })()}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-neutral-400">Expand to load</div>
+                    )}
+                  </div>
+
                   <div className="flex items-center space-x-2">
                     <button
                       onClick={() => navigate(`/captain-dashboard/${team.id}/${leagueId}`)}
@@ -746,15 +807,6 @@ const LeagueTeamManager: React.FC<LeagueTeamManagerProps> = ({ leagueId }) => {
                     >
                       <Eye className="w-4 h-4" />
                       <span>Team View</span>
-                    </button>
-
-                    <button
-                      onClick={() => navigate(`/player/availability/${team.id}/${leagueId}`)}
-                      className="flex items-center space-x-2 px-3 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors"
-                      title="Player Availability"
-                    >
-                      <Calendar className="w-4 h-4" />
-                      <span>Availability</span>
                     </button>
 
                     <button

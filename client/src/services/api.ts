@@ -585,6 +585,18 @@ export const getLeagueSchedule = (leagueId: number) =>
 export const getLeagueWeekSchedule = (leagueId: number, weekNumber: number) =>
   api.get(`/leagues/${leagueId}/schedule/week/${weekNumber}`);
 
+export const updateWeekSchedule = (leagueId: number, weekId: number, weekData: { course_id?: number; week_start_date?: string; week_end_date?: string }) =>
+  api.put(`/leagues/${leagueId}/schedule/${weekId}`, weekData);
+
+export const updateWeekStatus = (leagueId: number, weekId: number, status: 'scheduled' | 'active' | 'completed') =>
+  api.put(`/leagues/${leagueId}/schedule/${weekId}/status`, { status });
+
+export const publishWeek = (leagueId: number, weekId: number) =>
+  api.post(`/leagues/${leagueId}/schedule/${weekId}/publish`);
+
+export const unpublishWeek = (leagueId: number, weekId: number) =>
+  api.post(`/leagues/${leagueId}/schedule/${weekId}/unpublish`);
+
 export const generateLeagueMatchups = (leagueId: number, matchupData: { week_number: number; division_id?: number }) =>
   api.post<LeagueMatchup[]>(`/leagues/${leagueId}/matchups/generate`, matchupData);
 
@@ -593,6 +605,9 @@ export const getLeagueMatchups = (leagueId: number, params?: { week_number?: num
 
 export const getLeagueWeekMatchups = (leagueId: number, weekNumber: number) =>
   api.get<LeagueMatchup[]>(`/leagues/${leagueId}/matchups/week/${weekNumber}`);
+
+export const createMatchup = (matchupData: { league_id: number; schedule_id: number; week_number: number; team1_id: number; team2_id: number; division_id: number }) =>
+  api.post<LeagueMatchup>(`/matchups`, matchupData);
 
 export const updateMatchup = (matchupId: number, matchupData: Partial<LeagueMatchup>) =>
   api.put<LeagueMatchup>(`/matchups/${matchupId}`, matchupData);
@@ -710,6 +725,13 @@ export const submitTeamAvailability = (teamId: number, availabilityData: {
 
 export const getTeamAvailability = (teamId: number, weekNumber: number, leagueId: number) =>
   api.get(`/teams/${teamId}/availability/week/${weekNumber}`, { params: { league_id: leagueId } });
+
+export const setCaptainOverride = (teamId: number, userId: number, overrideData: {
+  league_id: number;
+  week_number: number;
+  captain_override: boolean;
+}) =>
+  api.put(`/teams/${teamId}/availability/${userId}/captain-override`, overrideData);
 
 // Matches
 export const getMatches = () => api.get<Match[]>('/matches');

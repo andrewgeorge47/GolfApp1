@@ -100,13 +100,19 @@ const LineupSelector: React.FC<LineupSelectorProps> = ({ teamId, leagueId, membe
       console.log('LineupSelector - Availability data:', availData);
 
       // Create availability map
+      // Captain override takes precedence - if captain_override is true, player is available
       const availabilityMap = new Map<number, 'available' | 'unavailable' | 'pending'>();
       if (Array.isArray(availData)) {
         availData.forEach((avail: any) => {
           let status: 'available' | 'unavailable' | 'pending' = 'pending';
-          if (avail.is_available !== null && avail.is_available !== undefined) {
+
+          // Captain override takes precedence
+          if (avail.captain_override === true) {
+            status = 'available';
+          } else if (avail.is_available !== null && avail.is_available !== undefined) {
             status = avail.is_available ? 'available' : 'unavailable';
           }
+
           availabilityMap.set(avail.user_member_id, status);
         });
       }

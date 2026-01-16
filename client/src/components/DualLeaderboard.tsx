@@ -67,6 +67,7 @@ const DualLeaderboard: React.FC<DualLeaderboardProps> = ({ challenge, onBack }) 
   };
 
   const userCTPEntry = ctpEntries.find(e => e.user_id === user?.member_id);
+  const showTeaserView = !userCTPEntry; // Show teaser if user hasn't submitted any shots
 
   return (
     <div className="space-y-4">
@@ -197,6 +198,14 @@ const DualLeaderboard: React.FC<DualLeaderboardProps> = ({ challenge, onBack }) 
       {/* CTP Leaderboard */}
       {!loading && activeTab === 'ctp' && (
         <div className="space-y-2">
+          {/* Teaser Alert */}
+          {showTeaserView && ctpEntries.length > 0 && (
+            <Alert variant="info" className="mb-4">
+              <Target className="w-4 h-4 inline mr-2" />
+              Submit your shots to see full leaderboard distances
+            </Alert>
+          )}
+
           {ctpEntries.length === 0 ? (
             <p className="py-8 text-center text-gray-500">
               No shots submitted yet
@@ -242,21 +251,34 @@ const DualLeaderboard: React.FC<DualLeaderboardProps> = ({ challenge, onBack }) 
                 </div>
 
                 <div className="text-right">
-                  <p className={`font-bold ${
-                    entry.is_hole_in_one ? 'text-green-600' : 'text-gray-900'
-                  }`}>
-                    {entry.is_hole_in_one ? 'ACE!' : formatDistance(entry.distance_inches)}
-                  </p>
-                  <div className="flex items-center justify-end gap-1 text-xs">
-                    {entry.verified ? (
-                      <CheckCircle className="w-3 h-3 text-green-500" />
-                    ) : (
-                      <Clock className="w-3 h-3 text-yellow-500" />
-                    )}
-                    <span className="text-gray-400">
-                      {entry.verified ? 'Verified' : 'Pending'}
-                    </span>
-                  </div>
+                  {showTeaserView ? (
+                    <div className="relative">
+                      <p className="font-bold text-gray-900 filter blur-md select-none">
+                        12' 6"
+                      </p>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-xs text-gray-400 font-normal">???</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <p className={`font-bold ${
+                        entry.is_hole_in_one ? 'text-green-600' : 'text-gray-900'
+                      }`}>
+                        {entry.is_hole_in_one ? 'ACE!' : formatDistance(entry.distance_inches)}
+                      </p>
+                      <div className="flex items-center justify-end gap-1 text-xs">
+                        {entry.verified ? (
+                          <CheckCircle className="w-3 h-3 text-green-500" />
+                        ) : (
+                          <Clock className="w-3 h-3 text-yellow-500" />
+                        )}
+                        <span className="text-gray-400">
+                          {entry.verified ? 'Verified' : 'Pending'}
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             ))

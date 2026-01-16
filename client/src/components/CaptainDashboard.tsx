@@ -9,12 +9,14 @@ import {
   CheckCircle,
   XCircle,
   ChevronRight,
-  BarChart3
+  BarChart3,
+  ClipboardList
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
 import AvailabilityView from './AvailabilityView';
 import LineupSelector from './LineupSelector';
+import LeagueScoreSubmission from './LeagueScoreSubmission';
 import {
   getCaptainDashboard,
   getLeague,
@@ -79,6 +81,10 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
   const [teamStats, setTeamStats] = useState<TeamStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'availability' | 'lineup'>('overview');
+
+  // Score submission modal state
+  const [showScoreModal, setShowScoreModal] = useState(false);
+  const [selectedMatchup, setSelectedMatchup] = useState<UpcomingMatch | null>(null);
 
   const loadCaptainData = useCallback(async () => {
     setLoading(true);
@@ -423,10 +429,25 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
                           </div>
                         )}
 
-                        <button className="flex items-center space-x-1 px-3 py-1 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors">
-                          <span className="text-sm">Manage</span>
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
+                        <div className="flex space-x-2">
+                          {match.course_id > 0 && (
+                            <button
+                              onClick={() => {
+                                setSelectedMatchup(match);
+                                setShowScoreModal(true);
+                              }}
+                              className="flex items-center space-x-1 px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                              <ClipboardList className="w-4 h-4" />
+                              <span className="text-sm">Submit Scores</span>
+                            </button>
+                          )}
+
+                          <button className="flex items-center space-x-1 px-3 py-1 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors">
+                            <span className="text-sm">Manage</span>
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -453,6 +474,32 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
           />
         )}
       </div>
+
+      {/* Score Submission Modal */}
+      {showScoreModal && selectedMatchup && team && (
+        <LeagueScoreSubmission
+          matchupId={selectedMatchup.id}
+          teamId={teamId}
+          opponentTeamId={selectedMatchup.opponent_team_id}
+          courseId={selectedMatchup.course_id}
+          players={team.members
+            .filter(m => m.role === 'captain' || m.role === 'member')
+            .slice(0, 3)
+            .map(m => ({
+              id: m.id,
+              user_id: m.user_id,
+              name: `${m.first_name} ${m.last_name}`,
+              sim_handicap: m.handicap
+            }))}
+          onClose={() => {
+            setShowScoreModal(false);
+            setSelectedMatchup(null);
+          }}
+          onSubmit={() => {
+            loadCaptainData();
+          }}
+        />
+      )}
     </div>
   );
 };

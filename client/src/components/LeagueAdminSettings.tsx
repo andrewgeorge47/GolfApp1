@@ -78,11 +78,26 @@ const LeagueAdminSettings: React.FC<LeagueAdminSettingsProps> = ({ leagueId }) =
 
       if (foundLeague) {
         setLeague(foundLeague);
+
+        // Format dates for HTML date input (YYYY-MM-DD)
+        const formatDateForInput = (dateStr: string) => {
+          if (!dateStr) return '';
+          // If it's already in YYYY-MM-DD format, return as-is
+          if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+          // Otherwise parse and format
+          try {
+            const date = new Date(dateStr);
+            return date.toISOString().split('T')[0];
+          } catch {
+            return '';
+          }
+        };
+
         setFormData({
           name: foundLeague.name,
           season: foundLeague.season || '',
-          start_date: foundLeague.start_date,
-          end_date: foundLeague.end_date,
+          start_date: formatDateForInput(foundLeague.start_date),
+          end_date: formatDateForInput(foundLeague.end_date),
           divisions_count: foundLeague.divisions_count || 2,
           weeks_per_season: foundLeague.weeks_per_season || 18,
           teams_per_division: foundLeague.teams_per_division || 8,

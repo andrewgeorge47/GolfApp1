@@ -167,15 +167,47 @@ const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({
         if (userAvail && userAvail.time_slots) {
           // Parse time slots from database (handle both string and object formats)
           let timeSlotsData = userAvail.time_slots;
+          console.log('Raw time_slots from DB:', timeSlotsData, 'Type:', typeof timeSlotsData);
+
           if (typeof timeSlotsData === 'string') {
             timeSlotsData = JSON.parse(timeSlotsData);
           }
 
           console.log('Parsed time slots:', timeSlotsData);
+          console.log('Time slots array length:', timeSlotsData?.length);
+          console.log('Is array?', Array.isArray(timeSlotsData));
+
+          // TEMPORARY DEBUG ALERT FOR MOBILE
+          if (timeSlotsData && timeSlotsData.length > 0) {
+            const debugInfo = `Found ${timeSlotsData.length} slots\nFirst slot: ${JSON.stringify(timeSlotsData[0])}`;
+            console.log('DEBUG:', debugInfo);
+            // Uncomment to see alert on mobile:
+            // alert(debugInfo);
+          } else {
+            console.log('DEBUG: No time slots or empty array');
+            // Uncomment to see alert on mobile:
+            // alert('No time slots found in data');
+          }
 
           // Use the actual league week start date (parse as local date, not UTC)
-          const [year, month, day] = selectedWeek.week_start_date.split('-').map(Number);
-          const leagueWeekStart = new Date(year, month - 1, day); // Parse as local date
+          console.log('selectedWeek.week_start_date:', selectedWeek.week_start_date);
+          console.log('selectedWeek.week_start_date type:', typeof selectedWeek.week_start_date);
+
+          // Parse league week start date robustly
+          const parseLeagueDate = (dateValue: any): Date => {
+            if (dateValue instanceof Date) {
+              return dateValue;
+            } else if (typeof dateValue === 'string') {
+              const dateStr = dateValue.split('T')[0]; // Get just the date part
+              const [year, month, day] = dateStr.split('-').map(Number);
+              console.log('Parsed date parts:', { year, month, day });
+              return new Date(year, month - 1, day);
+            }
+            console.error('Unknown date format:', dateValue);
+            return new Date(); // Fallback
+          };
+
+          const leagueWeekStart = parseLeagueDate(selectedWeek.week_start_date);
           const calendarWeekStart = leagueWeekStart;
           console.log('League week start (parsed):', leagueWeekStart);
           console.log('League week start (ISO):', leagueWeekStart.toISOString());
@@ -206,6 +238,17 @@ const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({
           });
 
           console.log('Converted slots to Date objects:', slots);
+          console.log('Number of converted slots:', slots.length);
+          if (slots.length > 0) {
+            console.log('First converted slot details:', {
+              start: slots[0].start.toString(),
+              start_ISO: slots[0].start.toISOString(),
+              end: slots[0].end.toString(),
+              dayOfWeek: slots[0].start.getDay(),
+              date: slots[0].start.toLocaleDateString()
+            });
+          }
+
           setSelectedSlots(slots);
           setInitialSlots(slots); // Track initial state for change detection
         } else {
@@ -450,8 +493,21 @@ const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({
   // Calculate calendar date range for the selected week
   // If today falls within the selected week, show today's week, otherwise show the league week
   const today = new Date();
-  const leagueWeekStart = new Date(selectedWeek.week_start_date);
-  const leagueWeekEnd = new Date(selectedWeek.week_end_date);
+
+  // Parse dates robustly (handle both Date objects and strings)
+  const parseLeagueDate = (dateValue: any): Date => {
+    if (dateValue instanceof Date) {
+      return dateValue;
+    } else if (typeof dateValue === 'string') {
+      const dateStr = dateValue.split('T')[0]; // Get just the date part
+      const [year, month, day] = dateStr.split('-').map(Number);
+      return new Date(year, month - 1, day);
+    }
+    return new Date(); // Fallback
+  };
+
+  const leagueWeekStart = parseLeagueDate(selectedWeek.week_start_date);
+  const leagueWeekEnd = parseLeagueDate(selectedWeek.week_end_date);
 
   // Check if today is within the selected league week
   const todayInSelectedWeek = today >= startOfDay(leagueWeekStart) && today <= startOfDay(leagueWeekEnd);

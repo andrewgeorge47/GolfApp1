@@ -104,6 +104,11 @@ const ChallengeCompactCard: React.FC<ChallengeCompactCardProps> = ({
   ) || [];
   const needsSubmission = groupsNeedingSubmission.length > 0;
 
+  // Check if user has submitted at least one group of shots
+  const hasSubmittedAtLeastOne = myEntry?.groups?.some(
+    g => g.shots && g.shots.length > 0 && g.status !== 'purchased'
+  ) || false;
+
   // Pot calculations disabled for now
   // const ctpPot = Number(challenge.total_entry_fees || 0) * 0.5;
 
@@ -326,7 +331,7 @@ const ChallengeCompactCard: React.FC<ChallengeCompactCardProps> = ({
         status={getStatus()}
         participants={{ current: challenge.total_entries }}
         endDate={timeRemaining}
-        prize={myEntry?.best_shot ? formatDistance(myEntry.best_shot.distance_from_pin_inches) : '--'}
+        prize={hasSubmittedAtLeastOne && myEntry?.best_shot ? formatDistance(myEntry.best_shot.distance_from_pin_inches) : '--'}
         {...(needsSubmission && segmentedActionsConfig
           ? { segmentedActions: segmentedActionsConfig }
           : { onAction: actionConfig.handler, actionLabel: actionConfig.label }

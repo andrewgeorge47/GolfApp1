@@ -3,11 +3,15 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
-  Calendar
+  Calendar,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Shield
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
-import { getLeagueSchedule, getTeamAvailability } from '../services/api';
+import { getLeagueSchedule, getTeamAvailability, setCaptainOverride } from '../services/api';
 
 interface TeamMember {
   id: number;
@@ -40,6 +44,7 @@ interface TeamMemberAvailability {
   handicap: number;
   role: 'captain' | 'member';
   availability_status: 'available' | 'unavailable' | 'pending';
+  captain_override?: boolean;
   last_updated?: string;
   notes?: string;
   time_slots?: TimeSlot[];
@@ -118,9 +123,11 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
           }
         }
 
-        // Determine status: if is_available is null, they haven't submitted yet (pending)
+        // Determine status: captain override takes precedence
         let status: 'available' | 'unavailable' | 'pending' = 'pending';
-        if (row.is_available !== null && row.is_available !== undefined) {
+        if (row.captain_override === true) {
+          status = 'available';
+        } else if (row.is_available !== null && row.is_available !== undefined) {
           status = row.is_available ? 'available' : 'unavailable';
         }
 
@@ -131,6 +138,7 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
           handicap: row.handicap || 0,
           role: row.is_captain ? 'captain' : 'member',
           availability_status: status,
+          captain_override: row.captain_override || false,
           last_updated: row.updated_at,
           notes: row.availability_notes,
           time_slots: timeSlots
@@ -200,8 +208,29 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
     return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
   }) || [];
 
-  // Get players who haven't submitted
-  const pendingPlayers = sortedMembers.filter(m => m.availability_status === 'pending');
+  // Get players who haven't submitted (and not overridden by captain)
+  const pendingPlayers = sortedMembers.filter(m => m.availability_status === 'pending' && !m.captain_override);
+
+  // Handle captain override toggle
+  const handleCaptainOverride = async (memberId: number, currentOverride: boolean) => {
+    const weekNumber = availableWeeks.indexOf(currentWeek) + 1;
+
+    try {
+      await setCaptainOverride(teamId, memberId, {
+        league_id: leagueId,
+        week_number: weekNumber,
+        captain_override: !currentOverride
+      });
+
+      toast.success(!currentOverride ? 'Player marked as available' : 'Override removed');
+
+      // Reload week availability
+      loadWeekAvailability(currentWeek);
+    } catch (error: any) {
+      console.error('Error setting captain override:', error);
+      toast.error(error.response?.data?.error || 'Failed to update availability');
+    }
+  };
 
 
   if (loading) {
@@ -279,7 +308,10 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
               const playerName = `${member.first_name} ${member.last_name}`;
 
               if (existingSlot) {
-                existingSlot.players.push(playerName);
+                // Only add player if not already in the list (defensive check)
+                if (!existingSlot.players.includes(playerName)) {
+                  existingSlot.players.push(playerName);
+                }
               } else {
                 timeSlotsByDay[slot.day].push({
                   slot,
@@ -347,6 +379,93 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
         );
       })()}
 
+      {/* Team Member Availability List with Captain Override */}
+      <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
+        <div className="px-6 py-4 border-b border-neutral-200 bg-neutral-50">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-brand-black">Team Availability</h3>
+            <div className="flex items-center space-x-2 text-sm text-neutral-600">
+              <Shield className="w-4 h-4" />
+              <span>Captain Override</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="divide-y divide-neutral-200">
+          {sortedMembers.map(member => (
+            <div key={member.member_id} className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4 flex-1">
+                  {/* Avatar */}
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    member.availability_status === 'available' ? 'bg-green-100' :
+                    member.availability_status === 'unavailable' ? 'bg-red-100' :
+                    'bg-gray-100'
+                  }`}>
+                    {member.availability_status === 'available' && <CheckCircle className="w-5 h-5 text-green-600" />}
+                    {member.availability_status === 'unavailable' && <XCircle className="w-5 h-5 text-red-600" />}
+                    {member.availability_status === 'pending' && <Clock className="w-5 h-5 text-gray-500" />}
+                  </div>
+
+                  {/* Member Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-medium text-brand-black">
+                        {member.first_name} {member.last_name}
+                      </span>
+                      {member.role === 'captain' && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-brand-neon-green text-brand-dark-green">
+                          Captain
+                        </span>
+                      )}
+                      {member.captain_override && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                          <Shield className="w-3 h-3 mr-1" />
+                          Override
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-3 mt-1">
+                      <span className={`text-sm ${
+                        member.availability_status === 'available' ? 'text-green-600 font-medium' :
+                        member.availability_status === 'unavailable' ? 'text-red-600 font-medium' :
+                        'text-gray-500'
+                      }`}>
+                        {member.availability_status === 'available' && 'Available'}
+                        {member.availability_status === 'unavailable' && 'Unavailable'}
+                        {member.availability_status === 'pending' && 'Not submitted'}
+                      </span>
+                      {member.notes && (
+                        <>
+                          <span className="text-gray-300">•</span>
+                          <span className="text-sm text-gray-600 truncate">{member.notes}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Captain Override Toggle */}
+                <div className="flex items-center space-x-3">
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={member.captain_override || false}
+                      onChange={() => handleCaptainOverride(member.member_id, member.captain_override || false)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    <span className="ml-3 text-sm font-medium text-gray-700">
+                      {member.captain_override ? 'ON' : 'OFF'}
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Pending Players Alert */}
       {pendingPlayers.length > 0 && (
         <div className="bg-yellow-50 border-l-4 border-yellow-400 rounded-lg overflow-hidden">
@@ -375,7 +494,6 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-gray-600">Handicap: {player.handicap}</div>
                     </div>
                   </div>
                 </div>

@@ -4,7 +4,8 @@ import {
   Users,
   Calendar,
   Settings as SettingsIcon,
-  ArrowLeft
+  ArrowLeft,
+  ClipboardList
 } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -16,6 +17,7 @@ import LeagueDivisionManager from './LeagueDivisionManager';
 import LeagueScheduleBuilder from './LeagueScheduleBuilder';
 import LeagueTeamManager from './LeagueTeamManager';
 import LeagueAdminSettings from './LeagueAdminSettings';
+import LeagueScoresManager from './LeagueScoresManager';
 import {
   Button,
   Spinner
@@ -74,7 +76,7 @@ const LeagueAdminPanel: React.FC = () => {
   const navigate = useNavigate();
   const [league, setLeague] = useState<League | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'settings' | 'divisions' | 'schedule' | 'teams'>('settings');
+  const [activeTab, setActiveTab] = useState<'settings' | 'divisions' | 'schedule' | 'teams' | 'scores'>('settings');
 
   useEffect(() => {
     if (leagueId) {
@@ -220,6 +222,17 @@ const LeagueAdminPanel: React.FC = () => {
             <Users className="w-4 h-4 inline mr-2" />
             Teams
           </button>
+          <button
+            onClick={() => setActiveTab('scores')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'scores'
+                ? 'border-brand-neon-green text-brand-neon-green'
+                : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
+            }`}
+          >
+            <ClipboardList className="w-4 h-4 inline mr-2" />
+            Scores
+          </button>
         </nav>
       </div>
 
@@ -232,6 +245,8 @@ const LeagueAdminPanel: React.FC = () => {
         {activeTab === 'schedule' && <LeagueScheduleBuilder leagueId={league.id} />}
 
         {activeTab === 'teams' && <LeagueTeamManager leagueId={league.id} />}
+
+        {activeTab === 'scores' && <LeagueScoresManager leagueId={league.id} />}
       </div>
     </div>
   );
