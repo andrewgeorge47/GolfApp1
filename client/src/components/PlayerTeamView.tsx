@@ -41,6 +41,10 @@ interface UpcomingMatch {
   course_par?: number;
   status: 'scheduled' | 'in_progress' | 'completed';
   match_date?: string;
+  team1_id: number;
+  team2_id: number;
+  team1_playing_time?: string;
+  team2_playing_time?: string;
 }
 
 interface TeamStats {
@@ -155,7 +159,11 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
         course_slope: match.course_slope,
         course_par: match.course_par,
         status: match.status,
-        match_date: match.match_date
+        match_date: match.match_date,
+        team1_id: match.team1_id,
+        team2_id: match.team2_id,
+        team1_playing_time: match.team1_playing_time,
+        team2_playing_time: match.team2_playing_time
       }));
 
       // Transform standings
@@ -380,55 +388,85 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
                   </div>
                 ) : (
                   <div className="divide-y divide-neutral-200">
-                    {teamData.upcomingMatches.map((match) => (
-                    <div key={match.id} className="p-6">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div className="flex-shrink-0">
-                            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                              <span className="text-blue-600 font-semibold">
-                                W{match.week_number}
-                              </span>
+                    {teamData.upcomingMatches.map((match) => {
+                      const myPlayingTime = match.team1_id === teamId ? match.team1_playing_time : match.team2_playing_time;
+                      const opponentPlayingTime = match.team1_id === teamId ? match.team2_playing_time : match.team1_playing_time;
+
+                      return (
+                        <div key={match.id} className="p-6 hover:bg-neutral-50 transition-colors">
+                          <div className="space-y-3">
+                            {/* Header Row */}
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-3">
+                                <div className="flex-shrink-0">
+                                  <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center shadow-sm">
+                                    <div className="text-center">
+                                      <div className="text-white text-xs font-medium">Week</div>
+                                      <div className="text-white text-lg font-bold">{match.week_number}</div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex-1">
+                                  <h4 className="text-xl font-bold text-brand-black">
+                                    vs {match.opponent_name}
+                                  </h4>
+                                  {match.course_name && (
+                                    <div className="flex items-center space-x-1.5 mt-1">
+                                      <MapPin className="w-3.5 h-3.5 text-neutral-400" />
+                                      <span className="text-sm text-neutral-600">{match.course_name}</span>
+                                      <span className="text-neutral-400">•</span>
+                                      <span className="text-xs text-neutral-500">Par {match.course_par}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                          
-                          <div>
-                            <h4 className="text-lg font-semibold text-brand-black">
-                              vs {match.opponent_name}
-                            </h4>
-                            <p className="text-sm text-neutral-600">
-                              {formatWeekRange(match.week_start_date, match.week_end_date)}
-                            </p>
-                            {match.course_name && (
-                              <div className="flex items-center space-x-1 mt-1">
-                                <MapPin className="w-3 h-3 text-neutral-400" />
-                                <span className="text-xs text-neutral-500">{match.course_name}</span>
+
+                            {/* Playing Times */}
+                            {(myPlayingTime || opponentPlayingTime) && (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {myPlayingTime && (
+                                  <div className="bg-gradient-to-br from-brand-neon-green/10 to-brand-neon-green/5 border border-brand-neon-green/30 rounded-lg p-3">
+                                    <div className="flex items-center space-x-2 mb-1">
+                                      <Clock className="w-4 h-4 text-brand-neon-green" />
+                                      <span className="text-xs font-semibold text-neutral-700 uppercase">Your Playing Time</span>
+                                    </div>
+                                    <p className="text-lg font-bold text-brand-black">
+                                      {new Date(myPlayingTime).toLocaleString('en-US', {
+                                        weekday: 'short',
+                                        month: 'short',
+                                        day: 'numeric',
+                                        hour: 'numeric',
+                                        minute: '2-digit'
+                                      })}
+                                    </p>
+                                  </div>
+                                )}
+
+                                {opponentPlayingTime && (
+                                  <div className="bg-gradient-to-br from-neutral-100 to-neutral-50 border border-neutral-300 rounded-lg p-3">
+                                    <div className="flex items-center space-x-2 mb-1">
+                                      <Clock className="w-4 h-4 text-neutral-500" />
+                                      <span className="text-xs font-semibold text-neutral-700 uppercase">{match.opponent_name}</span>
+                                    </div>
+                                    <p className="text-lg font-bold text-brand-black">
+                                      {new Date(opponentPlayingTime).toLocaleString('en-US', {
+                                        weekday: 'short',
+                                        month: 'short',
+                                        day: 'numeric',
+                                        hour: 'numeric',
+                                        minute: '2-digit'
+                                      })}
+                                    </p>
+                                  </div>
+                                )}
                               </div>
                             )}
-                            {match.match_date && (
-                              <p className="text-xs text-neutral-500 mt-1">
-                                Match Date: {formatDate(match.match_date)}
-                              </p>
-                            )}
                           </div>
                         </div>
-                        
-                        <div className="text-right">
-                          <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(match.status)}`}>
-                            {getStatusIcon(match.status)}
-                            <span className="ml-1 capitalize">{match.status.replace('_', ' ')}</span>
-                          </div>
-                          {match.course_name && (
-                            <div className="mt-2 text-sm text-neutral-600">
-                              <p>Par {match.course_par}</p>
-                              <p>Rating: {match.course_rating}</p>
-                              <p>Slope: {match.course_slope}</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

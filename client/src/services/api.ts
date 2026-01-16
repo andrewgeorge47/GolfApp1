@@ -579,8 +579,8 @@ export const removeTeamMember = (teamId: number, memberId: number) =>
 export const generateLeagueSchedule = (leagueId: number, scheduleData: { weeks: number; start_date: string }) =>
   api.post(`/leagues/${leagueId}/schedule/generate`, scheduleData);
 
-export const getLeagueSchedule = (leagueId: number) =>
-  api.get(`/leagues/${leagueId}/schedule`);
+export const getLeagueSchedule = (leagueId: number, publishedOnly = false) =>
+  api.get(`/leagues/${leagueId}/schedule${publishedOnly ? '?published_only=true' : ''}`);
 
 export const getLeagueWeekSchedule = (leagueId: number, weekNumber: number) =>
   api.get(`/leagues/${leagueId}/schedule/week/${weekNumber}`);
@@ -709,6 +709,9 @@ export interface CaptainDashboardData {
 
 export const getCaptainDashboard = (teamId: number, leagueId: number) =>
   api.get<CaptainDashboardData>(`/captain/team/${teamId}/dashboard`, { params: { league_id: leagueId } });
+
+export const setMatchupPlayingTime = (matchupId: number, playingTime: string) =>
+  api.put(`/leagues/matchups/${matchupId}/playing-time`, { playing_time: playingTime });
 
 // Player Availability
 export const submitTeamAvailability = (teamId: number, availabilityData: {

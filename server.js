@@ -14801,9 +14801,16 @@ app.post('/api/leagues/:leagueId/schedule/generate', authenticateToken, requireP
 });
 
 // GET /api/leagues/:id/schedule - Get full league schedule
+// Query params: published_only=true to filter only published weeks (for captains/players)
 app.get('/api/leagues/:leagueId/schedule', async (req, res) => {
   try {
     const { leagueId } = req.params;
+    const { published_only } = req.query;
+
+    let whereClause = 'WHERE ls.league_id = $1';
+    if (published_only === 'true') {
+      whereClause += ' AND ls.is_published = true';
+    }
 
     const result = await pool.query(
       `SELECT ls.id,
@@ -14823,7 +14830,7 @@ app.get('/api/leagues/:leagueId/schedule', async (req, res) => {
       FROM league_schedule ls
       LEFT JOIN league_matchups lm ON ls.id = lm.schedule_id
       LEFT JOIN simulator_courses_combined sc ON ls.course_id = sc.id
-      WHERE ls.league_id = $1
+      ${whereClause}
       GROUP BY ls.id, ls.league_id, ls.week_number, ls.week_start_date, ls.week_end_date,
                ls.is_playoff, ls.status, ls.notes, ls.created_at, ls.updated_at,
                ls.is_published, ls.course_id, sc.name
@@ -15248,6 +15255,60 @@ app.get('/api/leagues/:leagueId/matchups', async (req, res) => {
   } catch (err) {
     console.error('Error fetching matchups:', err);
     res.status(500).json({ error: 'Failed to fetch matchups' });
+  }
+});
+
+// PUT /api/leagues/matchups/:matchupId/playing-time - Set playing time for a matchup
+app.put('/api/leagues/matchups/:matchupId/playing-time', authenticateToken, async (req, res) => {
+  try {
+    const { matchupId } = req.params;
+    const { playing_time } = req.body;
+
+    if (!playing_time) {
+      return res.status(400).json({ error: 'playing_time is required' });
+    }
+
+    // Get matchup to verify team membership
+    const matchup = await pool.query(
+      `SELECT lm.*, t1.captain_id as team1_captain_id, t2.captain_id as team2_captain_id
+       FROM league_matchups lm
+       JOIN tournament_teams t1 ON lm.team1_id = t1.id
+       JOIN tournament_teams t2 ON lm.team2_id = t2.id
+       WHERE lm.id = $1`,
+      [matchupId]
+    );
+
+    if (matchup.rows.length === 0) {
+      return res.status(404).json({ error: 'Matchup not found' });
+    }
+
+    const matchupData = matchup.rows[0];
+    const isTeam1Captain = matchupData.team1_captain_id === req.user.member_id;
+    const isTeam2Captain = matchupData.team2_captain_id === req.user.member_id;
+    const isAdmin = req.user.role === 'Admin';
+
+    if (!isTeam1Captain && !isTeam2Captain && !isAdmin) {
+      return res.status(403).json({ error: 'Only team captains can set playing time' });
+    }
+
+    // Determine which team's playing time to update
+    const columnToUpdate = isTeam1Captain || (isAdmin && !isTeam2Captain)
+      ? 'team1_playing_time'
+      : 'team2_playing_time';
+
+    // Update playing time
+    const result = await pool.query(
+      `UPDATE league_matchups
+       SET ${columnToUpdate} = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING *`,
+      [playing_time, matchupId]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error setting playing time:', err);
+    res.status(500).json({ error: 'Failed to set playing time' });
   }
 });
 
@@ -17182,7 +17243,7 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
       }
     }
 
-    // Get upcoming matches
+    // Get upcoming matches (only from published weeks)
     const upcomingMatches = await pool.query(
       `SELECT lm.*, ls.week_start_date, ls.week_end_date, ls.course_id,
         sc.name as course_name,
@@ -17198,6 +17259,7 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
        WHERE (lm.team1_id = $1 OR lm.team2_id = $1)
          AND lm.league_id = $2
          AND lm.status IN ('scheduled', 'lineup_submitted')
+         AND ls.is_published = true
        ORDER BY lm.week_number
        LIMIT 5`,
       [teamId, league_id]

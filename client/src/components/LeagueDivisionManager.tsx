@@ -18,6 +18,7 @@ import { toast } from 'react-toastify';
 import {
   getLeagueDivisions,
   createLeagueDivision,
+  updateLeagueDivision,
   deleteLeagueDivision,
   getLeagueTeams,
   updateLeagueTeam,
@@ -86,6 +87,10 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedDivision, setExpandedDivision] = useState<number | null>(null);
+
+  // Division editing state
+  const [editingDivisionId, setEditingDivisionId] = useState<number | null>(null);
+  const [editingDivisionName, setEditingDivisionName] = useState('');
 
   // Division creation form state
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -327,6 +332,44 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
     }
   };
 
+  const handleStartEditDivision = (divisionId: number, currentName: string) => {
+    setEditingDivisionId(divisionId);
+    setEditingDivisionName(currentName);
+  };
+
+  const handleCancelEditDivision = () => {
+    setEditingDivisionId(null);
+    setEditingDivisionName('');
+  };
+
+  const handleSaveEditDivision = async (divisionId: number) => {
+    if (!editingDivisionName.trim()) {
+      toast.error('Division name cannot be empty');
+      return;
+    }
+
+    try {
+      const response = await updateLeagueDivision(leagueId, divisionId, {
+        division_name: editingDivisionName.trim()
+      });
+
+      setDivisions(prev =>
+        prev.map(division =>
+          division.id === divisionId
+            ? { ...division, name: response.data.division_name }
+            : division
+        )
+      );
+
+      setEditingDivisionId(null);
+      setEditingDivisionName('');
+      toast.success('Division name updated successfully');
+    } catch (error: any) {
+      console.error('Error updating division:', error);
+      toast.error(error.response?.data?.error || 'Failed to update division');
+    }
+  };
+
   const handleMoveTeamToDivision = async (teamId: number, currentDivisionId: number, newDivisionId: number) => {
     try {
       // Don't update if division hasn't changed
@@ -507,15 +550,59 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
                     <ChevronRight className="w-5 h-5 text-neutral-500" />
                   )}
                 </button>
-                
-                <div>
-                  <h3 className="text-lg font-semibold text-brand-black">{division.name}</h3>
-                  <p className="text-sm text-neutral-600">
-                    {division.teams.length} / {division.max_teams} teams
-                  </p>
+
+                <div className="flex-1">
+                  {editingDivisionId === division.id ? (
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="text"
+                        value={editingDivisionName}
+                        onChange={(e) => setEditingDivisionName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleSaveEditDivision(division.id);
+                          } else if (e.key === 'Escape') {
+                            handleCancelEditDivision();
+                          }
+                        }}
+                        className="px-3 py-1.5 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => handleSaveEditDivision(division.id)}
+                        className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                        title="Save"
+                      >
+                        <Save className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={handleCancelEditDivision}
+                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Cancel"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center space-x-2">
+                      <div>
+                        <h3 className="text-lg font-semibold text-brand-black">{division.name}</h3>
+                        <p className="text-sm text-neutral-600">
+                          {division.teams.length} / {division.max_teams} teams
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleStartEditDivision(division.id, division.name)}
+                        className="p-1.5 text-neutral-500 hover:text-brand-neon-green hover:bg-neutral-100 rounded-lg transition-colors"
+                        title="Edit division name"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
-              
+
               <div className="flex items-center space-x-2">
                 <Button
                   onClick={() => {
@@ -529,7 +616,7 @@ const LeagueDivisionManager: React.FC<LeagueDivisionManagerProps> = ({ leagueId 
                 >
                   Add Team
                 </Button>
-                
+
                 <Button
                   variant="danger"
                   size="sm"

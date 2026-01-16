@@ -7,11 +7,12 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  Shield
+  Shield,
+  Edit3
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
-import { getLeagueSchedule, getTeamAvailability, setCaptainOverride } from '../services/api';
+import { getLeagueSchedule, getTeamAvailability, setCaptainOverride, setMatchupPlayingTime } from '../services/api';
 
 interface TeamMember {
   id: number;
@@ -50,24 +51,38 @@ interface TeamMemberAvailability {
   time_slots?: TimeSlot[];
 }
 
+interface UpcomingMatch {
+  id: number;
+  week_number: number;
+  week_start_date: string;
+  opponent_team_name: string;
+  team1_id: number;
+  team2_id: number;
+  team1_playing_time?: string;
+  team2_playing_time?: string;
+}
+
 interface AvailabilityViewProps {
   teamId: number;
   leagueId: number;
   members: TeamMember[];
+  upcomingMatches: UpcomingMatch[];
+  onPlayingTimeSet: () => void;
 }
 
-const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, members }) => {
+const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, members, upcomingMatches, onPlayingTimeSet }) => {
   const navigate = useNavigate();
   const [currentWeek, setCurrentWeek] = useState<string>('');
   const [availableWeeks, setAvailableWeeks] = useState<string[]>([]);
   const [weekAvailability, setWeekAvailability] = useState<WeekAvailability | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isEditingPlayingTime, setIsEditingPlayingTime] = useState(false);
 
   const loadAvailabilityData = useCallback(async () => {
     setLoading(true);
     try {
       // Load league schedule
-      const scheduleResponse = await getLeagueSchedule(leagueId);
+      const scheduleResponse = await getLeagueSchedule(leagueId, true);
       console.log('Schedule response:', scheduleResponse.data);
       const weeks = scheduleResponse.data.map((w: any) => w.week_start_date);
 
@@ -166,6 +181,7 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
   useEffect(() => {
     if (currentWeek) {
       loadWeekAvailability(currentWeek);
+      setIsEditingPlayingTime(false); // Reset edit mode when week changes
     }
   }, [currentWeek, loadWeekAvailability]);
 
@@ -232,6 +248,35 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
     }
   };
 
+  // Helper to format date for datetime-local input (without timezone conversion)
+  const formatDateTimeLocal = (dateString: string): string => {
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
+  // Handle set playing time
+  const handleSetPlayingTime = async (matchupId: number, playingTime: string) => {
+    if (!playingTime) {
+      toast.error('Please select a playing time');
+      return;
+    }
+
+    try {
+      await setMatchupPlayingTime(matchupId, playingTime);
+      toast.success('Playing time set successfully');
+      setIsEditingPlayingTime(false);
+      onPlayingTimeSet();
+    } catch (error: any) {
+      console.error('Error setting playing time:', error);
+      toast.error(error.response?.data?.error || 'Failed to set playing time');
+    }
+  };
+
 
   if (loading) {
     return (
@@ -288,38 +333,235 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
         </button>
       </div>
 
+      {/* Set Playing Time */}
+      {(() => {
+        const weekNumber = availableWeeks.indexOf(currentWeek) + 1;
+        const matchForWeek = upcomingMatches.find(m => m.week_number === weekNumber);
+
+        if (!matchForWeek) return null;
+
+        const myPlayingTime = matchForWeek.team1_id === teamId
+          ? matchForWeek.team1_playing_time
+          : matchForWeek.team2_playing_time;
+        const opponentPlayingTime = matchForWeek.team1_id === teamId
+          ? matchForWeek.team2_playing_time
+          : matchForWeek.team1_playing_time;
+
+        return (
+          <div className="bg-white border border-neutral-200 rounded-lg p-4 sm:p-6">
+            <h3 className="text-lg font-semibold text-brand-black mb-4">Set Playing Time</h3>
+            <div className="space-y-3">
+              {/* Your Playing Time Card */}
+              <div className="bg-gradient-to-br from-brand-neon-green/10 to-brand-neon-green/5 border border-brand-neon-green/30 rounded-lg p-3 sm:p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center space-x-2">
+                    <Clock className="w-4 h-4 text-brand-neon-green" />
+                    <span className="text-xs sm:text-sm font-semibold text-neutral-700 uppercase">Your Playing Time</span>
+                  </div>
+                  {myPlayingTime && !isEditingPlayingTime && (
+                    <button
+                      onClick={() => setIsEditingPlayingTime(true)}
+                      className="flex items-center space-x-1 text-xs font-medium text-brand-neon-green hover:text-green-600 transition-colors"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
+                  )}
+                </div>
+
+                {myPlayingTime && !isEditingPlayingTime ? (
+                  <p className="text-base sm:text-lg font-bold text-brand-black">
+                    {new Date(myPlayingTime).toLocaleString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit'
+                    })}
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    <input
+                      type="datetime-local"
+                      key={myPlayingTime || 'empty'}
+                      defaultValue={myPlayingTime ? formatDateTimeLocal(myPlayingTime) : ''}
+                      onBlur={(e) => {
+                        if (e.target.value) {
+                          // Convert the local datetime to ISO string for storage
+                          const localDate = new Date(e.target.value);
+                          handleSetPlayingTime(matchForWeek.id, localDate.toISOString());
+                        }
+                      }}
+                      min={matchForWeek.week_start_date}
+                      placeholder="Select date and time"
+                      className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-neon-green bg-white"
+                      autoFocus
+                    />
+                    {myPlayingTime && (
+                      <button
+                        onClick={() => setIsEditingPlayingTime(false)}
+                        className="text-xs text-neutral-500 hover:text-neutral-700"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Opponent Playing Time Card */}
+              {opponentPlayingTime && (
+                <div className="bg-gradient-to-br from-neutral-100 to-neutral-50 border border-neutral-300 rounded-lg p-3 sm:p-4">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Clock className="w-4 h-4 text-neutral-500" />
+                    <span className="text-xs sm:text-sm font-semibold text-neutral-700 uppercase">{matchForWeek.opponent_team_name}</span>
+                  </div>
+                  <p className="text-base sm:text-lg font-bold text-brand-black">
+                    {new Date(opponentPlayingTime).toLocaleString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit'
+                    })}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Team Availability Overview */}
       {weekAvailability && weekAvailability.members.some(m => m.time_slots && m.time_slots.length > 0) && (() => {
-        // Group all time slots by day
-        const timeSlotsByDay: { [day: string]: Array<{ slot: TimeSlot; players: string[] }> } = {};
+        // Helper function to merge adjacent time slots for a single player
+        const mergeAdjacentSlots = (slots: TimeSlot[]): TimeSlot[] => {
+          if (slots.length === 0) return [];
+
+          // Sort by start time
+          const sorted = [...slots].sort((a, b) => a.start_time.localeCompare(b.start_time));
+          const merged: TimeSlot[] = [sorted[0]];
+
+          for (let i = 1; i < sorted.length; i++) {
+            const current = sorted[i];
+            const previous = merged[merged.length - 1];
+
+            // Check if current slot starts where previous ends (adjacent)
+            if (current.start_time === previous.end_time) {
+              // Merge by extending the end time
+              previous.end_time = current.end_time;
+            } else {
+              // Not adjacent, add as new slot
+              merged.push(current);
+            }
+          }
+
+          return merged;
+        };
+
+        // First, collect and merge each player's time slots by day
+        const playerSlotsByDay: { [day: string]: { [playerName: string]: TimeSlot[] } } = {};
 
         weekAvailability.members.forEach(member => {
           if (member.availability_status === 'available' && member.time_slots) {
+            const playerName = `${member.first_name} ${member.last_name}`;
+
             member.time_slots.forEach(slot => {
-              if (!timeSlotsByDay[slot.day]) {
-                timeSlotsByDay[slot.day] = [];
+              if (!playerSlotsByDay[slot.day]) {
+                playerSlotsByDay[slot.day] = {};
               }
-
-              // Find if this exact time slot already exists
-              const existingSlot = timeSlotsByDay[slot.day].find(
-                s => s.slot.start_time === slot.start_time && s.slot.end_time === slot.end_time
-              );
-
-              const playerName = `${member.first_name} ${member.last_name}`;
-
-              if (existingSlot) {
-                // Only add player if not already in the list (defensive check)
-                if (!existingSlot.players.includes(playerName)) {
-                  existingSlot.players.push(playerName);
-                }
-              } else {
-                timeSlotsByDay[slot.day].push({
-                  slot,
-                  players: [playerName]
-                });
+              if (!playerSlotsByDay[slot.day][playerName]) {
+                playerSlotsByDay[slot.day][playerName] = [];
               }
+              playerSlotsByDay[slot.day][playerName].push(slot);
             });
           }
+        });
+
+        // Merge adjacent slots for each player on each day
+        Object.keys(playerSlotsByDay).forEach(day => {
+          Object.keys(playerSlotsByDay[day]).forEach(playerName => {
+            playerSlotsByDay[day][playerName] = mergeAdjacentSlots(playerSlotsByDay[day][playerName]);
+          });
+        });
+
+        // Now, intelligently combine overlapping time slots across players
+        const timeSlotsByDay: { [day: string]: Array<{ slot: TimeSlot; players: string[] }> } = {};
+
+        Object.keys(playerSlotsByDay).forEach(day => {
+          // Collect all unique time points (starts and ends) for this day
+          const timePoints = new Set<string>();
+          Object.values(playerSlotsByDay[day]).forEach(slots => {
+            slots.forEach(slot => {
+              timePoints.add(slot.start_time);
+              timePoints.add(slot.end_time);
+            });
+          });
+
+          // Sort time points
+          const sortedTimePoints = Array.from(timePoints).sort();
+
+          // For each interval between consecutive time points, determine which players are available
+          const intervals: Array<{ start_time: string; end_time: string; players: string[] }> = [];
+
+          for (let i = 0; i < sortedTimePoints.length - 1; i++) {
+            const start = sortedTimePoints[i];
+            const end = sortedTimePoints[i + 1];
+            const availablePlayers: string[] = [];
+
+            // Check which players are available during this interval
+            Object.keys(playerSlotsByDay[day]).forEach(playerName => {
+              const playerSlots = playerSlotsByDay[day][playerName];
+              const isAvailable = playerSlots.some(slot =>
+                slot.start_time <= start && slot.end_time >= end
+              );
+              if (isAvailable) {
+                availablePlayers.push(playerName);
+              }
+            });
+
+            if (availablePlayers.length > 0) {
+              intervals.push({
+                start_time: start,
+                end_time: end,
+                players: availablePlayers
+              });
+            }
+          }
+
+          // Merge consecutive intervals with the same player set
+          const mergedIntervals: Array<{ slot: TimeSlot; players: string[] }> = [];
+
+          for (let i = 0; i < intervals.length; i++) {
+            const current = intervals[i];
+
+            if (mergedIntervals.length === 0) {
+              mergedIntervals.push({
+                slot: { day, start_time: current.start_time, end_time: current.end_time },
+                players: current.players
+              });
+            } else {
+              const previous = mergedIntervals[mergedIntervals.length - 1];
+
+              // Check if players are the same (order doesn't matter)
+              const samePlayerSet =
+                previous.players.length === current.players.length &&
+                previous.players.every(p => current.players.includes(p));
+
+              if (samePlayerSet && previous.slot.end_time === current.start_time) {
+                // Merge by extending the end time
+                previous.slot.end_time = current.end_time;
+              } else {
+                // Different player set or not adjacent, add as new interval
+                mergedIntervals.push({
+                  slot: { day, start_time: current.start_time, end_time: current.end_time },
+                  players: current.players
+                });
+              }
+            }
+          }
+
+          timeSlotsByDay[day] = mergedIntervals;
         });
 
         // Sort days in week order
@@ -338,6 +580,29 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
           const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
           return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
         };
+
+        // Color palette for player chips
+        const playerColors = [
+          'bg-blue-500 text-white',
+          'bg-purple-500 text-white',
+          'bg-pink-500 text-white',
+          'bg-orange-500 text-white',
+          'bg-teal-500 text-white',
+          'bg-indigo-500 text-white',
+          'bg-rose-500 text-white',
+          'bg-cyan-500 text-white',
+          'bg-amber-500 text-white',
+          'bg-emerald-500 text-white'
+        ];
+
+        // Assign consistent colors to players
+        const allPlayers = Array.from(new Set(
+          Object.values(timeSlotsByDay).flatMap(slots => slots.flatMap(s => s.players))
+        ));
+        const playerColorMap: { [player: string]: string } = {};
+        allPlayers.forEach((player, index) => {
+          playerColorMap[player] = playerColors[index % playerColors.length];
+        });
 
         return (
           <div className="bg-gradient-to-br from-brand-dark-green to-brand-muted-green rounded-lg p-4 sm:p-6 text-white">
@@ -362,7 +627,7 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
                               {item.players.map((player, pIdx) => (
                                 <span
                                   key={pIdx}
-                                  className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-brand-neon-green text-brand-dark-green"
+                                  className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${playerColorMap[player]}`}
                                 >
                                   {player}
                                 </span>

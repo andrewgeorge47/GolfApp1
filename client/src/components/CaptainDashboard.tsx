@@ -10,7 +10,10 @@ import {
   XCircle,
   ChevronRight,
   BarChart3,
-  ClipboardList
+  ClipboardList,
+  Edit3,
+  Save,
+  X
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
@@ -22,7 +25,9 @@ import {
   getLeague,
   getLeagueDivisions,
   getLeagueTeams,
-  getTeamAvailability
+  getTeamAvailability,
+  updateLeagueTeam,
+  setMatchupPlayingTime
 } from '../services/api';
 
 interface Team {
@@ -49,6 +54,7 @@ interface TeamMember {
 
 interface UpcomingMatch {
   id: number;
+  week_number: number;
   week_start_date: string;
   opponent_team_id: number;
   opponent_team_name: string;
@@ -57,6 +63,10 @@ interface UpcomingMatch {
   lineup_submitted: boolean;
   lineup_deadline: string;
   status: 'upcoming' | 'in_progress' | 'completed';
+  team1_id: number;
+  team2_id: number;
+  team1_playing_time?: string;
+  team2_playing_time?: string;
 }
 
 interface TeamStats {
@@ -85,6 +95,10 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
   // Score submission modal state
   const [showScoreModal, setShowScoreModal] = useState(false);
   const [selectedMatchup, setSelectedMatchup] = useState<UpcomingMatch | null>(null);
+
+  // Edit team name state
+  const [isEditingTeamName, setIsEditingTeamName] = useState(false);
+  const [editedTeamName, setEditedTeamName] = useState('');
 
   const loadCaptainData = useCallback(async () => {
     setLoading(true);
@@ -197,6 +211,7 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
       // Transform upcoming matches
       const transformedMatches: UpcomingMatch[] = data.upcomingMatches.map((match: any) => ({
         id: match.id,
+        week_number: match.week_number,
         week_start_date: match.week_start_date,
         opponent_team_id: match.team1_id === teamId ? match.team2_id : match.team1_id,
         opponent_team_name: match.opponent_name,
@@ -205,7 +220,11 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
         lineup_submitted: match.status === 'lineup_submitted' || match.lineup_submitted || false,
         lineup_deadline: calculateDeadline(match.week_start_date),
         status: match.status === 'scheduled' ? 'upcoming' :
-                match.status === 'in_progress' ? 'in_progress' : 'completed'
+                match.status === 'in_progress' ? 'in_progress' : 'completed',
+        team1_id: match.team1_id,
+        team2_id: match.team2_id,
+        team1_playing_time: match.team1_playing_time,
+        team2_playing_time: match.team2_playing_time
       }));
 
       // Transform standings to stats
@@ -276,6 +295,56 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
     return new Date(deadline) < new Date();
   };
 
+  const handleStartEditTeamName = () => {
+    if (team) {
+      setEditedTeamName(team.name);
+      setIsEditingTeamName(true);
+    }
+  };
+
+  const handleCancelEditTeamName = () => {
+    setIsEditingTeamName(false);
+    setEditedTeamName('');
+  };
+
+  const handleSaveTeamName = async () => {
+    if (!team || !editedTeamName.trim()) {
+      toast.error('Team name cannot be empty');
+      return;
+    }
+
+    try {
+      const response = await updateLeagueTeam(leagueId, teamId, {
+        name: editedTeamName.trim()
+      });
+
+      setTeam(prev => prev ? { ...prev, name: response.data.name } : null);
+      setIsEditingTeamName(false);
+      toast.success('Team name updated successfully');
+    } catch (error: any) {
+      console.error('Error updating team name:', error);
+      toast.error(error.response?.data?.error || 'Failed to update team name');
+    }
+  };
+
+  const handleSetPlayingTime = async (matchupId: number, playingTime: string) => {
+    if (!playingTime) {
+      toast.error('Please select a playing time');
+      return;
+    }
+
+    try {
+      await setMatchupPlayingTime(matchupId, playingTime);
+      toast.success('Playing time set successfully');
+
+      // Reload captain data to reflect the update
+      loadCaptainData();
+    } catch (error: any) {
+      console.error('Error setting playing time:', error);
+      toast.error(error.response?.data?.error || 'Failed to set playing time');
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -297,11 +366,55 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center space-x-3">
-        <Trophy className="w-8 h-8 text-brand-neon-green" />
-        <div>
-          <h1 className="text-2xl font-bold text-white">Captain Dashboard</h1>
-          <p className="text-white/80">{team.league_name} • {team.division_name} • {team.name}</p>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <Trophy className="w-8 h-8 text-brand-neon-green" />
+          <div>
+            <h1 className="text-2xl font-bold text-white">Captain Dashboard</h1>
+            <div className="flex items-center space-x-2 mt-1">
+              <p className="text-white/80">{team.league_name} • {team.division_name} • </p>
+              {isEditingTeamName ? (
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={editedTeamName}
+                    onChange={(e) => setEditedTeamName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveTeamName();
+                      else if (e.key === 'Escape') handleCancelEditTeamName();
+                    }}
+                    className="px-2 py-1 bg-white/10 border border-white/30 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-neon-green"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleSaveTeamName}
+                    className="p-1 rounded hover:bg-white/10 transition-colors"
+                    title="Save"
+                  >
+                    <Save className="w-4 h-4 text-brand-neon-green" />
+                  </button>
+                  <button
+                    onClick={handleCancelEditTeamName}
+                    className="p-1 rounded hover:bg-white/10 transition-colors"
+                    title="Cancel"
+                  >
+                    <X className="w-4 h-4 text-white/70" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-2">
+                  <span className="text-white/80">{team.name}</span>
+                  <button
+                    onClick={handleStartEditTeamName}
+                    className="p-1 rounded hover:bg-white/10 transition-colors"
+                    title="Edit team name"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-white/70 hover:text-brand-neon-green" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -463,6 +576,8 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
             teamId={teamId}
             leagueId={leagueId}
             members={team.members}
+            upcomingMatches={upcomingMatches}
+            onPlayingTimeSet={loadCaptainData}
           />
         )}
         {activeTab === 'lineup' && team && (
