@@ -17430,24 +17430,30 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
       }
     }
 
-    // Get upcoming matches (only from published weeks)
-    // Note: In division-based format, team2_id is NULL (no opponents)
+    // Get upcoming weeks (only published weeks)
+    // In division-based format, teams compete within their division (no matchups)
     const upcomingMatches = await pool.query(
-      `SELECT lm.*, ls.week_start_date, ls.week_end_date, ls.course_id,
+      `SELECT
+        ls.id,
+        ls.week_number,
+        ls.week_start_date,
+        ls.week_end_date,
+        ls.course_id,
         sc.name as course_name,
-        t2.name as opponent_name
-       FROM league_matchups lm
-       JOIN league_schedule ls ON lm.schedule_id = ls.id
-       LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
-       LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
+        ls.status,
+        NULL as team1_id,
+        NULL as team2_id,
+        NULL as opponent_name,
+        NULL as team1_playing_time,
+        NULL as team2_playing_time
+       FROM league_schedule ls
        LEFT JOIN simulator_courses_combined sc ON ls.course_id = sc.id
-       WHERE lm.team1_id = $1
-         AND lm.league_id = $2
-         AND lm.status IN ('scheduled', 'lineup_submitted')
+       WHERE ls.league_id = $1
          AND ls.is_published = true
-       ORDER BY lm.week_number
+         AND ls.status IN ('scheduled', 'active')
+       ORDER BY ls.week_number
        LIMIT 5`,
-      [teamId, league_id]
+      [league_id]
     );
 
     // Get team standings
