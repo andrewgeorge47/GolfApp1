@@ -116,7 +116,8 @@ const PlayerAvailabilityCalendar: React.FC<PlayerAvailabilityCalendarProps> = ({
   const loadAvailableWeeks = async (leagueId: number) => {
     setLoading(true);
     try {
-      const response = await getLeagueSchedule(leagueId, true);
+      // Load ALL weeks so players can submit availability for future weeks
+      const response = await getLeagueSchedule(leagueId, false);
       const scheduleData = response.data;
 
       const weeks: Week[] = scheduleData.map((week: any) => ({

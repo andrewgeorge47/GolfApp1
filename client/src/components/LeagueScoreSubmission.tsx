@@ -50,7 +50,7 @@ interface HoleScore {
 interface LeagueScoreSubmissionProps {
   matchupId: number;
   teamId: number;
-  opponentTeamId: number;
+  opponentTeamId?: number | null; // Optional for division-based scoring
   courseId: number;
   players: Player[]; // Active players (3)
   onClose: () => void;

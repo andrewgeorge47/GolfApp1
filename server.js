@@ -15116,7 +15116,7 @@ app.post('/api/leagues/:leagueId/matchups/generate', authenticateToken, requireP
 
     let totalMatchups = 0;
 
-    // Generate matchups for each division
+    // Generate matchups for each division (division-based format, no opponents)
     for (const division of divisions.rows) {
       // Get teams in this division
       const teams = await pool.query(
@@ -15124,29 +15124,21 @@ app.post('/api/leagues/:leagueId/matchups/generate', authenticateToken, requireP
         [leagueId, division.id]
       );
 
-      if (teams.rows.length < 2) {
-        console.log(`Skipping division ${division.division_name} - not enough teams`);
+      if (teams.rows.length < 1) {
+        console.log(`Skipping division ${division.division_name} - no teams`);
         continue;
       }
 
       const teamIds = teams.rows.map(t => t.id);
-      const numTeams = teamIds.length;
-      const numWeeks = schedule.rows.length;
 
-      // Generate round-robin schedule
-      const matchups = generateRoundRobinSchedule(teamIds, numWeeks);
-
-      // Insert matchups into database
-      for (let weekIndex = 0; weekIndex < matchups.length; weekIndex++) {
-        const weekMatchups = matchups[weekIndex];
-        const scheduleWeek = schedule.rows[weekIndex];
-
-        for (const matchup of weekMatchups) {
+      // Create one matchup per team per week (no opponents - division leaderboard format)
+      for (const scheduleWeek of schedule.rows) {
+        for (const teamId of teamIds) {
           await pool.query(
             `INSERT INTO league_matchups
             (league_id, schedule_id, week_number, division_id, team1_id, team2_id, status)
-            VALUES ($1, $2, $3, $4, $5, $6, 'scheduled')`,
-            [leagueId, scheduleWeek.id, scheduleWeek.week_number, division.id, matchup.team1, matchup.team2]
+            VALUES ($1, $2, $3, $4, $5, NULL, 'scheduled')`,
+            [leagueId, scheduleWeek.id, scheduleWeek.week_number, division.id, teamId]
           );
           totalMatchups++;
         }
@@ -16389,6 +16381,211 @@ app.delete('/api/leagues/matchups/:matchupId/scores/:teamId', authenticateToken,
   }
 });
 
+// GET /api/leagues/:leagueId/divisions/:divisionId/leaderboard/:weekNumber - Get weekly division leaderboard
+app.get('/api/leagues/:leagueId/divisions/:divisionId/leaderboard/:weekNumber', authenticateToken, async (req, res) => {
+  try {
+    const { leagueId, divisionId, weekNumber } = req.params;
+
+    // Get all teams in this division with their scores for this week
+    const result = await pool.query(
+      `SELECT
+        t.id as team_id,
+        t.name as team_name,
+        lm.id as matchup_id,
+        lm.status,
+        (
+          SELECT COALESCE(SUM(mis.net_total), 0)
+          FROM match_individual_scores mis
+          WHERE mis.matchup_id = lm.id AND mis.team_id = t.id
+        ) + (
+          SELECT COALESCE(mass.net_total, 0)
+          FROM match_alternate_shot_scores mass
+          WHERE mass.matchup_id = lm.id AND mass.team_id = t.id
+        ) as net_total,
+        (
+          SELECT COUNT(*) > 0
+          FROM match_individual_scores mis
+          WHERE mis.matchup_id = lm.id AND mis.team_id = t.id
+        ) as has_submitted
+      FROM tournament_teams t
+      JOIN league_matchups lm ON lm.team1_id = t.id
+      WHERE t.league_id = $1
+        AND t.division_id = $2
+        AND lm.week_number = $3
+        AND lm.league_id = $1
+      ORDER BY has_submitted DESC, net_total ASC`,
+      [leagueId, divisionId, weekNumber]
+    );
+
+    // Calculate points for each team based on their rank
+    const teams = result.rows.map((team, index) => {
+      let points = 0;
+
+      // Only award points if team has submitted scores
+      if (team.has_submitted) {
+        // Find rank among teams that have submitted
+        const submittedTeams = result.rows.filter(t => t.has_submitted);
+        const rank = submittedTeams.findIndex(t => t.team_id === team.team_id) + 1;
+
+        // Award points: 1st=3pts, 2nd=2pts, 3rd=1pt, rest=0pts
+        if (rank === 1) points = 3;
+        else if (rank === 2) points = 2;
+        else if (rank === 3) points = 1;
+      }
+
+      return {
+        team_id: team.team_id,
+        team_name: team.team_name,
+        matchup_id: team.matchup_id,
+        net_total: parseInt(team.net_total),
+        has_submitted: team.has_submitted,
+        weekly_points: points
+      };
+    });
+
+    res.json({
+      league_id: parseInt(leagueId),
+      division_id: parseInt(divisionId),
+      week_number: parseInt(weekNumber),
+      teams
+    });
+  } catch (err) {
+    console.error('Error fetching weekly division leaderboard:', err);
+    res.status(500).json({ error: 'Failed to fetch leaderboard' });
+  }
+});
+
+// GET /api/leagues/:leagueId/divisions/:divisionId/standings - Get season standings for a division
+app.get('/api/leagues/:leagueId/divisions/:divisionId/standings', authenticateToken, async (req, res) => {
+  try {
+    const { leagueId, divisionId } = req.params;
+
+    // Get all teams in this division with their aggregate stats across all weeks
+    const result = await pool.query(
+      `SELECT
+        t.id as team_id,
+        t.name as team_name,
+        COUNT(DISTINCT lm.week_number) as weeks_played,
+        SUM(
+          CASE
+            WHEN (
+              SELECT COUNT(*) > 0
+              FROM match_individual_scores mis
+              WHERE mis.matchup_id = lm.id AND mis.team_id = t.id
+            )
+            THEN (
+              SELECT COALESCE(SUM(mis2.net_total), 0)
+              FROM match_individual_scores mis2
+              WHERE mis2.matchup_id = lm.id AND mis2.team_id = t.id
+            ) + (
+              SELECT COALESCE(mass.net_total, 0)
+              FROM match_alternate_shot_scores mass
+              WHERE mass.matchup_id = lm.id AND mass.team_id = t.id
+            )
+            ELSE 0
+          END
+        ) as aggregate_net_score
+      FROM tournament_teams t
+      LEFT JOIN league_matchups lm ON lm.team1_id = t.id AND lm.league_id = $1
+      WHERE t.league_id = $1
+        AND t.division_id = $2
+      GROUP BY t.id, t.name
+      ORDER BY t.id`,
+      [leagueId, divisionId]
+    );
+
+    // Calculate total points for each team across all weeks
+    const teamsWithPoints = await Promise.all(
+      result.rows.map(async (team) => {
+        // Get all matchups for this team
+        const matchups = await pool.query(
+          `SELECT lm.id as matchup_id, lm.week_number
+           FROM league_matchups lm
+           WHERE lm.team1_id = $1
+             AND lm.league_id = $2
+           ORDER BY lm.week_number`,
+          [team.team_id, leagueId]
+        );
+
+        let totalPoints = 0;
+
+        // Calculate points for each week
+        for (const matchup of matchups.rows) {
+          // Check if team has submitted scores for this week
+          const hasSubmitted = await pool.query(
+            `SELECT COUNT(*) > 0 as submitted
+             FROM match_individual_scores
+             WHERE matchup_id = $1 AND team_id = $2`,
+            [matchup.matchup_id, team.team_id]
+          );
+
+          if (hasSubmitted.rows[0].submitted) {
+            // Get all teams in division with scores for this week
+            const weekTeams = await pool.query(
+              `SELECT
+                t2.id as team_id,
+                (
+                  SELECT COALESCE(SUM(mis.net_total), 0)
+                  FROM match_individual_scores mis
+                  WHERE mis.matchup_id = lm2.id AND mis.team_id = t2.id
+                ) + (
+                  SELECT COALESCE(mass.net_total, 0)
+                  FROM match_alternate_shot_scores mass
+                  WHERE mass.matchup_id = lm2.id AND mass.team_id = t2.id
+                ) as net_total
+              FROM tournament_teams t2
+              JOIN league_matchups lm2 ON lm2.team1_id = t2.id
+              WHERE t2.league_id = $1
+                AND t2.division_id = $2
+                AND lm2.week_number = $3
+                AND (
+                  SELECT COUNT(*) > 0
+                  FROM match_individual_scores mis
+                  WHERE mis.matchup_id = lm2.id AND mis.team_id = t2.id
+                )
+              ORDER BY net_total ASC`,
+              [leagueId, divisionId, matchup.week_number]
+            );
+
+            // Find this team's rank for the week
+            const rank = weekTeams.rows.findIndex(t => t.team_id === team.team_id) + 1;
+
+            // Award points based on rank
+            if (rank === 1) totalPoints += 3;
+            else if (rank === 2) totalPoints += 2;
+            else if (rank === 3) totalPoints += 1;
+          }
+        }
+
+        return {
+          team_id: team.team_id,
+          team_name: team.team_name,
+          total_points: totalPoints,
+          aggregate_net_score: parseInt(team.aggregate_net_score) || 0,
+          weeks_played: parseInt(team.weeks_played)
+        };
+      })
+    );
+
+    // Sort by total points (desc), then by aggregate net score (asc)
+    teamsWithPoints.sort((a, b) => {
+      if (b.total_points !== a.total_points) {
+        return b.total_points - a.total_points;
+      }
+      return a.aggregate_net_score - b.aggregate_net_score;
+    });
+
+    res.json({
+      league_id: parseInt(leagueId),
+      division_id: parseInt(divisionId),
+      teams: teamsWithPoints
+    });
+  } catch (err) {
+    console.error('Error fetching season standings:', err);
+    res.status(500).json({ error: 'Failed to fetch season standings' });
+  }
+});
+
 // --------------------------------------------
 // Score Verification & Results
 // --------------------------------------------
@@ -17244,19 +17441,17 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
     }
 
     // Get upcoming matches (only from published weeks)
+    // Note: In division-based format, team2_id is NULL (no opponents)
     const upcomingMatches = await pool.query(
       `SELECT lm.*, ls.week_start_date, ls.week_end_date, ls.course_id,
         sc.name as course_name,
-        CASE
-          WHEN lm.team1_id = $1 THEN t2.name
-          ELSE t1.name
-        END as opponent_name
+        t2.name as opponent_name
        FROM league_matchups lm
        JOIN league_schedule ls ON lm.schedule_id = ls.id
        LEFT JOIN tournament_teams t1 ON lm.team1_id = t1.id
        LEFT JOIN tournament_teams t2 ON lm.team2_id = t2.id
        LEFT JOIN simulator_courses_combined sc ON ls.course_id = sc.id
-       WHERE (lm.team1_id = $1 OR lm.team2_id = $1)
+       WHERE lm.team1_id = $1
          AND lm.league_id = $2
          AND lm.status IN ('scheduled', 'lineup_submitted')
          AND ls.is_published = true

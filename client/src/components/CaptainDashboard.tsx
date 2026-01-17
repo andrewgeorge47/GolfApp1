@@ -18,8 +18,8 @@ import {
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
 import AvailabilityView from './AvailabilityView';
-import LineupSelector from './LineupSelector';
-import LeagueScoreSubmission from './LeagueScoreSubmission';
+import ImprovedLineupSelector from './ImprovedLineupSelector';
+import DivisionLeaderboard from './DivisionLeaderboard';
 import {
   getCaptainDashboard,
   getLeague,
@@ -56,13 +56,14 @@ interface UpcomingMatch {
   id: number;
   week_number: number;
   week_start_date: string;
+  week_end_date: string;
   opponent_team_id: number;
   opponent_team_name: string;
   course_name: string;
   course_id: number;
   lineup_submitted: boolean;
   lineup_deadline: string;
-  status: 'upcoming' | 'in_progress' | 'completed';
+  status: 'scheduled' | 'lineup_submitted' | 'completed';
   team1_id: number;
   team2_id: number;
   team1_playing_time?: string;
@@ -90,11 +91,7 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
   const [upcomingMatches, setUpcomingMatches] = useState<UpcomingMatch[]>([]);
   const [teamStats, setTeamStats] = useState<TeamStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'availability' | 'lineup'>('overview');
-
-  // Score submission modal state
-  const [showScoreModal, setShowScoreModal] = useState(false);
-  const [selectedMatchup, setSelectedMatchup] = useState<UpcomingMatch | null>(null);
+  const [activeTab, setActiveTab] = useState<'overview' | 'availability' | 'lineup' | 'standings'>('overview');
 
   // Edit team name state
   const [isEditingTeamName, setIsEditingTeamName] = useState(false);
@@ -213,14 +210,14 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
         id: match.id,
         week_number: match.week_number,
         week_start_date: match.week_start_date,
+        week_end_date: match.week_end_date,
         opponent_team_id: match.team1_id === teamId ? match.team2_id : match.team1_id,
         opponent_team_name: match.opponent_name,
         course_name: match.course_name || 'TBD',
         course_id: match.course_id || 0,
         lineup_submitted: match.status === 'lineup_submitted' || match.lineup_submitted || false,
         lineup_deadline: calculateDeadline(match.week_start_date),
-        status: match.status === 'scheduled' ? 'upcoming' :
-                match.status === 'in_progress' ? 'in_progress' : 'completed',
+        status: match.status || 'scheduled',
         team1_id: match.team1_id,
         team2_id: match.team2_id,
         team1_playing_time: match.team1_playing_time,
@@ -454,6 +451,17 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
             <Target className="w-4 h-4 inline mr-2" />
             Lineup
           </button>
+          <button
+            onClick={() => setActiveTab('standings')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'standings'
+                ? 'border-brand-neon-green text-brand-neon-green'
+                : 'border-transparent text-white/70 hover:text-white hover:border-white/30'
+            }`}
+          >
+            <Trophy className="w-4 h-4 inline mr-2" />
+            Standings
+          </button>
         </nav>
       </div>
 
@@ -498,73 +506,80 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
               </div>
             </div>
 
-            {/* Upcoming Matches */}
+            {/* Weekly Schedule */}
             <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
               <div className="px-6 py-4 border-b border-neutral-200">
-                <h3 className="text-lg font-semibold text-brand-black">Upcoming Matches</h3>
+                <h3 className="text-lg font-semibold text-brand-black">Weekly Schedule</h3>
               </div>
 
               <div className="divide-y divide-neutral-200">
-                {upcomingMatches.map((match) => (
-                  <div key={match.id} className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-4">
-                        <div className="flex-shrink-0">
-                          <Calendar className="w-6 h-6 text-neutral-500" />
-                        </div>
+                {upcomingMatches.map((match) => {
+                  const myPlayingTime = match.team1_id === teamId ? match.team1_playing_time : match.team2_playing_time;
+                  const hasSubmittedScores = match.status !== 'scheduled';
 
-                        <div>
-                          <h4 className="text-lg font-semibold text-brand-black">
-                            vs {match.opponent_team_name}
-                          </h4>
-                          <p className="text-sm text-neutral-600">
-                            {formatDate(match.week_start_date)} • {match.course_name}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center space-x-3">
-                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getMatchStatusColor(match.status)}`}>
-                          {match.status.charAt(0).toUpperCase() + match.status.slice(1)}
-                        </span>
-
-                        {match.lineup_submitted ? (
-                          <div className="flex items-center text-green-600">
-                            <CheckCircle className="w-4 h-4 mr-1" />
-                            <span className="text-sm">Lineup Submitted</span>
+                  return (
+                    <div key={match.id} className="p-6">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                        <div className="flex items-start space-x-4">
+                          <div className="flex-shrink-0">
+                            <div className="w-12 h-12 bg-brand-teal/10 rounded-lg flex items-center justify-center">
+                              <Calendar className="w-6 h-6 text-brand-teal" />
+                            </div>
                           </div>
-                        ) : (
-                          <div className="flex items-center text-red-600">
-                            <AlertCircle className="w-4 h-4 mr-1" />
-                            <span className="text-sm">
-                              {isLineupDeadlinePassed(match.lineup_deadline) ? 'Deadline Passed' : 'Lineup Due Soon'}
+
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="text-lg font-semibold text-brand-black">
+                                Week {match.week_number}
+                              </h4>
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getMatchStatusColor(match.status)}`}>
+                                {match.status === 'scheduled' ? 'Not Submitted' : hasSubmittedScores ? 'Scores Submitted' : 'In Progress'}
+                              </span>
+                            </div>
+
+                            <p className="text-sm text-neutral-600 mb-2">
+                              {formatDate(match.week_start_date)} - {formatDate(match.week_end_date)}
+                            </p>
+
+                            {match.course_name && (
+                              <div className="flex items-center gap-4 text-sm">
+                                <div className="flex items-center gap-1.5">
+                                  <Target className="w-4 h-4 text-brand-purple" />
+                                  <span className="font-medium text-brand-black">{match.course_name}</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {myPlayingTime && (
+                              <div className="mt-2 flex items-center gap-1.5 text-sm text-neutral-600">
+                                <Clock className="w-4 h-4" />
+                                <span>Playing: {new Date(myPlayingTime).toLocaleString('en-US', {
+                                  weekday: 'short',
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: 'numeric',
+                                  minute: '2-digit'
+                                })}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                          <button
+                            onClick={() => setActiveTab('lineup')}
+                            className="flex items-center justify-center space-x-1 px-4 py-2 bg-brand-purple text-white rounded-lg hover:bg-brand-purple/90 transition-colors w-full sm:w-auto"
+                          >
+                            <Target className="w-4 h-4" />
+                            <span className="text-sm font-medium">
+                              {hasSubmittedScores ? 'View Lineup & Scores' : 'Manage Lineup & Scores'}
                             </span>
-                          </div>
-                        )}
-
-                        <div className="flex space-x-2">
-                          {match.course_id > 0 && (
-                            <button
-                              onClick={() => {
-                                setSelectedMatchup(match);
-                                setShowScoreModal(true);
-                              }}
-                              className="flex items-center space-x-1 px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                            >
-                              <ClipboardList className="w-4 h-4" />
-                              <span className="text-sm">Submit Scores</span>
-                            </button>
-                          )}
-
-                          <button className="flex items-center space-x-1 px-3 py-1 bg-brand-neon-green text-brand-black rounded-lg hover:bg-green-400 transition-colors">
-                            <span className="text-sm">Manage</span>
-                            <ChevronRight className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -581,40 +596,27 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
           />
         )}
         {activeTab === 'lineup' && team && (
-          <LineupSelector
+          <ImprovedLineupSelector
             teamId={teamId}
             leagueId={leagueId}
             members={team.members}
             upcomingMatches={upcomingMatches}
           />
         )}
+
+        {activeTab === 'standings' && team && (
+          <div className="py-6">
+            <DivisionLeaderboard
+              leagueId={leagueId}
+              divisionId={team.division_id}
+              divisionName={team.division_name}
+              weekNumber={upcomingMatches[0]?.week_number}
+              currentTeamId={teamId}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Score Submission Modal */}
-      {showScoreModal && selectedMatchup && team && (
-        <LeagueScoreSubmission
-          matchupId={selectedMatchup.id}
-          teamId={teamId}
-          opponentTeamId={selectedMatchup.opponent_team_id}
-          courseId={selectedMatchup.course_id}
-          players={team.members
-            .filter(m => m.role === 'captain' || m.role === 'member')
-            .slice(0, 3)
-            .map(m => ({
-              id: m.id,
-              user_id: m.user_id,
-              name: `${m.first_name} ${m.last_name}`,
-              sim_handicap: m.handicap
-            }))}
-          onClose={() => {
-            setShowScoreModal(false);
-            setSelectedMatchup(null);
-          }}
-          onSubmit={() => {
-            loadCaptainData();
-          }}
-        />
-      )}
     </div>
   );
 };

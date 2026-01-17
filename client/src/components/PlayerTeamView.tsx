@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import DivisionLeaderboard from './DivisionLeaderboard';
 import {
   Users,
   Calendar,
@@ -39,7 +40,7 @@ interface UpcomingMatch {
   course_rating?: number;
   course_slope?: number;
   course_par?: number;
-  status: 'scheduled' | 'in_progress' | 'completed';
+  status: 'scheduled' | 'lineup_submitted' | 'completed';
   match_date?: string;
   team1_id: number;
   team2_id: number;
@@ -116,12 +117,34 @@ const getStatusIcon = (status: string) => {
   }
 };
 
+interface SavedLineup {
+  selectedPlayers: Array<{
+    id: number;
+    name: string;
+    handicap: number;
+  }>;
+  savedAt: string;
+}
+
 const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [teamData, setTeamData] = useState<TeamData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'roster' | 'schedule' | 'stats'>('roster');
+  const [activeTab, setActiveTab] = useState<'roster' | 'schedule' | 'stats' | 'standings'>('roster');
+
+  const getLineupForWeek = (weekId: number): SavedLineup | null => {
+    const key = `lineup_${teamId}_${leagueId}_${weekId}`;
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (error) {
+        return null;
+      }
+    }
+    return null;
+  };
 
   useEffect(() => {
     if (teamId && leagueId) {
@@ -301,7 +324,7 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
                 }`}
               >
                 <Calendar className="w-4 h-4 inline mr-2" />
-                Match Schedule
+                Weekly Schedule
               </button>
               <button
                 onClick={() => setActiveTab('stats')}
@@ -313,6 +336,17 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
               >
                 <Trophy className="w-4 h-4 inline mr-2" />
                 Team Statistics
+              </button>
+              <button
+                onClick={() => setActiveTab('standings')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'standings'
+                    ? 'border-brand-neon-green text-brand-neon-green'
+                    : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
+                }`}
+              >
+                <Target className="w-4 h-4 inline mr-2" />
+                Division Standings
               </button>
             </nav>
           </div>
@@ -377,29 +411,29 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
             {activeTab === 'schedule' && (
               <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
                 <div className="px-6 py-4 border-b border-neutral-200">
-                  <h3 className="text-lg font-semibold text-brand-black">Match Schedule</h3>
+                  <h3 className="text-lg font-semibold text-brand-black">Weekly Schedule</h3>
                 </div>
 
                 {teamData.upcomingMatches.length === 0 ? (
                   <div className="p-12 text-center">
                     <Calendar className="w-16 h-16 text-neutral-300 mx-auto mb-4" />
                     <h3 className="text-xl font-semibold text-neutral-600 mb-2">Coming Soon</h3>
-                    <p className="text-neutral-500">Match schedule will be available soon</p>
+                    <p className="text-neutral-500">Weekly schedule will be available soon</p>
                   </div>
                 ) : (
                   <div className="divide-y divide-neutral-200">
                     {teamData.upcomingMatches.map((match) => {
                       const myPlayingTime = match.team1_id === teamId ? match.team1_playing_time : match.team2_playing_time;
-                      const opponentPlayingTime = match.team1_id === teamId ? match.team2_playing_time : match.team1_playing_time;
+                      const hasSubmittedScores = match.status !== 'scheduled';
 
                       return (
                         <div key={match.id} className="p-6 hover:bg-neutral-50 transition-colors">
-                          <div className="space-y-3">
+                          <div className="space-y-4">
                             {/* Header Row */}
-                            <div className="flex items-center justify-between">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                               <div className="flex items-center space-x-3">
                                 <div className="flex-shrink-0">
-                                  <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center shadow-sm">
+                                  <div className="w-14 h-14 bg-gradient-to-br from-brand-teal to-brand-purple rounded-lg flex items-center justify-center shadow-sm">
                                     <div className="text-center">
                                       <div className="text-white text-xs font-medium">Week</div>
                                       <div className="text-white text-lg font-bold">{match.week_number}</div>
@@ -408,61 +442,81 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
                                 </div>
 
                                 <div className="flex-1">
-                                  <h4 className="text-xl font-bold text-brand-black">
-                                    vs {match.opponent_name}
+                                  <h4 className="text-xl font-bold text-brand-black mb-1">
+                                    Week {match.week_number}
                                   </h4>
-                                  {match.course_name && (
-                                    <div className="flex items-center space-x-1.5 mt-1">
-                                      <MapPin className="w-3.5 h-3.5 text-neutral-400" />
-                                      <span className="text-sm text-neutral-600">{match.course_name}</span>
-                                      <span className="text-neutral-400">•</span>
-                                      <span className="text-xs text-neutral-500">Par {match.course_par}</span>
-                                    </div>
-                                  )}
+                                  <p className="text-sm text-neutral-600">
+                                    {formatDate(match.week_start_date)} - {formatDate(match.week_end_date)}
+                                  </p>
                                 </div>
+                              </div>
+
+                              <div>
+                                <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(match.status)}`}>
+                                  {match.status === 'scheduled' ? 'Not Submitted' : hasSubmittedScores ? 'Scores Submitted' : 'In Progress'}
+                                </span>
                               </div>
                             </div>
 
-                            {/* Playing Times */}
-                            {(myPlayingTime || opponentPlayingTime) && (
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {myPlayingTime && (
-                                  <div className="bg-gradient-to-br from-brand-neon-green/10 to-brand-neon-green/5 border border-brand-neon-green/30 rounded-lg p-3">
-                                    <div className="flex items-center space-x-2 mb-1">
-                                      <Clock className="w-4 h-4 text-brand-neon-green" />
-                                      <span className="text-xs font-semibold text-neutral-700 uppercase">Your Playing Time</span>
+                            {/* Course Information */}
+                            {match.course_name && (
+                              <div className="bg-neutral-50 rounded-lg p-4">
+                                <div className="flex items-start space-x-3">
+                                  <Target className="w-5 h-5 text-brand-purple mt-0.5" />
+                                  <div className="flex-1">
+                                    <h5 className="font-semibold text-brand-black mb-1">{match.course_name}</h5>
+                                    <div className="flex items-center gap-4 text-sm text-neutral-600">
+                                      <span>Par {match.course_par}</span>
                                     </div>
-                                    <p className="text-lg font-bold text-brand-black">
-                                      {new Date(myPlayingTime).toLocaleString('en-US', {
-                                        weekday: 'short',
-                                        month: 'short',
-                                        day: 'numeric',
-                                        hour: 'numeric',
-                                        minute: '2-digit'
-                                      })}
-                                    </p>
                                   </div>
-                                )}
-
-                                {opponentPlayingTime && (
-                                  <div className="bg-gradient-to-br from-neutral-100 to-neutral-50 border border-neutral-300 rounded-lg p-3">
-                                    <div className="flex items-center space-x-2 mb-1">
-                                      <Clock className="w-4 h-4 text-neutral-500" />
-                                      <span className="text-xs font-semibold text-neutral-700 uppercase">{match.opponent_name}</span>
-                                    </div>
-                                    <p className="text-lg font-bold text-brand-black">
-                                      {new Date(opponentPlayingTime).toLocaleString('en-US', {
-                                        weekday: 'short',
-                                        month: 'short',
-                                        day: 'numeric',
-                                        hour: 'numeric',
-                                        minute: '2-digit'
-                                      })}
-                                    </p>
-                                  </div>
-                                )}
+                                </div>
                               </div>
                             )}
+
+                            {/* Team Playing Time */}
+                            {myPlayingTime && (
+                              <div className="bg-gradient-to-br from-brand-neon-green/10 to-brand-neon-green/5 border border-brand-neon-green/30 rounded-lg p-4">
+                                <div className="flex items-center space-x-2 mb-1">
+                                  <Clock className="w-4 h-4 text-brand-neon-green" />
+                                  <span className="text-xs font-semibold text-neutral-700 uppercase">Your Team's Playing Time</span>
+                                </div>
+                                <p className="text-lg font-bold text-brand-black">
+                                  {new Date(myPlayingTime).toLocaleString('en-US', {
+                                    weekday: 'short',
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: 'numeric',
+                                    minute: '2-digit'
+                                  })}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Lineup Display */}
+                            {(() => {
+                              const lineup = getLineupForWeek(match.id);
+                              if (lineup && lineup.selectedPlayers && lineup.selectedPlayers.length > 0) {
+                                return (
+                                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                    <div className="flex items-center space-x-2 mb-3">
+                                      <Users className="w-4 h-4 text-blue-600" />
+                                      <span className="text-xs font-semibold text-neutral-700 uppercase">Playing This Week</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {lineup.selectedPlayers.map((player, index) => (
+                                        <div
+                                          key={player.id}
+                                          className="inline-flex items-center px-3 py-1.5 rounded-full bg-blue-500 text-white text-sm font-medium"
+                                        >
+                                          {player.name} ({player.handicap.toFixed(1)})
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
                         </div>
                       );
@@ -553,6 +607,18 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
                     ) : null;
                   })()}
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'standings' && teamData && (
+              <div className="py-6">
+                <DivisionLeaderboard
+                  leagueId={leagueId}
+                  divisionId={teamData.team.division_id}
+                  divisionName={`Division ${teamData.team.division_id}`}
+                  weekNumber={teamData.upcomingMatches[0]?.week_number}
+                  currentTeamId={teamId}
+                />
               </div>
             )}
           </div>

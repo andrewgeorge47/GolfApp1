@@ -43,14 +43,20 @@ interface WeeklyLineup {
 
 interface UpcomingMatch {
   id: number;
+  week_number: number;
   week_start_date: string;
+  week_end_date: string;
   opponent_team_id: number;
   opponent_team_name: string;
   course_name: string;
   course_id: number;
   lineup_submitted: boolean;
   lineup_deadline: string;
-  status: 'upcoming' | 'in_progress' | 'completed';
+  status: 'scheduled' | 'lineup_submitted' | 'completed';
+  team1_id: number;
+  team2_id: number;
+  team1_playing_time?: string;
+  team2_playing_time?: string;
 }
 
 interface LineupSelectorProps {

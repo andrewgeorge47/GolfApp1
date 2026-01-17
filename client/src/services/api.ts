@@ -622,6 +622,43 @@ export const getLeagueStandings = (leagueId: number, params?: { division_id?: nu
 export const getDivisionStandings = (leagueId: number, divisionId: number) =>
   api.get(`/leagues/${leagueId}/divisions/${divisionId}/standings`);
 
+// Division Leaderboards
+export interface WeeklyLeaderboardTeam {
+  team_id: number;
+  team_name: string;
+  matchup_id: number;
+  net_total: number;
+  has_submitted: boolean;
+  weekly_points: number;
+}
+
+export interface WeeklyLeaderboard {
+  league_id: number;
+  division_id: number;
+  week_number: number;
+  teams: WeeklyLeaderboardTeam[];
+}
+
+export interface SeasonStandingsTeam {
+  team_id: number;
+  team_name: string;
+  total_points: number;
+  aggregate_net_score: number;
+  weeks_played: number;
+}
+
+export interface SeasonStandings {
+  league_id: number;
+  division_id: number;
+  teams: SeasonStandingsTeam[];
+}
+
+export const getDivisionWeeklyLeaderboard = (leagueId: number, divisionId: number, weekNumber: number) =>
+  api.get<WeeklyLeaderboard>(`/leagues/${leagueId}/divisions/${divisionId}/leaderboard/${weekNumber}`);
+
+export const getDivisionSeasonStandings = (leagueId: number, divisionId: number) =>
+  api.get<SeasonStandings>(`/leagues/${leagueId}/divisions/${divisionId}/standings`);
+
 // League-Signup Integration
 export interface LeagueSignupLink {
   id: number;

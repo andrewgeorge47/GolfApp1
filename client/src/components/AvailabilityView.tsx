@@ -81,8 +81,8 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
   const loadAvailabilityData = useCallback(async () => {
     setLoading(true);
     try {
-      // Load league schedule
-      const scheduleResponse = await getLeagueSchedule(leagueId, true);
+      // Load league schedule - show ALL weeks so captains can plan ahead
+      const scheduleResponse = await getLeagueSchedule(leagueId, false);
       console.log('Schedule response:', scheduleResponse.data);
       const weeks = scheduleResponse.data.map((w: any) => w.week_start_date);
 
