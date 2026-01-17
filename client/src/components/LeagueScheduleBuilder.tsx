@@ -523,11 +523,6 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
       return;
     }
 
-    if (week.matches.length === 0 || week.matches[0].team1_id === 0) {
-      toast.error('Please generate matchups before publishing');
-      return;
-    }
-
     if (!window.confirm('Publishing will lock this week\'s schedule and make it visible to captains and players. Continue?')) {
       return;
     }
@@ -776,110 +771,23 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
 
                 {/* Action Buttons (disabled when published) */}
                 {!week.is_published && (
-                  <>
-                    <Button
-                      onClick={() => handleAutoGenerateMatches(week.id)}
-                      icon={RotateCcw}
-                      variant="secondary"
-                      size="sm"
-                    >
-                      Auto-Generate
-                    </Button>
-
-                    <Button
-                      onClick={() => {
-                        setCurrentWeekId(week.id);
-                        setShowMatchForm(true);
-                        setMatchForm({ team1_id: 0, team2_id: 0, division_id: 0 });
-                      }}
-                      icon={Plus}
-                      variant="success"
-                      size="sm"
-                    >
-                      Add Match
-                    </Button>
-
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      icon={Trash2}
-                      onClick={() => handleDeleteWeek(week.id)}
-                    >
-                      Delete
-                    </Button>
-                  </>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    icon={Trash2}
+                    onClick={() => handleDeleteWeek(week.id)}
+                  >
+                    Delete
+                  </Button>
                 )}
               </div>
             </div>
               
               {expandedWeek === week.id && (
-                <div className="mt-6 space-y-4">
-                  {week.matches.length === 0 ? (
-                    <div className="text-center py-8 text-neutral-500">
-                      <Users className="w-12 h-12 mx-auto mb-4 text-neutral-300" />
-                      <p>No matches scheduled for this week</p>
-                      <p className="text-sm">Click "Auto-Generate" or "Add Match" to create matches</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {week.matches.map((match) => (
-                        <Card key={match.id} variant="outlined">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-4">
-                              <StatusBadge status={match.status === 'scheduled' ? 'pending' : match.status === 'in_progress' ? 'in_progress' : 'completed'} />
-                              
-                              <div className="flex items-center space-x-2">
-                                <span className="font-medium text-brand-black">{match.team1_name}</span>
-                                <span className="text-neutral-500">vs</span>
-                                <span className="font-medium text-brand-black">{match.team2_name}</span>
-                              </div>
-                              
-                              {match.status === 'completed' && (
-                                <div className="flex items-center space-x-2 text-sm">
-                                  <span className="font-medium">{match.team1_score}</span>
-                                  <span className="text-neutral-500">-</span>
-                                  <span className="font-medium">{match.team2_score}</span>
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="flex items-center space-x-2">
-                              {!week.is_published && match.team1_id > 0 && (
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
-                                  icon={Edit3}
-                                  onClick={() => {
-                                    setEditingMatch(match);
-                                    setCurrentWeekId(week.id);
-                                    setMatchForm({
-                                      team1_id: match.team1_id,
-                                      team2_id: match.team2_id,
-                                      division_id: match.division_id
-                                    });
-                                    setShowMatchForm(true);
-                                  }}
-                                >
-                                  Edit
-                                </Button>
-                              )}
-
-                              {!week.is_published && (
-                                <Button
-                                  variant="danger"
-                                  size="sm"
-                                  icon={Trash2}
-                                  onClick={() => handleDeleteMatch(week.id, match.id)}
-                                >
-                                  Delete
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        </Card>
-                      ))}
-                    </div>
-                  )}
+                <div className="mt-6 p-6 bg-neutral-50 rounded-lg border border-neutral-200">
+                  <p className="text-sm text-neutral-600">
+                    Week {week.week_number} has been configured. Teams will compete individually within their divisions.
+                  </p>
                 </div>
               )}
             </Card>
@@ -942,82 +850,6 @@ const LeagueScheduleBuilder: React.FC<LeagueScheduleBuilderProps> = ({ leagueId 
               <p className="mt-1 text-sm text-red-600">{formErrors.course_id}</p>
             )}
           </div>
-        </div>
-      </FormDialog>
-
-      {/* Create/Edit Match Modal */}
-      <FormDialog
-        open={showMatchForm}
-        onClose={() => {
-          setShowMatchForm(false);
-          setEditingMatch(null);
-          setMatchForm({ team1_id: 0, team2_id: 0, division_id: 0 });
-          setCurrentWeekId(null);
-        }}
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (editingMatch && editingMatch.id > 0) {
-            handleEditMatch(editingMatch.id);
-          } else {
-            handleCreateMatch();
-          }
-        }}
-        title={editingMatch && editingMatch.id > 0 ? "Edit Match" : "Create Match"}
-        submitText={editingMatch && editingMatch.id > 0 ? "Save Changes" : "Create Match"}
-        loading={isSubmitting}
-      >
-        <div className="space-y-4">
-          <Select
-            label="Division"
-            value={matchForm.division_id}
-            onChange={(e) => setMatchForm(prev => ({ ...prev, division_id: parseInt(e.target.value) }))}
-            options={[
-              { value: 0, label: 'Select division...' },
-              ...divisions.map((division) => ({
-                value: division.id,
-                label: division.name
-              }))
-            ]}
-            error={formErrors.division_id}
-            required
-          />
-
-          <Select
-            label="Team 1"
-            value={matchForm.team1_id}
-            onChange={(e) => setMatchForm(prev => ({ ...prev, team1_id: parseInt(e.target.value) }))}
-            options={[
-              { value: 0, label: 'Select team...' },
-              ...(matchForm.division_id ? divisions
-                .find(d => d.id === matchForm.division_id)
-                ?.teams.map((team) => ({
-                  value: team.id,
-                  label: team.name
-                })) || [] : [])
-            ]}
-            error={formErrors.team1_id}
-            required
-            disabled={!matchForm.division_id}
-          />
-
-          <Select
-            label="Team 2"
-            value={matchForm.team2_id}
-            onChange={(e) => setMatchForm(prev => ({ ...prev, team2_id: parseInt(e.target.value) }))}
-            options={[
-              { value: 0, label: 'Select team...' },
-              ...(matchForm.division_id ? divisions
-                .find(d => d.id === matchForm.division_id)
-                ?.teams.filter(team => team.id !== matchForm.team1_id)
-                .map((team) => ({
-                  value: team.id,
-                  label: team.name
-                })) || [] : [])
-            ]}
-            error={formErrors.team2_id}
-            required
-            disabled={!matchForm.division_id}
-          />
         </div>
       </FormDialog>
 

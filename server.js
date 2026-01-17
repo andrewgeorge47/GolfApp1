@@ -15013,16 +15013,6 @@ app.post('/api/leagues/:leagueId/schedule/:weekId/publish', authenticateToken, r
       return res.status(400).json({ error: 'Cannot publish week without a course assigned' });
     }
 
-    // Check if week has matchups
-    const matchupCheck = await pool.query(
-      'SELECT COUNT(*) FROM league_matchups WHERE schedule_id = $1',
-      [weekId]
-    );
-
-    if (parseInt(matchupCheck.rows[0].count) === 0) {
-      return res.status(400).json({ error: 'Cannot publish week without matchups. Generate matchups first.' });
-    }
-
     // Publish the week
     const result = await pool.query(
       `UPDATE league_schedule
