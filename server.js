@@ -17453,9 +17453,12 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
         ls.status,
         NULL as team1_id,
         NULL as team2_id,
-        NULL as opponent_name,
+        NULL as opponent_team_id,
+        NULL as opponent_team_name,
         NULL as team1_playing_time,
-        NULL as team2_playing_time
+        NULL as team2_playing_time,
+        false as lineup_submitted,
+        ls.week_end_date as lineup_deadline
        FROM league_schedule ls
        LEFT JOIN simulator_courses_combined sc ON ls.course_id = sc.id
        WHERE ls.league_id = $1
