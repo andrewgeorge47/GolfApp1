@@ -371,6 +371,8 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
   };
 
   const initializeScores = (parValues: number[], holeIndexes: number[]) => {
+    console.log('initializeScores called with:', { parValues, holeIndexes });
+
     // Front 9
     const front9: { [hole: number]: HoleScore } = {};
     for (let hole = 1; hole <= 9; hole++) {
@@ -383,6 +385,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
         stroke_received: false
       };
     }
+    console.log('Setting frontNineScores:', front9);
     setFrontNineScores(front9);
 
     // Back 9
@@ -397,6 +400,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
         stroke_received: false
       };
     }
+    console.log('Setting backNineScores:', back9);
     setBackNineScores(back9);
   };
 
@@ -696,7 +700,9 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
             </div>
           </button>
 
-          {expandedSection === 'front9' && course && (
+          {expandedSection === 'front9' && course && (() => {
+            console.log('Rendering Front 9 expanded section. frontNineScores:', frontNineScores, 'course:', course);
+            return (
             <div className="p-4 sm:p-6 overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -713,6 +719,12 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
                     const assignedPlayerId = holeAssignments[hole];
 
                     console.log(`Rendering hole ${hole}:`, { score, assignedPlayerId, memberColorMap });
+
+                    // Defensive check - if score is undefined, skip this hole
+                    if (!score) {
+                      console.error(`frontNineScores[${hole}] is undefined!`);
+                      return null;
+                    }
 
                     return (
                       <tr
@@ -820,7 +832,8 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
                 </tbody>
               </table>
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
