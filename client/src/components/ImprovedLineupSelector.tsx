@@ -86,6 +86,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
   const [selectedWeek, setSelectedWeek] = useState<UpcomingMatch | null>(null);
   const [course, setCourse] = useState<CourseData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   // Player selection (3 players)
   const [selectedPlayers, setSelectedPlayers] = useState<Player[]>([]);
@@ -199,6 +200,10 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
         lineupSaved: lineup.is_finalized
       }));
 
+      // Mark initial load as complete
+      console.log('loadLineup completed successfully, setting isInitialLoad to false');
+      setIsInitialLoad(false);
+
     } catch (error: any) {
       // If backend fails (404 = not found), try localStorage and migrate to backend
       if (error?.response?.status === 404) {
@@ -253,8 +258,14 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
             console.error('Error loading saved lineup from localStorage:', error);
           }
         }
+        // Mark initial load as complete even if we loaded from localStorage
+        console.log('loadLineup completed (localStorage), setting isInitialLoad to false');
+        setIsInitialLoad(false);
       } else {
         console.error('Error loading lineup:', error);
+        // Mark initial load as complete even on error
+        console.log('loadLineup failed, setting isInitialLoad to false');
+        setIsInitialLoad(false);
       }
     }
   };
@@ -275,6 +286,8 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
     try {
       console.log('useEffect - selectedWeek changed:', selectedWeek);
       if (selectedWeek && selectedWeek.course_id) {
+        // Reset initial load flag when week changes
+        setIsInitialLoad(true);
         console.log('Loading course and lineup for week:', selectedWeek.id);
         loadCourseData(selectedWeek.course_id);
         loadLineup(selectedWeek.id);
@@ -286,16 +299,17 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
     }
   }, [selectedWeek]);
 
-  // Auto-save lineup to backend whenever it changes
+  // Auto-save lineup to backend whenever it changes (but not during initial load)
   useEffect(() => {
-    if (selectedWeek && selectedPlayers.length > 0) {
+    if (!isInitialLoad && selectedWeek && selectedPlayers.length > 0) {
+      console.log('Auto-save triggered');
       // Debounce the save to avoid too many API calls
       const timeoutId = setTimeout(() => {
         saveLineup(selectedWeek.id, false);
       }, 1000);
       return () => clearTimeout(timeoutId);
     }
-  }, [selectedPlayers, holeAssignments, frontNineScores, backNineScores, back9PlayerOrder, selectedWeek]);
+  }, [selectedPlayers, holeAssignments, frontNineScores, backNineScores, back9PlayerOrder, selectedWeek, isInitialLoad]);
 
   useEffect(() => {
     if (selectedPlayers.length === 3) {
