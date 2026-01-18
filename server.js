@@ -17489,10 +17489,10 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
 // League Lineup Management
 // --------------------------------------------
 
-// POST /api/leagues/matchups/:matchupId/lineup - Save team lineup
-app.post('/api/leagues/matchups/:matchupId/lineup', authenticateToken, async (req, res) => {
+// POST /api/leagues/schedule/:scheduleId/lineup - Save team lineup
+app.post('/api/leagues/schedule/:scheduleId/lineup', authenticateToken, async (req, res) => {
   try {
-    const { matchupId } = req.params;
+    const { scheduleId } = req.params;
     const {
       team_id,
       player_ids, // Array of 3 player user_ids
@@ -17515,13 +17515,13 @@ app.post('/api/leagues/matchups/:matchupId/lineup', authenticateToken, async (re
     // Upsert lineup
     const result = await pool.query(
       `INSERT INTO league_lineups (
-        matchup_id, team_id,
+        schedule_id, team_id,
         player1_id, player2_id, player3_id,
         player1_handicap, player2_handicap, player3_handicap,
         hole_assignments, back9_player_order, is_finalized,
         updated_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
-      ON CONFLICT (matchup_id, team_id)
+      ON CONFLICT (schedule_id, team_id)
       DO UPDATE SET
         player1_id = EXCLUDED.player1_id,
         player2_id = EXCLUDED.player2_id,
@@ -17535,7 +17535,7 @@ app.post('/api/leagues/matchups/:matchupId/lineup', authenticateToken, async (re
         updated_at = CURRENT_TIMESTAMP
       RETURNING *`,
       [
-        matchupId, team_id,
+        scheduleId, team_id,
         player_ids[0], player_ids[1], player_ids[2],
         player_handicaps[0], player_handicaps[1], player_handicaps[2],
         JSON.stringify(hole_assignments),
@@ -17551,10 +17551,10 @@ app.post('/api/leagues/matchups/:matchupId/lineup', authenticateToken, async (re
   }
 });
 
-// GET /api/leagues/matchups/:matchupId/lineup/:teamId - Get team lineup
-app.get('/api/leagues/matchups/:matchupId/lineup/:teamId', authenticateToken, async (req, res) => {
+// GET /api/leagues/schedule/:scheduleId/lineup/:teamId - Get team lineup
+app.get('/api/leagues/schedule/:scheduleId/lineup/:teamId', authenticateToken, async (req, res) => {
   try {
-    const { matchupId, teamId } = req.params;
+    const { scheduleId, teamId } = req.params;
 
     // Verify user is a member of this team or admin
     const membership = await pool.query(
@@ -17568,8 +17568,104 @@ app.get('/api/leagues/matchups/:matchupId/lineup/:teamId', authenticateToken, as
 
     // Get lineup
     const result = await pool.query(
-      'SELECT * FROM league_lineups WHERE matchup_id = $1 AND team_id = $2',
-      [matchupId, teamId]
+      'SELECT * FROM league_lineups WHERE schedule_id = $1 AND team_id = $2',
+      [scheduleId, teamId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Lineup not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error loading lineup:', err);
+    res.status(500).json({ error: 'Failed to load lineup' });
+  }
+});
+
+// Keep old matchup endpoints for backward compatibility (redirects to schedule endpoints)
+app.post('/api/leagues/matchups/:matchupId/lineup', authenticateToken, async (req, res) => {
+  // In division-based leagues, matchupId is actually the schedule_id
+  const scheduleId = req.params.matchupId;
+  const {
+    team_id,
+    player_ids,
+    player_handicaps,
+    hole_assignments,
+    back9_player_order,
+    is_finalized
+  } = req.body;
+
+  try {
+    // Verify user is a member of this team
+    const membership = await pool.query(
+      'SELECT * FROM team_members WHERE team_id = $1 AND user_member_id = $2',
+      [team_id, req.user.member_id]
+    );
+
+    if (membership.rows.length === 0 && req.user.role !== 'Admin') {
+      return res.status(403).json({ error: 'Only team members can save lineups' });
+    }
+
+    // Upsert lineup
+    const result = await pool.query(
+      `INSERT INTO league_lineups (
+        schedule_id, team_id,
+        player1_id, player2_id, player3_id,
+        player1_handicap, player2_handicap, player3_handicap,
+        hole_assignments, back9_player_order, is_finalized,
+        updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
+      ON CONFLICT (schedule_id, team_id)
+      DO UPDATE SET
+        player1_id = EXCLUDED.player1_id,
+        player2_id = EXCLUDED.player2_id,
+        player3_id = EXCLUDED.player3_id,
+        player1_handicap = EXCLUDED.player1_handicap,
+        player2_handicap = EXCLUDED.player2_handicap,
+        player3_handicap = EXCLUDED.player3_handicap,
+        hole_assignments = EXCLUDED.hole_assignments,
+        back9_player_order = EXCLUDED.back9_player_order,
+        is_finalized = EXCLUDED.is_finalized,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *`,
+      [
+        scheduleId, team_id,
+        player_ids[0], player_ids[1], player_ids[2],
+        player_handicaps[0], player_handicaps[1], player_handicaps[2],
+        JSON.stringify(hole_assignments),
+        JSON.stringify(back9_player_order),
+        is_finalized
+      ]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error saving lineup:', err);
+    res.status(500).json({ error: 'Failed to save lineup' });
+  }
+});
+
+app.get('/api/leagues/matchups/:matchupId/lineup/:teamId', authenticateToken, async (req, res) => {
+  // In division-based leagues, matchupId is actually the schedule_id
+  const scheduleId = req.params.matchupId;
+  const { teamId } = req.params;
+
+  try {
+    // Verify user is a member of this team or admin
+    const membership = await pool.query(
+      'SELECT * FROM team_members WHERE team_id = $1 AND user_member_id = $2',
+      [teamId, req.user.member_id]
+    );
+
+    if (membership.rows.length === 0 && req.user.role !== 'Admin') {
+      return res.status(403).json({ error: 'Only team members can view lineups' });
+    }
+
+    // Get lineup
+    const result = await pool.query(
+      'SELECT * FROM league_lineups WHERE schedule_id = $1 AND team_id = $2',
+      [scheduleId, teamId]
     );
 
     if (result.rows.length === 0) {
