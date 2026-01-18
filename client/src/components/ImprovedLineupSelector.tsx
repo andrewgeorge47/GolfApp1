@@ -4,7 +4,7 @@ import {
   CheckCircle, AlertCircle, ChevronDown, ChevronUp, Lock, Smartphone
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import { getSimulatorCourse } from '../services/api';
+import { getSimulatorCourse, saveLeagueLineup, getLeagueLineup } from '../services/api';
 import LeagueScoreSubmission from './LeagueScoreSubmission';
 import MobileLiveScoring from './MobileLiveScoring';
 
@@ -105,7 +105,8 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
     return `lineup_${teamId}_${leagueId}_${weekId}`;
   };
 
-  const saveLineup = (weekId: number, isManualSave: boolean = false) => {
+  const saveLineup = async (weekId: number, isManualSave: boolean = false) => {
+    // Save to localStorage as a backup
     const key = getLineupStorageKey(weekId);
     const lineupData = {
       selectedPlayers,
@@ -117,25 +118,134 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
       lineupSaved: isManualSave ? true : lineupSaved
     };
     localStorage.setItem(key, JSON.stringify(lineupData));
+
+    // Save to backend if we have at least one player selected
+    if (selectedPlayers.length > 0) {
+      try {
+        const player_ids = selectedPlayers.map(p => p.user_id);
+        const player_handicaps = selectedPlayers.map(p => p.handicap);
+
+        // back9PlayerOrder is already an array of player IDs (numbers)
+        // Convert to user_ids by finding the corresponding user_id for each player id
+        const back9_user_ids = back9PlayerOrder.map(playerId => {
+          const player = selectedPlayers.find(p => p.id === playerId);
+          return player ? player.user_id : 0;
+        }).filter((id: number) => id !== 0);
+
+        await saveLeagueLineup(weekId, {
+          team_id: teamId,
+          player_ids,
+          player_handicaps,
+          hole_assignments: holeAssignments,
+          back9_player_order: back9_user_ids,
+          is_finalized: isManualSave
+        });
+      } catch (error) {
+        console.error('Error saving lineup to backend:', error);
+        // Don't show error toast for auto-saves, only for manual saves
+        if (isManualSave) {
+          toast.error('Failed to save lineup to server, but saved locally');
+        }
+      }
+    }
   };
 
-  const loadLineup = (weekId: number) => {
-    const key = getLineupStorageKey(weekId);
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      try {
-        const lineupData = JSON.parse(saved);
-        setSelectedPlayers(lineupData.selectedPlayers || []);
-        setHoleAssignments(lineupData.holeAssignments || {});
-        setFrontNineScores(lineupData.frontNineScores || {});
-        setBackNineScores(lineupData.backNineScores || {});
-        setBack9PlayerOrder(lineupData.back9PlayerOrder || []);
-        // Restore lineupSaved state from localStorage
-        if (lineupData.lineupSaved) {
-          setLineupSaved(true);
+  const loadLineup = async (weekId: number) => {
+    try {
+      // Try to load from backend first
+      const response = await getLeagueLineup(weekId, teamId);
+      const lineup = response.data;
+
+      // Find the full player objects from members
+      const playerIds = [lineup.player1_id, lineup.player2_id, lineup.player3_id].filter(Boolean);
+      const loadedPlayers = members.filter(m => playerIds.includes(m.user_id)).map(m => ({
+        id: m.id,
+        user_id: m.user_id,
+        name: `${m.first_name} ${m.last_name}`,
+        handicap: m.handicap
+      }));
+
+      setSelectedPlayers(loadedPlayers);
+      setHoleAssignments(lineup.hole_assignments || {});
+
+      // Convert back9_player_order from user_ids to player ids
+      const back9_ids = (lineup.back9_player_order || []).map((userId: number) => {
+        const player = loadedPlayers.find(p => p.user_id === userId);
+        return player ? player.id : 0;
+      }).filter((id: number) => id !== 0);
+      setBack9PlayerOrder(back9_ids);
+
+      // Set lineup as saved if it was finalized
+      if (lineup.is_finalized) {
+        setLineupSaved(true);
+      }
+
+      // Also save to localStorage for offline backup
+      const key = getLineupStorageKey(weekId);
+      localStorage.setItem(key, JSON.stringify({
+        selectedPlayers: loadedPlayers,
+        holeAssignments: lineup.hole_assignments || {},
+        back9PlayerOrder: back9_ids,
+        savedAt: new Date().toISOString(),
+        lineupSaved: lineup.is_finalized
+      }));
+
+    } catch (error: any) {
+      // If backend fails (404 = not found), try localStorage and migrate to backend
+      if (error?.response?.status === 404) {
+        const key = getLineupStorageKey(weekId);
+        const saved = localStorage.getItem(key);
+        if (saved) {
+          try {
+            const lineupData = JSON.parse(saved);
+            const loadedPlayers = lineupData.selectedPlayers || [];
+
+            setSelectedPlayers(loadedPlayers);
+            setHoleAssignments(lineupData.holeAssignments || {});
+            setFrontNineScores(lineupData.frontNineScores || {});
+            setBackNineScores(lineupData.backNineScores || {});
+            setBack9PlayerOrder(lineupData.back9PlayerOrder || []);
+
+            if (lineupData.lineupSaved) {
+              setLineupSaved(true);
+            }
+
+            // MIGRATION: If lineup was finalized in localStorage, save it to backend
+            if (lineupData.lineupSaved && loadedPlayers.length === 3) {
+              console.log('Migrating localStorage lineup to database...');
+              try {
+                const player_ids = loadedPlayers.map((p: any) => p.user_id);
+                const player_handicaps = loadedPlayers.map((p: any) => p.handicap);
+                const back9_user_ids = (lineupData.back9PlayerOrder || []).map((playerId: number) => {
+                  const player = loadedPlayers.find((p: any) => p.id === playerId);
+                  return player ? player.user_id : 0;
+                }).filter((id: number) => id !== 0);
+
+                await saveLeagueLineup(weekId, {
+                  team_id: teamId,
+                  player_ids,
+                  player_handicaps,
+                  hole_assignments: lineupData.holeAssignments || {},
+                  back9_player_order: back9_user_ids,
+                  is_finalized: true
+                });
+
+                toast.success('Your saved lineup has been migrated to the cloud!', {
+                  autoClose: 5000,
+                  position: 'top-center'
+                });
+                console.log('Migration successful!');
+              } catch (migrationError) {
+                console.error('Failed to migrate lineup to backend:', migrationError);
+                // Don't show error to user - they still have localStorage backup
+              }
+            }
+          } catch (error) {
+            console.error('Error loading saved lineup from localStorage:', error);
+          }
         }
-      } catch (error) {
-        console.error('Error loading saved lineup:', error);
+      } else {
+        console.error('Error loading lineup:', error);
       }
     }
   };
@@ -155,10 +265,14 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
     }
   }, [selectedWeek]);
 
-  // Save lineup to localStorage whenever it changes
+  // Auto-save lineup to backend whenever it changes
   useEffect(() => {
     if (selectedWeek && selectedPlayers.length > 0) {
-      saveLineup(selectedWeek.id);
+      // Debounce the save to avoid too many API calls
+      const timeoutId = setTimeout(() => {
+        saveLineup(selectedWeek.id, false);
+      }, 1000);
+      return () => clearTimeout(timeoutId);
     }
   }, [selectedPlayers, holeAssignments, frontNineScores, backNineScores, back9PlayerOrder, selectedWeek]);
 
@@ -371,17 +485,22 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
       return;
     }
 
-    setLineupSaved(true);
-    setIsEditMode(false);
-    saveLineup(selectedWeek.id, true); // Save with lineupSaved flag
-    toast.success('Lineup saved successfully!');
+    try {
+      setLineupSaved(true);
+      setIsEditMode(false);
+      await saveLineup(selectedWeek.id, true); // Save with lineupSaved flag
+      toast.success('Lineup saved successfully and synced across all devices!');
+    } catch (error) {
+      toast.error('Failed to save lineup to server');
+      setLineupSaved(false);
+    }
   };
 
   const handleEditLineup = () => {
     if (!selectedWeek) return;
     setIsEditMode(true);
     setLineupSaved(false);
-    saveLineup(selectedWeek.id, false); // Update localStorage
+    saveLineup(selectedWeek.id, false); // Update backend and localStorage
   };
 
   const handleSubmitScore = async () => {

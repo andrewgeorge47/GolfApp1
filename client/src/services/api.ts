@@ -766,6 +766,19 @@ export const submitTeamAvailability = (teamId: number, availabilityData: {
 export const getTeamAvailability = (teamId: number, weekNumber: number, leagueId: number) =>
   api.get(`/teams/${teamId}/availability/week/${weekNumber}`, { params: { league_id: leagueId } });
 
+// League Lineups
+export const saveLeagueLineup = (matchupId: number, lineupData: {
+  team_id: number;
+  player_ids: number[];
+  player_handicaps: number[];
+  hole_assignments: { [hole: number]: number };
+  back9_player_order: number[];
+  is_finalized: boolean;
+}) => api.post(`/leagues/matchups/${matchupId}/lineup`, lineupData);
+
+export const getLeagueLineup = (matchupId: number, teamId: number) =>
+  api.get(`/leagues/matchups/${matchupId}/lineup/${teamId}`);
+
 export const setCaptainOverride = (teamId: number, userId: number, overrideData: {
   league_id: number;
   week_number: number;
