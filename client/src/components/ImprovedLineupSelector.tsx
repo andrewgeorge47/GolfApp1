@@ -172,7 +172,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
         id: m.id,
         user_id: m.user_id,
         name: `${m.first_name} ${m.last_name}`,
-        handicap: m.handicap
+        handicap: Number(m.handicap || 0)
       }));
 
       setSelectedPlayers(loadedPlayers);
@@ -212,7 +212,10 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
         if (saved) {
           try {
             const lineupData = JSON.parse(saved);
-            const loadedPlayers = lineupData.selectedPlayers || [];
+            const loadedPlayers = (lineupData.selectedPlayers || []).map((p: any) => ({
+              ...p,
+              handicap: Number(p.handicap || 0)
+            }));
 
             setSelectedPlayers(loadedPlayers);
             setHoleAssignments(lineupData.holeAssignments || {});
@@ -830,7 +833,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
                                       ? 'bg-neutral-200 text-neutral-400 border-2 border-neutral-300 cursor-not-allowed opacity-50'
                                       : colorScheme.unselected + ' border-2 hover:scale-105'
                                   } ${isLineupLocked ? 'cursor-not-allowed' : ''}`}
-                                  title={`${player.name} (${player.handicap.toFixed(1)}) - ${playerHoleCount}/3 holes`}
+                                  title={`${player.name} (${Number(player.handicap || 0).toFixed(1)}) - ${playerHoleCount}/3 holes`}
                                 >
                                   {initials}
                                   {isAssigned && getsStroke && (
