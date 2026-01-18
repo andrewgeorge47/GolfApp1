@@ -74,6 +74,15 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
   members,
   upcomingMatches
 }) => {
+  // Debug logging
+  console.log('ImprovedLineupSelector rendered with:', {
+    teamId,
+    leagueId,
+    membersCount: members?.length,
+    upcomingMatchesCount: upcomingMatches?.length,
+    firstMatch: upcomingMatches?.[0]
+  });
+
   const [selectedWeek, setSelectedWeek] = useState<UpcomingMatch | null>(null);
   const [course, setCourse] = useState<CourseData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -251,17 +260,29 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
   };
 
   useEffect(() => {
-    if (upcomingMatches.length > 0 && !selectedWeek) {
-      setSelectedWeek(upcomingMatches[0]);
+    try {
+      console.log('useEffect - setting initial week, upcomingMatches:', upcomingMatches);
+      if (upcomingMatches.length > 0 && !selectedWeek) {
+        console.log('Setting selectedWeek to:', upcomingMatches[0]);
+        setSelectedWeek(upcomingMatches[0]);
+      }
+    } catch (error) {
+      console.error('Error in initial week useEffect:', error);
     }
   }, [upcomingMatches]);
 
   useEffect(() => {
-    if (selectedWeek && selectedWeek.course_id) {
-      loadCourseData(selectedWeek.course_id);
-      loadLineup(selectedWeek.id);
-      // Reset edit mode when week changes (lineupSaved is restored from localStorage in loadLineup)
-      setIsEditMode(false);
+    try {
+      console.log('useEffect - selectedWeek changed:', selectedWeek);
+      if (selectedWeek && selectedWeek.course_id) {
+        console.log('Loading course and lineup for week:', selectedWeek.id);
+        loadCourseData(selectedWeek.course_id);
+        loadLineup(selectedWeek.id);
+        // Reset edit mode when week changes (lineupSaved is restored from localStorage in loadLineup)
+        setIsEditMode(false);
+      }
+    } catch (error) {
+      console.error('Error in selectedWeek useEffect:', error);
     }
   }, [selectedWeek]);
 
