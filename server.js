@@ -7874,8 +7874,8 @@ app.get('/api/users/:id/recent-simulator-rounds', authenticateToken, async (req,
       .sort((a, b) => new Date(b.date_played).getTime() - new Date(a.date_played).getTime());
 
     let roundsToUse = [];
-    
-    // USGA Handicap System 2020+ rules (matching Profile.tsx logic)
+
+    // USGA Handicap System 2020+ rules
     if (validRounds.length >= 20) {
       // Use best 8 out of last 20
       roundsToUse = validRounds.slice(0, 20).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 8);
@@ -7886,14 +7886,14 @@ app.get('/api/users/:id/recent-simulator-rounds', authenticateToken, async (req,
       // Use best 6 out of last 10
       roundsToUse = validRounds.slice(0, 10).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 6);
     } else if (validRounds.length >= 5) {
-      // Use best 5 out of last 5
-      roundsToUse = validRounds.slice(0, 5).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 5);
+      // Use best 5 of ALL rounds (not just last 5)
+      roundsToUse = [...validRounds].sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 5);
     } else if (validRounds.length >= 3) {
-      // Use best 3 out of last 3
-      roundsToUse = validRounds.slice(0, 3).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 3);
+      // Use best 3 of ALL rounds
+      roundsToUse = [...validRounds].sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 3);
     } else if (validRounds.length >= 1) {
-      // Use best 1 out of last 1
-      roundsToUse = validRounds.slice(0, 1).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 1);
+      // Use best 1 of ALL rounds
+      roundsToUse = [...validRounds].sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 1);
     }
 
     const usedRoundIds = new Set(roundsToUse.map(round => round.id));

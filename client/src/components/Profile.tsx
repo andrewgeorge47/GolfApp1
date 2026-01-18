@@ -389,31 +389,37 @@ const Profile: React.FC = () => {
     
     let roundsToUse: typeof validRounds = [];
     
-    // USGA Handicap System 2020+ rules
+    // USGA Handicap System - match backend calculation
+    // First get most recent 20, then sort by differential and take best N
+    const recentRounds = validRounds.slice(0, 20);
+    const sortedByDifferential = [...recentRounds].sort((a, b) => (a.differential || 0) - (b.differential || 0));
+
     if (validRounds.length >= 20) {
       // Use best 8 out of last 20
-      roundsToUse = validRounds.slice(0, 20).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 8);
+      roundsToUse = sortedByDifferential.slice(0, 8);
       console.log('Using best 8 out of last 20 (20+ rounds available)');
     } else if (validRounds.length >= 15) {
       // Use best 7 out of last 15
-      roundsToUse = validRounds.slice(0, 15).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 7);
+      const recent15 = validRounds.slice(0, 15);
+      roundsToUse = [...recent15].sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 7);
       console.log('Using best 7 out of last 15 (15-19 rounds available)');
     } else if (validRounds.length >= 10) {
       // Use best 6 out of last 10
-      roundsToUse = validRounds.slice(0, 10).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 6);
+      const recent10 = validRounds.slice(0, 10);
+      roundsToUse = [...recent10].sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 6);
       console.log('Using best 6 out of last 10 (10-14 rounds available)');
     } else if (validRounds.length >= 5) {
-      // Use best 5 out of last 5
-      roundsToUse = validRounds.slice(0, 5).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 5);
-      console.log('Using best 5 out of last 5 (5-9 rounds available)');
+      // Use best 5 of ALL rounds (not just last 5)
+      roundsToUse = [...validRounds].sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 5);
+      console.log('Using best 5 of all rounds (5-9 rounds available)');
     } else if (validRounds.length >= 3) {
-      // Use best 3 out of last 3
-      roundsToUse = validRounds.slice(0, 3).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 3);
-      console.log('Using best 3 out of last 3 (3-4 rounds available)');
+      // Use best 3 of ALL rounds
+      roundsToUse = [...validRounds].sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 3);
+      console.log('Using best 3 of all rounds (3-4 rounds available)');
     } else if (validRounds.length >= 1) {
-      // Use best 1 out of last 1
-      roundsToUse = validRounds.slice(0, 1).sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 1);
-      console.log('Using best 1 out of last 1 (1-2 rounds available)');
+      // Use best 1 of ALL rounds
+      roundsToUse = [...validRounds].sort((a, b) => (a.differential || 0) - (b.differential || 0)).slice(0, 1);
+      console.log('Using best 1 of all rounds (1-2 rounds available)');
     }
     
     console.log('Rounds being used for handicap:', roundsToUse.map(r => ({ id: r.id, course: r.course_name, differential: r.differential })));
