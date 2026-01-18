@@ -17439,8 +17439,9 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
       }
     }
 
-    // Get upcoming weeks (only published weeks)
+    // Get recent and upcoming weeks (only published weeks)
     // In division-based format, teams compete within their division (no matchups)
+    // Include completed weeks so captains can review past lineups
     const upcomingMatches = await pool.query(
       `SELECT
         ls.id,
@@ -17459,9 +17460,9 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
        LEFT JOIN simulator_courses_combined sc ON ls.course_id = sc.id
        WHERE ls.league_id = $1
          AND ls.is_published = true
-         AND ls.status IN ('scheduled', 'active')
-       ORDER BY ls.week_number
-       LIMIT 5`,
+         AND ls.status IN ('scheduled', 'active', 'completed')
+       ORDER BY ls.week_number DESC
+       LIMIT 10`,
       [league_id]
     );
 

@@ -15,7 +15,6 @@ import {
   ModalContent,
   ModalFooter,
   Button,
-  Select,
   Card,
   CardHeader,
   CardContent,
@@ -55,6 +54,9 @@ interface LeagueScoreSubmissionProps {
   players: Player[]; // Active players (3)
   onClose: () => void;
   onSubmit?: () => void;
+  // Optional initial lineup data from saved lineup
+  initialHoleAssignments?: { [hole: number]: number };
+  initialBack9PlayerOrder?: number[];
 }
 
 const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
@@ -64,7 +66,9 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
   courseId,
   players,
   onClose,
-  onSubmit
+  onSubmit,
+  initialHoleAssignments,
+  initialBack9PlayerOrder
 }) => {
   const [course, setCourse] = useState<CourseData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -75,6 +79,9 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
 
   // Back 9: Alternate shot scores
   const [backNineScores, setBackNineScores] = useState<{ [hole: number]: HoleScore }>({});
+
+  // Back 9: Player teeing order (positions 1, 2, 3)
+  const [back9PlayerOrder, setBack9PlayerOrder] = useState<number[]>([]);
 
   // Team handicap (average of 3 active players)
   const [teamHandicap, setTeamHandicap] = useState(0);
@@ -233,6 +240,16 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
     loadExistingScores();
   }, [course, matchupId, teamId]);
 
+  // Initialize back 9 player order from prop or default
+  useEffect(() => {
+    if (initialBack9PlayerOrder && initialBack9PlayerOrder.length === 3) {
+      setBack9PlayerOrder(initialBack9PlayerOrder);
+    } else if (players.length === 3 && back9PlayerOrder.length === 0) {
+      // Default order: player 1, 2, 3
+      setBack9PlayerOrder(players.map(p => p.id));
+    }
+  }, [players, initialBack9PlayerOrder]);
+
   // Calculate team handicap when players change
   useEffect(() => {
     if (players.length > 0) {
@@ -253,33 +270,44 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
     if (Object.keys(holeAssignments).length > 0) return;
 
     if (players.length === 3 && Object.keys(frontNineScores).length > 0) {
-      const initial: { [hole: number]: number } = {};
+      // Use initial assignments if provided, otherwise auto-assign
+      const initial: { [hole: number]: number } = initialHoleAssignments || {};
       const updatedScores = { ...frontNineScores };
 
+      // If no initial assignments, auto-assign
+      if (!initialHoleAssignments) {
+        for (let hole = 1; hole <= 9; hole++) {
+          // Assign holes 1-3 to player 1, 4-6 to player 2, 7-9 to player 3
+          const playerIndex = Math.floor((hole - 1) / 3);
+          const playerId = players[playerIndex].id;
+          initial[hole] = playerId;
+        }
+      }
+
+      // Calculate strokes for all assigned holes
       for (let hole = 1; hole <= 9; hole++) {
-        // Assign holes 1-3 to player 1, 4-6 to player 2, 7-9 to player 3
-        const playerIndex = Math.floor((hole - 1) / 3);
-        const playerId = players[playerIndex].id;
-        initial[hole] = playerId;
+        const playerId = initial[hole];
+        if (playerId) {
+          const player = players.find(p => p.id === playerId);
+          if (player) {
+            const playerHandicap = typeof player.sim_handicap === 'string' ? parseFloat(player.sim_handicap) : (player.sim_handicap || 0);
+            const holeIndex = updatedScores[hole].index;
+            const getsStroke = playerGetsStroke(playerHandicap, holeIndex);
 
-        // Calculate stroke for this hole
-        const player = players[playerIndex];
-        const playerHandicap = typeof player.sim_handicap === 'string' ? parseFloat(player.sim_handicap) : (player.sim_handicap || 0);
-        const holeIndex = updatedScores[hole].index;
-        const getsStroke = playerGetsStroke(playerHandicap, holeIndex);
+            updatedScores[hole] = {
+              ...updatedScores[hole],
+              stroke_received: getsStroke
+            };
 
-        updatedScores[hole] = {
-          ...updatedScores[hole],
-          stroke_received: getsStroke
-        };
-
-        console.log(`Initial Front 9 - Hole ${hole}: Player ${player.name} (${playerHandicap}) vs Index ${holeIndex} = ${getsStroke ? 'STROKE' : 'NO STROKE'}`);
+            console.log(`Initial Front 9 - Hole ${hole}: Player ${player.name} (${playerHandicap}) vs Index ${holeIndex} = ${getsStroke ? 'STROKE' : 'NO STROKE'}`);
+          }
+        }
       }
 
       setHoleAssignments(initial);
       setFrontNineScores(updatedScores);
     }
-  }, [players, course]);
+  }, [players, course, initialHoleAssignments]);
 
   // Update front 9 strokes when assignments change
   useEffect(() => {
@@ -437,6 +465,12 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
       }
     }
 
+    // Check back 9 player order is set
+    if (back9PlayerOrder.length !== 3) {
+      toast.error('Back 9 teeing order is not set. Please go back and save your lineup first.');
+      return false;
+    }
+
     // Check all back 9 holes have scores
     for (let hole = 10; hole <= 18; hole++) {
       if (!backNineScores[hole]?.gross || backNineScores[hole].gross === 0) {
@@ -461,6 +495,7 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
         front_nine_scores: frontNineScores,
         back_nine_scores: backNineScores,
         hole_assignments: holeAssignments,
+        back_9_player_order: back9PlayerOrder,
         team_handicap: teamHandicap,
         players: players.map(p => ({
           id: p.id,
@@ -610,6 +645,12 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
                       const assignedPlayerId = holeAssignments[hole];
                       const assignedPlayer = players.find(p => p.id === assignedPlayerId);
 
+                      // Get player initials
+                      const nameParts = assignedPlayer ? assignedPlayer.name.split(' ') : [];
+                      const initials = nameParts.length >= 2
+                        ? `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`
+                        : nameParts[0] ? nameParts[0][0] : '?';
+
                       return (
                         <tr key={hole} className="border-b border-neutral-100 hover:bg-neutral-50">
                           <td className="p-2 font-medium">{hole}</td>
@@ -618,20 +659,18 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
                             <Badge style="outlined" size="sm">{score.index}</Badge>
                           </td>
                           <td className="p-2">
-                            <Select
-                              value={assignedPlayerId?.toString() || ''}
-                              onChange={(e) => setHoleAssignments(prev => ({
-                                ...prev,
-                                [hole]: parseInt(e.target.value)
-                              }))}
-                              options={[
-                                { value: '', label: 'Select Player' },
-                                ...players.map(p => ({
-                                  value: p.id.toString(),
-                                  label: `${p.name} (${p.sim_handicap})`
-                                }))
-                              ]}
-                            />
+                            {assignedPlayer ? (
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs">
+                                  {initials}
+                                </div>
+                                <span className="text-sm font-medium text-brand-black">
+                                  {assignedPlayer.name}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-sm text-neutral-400 italic">Not assigned</span>
+                            )}
                           </td>
                           <td className="p-2 text-center">
                             {assignedPlayer && score.stroke_received && (
@@ -645,7 +684,7 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
                               max="15"
                               value={score.gross || ''}
                               onChange={(e) => updateFrontNineScore(hole, parseInt(e.target.value) || 0)}
-                              className="w-16 px-2 py-1 border border-neutral-300 rounded text-center"
+                              className="w-16 px-2 py-1 border border-neutral-300 rounded text-center focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                               placeholder="-"
                             />
                           </td>
@@ -686,6 +725,39 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
               }
             />
             <CardContent>
+              {/* Teeing Order Display (Read-Only) */}
+              <div className="mb-4 bg-gradient-to-r from-green-50 to-teal-50 border border-green-200 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-brand-black mb-2">Teeing Order</h4>
+                <p className="text-xs text-neutral-600 mb-3">
+                  The teeing order determines who tees off on which holes (cycles through positions 1, 2, 3).
+                </p>
+                <div className="flex items-center justify-center gap-6">
+                  {back9PlayerOrder.map((playerId, index) => {
+                    const player = players.find(p => p.id === playerId);
+                    if (!player) return null;
+
+                    const nameParts = player.name.split(' ');
+                    const initials = nameParts.length >= 2
+                      ? `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`
+                      : nameParts[0][0];
+
+                    return (
+                      <div key={player.id} className="relative">
+                        <div className="w-12 h-12 rounded-full font-bold text-sm flex items-center justify-center border-2 bg-green-600 text-white border-green-700 shadow-lg">
+                          {initials}
+                        </div>
+                        <div className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-neutral-700 rounded-full flex items-center justify-center border-2 border-white z-10">
+                          <span className="text-white text-xs font-bold">{index + 1}</span>
+                        </div>
+                        <div className="text-xs text-neutral-600 mt-1 text-center font-medium">
+                          {nameParts[0]}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -693,14 +765,25 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
                       <th className="text-left p-2 text-sm font-semibold">Hole</th>
                       <th className="text-center p-2 text-sm font-semibold">Par</th>
                       <th className="text-center p-2 text-sm font-semibold">Index</th>
+                      <th className="text-center p-2 text-sm font-semibold">Tee Shot</th>
                       <th className="text-center p-2 text-sm font-semibold">Team Stroke?</th>
                       <th className="text-center p-2 text-sm font-semibold">Gross</th>
                       <th className="text-center p-2 text-sm font-semibold">Net</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {[10, 11, 12, 13, 14, 15, 16, 17, 18].map(hole => {
+                    {[10, 11, 12, 13, 14, 15, 16, 17, 18].map((hole, idx) => {
                       const score = backNineScores[hole];
+
+                      // Determine which player tees off (cycle through positions 1, 2, 3)
+                      const position = (idx % 3) + 1;
+                      const teeingPlayerId = back9PlayerOrder[position - 1];
+                      const teeingPlayer = players.find(p => p.id === teeingPlayerId);
+
+                      const nameParts = teeingPlayer ? teeingPlayer.name.split(' ') : [];
+                      const initials = nameParts.length >= 2
+                        ? `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`
+                        : nameParts[0] ? nameParts[0][0] : '?';
 
                       return (
                         <tr key={hole} className="border-b border-neutral-100 hover:bg-neutral-50">
@@ -708,6 +791,24 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
                           <td className="p-2 text-center">{score.par}</td>
                           <td className="p-2 text-center">
                             <Badge style="outlined" size="sm">{score.index}</Badge>
+                          </td>
+                          <td className="p-2">
+                            <div className="flex items-center justify-center">
+                              {teeingPlayer ? (
+                                <div className="relative">
+                                  <div
+                                    className="w-9 h-9 rounded-full font-bold text-xs flex items-center justify-center bg-green-600 text-white shadow-md"
+                                    title={`${teeingPlayer.name} tees off (Position ${position})`}
+                                  >
+                                    {initials}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="w-9 h-9 rounded-full bg-neutral-100 border-2 border-neutral-200 flex items-center justify-center">
+                                  <span className="text-neutral-400 text-xs font-bold">{position}</span>
+                                </div>
+                              )}
+                            </div>
                           </td>
                           <td className="p-2 text-center">
                             {score.stroke_received && (
@@ -734,7 +835,7 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
                       );
                     })}
                     <tr className="bg-neutral-100 font-semibold">
-                      <td className="p-2" colSpan={4}>Back 9 Total</td>
+                      <td className="p-2" colSpan={5}>Back 9 Total</td>
                       <td className="p-2 text-center">{backTotals.grossTotal || '-'}</td>
                       <td className="p-2">
                         <div className="w-16 px-2 py-1 bg-green-600 text-white rounded text-center mx-auto">

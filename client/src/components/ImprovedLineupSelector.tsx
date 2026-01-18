@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
   Users, Target, Trophy, Calculator, MapPin, Calendar,
-  CheckCircle, AlertCircle, ChevronDown, ChevronUp, Lock
+  CheckCircle, AlertCircle, ChevronDown, ChevronUp, Lock, Smartphone
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { getSimulatorCourse } from '../services/api';
+import LeagueScoreSubmission from './LeagueScoreSubmission';
+import MobileLiveScoring from './MobileLiveScoring';
 
 interface TeamMember {
   id: number;
@@ -27,7 +29,7 @@ interface UpcomingMatch {
   course_id: number;
   lineup_submitted: boolean;
   lineup_deadline: string;
-  status: 'scheduled' | 'lineup_submitted' | 'completed';
+  status: 'scheduled' | 'lineup_submitted' | 'active' | 'completed';
   team1_id: number;
   team2_id: number;
   team1_playing_time?: string;
@@ -96,12 +98,14 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
   const [expandedSection, setExpandedSection] = useState<'front9' | 'back9' | null>(null);
   const [lineupSaved, setLineupSaved] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [showScoreModal, setShowScoreModal] = useState(false);
+  const [showMobileLiveScoring, setShowMobileLiveScoring] = useState(false);
 
   const getLineupStorageKey = (weekId: number) => {
     return `lineup_${teamId}_${leagueId}_${weekId}`;
   };
 
-  const saveLineup = (weekId: number) => {
+  const saveLineup = (weekId: number, isManualSave: boolean = false) => {
     const key = getLineupStorageKey(weekId);
     const lineupData = {
       selectedPlayers,
@@ -109,7 +113,8 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
       frontNineScores,
       backNineScores,
       back9PlayerOrder,
-      savedAt: new Date().toISOString()
+      savedAt: new Date().toISOString(),
+      lineupSaved: isManualSave ? true : lineupSaved
     };
     localStorage.setItem(key, JSON.stringify(lineupData));
   };
@@ -125,6 +130,10 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
         setFrontNineScores(lineupData.frontNineScores || {});
         setBackNineScores(lineupData.backNineScores || {});
         setBack9PlayerOrder(lineupData.back9PlayerOrder || []);
+        // Restore lineupSaved state from localStorage
+        if (lineupData.lineupSaved) {
+          setLineupSaved(true);
+        }
       } catch (error) {
         console.error('Error loading saved lineup:', error);
       }
@@ -141,8 +150,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
     if (selectedWeek && selectedWeek.course_id) {
       loadCourseData(selectedWeek.course_id);
       loadLineup(selectedWeek.id);
-      // Reset lineup saved state when week changes
-      setLineupSaved(false);
+      // Reset edit mode when week changes (lineupSaved is restored from localStorage in loadLineup)
       setIsEditMode(false);
     }
   }, [selectedWeek]);
@@ -339,6 +347,11 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
   };
 
   const handleSaveLineup = async () => {
+    if (!selectedWeek) {
+      toast.error('No week selected');
+      return;
+    }
+
     if (selectedPlayers.length !== 3) {
       toast.error('Please select exactly 3 players');
       return;
@@ -360,24 +373,30 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
 
     setLineupSaved(true);
     setIsEditMode(false);
+    saveLineup(selectedWeek.id, true); // Save with lineupSaved flag
     toast.success('Lineup saved successfully!');
-    // TODO: Implement actual API submission for lineup
   };
 
   const handleEditLineup = () => {
+    if (!selectedWeek) return;
     setIsEditMode(true);
+    setLineupSaved(false);
+    saveLineup(selectedWeek.id, false); // Update localStorage
   };
 
   const handleSubmitScore = async () => {
-    toast.info('Score submission coming soon!');
-    // TODO: Implement actual score submission
+    if (!lineupSaved) {
+      toast.error('Please save your lineup first');
+      return;
+    }
+    setShowScoreModal(true);
   };
 
   if (!selectedWeek) {
     return (
       <div className="text-center py-12">
         <Calendar className="w-16 h-16 text-neutral-300 mx-auto mb-4" />
-        <p className="text-neutral-600">No upcoming weeks available</p>
+        <p className="text-neutral-600">No weeks available for this league</p>
       </div>
     );
   }
@@ -421,11 +440,15 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
           }}
           className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-brand-teal focus:border-transparent"
         >
-          {upcomingMatches.map((week) => (
-            <option key={week.id} value={week.id}>
-              Week {week.week_number} - {week.course_name} ({new Date(week.week_start_date).toLocaleDateString()})
-            </option>
-          ))}
+          {upcomingMatches.map((week) => {
+            const statusLabel = week.status === 'completed' ? ' - COMPLETED' :
+                              week.status === 'active' ? ' - ACTIVE' : '';
+            return (
+              <option key={week.id} value={week.id}>
+                Week {week.week_number} - {week.course_name} ({new Date(week.week_start_date).toLocaleDateString()}){statusLabel}
+              </option>
+            );
+          })}
         </select>
       </div>
 
@@ -828,45 +851,69 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
 
       {/* Action Buttons */}
       {selectedPlayers.length === 3 && (
-        <div className="flex justify-center gap-4">
+        <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
           {!lineupSaved || isEditMode ? (
             // Show Save Lineup button when not saved or in edit mode
             <button
               onClick={handleSaveLineup}
               disabled={hasScores}
-              className={`px-8 py-4 rounded-lg font-semibold text-lg transition-all ${
+              className={`w-full sm:w-auto px-8 py-4 rounded-lg font-semibold text-lg transition-all ${
                 hasScores
                   ? 'bg-neutral-200 text-neutral-500 cursor-not-allowed'
                   : 'bg-brand-neon-green text-brand-black shadow-lg hover:shadow-xl hover:scale-105'
               }`}
             >
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center justify-center space-x-2">
                 <Users className="w-5 h-5" />
                 <span>Save Lineup</span>
               </div>
             </button>
+          ) : selectedWeek.status === 'completed' ? (
+            // Show completion message when scores have been submitted
+            <div className="w-full p-6 bg-success-50 border-2 border-success-200 rounded-lg">
+              <div className="flex items-center justify-center space-x-3">
+                <CheckCircle className="w-6 h-6 text-success-600" />
+                <span className="text-lg font-semibold text-success-700">
+                  Scores submitted for this week
+                </span>
+              </div>
+            </div>
           ) : (
             // Show Edit Lineup and Submit Score buttons when saved
             <>
               <button
                 onClick={handleEditLineup}
-                className="px-8 py-4 rounded-lg font-semibold text-lg transition-all bg-white border-2 border-brand-neon-green text-brand-black shadow-lg hover:shadow-xl hover:scale-105"
+                className="w-full sm:w-auto px-6 py-4 rounded-lg font-semibold text-base transition-all bg-white border-2 border-brand-neon-green text-brand-black shadow-lg hover:shadow-xl hover:scale-105"
               >
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center justify-center space-x-2">
                   <Users className="w-5 h-5" />
                   <span>Edit Lineup</span>
                 </div>
               </button>
               <button
+                onClick={() => setShowMobileLiveScoring(true)}
+                disabled={hasScores}
+                className={`w-full sm:w-auto px-6 py-4 rounded-lg font-semibold text-base transition-all ${
+                  hasScores
+                    ? 'bg-neutral-200 text-neutral-500 cursor-not-allowed'
+                    : 'bg-brand-muted-green text-white shadow-lg hover:shadow-xl hover:scale-105'
+                }`}
+              >
+                <div className="flex items-center justify-center space-x-2">
+                  <Smartphone className="w-5 h-5" />
+                  <span>Live Scoring</span>
+                </div>
+              </button>
+              <button
                 onClick={handleSubmitScore}
                 disabled={hasScores}
-                className={`px-8 py-4 rounded-lg font-semibold text-lg transition-all ${
+                className={`w-full sm:w-auto px-6 py-4 rounded-lg font-semibold text-base transition-all ${
                   hasScores
                     ? 'bg-neutral-200 text-neutral-500 cursor-not-allowed'
                     : 'bg-brand-neon-green text-brand-black shadow-lg hover:shadow-xl hover:scale-105'
                 }`}
               >
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center justify-center space-x-2">
                   <Calculator className="w-5 h-5" />
                   <span>Submit Score</span>
                 </div>
@@ -874,6 +921,51 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
             </>
           )}
         </div>
+      )}
+
+      {/* Score Submission Modal */}
+      {showScoreModal && selectedWeek && (
+        <LeagueScoreSubmission
+          matchupId={selectedWeek.id}
+          teamId={teamId}
+          opponentTeamId={selectedWeek.opponent_team_id}
+          courseId={selectedWeek.course_id}
+          players={selectedPlayers.map(p => ({
+            id: p.id,
+            user_id: p.user_id,
+            name: p.name,
+            sim_handicap: p.handicap
+          }))}
+          initialHoleAssignments={holeAssignments}
+          initialBack9PlayerOrder={back9PlayerOrder}
+          onClose={() => setShowScoreModal(false)}
+          onSubmit={() => {
+            setShowScoreModal(false);
+            toast.success('Score submitted successfully! Please refresh to see updated status.');
+          }}
+        />
+      )}
+
+      {/* Mobile Live Scoring */}
+      {showMobileLiveScoring && selectedWeek && (
+        <MobileLiveScoring
+          matchupId={selectedWeek.id}
+          teamId={teamId}
+          courseId={selectedWeek.course_id}
+          players={selectedPlayers.map(p => ({
+            id: p.id,
+            user_id: p.user_id,
+            name: p.name,
+            sim_handicap: p.handicap
+          }))}
+          initialHoleAssignments={holeAssignments}
+          initialBack9PlayerOrder={back9PlayerOrder}
+          onClose={() => setShowMobileLiveScoring(false)}
+          onSubmit={() => {
+            setShowMobileLiveScoring(false);
+            toast.success('Round submitted successfully! Please refresh to see updated status.');
+          }}
+        />
       )}
     </div>
   );
