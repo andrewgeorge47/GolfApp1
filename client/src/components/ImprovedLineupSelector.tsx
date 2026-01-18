@@ -533,6 +533,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
   };
 
   if (!selectedWeek) {
+    console.log('ImprovedLineupSelector: No selectedWeek, showing empty state');
     return (
       <div className="text-center py-12">
         <Calendar className="w-16 h-16 text-neutral-300 mx-auto mb-4" />
@@ -540,6 +541,8 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
       </div>
     );
   }
+
+  console.log('ImprovedLineupSelector: Rendering main content, selectedPlayers:', selectedPlayers.length, 'course:', !!course);
 
   const totals = calculateTotals();
   const hasScores = selectedWeek.status !== 'scheduled';
@@ -562,8 +565,13 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
   // Assign consistent colors to members
   const memberColorMap: { [memberId: number]: typeof playerColors[0] } = {};
   members.forEach((member, index) => {
-    memberColorMap[member.id] = playerColors[index % playerColors.length];
+    if (member.id) {
+      memberColorMap[member.id] = playerColors[index % playerColors.length];
+    }
   });
+
+  console.log('memberColorMap created:', memberColorMap);
+  console.log('members:', members.map(m => ({ id: m.id, name: `${m.first_name} ${m.last_name}` })));
 
   return (
     <div className="space-y-6 pb-8">
@@ -619,7 +627,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
             <div className="flex flex-wrap gap-2">
               {members.map(member => {
                 const isSelected = selectedPlayers.some(p => p.id === member.id);
-                const colorScheme = memberColorMap[member.id];
+                const colorScheme = memberColorMap[member.id] || playerColors[0];
                 const colorClass = isSelected ? colorScheme.selected : colorScheme.unselected;
 
                 return (
@@ -704,6 +712,8 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
                     const score = frontNineScores[hole];
                     const assignedPlayerId = holeAssignments[hole];
 
+                    console.log(`Rendering hole ${hole}:`, { score, assignedPlayerId, memberColorMap });
+
                     return (
                       <tr
                         key={hole}
@@ -727,8 +737,12 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
                           <div className="flex items-center justify-center gap-2 transition-all duration-300">
                             {selectedPlayers.map((player, index) => {
                               const isAssigned = assignedPlayerId === player.id;
-                              const colorScheme = memberColorMap[player.id];
+                              const colorScheme = memberColorMap[player.id] || playerColors[0];
                               const holeHasAssignment = !!assignedPlayerId;
+
+                              if (!colorScheme) {
+                                console.error('No colorScheme for player:', player);
+                              }
 
                               // Count how many front 9 holes this player is assigned to
                               const playerHoleCount = Object.entries(holeAssignments).filter(
@@ -857,7 +871,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
                   {selectedPlayers.map((player, index) => {
                     const playerPosition = back9PlayerOrder.indexOf(player.id) + 1;
                     const hasPosition = playerPosition > 0;
-                    const colorScheme = memberColorMap[player.id];
+                    const colorScheme = memberColorMap[player.id] || playerColors[0];
 
                     const nameParts = player.name.split(' ');
                     const initials = nameParts.length >= 2
@@ -923,7 +937,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
                       const position = (idx % 3) + 1;
                       const teeingPlayerId = back9PlayerOrder[position - 1];
                       const teeingPlayer = selectedPlayers.find(p => p.id === teeingPlayerId);
-                      const colorScheme = teeingPlayer ? memberColorMap[teeingPlayerId] : null;
+                      const colorScheme = teeingPlayer ? (memberColorMap[teeingPlayerId] || playerColors[0]) : null;
 
                       // Calculate if team gets stroke on this hole
                       const strokesReceived = Math.floor(teamHandicap / 18) +
