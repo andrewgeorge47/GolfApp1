@@ -550,6 +550,33 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
     setShowScoreModal(true);
   };
 
+  // Player color assignments (same as AvailabilityView) - Must be before any early returns (hooks rule)
+  const playerColors = React.useMemo(() => [
+    { selected: 'bg-blue-500 text-white', unselected: 'bg-blue-100 text-blue-700 border-blue-200' },
+    { selected: 'bg-purple-500 text-white', unselected: 'bg-purple-100 text-purple-700 border-purple-200' },
+    { selected: 'bg-pink-500 text-white', unselected: 'bg-pink-100 text-pink-700 border-pink-200' },
+    { selected: 'bg-orange-500 text-white', unselected: 'bg-orange-100 text-orange-700 border-orange-200' },
+    { selected: 'bg-teal-500 text-white', unselected: 'bg-teal-100 text-teal-700 border-teal-200' },
+    { selected: 'bg-indigo-500 text-white', unselected: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
+    { selected: 'bg-rose-500 text-white', unselected: 'bg-rose-100 text-rose-700 border-rose-200' },
+    { selected: 'bg-cyan-500 text-white', unselected: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
+    { selected: 'bg-amber-500 text-white', unselected: 'bg-amber-100 text-amber-700 border-amber-200' },
+    { selected: 'bg-emerald-500 text-white', unselected: 'bg-emerald-100 text-emerald-700 border-emerald-200' }
+  ], []);
+
+  // Assign consistent colors to members - memoize to prevent unnecessary re-renders
+  const memberColorMap = React.useMemo(() => {
+    const colorMap: { [memberId: number]: typeof playerColors[0] } = {};
+    members.forEach((member, index) => {
+      if (member.id) {
+        colorMap[member.id] = playerColors[index % playerColors.length];
+      }
+    });
+    console.log('memberColorMap created:', colorMap);
+    console.log('members:', members.map(m => ({ id: m.id, name: `${m.first_name} ${m.last_name}` })));
+    return colorMap;
+  }, [members, playerColors]);
+
   if (!selectedWeek) {
     console.log('ImprovedLineupSelector: No selectedWeek, showing empty state');
     return (
@@ -565,31 +592,6 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
   const totals = calculateTotals();
   const hasScores = selectedWeek.status !== 'scheduled';
   const isLineupLocked = lineupSaved && !isEditMode;
-
-  // Player color assignments (same as AvailabilityView)
-  const playerColors = [
-    { selected: 'bg-blue-500 text-white', unselected: 'bg-blue-100 text-blue-700 border-blue-200' },
-    { selected: 'bg-purple-500 text-white', unselected: 'bg-purple-100 text-purple-700 border-purple-200' },
-    { selected: 'bg-pink-500 text-white', unselected: 'bg-pink-100 text-pink-700 border-pink-200' },
-    { selected: 'bg-orange-500 text-white', unselected: 'bg-orange-100 text-orange-700 border-orange-200' },
-    { selected: 'bg-teal-500 text-white', unselected: 'bg-teal-100 text-teal-700 border-teal-200' },
-    { selected: 'bg-indigo-500 text-white', unselected: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
-    { selected: 'bg-rose-500 text-white', unselected: 'bg-rose-100 text-rose-700 border-rose-200' },
-    { selected: 'bg-cyan-500 text-white', unselected: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
-    { selected: 'bg-amber-500 text-white', unselected: 'bg-amber-100 text-amber-700 border-amber-200' },
-    { selected: 'bg-emerald-500 text-white', unselected: 'bg-emerald-100 text-emerald-700 border-emerald-200' }
-  ];
-
-  // Assign consistent colors to members
-  const memberColorMap: { [memberId: number]: typeof playerColors[0] } = {};
-  members.forEach((member, index) => {
-    if (member.id) {
-      memberColorMap[member.id] = playerColors[index % playerColors.length];
-    }
-  });
-
-  console.log('memberColorMap created:', memberColorMap);
-  console.log('members:', members.map(m => ({ id: m.id, name: `${m.first_name} ${m.last_name}` })));
 
   return (
     <div className="space-y-6 pb-8">
@@ -729,16 +731,17 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
                 </thead>
                 <tbody>
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(hole => {
-                    const score = frontNineScores[hole];
-                    const assignedPlayerId = holeAssignments[hole];
+                    try {
+                      const score = frontNineScores[hole];
+                      const assignedPlayerId = holeAssignments[hole];
 
-                    console.log(`Rendering hole ${hole}:`, { score, assignedPlayerId, memberColorMap });
+                      console.log(`Rendering hole ${hole}:`, { score, assignedPlayerId, memberColorMap });
 
-                    // Defensive check - if score is undefined, skip this hole
-                    if (!score) {
-                      console.error(`frontNineScores[${hole}] is undefined!`);
-                      return null;
-                    }
+                      // Defensive check - if score is undefined, skip this hole
+                      if (!score) {
+                        console.error(`frontNineScores[${hole}] is undefined!`);
+                        return null;
+                      }
 
                     return (
                       <tr
@@ -842,6 +845,10 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
                         </td>
                       </tr>
                     );
+                    } catch (error) {
+                      console.error(`Error rendering hole ${hole}:`, error);
+                      return <tr key={hole}><td colSpan={4}>Error rendering hole {hole}</td></tr>;
+                    }
                   })}
                 </tbody>
               </table>
