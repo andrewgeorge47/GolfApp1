@@ -4013,8 +4013,7 @@ app.post('/api/scorecards', authenticateToken, async (req, res) => {
       usedRating = usedRating / 2;
       usedSlope = usedSlope / 2;
       baseDifferential = ((parseFloat(total_strokes) - usedRating) * 113) / usedSlope;
-      baseDifferential = baseDifferential * 2; // Double for USGA 9-hole rule
-      console.log('9-hole round: halved rating/slope, doubled differential');
+      console.log('9-hole round: halved rating/slope');
     } else {
       baseDifferential = ((parseFloat(total_strokes) - usedRating) * 113) / usedSlope;
     }
@@ -13102,7 +13101,17 @@ app.post('/api/admin/scorecards', authenticateToken, requirePermission('manage_s
     // Calculate differential for handicap tracking
     let differential = null;
     if (course_rating && course_slope && calculatedTotal) {
-      differential = ((calculatedTotal - course_rating) * 113) / course_slope;
+      const holesPlayed = hole_scores.length;
+      let usedRating = parseFloat(course_rating);
+      let usedSlope = parseFloat(course_slope);
+
+      if (holesPlayed === 9) {
+        // Halve rating and slope for 9-hole rounds (assuming 18-hole values provided)
+        usedRating = usedRating / 2;
+        usedSlope = usedSlope / 2;
+      }
+
+      differential = ((calculatedTotal - usedRating) * 113) / usedSlope;
     }
 
     // Insert into regular scorecards table (no tournament_id for handicap tracking)
