@@ -17662,7 +17662,7 @@ app.post('/api/leagues/schedule/:scheduleId/playing-time', authenticateToken, as
 
     // Verify user is captain of this team
     const team = await pool.query(
-      'SELECT captain_id FROM league_teams WHERE id = $1',
+      'SELECT captain_id FROM tournament_teams WHERE id = $1',
       [team_id]
     );
 
