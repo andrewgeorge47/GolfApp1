@@ -16697,6 +16697,9 @@ app.post('/api/matchups/:matchupId/calculate-result', authenticateToken, require
     await updateTeamStandings(matchup.team1_id, matchup.league_id);
     await updateTeamStandings(matchup.team2_id, matchup.league_id);
 
+    // Recalculate playoff qualifications for the entire league
+    await recalculatePlayoffQualifications(matchup.league_id);
+
     res.json({
       message: 'Match result calculated successfully',
       matchup: updateResult.rows[0]
@@ -16802,6 +16805,106 @@ async function updateTeamStandings(teamId, leagueId) {
     throw err;
   }
 }
+
+// Helper function to recalculate playoff qualifications for a league
+async function recalculatePlayoffQualifications(leagueId) {
+  try {
+    // Get league playoff format
+    const leagueResult = await pool.query(
+      'SELECT playoff_format FROM leagues WHERE id = $1',
+      [leagueId]
+    );
+
+    if (leagueResult.rows.length === 0) {
+      return;
+    }
+
+    const playoffFormat = leagueResult.rows[0].playoff_format;
+
+    // Reset all playoff_qualified flags for this league
+    await pool.query(
+      'UPDATE team_standings SET playoff_qualified = false WHERE league_id = $1',
+      [leagueId]
+    );
+
+    if (playoffFormat === 'bracket' || playoffFormat === 'single_elimination') {
+      // Top 2 teams from each division qualify
+      const divisions = await pool.query(
+        'SELECT DISTINCT division_id FROM team_standings WHERE league_id = $1 AND division_id IS NOT NULL',
+        [leagueId]
+      );
+
+      for (const div of divisions.rows) {
+        // Get top 2 teams from this division using league_standings view for proper tiebreakers
+        const topTeams = await pool.query(
+          `SELECT team_id
+           FROM league_standings
+           WHERE league_id = $1 AND division_id = $2
+           ORDER BY rank_in_division
+           LIMIT 2`,
+          [leagueId, div.division_id]
+        );
+
+        // Mark these teams as playoff qualified
+        for (const team of topTeams.rows) {
+          await pool.query(
+            'UPDATE team_standings SET playoff_qualified = true WHERE team_id = $1 AND league_id = $2',
+            [team.team_id, leagueId]
+          );
+        }
+      }
+    } else if (playoffFormat === 'top_per_division') {
+      // Top team from each division qualifies
+      const divisions = await pool.query(
+        'SELECT DISTINCT division_id FROM team_standings WHERE league_id = $1 AND division_id IS NOT NULL',
+        [leagueId]
+      );
+
+      for (const div of divisions.rows) {
+        // Get top team from this division
+        const topTeam = await pool.query(
+          `SELECT team_id
+           FROM league_standings
+           WHERE league_id = $1 AND division_id = $2
+           ORDER BY rank_in_division
+           LIMIT 1`,
+          [leagueId, div.division_id]
+        );
+
+        if (topTeam.rows.length > 0) {
+          await pool.query(
+            'UPDATE team_standings SET playoff_qualified = true WHERE team_id = $1 AND league_id = $2',
+            [topTeam.rows[0].team_id, leagueId]
+          );
+        }
+      }
+    }
+
+    console.log(`Playoff qualifications recalculated for league ${leagueId}`);
+  } catch (err) {
+    console.error('Error recalculating playoff qualifications:', err);
+    throw err;
+  }
+}
+
+// POST /api/leagues/:leagueId/recalculate-playoffs - Recalculate playoff qualifications (Admin)
+app.post('/api/leagues/:leagueId/recalculate-playoffs', authenticateToken, async (req, res) => {
+  try {
+    const { leagueId } = req.params;
+
+    // Verify admin
+    if (req.user.role !== 'Admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    await recalculatePlayoffQualifications(leagueId);
+
+    res.json({ message: 'Playoff qualifications recalculated successfully' });
+  } catch (err) {
+    console.error('Error recalculating playoffs:', err);
+    res.status(500).json({ error: 'Failed to recalculate playoff qualifications' });
+  }
+});
 
 // --------------------------------------------
 // Availability Tracking
