@@ -750,6 +750,10 @@ export const getCaptainDashboard = (teamId: number, leagueId: number) =>
 export const setMatchupPlayingTime = (matchupId: number, playingTime: string) =>
   api.put(`/leagues/matchups/${matchupId}/playing-time`, { playing_time: playingTime });
 
+// Set playing time for division-based leagues (team-specific, not matchup-specific)
+export const setSchedulePlayingTime = (scheduleId: number, teamId: number, playingTime: string) =>
+  api.post(`/leagues/schedule/${scheduleId}/playing-time`, { team_id: teamId, playing_time: playingTime });
+
 // Player Availability
 export const submitTeamAvailability = (teamId: number, availabilityData: {
   league_id: number;

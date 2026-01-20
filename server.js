@@ -17455,18 +17455,18 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
         NULL as team2_id,
         NULL as opponent_team_id,
         NULL as opponent_team_name,
-        NULL as team1_playing_time,
-        NULL as team2_playing_time,
-        false as lineup_submitted,
+        ll.playing_time,
+        ll.is_finalized as lineup_submitted,
         ls.week_end_date as lineup_deadline
        FROM league_schedule ls
        LEFT JOIN simulator_courses_combined sc ON ls.course_id = sc.id
+       LEFT JOIN league_lineups ll ON ls.id = ll.schedule_id AND ll.team_id = $2
        WHERE ls.league_id = $1
          AND ls.is_published = true
          AND ls.status IN ('scheduled', 'active', 'completed')
        ORDER BY ls.week_number DESC
        LIMIT 10`,
-      [league_id]
+      [league_id, teamId]
     );
 
     // Get team standings
@@ -17502,7 +17502,8 @@ app.post('/api/leagues/schedule/:scheduleId/lineup', authenticateToken, async (r
       player_handicaps, // Array of 3 handicaps
       hole_assignments, // Object mapping holes to player IDs
       back9_player_order, // Array of player IDs for back 9 teeing order
-      is_finalized // Boolean indicating if lineup is finalized
+      is_finalized, // Boolean indicating if lineup is finalized
+      playing_time // Optional: when the team plans to play
     } = req.body;
 
     // Verify user is a member of this team
@@ -17521,9 +17522,9 @@ app.post('/api/leagues/schedule/:scheduleId/lineup', authenticateToken, async (r
         schedule_id, team_id,
         player1_id, player2_id, player3_id,
         player1_handicap, player2_handicap, player3_handicap,
-        hole_assignments, back9_player_order, is_finalized,
+        hole_assignments, back9_player_order, is_finalized, playing_time,
         updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP)
       ON CONFLICT (schedule_id, team_id)
       DO UPDATE SET
         player1_id = EXCLUDED.player1_id,
@@ -17535,6 +17536,7 @@ app.post('/api/leagues/schedule/:scheduleId/lineup', authenticateToken, async (r
         hole_assignments = EXCLUDED.hole_assignments,
         back9_player_order = EXCLUDED.back9_player_order,
         is_finalized = EXCLUDED.is_finalized,
+        playing_time = EXCLUDED.playing_time,
         updated_at = CURRENT_TIMESTAMP
       RETURNING *`,
       [
@@ -17543,7 +17545,8 @@ app.post('/api/leagues/schedule/:scheduleId/lineup', authenticateToken, async (r
         player_handicaps[0], player_handicaps[1], player_handicaps[2],
         JSON.stringify(hole_assignments),
         JSON.stringify(back9_player_order),
-        is_finalized
+        is_finalized,
+        playing_time || null
       ]
     );
 
@@ -17616,9 +17619,9 @@ app.post('/api/leagues/matchups/:matchupId/lineup', authenticateToken, async (re
         schedule_id, team_id,
         player1_id, player2_id, player3_id,
         player1_handicap, player2_handicap, player3_handicap,
-        hole_assignments, back9_player_order, is_finalized,
+        hole_assignments, back9_player_order, is_finalized, playing_time,
         updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP)
       ON CONFLICT (schedule_id, team_id)
       DO UPDATE SET
         player1_id = EXCLUDED.player1_id,
@@ -17630,6 +17633,7 @@ app.post('/api/leagues/matchups/:matchupId/lineup', authenticateToken, async (re
         hole_assignments = EXCLUDED.hole_assignments,
         back9_player_order = EXCLUDED.back9_player_order,
         is_finalized = EXCLUDED.is_finalized,
+        playing_time = EXCLUDED.playing_time,
         updated_at = CURRENT_TIMESTAMP
       RETURNING *`,
       [
@@ -17638,7 +17642,8 @@ app.post('/api/leagues/matchups/:matchupId/lineup', authenticateToken, async (re
         player_handicaps[0], player_handicaps[1], player_handicaps[2],
         JSON.stringify(hole_assignments),
         JSON.stringify(back9_player_order),
-        is_finalized
+        is_finalized,
+        playing_time || null
       ]
     );
 
@@ -17646,6 +17651,45 @@ app.post('/api/leagues/matchups/:matchupId/lineup', authenticateToken, async (re
   } catch (err) {
     console.error('Error saving lineup:', err);
     res.status(500).json({ error: 'Failed to save lineup' });
+  }
+});
+
+// POST /api/leagues/schedule/:scheduleId/playing-time - Set team playing time for division-based leagues
+app.post('/api/leagues/schedule/:scheduleId/playing-time', authenticateToken, async (req, res) => {
+  try {
+    const { scheduleId } = req.params;
+    const { team_id, playing_time } = req.body;
+
+    // Verify user is captain of this team
+    const team = await pool.query(
+      'SELECT captain_id FROM league_teams WHERE id = $1',
+      [team_id]
+    );
+
+    if (team.rows.length === 0) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    if (team.rows[0].captain_id !== req.user.member_id && req.user.role !== 'Admin') {
+      return res.status(403).json({ error: 'Only team captains can set playing time' });
+    }
+
+    // Upsert playing time in league_lineups (create minimal record if doesn't exist)
+    const result = await pool.query(
+      `INSERT INTO league_lineups (schedule_id, team_id, playing_time, updated_at)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+       ON CONFLICT (schedule_id, team_id)
+       DO UPDATE SET
+         playing_time = EXCLUDED.playing_time,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING playing_time`,
+      [scheduleId, team_id, playing_time]
+    );
+
+    res.json({ success: true, playing_time: result.rows[0].playing_time });
+  } catch (err) {
+    console.error('Error setting playing time:', err);
+    res.status(500).json({ error: 'Failed to set playing time' });
   }
 });
 

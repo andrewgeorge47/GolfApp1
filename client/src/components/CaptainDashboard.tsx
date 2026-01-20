@@ -27,7 +27,8 @@ import {
   getLeagueTeams,
   getTeamAvailability,
   updateLeagueTeam,
-  setMatchupPlayingTime
+  setMatchupPlayingTime,
+  setSchedulePlayingTime
 } from '../services/api';
 
 interface Team {
@@ -66,8 +67,7 @@ interface UpcomingMatch {
   status: 'scheduled' | 'lineup_submitted' | 'completed';
   team1_id: number;
   team2_id: number;
-  team1_playing_time?: string;
-  team2_playing_time?: string;
+  playing_time?: string; // Division-based: team-specific playing time
 }
 
 interface TeamStats {
@@ -220,8 +220,7 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
         status: match.status || 'scheduled',
         team1_id: match.team1_id,
         team2_id: match.team2_id,
-        team1_playing_time: match.team1_playing_time,
-        team2_playing_time: match.team2_playing_time
+        playing_time: match.playing_time // Division-based: team-specific playing time
       }));
 
       // Transform standings to stats
@@ -324,14 +323,15 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
     }
   };
 
-  const handleSetPlayingTime = async (matchupId: number, playingTime: string) => {
+  const handleSetPlayingTime = async (scheduleId: number, playingTime: string) => {
     if (!playingTime) {
       toast.error('Please select a playing time');
       return;
     }
 
     try {
-      await setMatchupPlayingTime(matchupId, playingTime);
+      // Use division-based league endpoint (team-specific, not matchup-specific)
+      await setSchedulePlayingTime(scheduleId, teamId, playingTime);
       toast.success('Playing time set successfully');
 
       // Reload captain data to reflect the update
@@ -514,7 +514,8 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
 
               <div className="divide-y divide-neutral-200">
                 {upcomingMatches.map((match) => {
-                  const myPlayingTime = match.team1_id === teamId ? match.team1_playing_time : match.team2_playing_time;
+                  // In division-based leagues, playing_time is team-specific (not team1/team2)
+                  const myPlayingTime = match.playing_time;
                   const hasSubmittedScores = match.status !== 'scheduled';
 
                   return (
