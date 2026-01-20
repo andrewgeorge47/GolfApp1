@@ -185,8 +185,9 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
       }).filter((id: number) => id !== 0);
       setBack9PlayerOrder(back9_ids);
 
-      // Set lineup as saved if it was finalized
-      if (lineup.is_finalized) {
+      // Set lineup as saved if it has 3 players (could be auto-saved or finalized)
+      // This ensures captains see the score submission buttons even for auto-saved lineups
+      if (loadedPlayers.length === 3) {
         setLineupSaved(true);
       }
 
@@ -223,7 +224,8 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
             setBackNineScores(lineupData.backNineScores || {});
             setBack9PlayerOrder(lineupData.back9PlayerOrder || []);
 
-            if (lineupData.lineupSaved) {
+            // Set lineup as saved if it has 3 players (localStorage fallback)
+            if (loadedPlayers.length === 3) {
               setLineupSaved(true);
             }
 
