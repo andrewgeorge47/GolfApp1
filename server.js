@@ -16385,33 +16385,25 @@ app.get('/api/leagues/:leagueId/divisions/:divisionId/leaderboard/:weekNumber', 
   try {
     const { leagueId, divisionId, weekNumber } = req.params;
 
-    // Get all teams in this division with their scores for this week
+    // Get all teams in this division with their weekly scores
+    // Use LEFT JOIN to show all teams even if they don't have scores yet
     const result = await pool.query(
       `SELECT
         t.id as team_id,
         t.name as team_name,
-        lm.id as matchup_id,
-        lm.status,
-        (
-          SELECT COALESCE(SUM(mis.net_total), 0)
-          FROM match_individual_scores mis
-          WHERE mis.matchup_id = lm.id AND mis.team_id = t.id
-        ) + (
-          SELECT COALESCE(mass.net_total, 0)
-          FROM match_alternate_shot_scores mass
-          WHERE mass.matchup_id = lm.id AND mass.team_id = t.id
+        ll.schedule_id as matchup_id,
+        COALESCE(
+          (SELECT SUM(net_score) FROM unnest(ll.scores) AS net_score),
+          0
         ) as net_total,
-        (
-          SELECT COUNT(*) > 0
-          FROM match_individual_scores mis
-          WHERE mis.matchup_id = lm.id AND mis.team_id = t.id
-        ) as has_submitted
+        (ll.is_finalized = true) as has_submitted
       FROM tournament_teams t
-      JOIN league_matchups lm ON lm.team1_id = t.id
+      LEFT JOIN league_schedule ls
+        ON ls.league_id = $1 AND ls.week_number = $3
+      LEFT JOIN league_lineups ll
+        ON ll.team_id = t.id AND ll.schedule_id = ls.id
       WHERE t.league_id = $1
         AND t.division_id = $2
-        AND lm.week_number = $3
-        AND lm.league_id = $1
       ORDER BY has_submitted DESC, net_total ASC`,
       [leagueId, divisionId, weekNumber]
     );
@@ -16459,125 +16451,25 @@ app.get('/api/leagues/:leagueId/divisions/:divisionId/standings', authenticateTo
   try {
     const { leagueId, divisionId } = req.params;
 
-    // Get all teams in this division with their aggregate stats across all weeks
+    // Use league_standings view for accurate rankings with tiebreakers
     const result = await pool.query(
       `SELECT
-        t.id as team_id,
-        t.name as team_name,
-        COUNT(DISTINCT lm.week_number) as weeks_played,
-        SUM(
-          CASE
-            WHEN (
-              SELECT COUNT(*) > 0
-              FROM match_individual_scores mis
-              WHERE mis.matchup_id = lm.id AND mis.team_id = t.id
-            )
-            THEN (
-              SELECT COALESCE(SUM(mis2.net_total), 0)
-              FROM match_individual_scores mis2
-              WHERE mis2.matchup_id = lm.id AND mis2.team_id = t.id
-            ) + (
-              SELECT COALESCE(mass.net_total, 0)
-              FROM match_alternate_shot_scores mass
-              WHERE mass.matchup_id = lm.id AND mass.team_id = t.id
-            )
-            ELSE 0
-          END
-        ) as aggregate_net_score
-      FROM tournament_teams t
-      LEFT JOIN league_matchups lm ON lm.team1_id = t.id AND lm.league_id = $1
-      WHERE t.league_id = $1
-        AND t.division_id = $2
-      GROUP BY t.id, t.name
-      ORDER BY t.id`,
+        ls.team_id,
+        ls.team_name,
+        ls.league_points as total_points,
+        ls.aggregate_net_score,
+        ls.matches_played as weeks_played,
+        ls.rank_in_division
+      FROM league_standings ls
+      WHERE ls.league_id = $1 AND ls.division_id = $2
+      ORDER BY ls.rank_in_division`,
       [leagueId, divisionId]
     );
-
-    // Calculate total points for each team across all weeks
-    const teamsWithPoints = await Promise.all(
-      result.rows.map(async (team) => {
-        // Get all matchups for this team
-        const matchups = await pool.query(
-          `SELECT lm.id as matchup_id, lm.week_number
-           FROM league_matchups lm
-           WHERE lm.team1_id = $1
-             AND lm.league_id = $2
-           ORDER BY lm.week_number`,
-          [team.team_id, leagueId]
-        );
-
-        let totalPoints = 0;
-
-        // Calculate points for each week
-        for (const matchup of matchups.rows) {
-          // Check if team has submitted scores for this week
-          const hasSubmitted = await pool.query(
-            `SELECT COUNT(*) > 0 as submitted
-             FROM match_individual_scores
-             WHERE matchup_id = $1 AND team_id = $2`,
-            [matchup.matchup_id, team.team_id]
-          );
-
-          if (hasSubmitted.rows[0].submitted) {
-            // Get all teams in division with scores for this week
-            const weekTeams = await pool.query(
-              `SELECT
-                t2.id as team_id,
-                (
-                  SELECT COALESCE(SUM(mis.net_total), 0)
-                  FROM match_individual_scores mis
-                  WHERE mis.matchup_id = lm2.id AND mis.team_id = t2.id
-                ) + (
-                  SELECT COALESCE(mass.net_total, 0)
-                  FROM match_alternate_shot_scores mass
-                  WHERE mass.matchup_id = lm2.id AND mass.team_id = t2.id
-                ) as net_total
-              FROM tournament_teams t2
-              JOIN league_matchups lm2 ON lm2.team1_id = t2.id
-              WHERE t2.league_id = $1
-                AND t2.division_id = $2
-                AND lm2.week_number = $3
-                AND (
-                  SELECT COUNT(*) > 0
-                  FROM match_individual_scores mis
-                  WHERE mis.matchup_id = lm2.id AND mis.team_id = t2.id
-                )
-              ORDER BY net_total ASC`,
-              [leagueId, divisionId, matchup.week_number]
-            );
-
-            // Find this team's rank for the week
-            const rank = weekTeams.rows.findIndex(t => t.team_id === team.team_id) + 1;
-
-            // Award points based on rank
-            if (rank === 1) totalPoints += 3;
-            else if (rank === 2) totalPoints += 2;
-            else if (rank === 3) totalPoints += 1;
-          }
-        }
-
-        return {
-          team_id: team.team_id,
-          team_name: team.team_name,
-          total_points: totalPoints,
-          aggregate_net_score: parseInt(team.aggregate_net_score) || 0,
-          weeks_played: parseInt(team.weeks_played)
-        };
-      })
-    );
-
-    // Sort by total points (desc), then by aggregate net score (asc)
-    teamsWithPoints.sort((a, b) => {
-      if (b.total_points !== a.total_points) {
-        return b.total_points - a.total_points;
-      }
-      return a.aggregate_net_score - b.aggregate_net_score;
-    });
 
     res.json({
       league_id: parseInt(leagueId),
       division_id: parseInt(divisionId),
-      teams: teamsWithPoints
+      teams: result.rows
     });
   } catch (err) {
     console.error('Error fetching season standings:', err);
