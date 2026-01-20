@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Trophy, TrendingUp, Award, Lock } from 'lucide-react';
-import { getDivisionWeeklyLeaderboard, getDivisionSeasonStandings, type WeeklyLeaderboard, type SeasonStandings } from '../services/api';
+import { getDivisionWeeklyLeaderboard, getLeagueStandings, type WeeklyLeaderboard, type LeagueStandings } from '../services/api';
 import { toast } from 'react-toastify';
 
 interface DivisionLeaderboardProps {
@@ -19,7 +19,7 @@ const DivisionLeaderboard: React.FC<DivisionLeaderboardProps> = ({
   currentTeamId
 }) => {
   const [weeklyLeaderboard, setWeeklyLeaderboard] = useState<WeeklyLeaderboard | null>(null);
-  const [seasonStandings, setSeasonStandings] = useState<SeasonStandings | null>(null);
+  const [leagueStandings, setLeagueStandings] = useState<LeagueStandings | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'weekly' | 'season'>(weekNumber ? 'weekly' : 'season');
 
@@ -37,9 +37,9 @@ const DivisionLeaderboard: React.FC<DivisionLeaderboardProps> = ({
         setWeeklyLeaderboard(weeklyResponse.data);
       }
 
-      // Always load season standings
-      const seasonResponse = await getDivisionSeasonStandings(leagueId, divisionId);
-      setSeasonStandings(seasonResponse.data);
+      // Load all league standings for season view (all divisions)
+      const standingsResponse = await getLeagueStandings(leagueId);
+      setLeagueStandings(standingsResponse.data);
     } catch (error: any) {
       console.error('Error loading leaderboard:', error);
       toast.error(error.response?.data?.error || 'Failed to load leaderboard');
@@ -256,103 +256,132 @@ const DivisionLeaderboard: React.FC<DivisionLeaderboardProps> = ({
         </div>
       )}
 
-      {/* Season Standings */}
-      {view === 'season' && seasonStandings && (
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="bg-gradient-to-r from-brand-purple to-brand-teal px-6 py-4">
-            <div className="flex items-center space-x-2">
-              <TrendingUp className="w-5 h-5 text-white" />
-              <h3 className="text-lg font-bold text-white">Season Standings</h3>
-            </div>
-          </div>
+      {/* Season Standings - Show all divisions, user's division first */}
+      {view === 'season' && leagueStandings && (
+        <div className="space-y-6">
+          {/* Sort divisions: user's division first, then others */}
+          {leagueStandings.divisions
+            .sort((a, b) => {
+              // User's division comes first
+              if (a.division_id === divisionId) return -1;
+              if (b.division_id === divisionId) return 1;
+              return a.division_id - b.division_id;
+            })
+            .map((division) => {
+              const isUserDivision = division.division_id === divisionId;
 
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-neutral-50 border-b border-neutral-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                    Rank
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                    Team
-                  </th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                    Total Points
-                  </th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                    Aggregate Net
-                  </th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                    Weeks
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-neutral-200">
-                {seasonStandings.teams.map((team, index) => {
-                  const rank = index + 1;
-                  const isCurrentTeam = team.team_id === currentTeamId;
-                  const isPlayoffPosition = rank <= 2;
+              return (
+                <div key={division.division_id} className="bg-white rounded-lg shadow-md overflow-hidden">
+                  <div className={`px-6 py-4 ${
+                    isUserDivision
+                      ? 'bg-gradient-to-r from-brand-teal to-brand-purple'
+                      : 'bg-gradient-to-r from-neutral-600 to-neutral-700'
+                  }`}>
+                    <div className="flex items-center space-x-2">
+                      <TrendingUp className="w-5 h-5 text-white" />
+                      <h3 className="text-lg font-bold text-white">
+                        {division.division_name} Division
+                        {isUserDivision && (
+                          <span className="ml-2 text-sm font-normal opacity-90">(Your Division)</span>
+                        )}
+                      </h3>
+                    </div>
+                  </div>
 
-                  return (
-                    <tr
-                      key={team.team_id}
-                      className={`${
-                        isCurrentTeam ? 'bg-brand-teal/5 border-l-4 border-brand-teal' : ''
-                      } ${
-                        isPlayoffPosition ? 'bg-green-50/50' : ''
-                      } hover:bg-neutral-50 transition-colors`}
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          {rank === 1 && (
-                            <Trophy className="w-5 h-5 text-yellow-500 mr-2" />
-                          )}
-                          {rank === 2 && (
-                            <Trophy className="w-5 h-5 text-gray-400 mr-2" />
-                          )}
-                          <span className="text-sm font-semibold text-brand-black">
-                            {rank}
-                          </span>
-                          {isPlayoffPosition && (
-                            <span className="ml-2 text-xs text-green-700 font-semibold">
-                              Playoff
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-brand-black">
-                          {team.team_name}
-                          {isCurrentTeam && (
-                            <span className="ml-2 text-xs text-brand-teal font-semibold">
-                              (You)
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <span className="text-sm font-bold text-brand-purple">
-                          {team.total_points}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <span className="text-sm text-neutral-600">
-                          {team.aggregate_net_score}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <span className="text-sm text-neutral-600">
-                          {team.weeks_played}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-neutral-50 border-b border-neutral-200">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                            Rank
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                            Team
+                          </th>
+                          <th className="px-6 py-3 text-center text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                            Total Points
+                          </th>
+                          <th className="px-6 py-3 text-center text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                            Aggregate Net
+                          </th>
+                          <th className="px-6 py-3 text-center text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                            W-T-L
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-neutral-200">
+                        {division.teams.map((team) => {
+                          const rank = team.rank_in_division;
+                          const isCurrentTeam = team.team_id === currentTeamId;
+                          const isPlayoffPosition = rank <= 2;
 
-          <div className="px-6 py-4 bg-neutral-50 border-t border-neutral-200">
+                          return (
+                            <tr
+                              key={team.team_id}
+                              className={`${
+                                isCurrentTeam ? 'bg-brand-teal/5 border-l-4 border-brand-teal' : ''
+                              } ${
+                                isPlayoffPosition ? 'bg-green-50/50' : ''
+                              } hover:bg-neutral-50 transition-colors`}
+                            >
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="flex items-center">
+                                  {rank === 1 && (
+                                    <Trophy className="w-5 h-5 text-yellow-500 mr-2" />
+                                  )}
+                                  {rank === 2 && (
+                                    <Trophy className="w-5 h-5 text-gray-400 mr-2" />
+                                  )}
+                                  <span className="text-sm font-semibold text-brand-black">
+                                    {rank}
+                                  </span>
+                                  {isPlayoffPosition && (
+                                    <span className="ml-2 text-xs text-green-700 font-semibold">
+                                      Playoff
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm font-medium text-brand-black">
+                                  {team.team_name}
+                                  {isCurrentTeam && (
+                                    <span className="ml-2 text-xs text-brand-teal font-semibold">
+                                      (You)
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-neutral-500">
+                                  {team.captain_name}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-center">
+                                <span className="text-sm font-bold text-brand-purple">
+                                  {team.total_points}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-center">
+                                <span className="text-sm text-neutral-600">
+                                  {team.aggregate_net_score}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-center">
+                                <span className="text-sm text-neutral-600">
+                                  {team.wins}-{team.ties}-{team.losses}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+
+          {/* Footer with playoff info */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <p className="text-xs text-neutral-600">
               <strong>Points:</strong> 3 pts for 1st, 2 pts for 2nd, 1 pt for 3rd per week.{' '}
               <strong>Tiebreaker:</strong> Lowest aggregate net score.{' '}
