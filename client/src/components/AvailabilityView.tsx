@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
-import { getLeagueSchedule, getTeamAvailability, setCaptainOverride, setMatchupPlayingTime } from '../services/api';
+import { getLeagueSchedule, getTeamAvailability, setCaptainOverride, setSchedulePlayingTime } from '../services/api';
 
 interface TeamMember {
   id: number;
@@ -58,8 +58,7 @@ interface UpcomingMatch {
   opponent_team_name: string;
   team1_id: number;
   team2_id: number;
-  team1_playing_time?: string;
-  team2_playing_time?: string;
+  playing_time?: string; // Division-based: team-specific playing time
 }
 
 interface AvailabilityViewProps {
@@ -267,7 +266,8 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
     }
 
     try {
-      await setMatchupPlayingTime(matchupId, playingTime);
+      // Use division-based league endpoint (team-specific, not matchup-specific)
+      await setSchedulePlayingTime(matchupId, teamId, playingTime);
       toast.success('Playing time set successfully');
       setIsEditingPlayingTime(false);
       onPlayingTimeSet();
@@ -340,12 +340,9 @@ const AvailabilityView: React.FC<AvailabilityViewProps> = ({ teamId, leagueId, m
 
         if (!matchForWeek) return null;
 
-        const myPlayingTime = matchForWeek.team1_id === teamId
-          ? matchForWeek.team1_playing_time
-          : matchForWeek.team2_playing_time;
-        const opponentPlayingTime = matchForWeek.team1_id === teamId
-          ? matchForWeek.team2_playing_time
-          : matchForWeek.team1_playing_time;
+        // In division-based leagues, playing_time is team-specific (not team1/team2)
+        const myPlayingTime = matchForWeek.playing_time;
+        const opponentPlayingTime = null; // No opponent in division-based leagues
 
         return (
           <div className="bg-white border border-neutral-200 rounded-lg p-4 sm:p-6">
