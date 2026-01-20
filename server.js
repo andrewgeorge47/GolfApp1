@@ -16391,9 +16391,17 @@ app.get('/api/leagues/:leagueId/divisions/:divisionId/leaderboard/:weekNumber', 
       `SELECT
         t.id as team_id,
         t.name as team_name,
-        ll.schedule_id as matchup_id,
+        ls.id as matchup_id,
+        ll.id as lineup_id,
         COALESCE(
-          (SELECT SUM(net_score) FROM unnest(ll.scores) AS net_score),
+          (SELECT SUM(mis.net_total)
+           FROM match_individual_scores mis
+           WHERE mis.lineup_id = ll.id),
+          0
+        ) + COALESCE(
+          (SELECT SUM(mass.net_total)
+           FROM match_alternate_shot_scores mass
+           WHERE mass.lineup_id = ll.id),
           0
         ) as net_total,
         (ll.is_finalized = true) as has_submitted
