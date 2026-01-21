@@ -279,22 +279,14 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
         </div>
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="text-center">
-            <p className="text-sm text-neutral-600">Wins</p>
-            <p className="text-xl font-bold text-green-600">{teamData.standings.wins}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-sm text-neutral-600">Losses</p>
-            <p className="text-xl font-bold text-red-600">{teamData.standings.losses}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-sm text-neutral-600">Ties</p>
-            <p className="text-xl font-bold text-yellow-600">{teamData.standings.ties}</p>
-          </div>
+        <div className="grid grid-cols-2 gap-4">
           <div className="text-center">
             <p className="text-sm text-neutral-600">Total Points</p>
-            <p className="text-xl font-bold text-brand-black">{teamData.standings.total_points}</p>
+            <p className="text-xl font-bold text-brand-purple">{teamData.standings.total_points}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-sm text-neutral-600">Aggregate Net</p>
+            <p className="text-xl font-bold text-brand-black">{teamData.standings.aggregate_net_total}</p>
           </div>
         </div>
       </div>
@@ -530,26 +522,16 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
                 {/* Team Performance */}
                 <div className="bg-white border border-neutral-200 rounded-lg p-6">
                   <h3 className="text-lg font-semibold text-brand-black mb-4">Team Performance</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="text-center p-4 bg-green-50 rounded-lg">
-                      <Trophy className="w-8 h-8 text-green-600 mx-auto mb-2" />
-                      <p className="text-sm text-neutral-600">Wins</p>
-                      <p className="text-2xl font-bold text-green-600">{teamData.standings.wins}</p>
-                    </div>
-                    <div className="text-center p-4 bg-red-50 rounded-lg">
-                      <Target className="w-8 h-8 text-red-600 mx-auto mb-2" />
-                      <p className="text-sm text-neutral-600">Losses</p>
-                      <p className="text-2xl font-bold text-red-600">{teamData.standings.losses}</p>
-                    </div>
-                    <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                      <Award className="w-8 h-8 text-yellow-600 mx-auto mb-2" />
-                      <p className="text-sm text-neutral-600">Ties</p>
-                      <p className="text-2xl font-bold text-yellow-600">{teamData.standings.ties}</p>
-                    </div>
-                    <div className="text-center p-4 bg-blue-50 rounded-lg">
-                      <Trophy className="w-8 h-8 text-blue-600 mx-auto mb-2" />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="text-center p-4 bg-purple-50 rounded-lg">
+                      <Trophy className="w-8 h-8 text-brand-purple mx-auto mb-2" />
                       <p className="text-sm text-neutral-600">Total Points</p>
-                      <p className="text-2xl font-bold text-blue-600">{teamData.standings.total_points}</p>
+                      <p className="text-2xl font-bold text-brand-purple">{teamData.standings.total_points}</p>
+                    </div>
+                    <div className="text-center p-4 bg-teal-50 rounded-lg">
+                      <Target className="w-8 h-8 text-brand-teal mx-auto mb-2" />
+                      <p className="text-sm text-neutral-600">Aggregate Net</p>
+                      <p className="text-2xl font-bold text-brand-teal">{teamData.standings.aggregate_net_total}</p>
                     </div>
                   </div>
                 </div>

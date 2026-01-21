@@ -59,6 +59,7 @@ const LeagueScoresManager: React.FC<LeagueScoresManagerProps> = ({ leagueId }) =
   const [selectedScheduleId, setSelectedScheduleId] = useState<number | null>(null);
   const [selectedTeamScore, setSelectedTeamScore] = useState<TeamScore | null>(null);
   const [selectedPlayers, setSelectedPlayers] = useState<Player[]>([]);
+  const [selectedLineup, setSelectedLineup] = useState<any>(null);
   const [showScoreModal, setShowScoreModal] = useState(false);
   const [loadingPlayers, setLoadingPlayers] = useState(false);
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
@@ -128,7 +129,6 @@ const LeagueScoresManager: React.FC<LeagueScoresManagerProps> = ({ leagueId }) =
 
       const data = await response.json();
       const players = data
-        .slice(0, 3)
         .map((m: any) => ({
           id: m.id,
           user_id: m.user_member_id,
@@ -181,17 +181,40 @@ const LeagueScoresManager: React.FC<LeagueScoresManagerProps> = ({ leagueId }) =
   };
 
   const handleEditScore = async (teamScore: TeamScore) => {
-    const players = await loadTeamPlayers(teamScore.team_id);
+    // Use the scores endpoint - it returns lineup + scores + players all in one call
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${environment.apiBaseUrl}/leagues/schedule/${teamScore.schedule_id}/scores/${teamScore.team_id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
 
-    if (players.length === 0) {
-      toast.error('No players found for this team');
-      return;
+      if (!response.ok) {
+        toast.error('Failed to load scores and lineup');
+        return;
+      }
+
+      const data = await response.json();
+
+      // Use the lineup_players from the response (these are the players who were in the lineup)
+      // Format them to match the Player interface
+      const players = data.lineup_players || [];
+
+      if (players.length === 0) {
+        toast.error('No players found for this lineup');
+        return;
+      }
+
+      setSelectedScheduleId(teamScore.schedule_id);
+      setSelectedTeamScore(teamScore);
+      setSelectedPlayers(players);
+      setSelectedLineup(data);
+      setShowScoreModal(true);
+    } catch (error) {
+      console.error('Error loading scores:', error);
+      toast.error('Failed to load scores and lineup');
     }
-
-    setSelectedScheduleId(teamScore.schedule_id);
-    setSelectedTeamScore(teamScore);
-    setSelectedPlayers(players);
-    setShowScoreModal(true);
   };
 
   const handleScoreSubmitted = () => {
@@ -414,22 +437,41 @@ const LeagueScoresManager: React.FC<LeagueScoresManagerProps> = ({ leagueId }) =
       )}
 
       {/* Score Submission Modal */}
-      {showScoreModal && selectedScheduleId && selectedTeamScore && selectedPlayers.length > 0 && (
-        <LeagueScoreSubmission
-          scheduleId={selectedScheduleId} // Pass as scheduleId for division-based leagues
-          teamId={selectedTeamScore.team_id}
-          opponentTeamId={selectedTeamScore.team_id} // No opponent in team-based scoring
-          courseId={selectedTeamScore.course_id}
-          players={selectedPlayers}
-          onClose={() => {
-            setShowScoreModal(false);
-            setSelectedScheduleId(null);
-            setSelectedTeamScore(null);
-            setSelectedPlayers([]);
-          }}
-          onSubmit={handleScoreSubmitted}
-        />
-      )}
+      {showScoreModal && selectedScheduleId && selectedTeamScore && selectedPlayers.length > 0 && selectedLineup && (() => {
+        // hole_assignments is already stored with player.id (team_members.id), use directly
+        const holeAssignments = selectedLineup.hole_assignments || {};
+
+        // back9_player_order is stored with user_id, convert to player.id
+        const back9PlayerOrder: number[] = [];
+        if (selectedLineup.back9_player_order && Array.isArray(selectedLineup.back9_player_order)) {
+          selectedLineup.back9_player_order.forEach((userId: number) => {
+            const player = selectedPlayers.find(p => p.user_id === userId);
+            if (player) {
+              back9PlayerOrder.push(player.id);
+            }
+          });
+        }
+
+        return (
+          <LeagueScoreSubmission
+            scheduleId={selectedScheduleId}
+            teamId={selectedTeamScore.team_id}
+            opponentTeamId={selectedTeamScore.team_id}
+            courseId={selectedTeamScore.course_id}
+            players={selectedPlayers}
+            initialHoleAssignments={holeAssignments}
+            initialBack9PlayerOrder={back9PlayerOrder}
+            onClose={() => {
+              setShowScoreModal(false);
+              setSelectedScheduleId(null);
+              setSelectedTeamScore(null);
+              setSelectedPlayers([]);
+              setSelectedLineup(null);
+            }}
+            onSubmit={handleScoreSubmitted}
+          />
+        );
+      })()}
     </div>
   );
 };

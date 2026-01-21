@@ -5,7 +5,8 @@ import {
   Calendar,
   Settings as SettingsIcon,
   ArrowLeft,
-  ClipboardList
+  ClipboardList,
+  Calculator
 } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -13,6 +14,7 @@ import {
   getLeagues,
   League as APILeague
 } from '../services/api';
+import { environment } from '../config/environment';
 import LeagueDivisionManager from './LeagueDivisionManager';
 import LeagueScheduleBuilder from './LeagueScheduleBuilder';
 import LeagueTeamManager from './LeagueTeamManager';
@@ -76,6 +78,7 @@ const LeagueAdminPanel: React.FC = () => {
   const navigate = useNavigate();
   const [league, setLeague] = useState<League | null>(null);
   const [loading, setLoading] = useState(true);
+  const [calculatingStandings, setCalculatingStandings] = useState(false);
   const [activeTab, setActiveTab] = useState<'settings' | 'divisions' | 'schedule' | 'teams' | 'scores'>('settings');
 
   useEffect(() => {
@@ -130,6 +133,34 @@ const LeagueAdminPanel: React.FC = () => {
     }
   };
 
+  const handleCalculateStandings = async () => {
+    if (!leagueId) return;
+
+    setCalculatingStandings(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${environment.apiBaseUrl}/leagues/${leagueId}/calculate-standings`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to calculate standings');
+      }
+
+      const result = await response.json();
+      toast.success(`Standings calculated successfully! ${result.teams_updated} teams updated.`);
+    } catch (error: any) {
+      console.error('Error calculating standings:', error);
+      toast.error(error.message || 'Failed to calculate standings');
+    } finally {
+      setCalculatingStandings(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -172,6 +203,14 @@ const LeagueAdminPanel: React.FC = () => {
               <p className="text-neutral-600">{league.season}</p>
             </div>
           </div>
+          <Button
+            onClick={handleCalculateStandings}
+            icon={Calculator}
+            variant="secondary"
+            disabled={calculatingStandings}
+          >
+            {calculatingStandings ? 'Calculating...' : 'Calculate Standings'}
+          </Button>
         </div>
       </div>
 

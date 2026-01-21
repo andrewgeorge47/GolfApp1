@@ -16706,6 +16706,39 @@ app.put('/api/matchups/:matchupId/verify', authenticateToken, requirePermission(
   }
 });
 
+// POST /api/leagues/:leagueId/calculate-standings - Admin endpoint to recalculate standings
+app.post('/api/leagues/:leagueId/calculate-standings', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  try {
+    const { leagueId } = req.params;
+
+    // Verify league exists
+    const leagueCheck = await pool.query(
+      'SELECT id, name FROM leagues WHERE id = $1',
+      [leagueId]
+    );
+
+    if (leagueCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'League not found' });
+    }
+
+    const league = leagueCheck.rows[0];
+    console.log(`Admin ${req.user.member_id} triggered standings calculation for league: ${league.name}`);
+
+    // Calculate standings for division-based league
+    const result = await calculateDivisionLeagueStandings(leagueId);
+
+    res.json({
+      message: 'Standings calculated successfully',
+      league_id: parseInt(leagueId),
+      league_name: league.name,
+      teams_updated: result.teams_updated
+    });
+  } catch (err) {
+    console.error('Error calculating standings:', err);
+    res.status(500).json({ error: 'Failed to calculate standings' });
+  }
+});
+
 // Helper function to update team standings
 async function updateTeamStandings(teamId, leagueId) {
   try {
@@ -16764,6 +16797,110 @@ async function updateTeamStandings(teamId, leagueId) {
 
   } catch (err) {
     console.error('Error updating team standings:', err);
+    throw err;
+  }
+}
+
+// Helper function to calculate division-based league standings
+// This is for the new division format where teams compete for weekly points
+async function calculateDivisionLeagueStandings(leagueId) {
+  try {
+    console.log(`Calculating standings for division-based league ${leagueId}...`);
+
+    // Get all weeks/schedules for this league
+    const weeksResult = await pool.query(
+      `SELECT id, week_number FROM league_schedule
+       WHERE league_id = $1 AND status IN ('active', 'completed')
+       ORDER BY week_number`,
+      [leagueId]
+    );
+
+    // Get all divisions for this league
+    const divisionsResult = await pool.query(
+      `SELECT id FROM league_divisions WHERE league_id = $1`,
+      [leagueId]
+    );
+
+    // Initialize team points accumulator
+    const teamStats = new Map(); // teamId -> { total_points, aggregate_net, weeks_played }
+
+    // For each week and division, calculate points
+    for (const week of weeksResult.rows) {
+      for (const division of divisionsResult.rows) {
+        // Get weekly leaderboard for this division and week
+        const leaderboardResult = await pool.query(
+          `SELECT
+            t.id as team_id,
+            COALESCE(
+              (SELECT SUM(mis.net_total)
+               FROM match_individual_scores mis
+               JOIN league_lineups ll ON mis.lineup_id = ll.id
+               WHERE ll.team_id = t.id AND ll.schedule_id = $1),
+              0
+            ) + COALESCE(
+              (SELECT SUM(mass.net_total)
+               FROM match_alternate_shot_scores mass
+               JOIN league_lineups ll ON mass.lineup_id = ll.id
+               WHERE ll.team_id = t.id AND ll.schedule_id = $1),
+              0
+            ) as net_total,
+            EXISTS (
+              SELECT 1 FROM league_lineups ll
+              WHERE ll.team_id = t.id
+                AND ll.schedule_id = $1
+                AND ll.scores_submitted = true
+            ) as has_submitted
+          FROM tournament_teams t
+          WHERE t.league_id = $2 AND t.division_id = $3
+          ORDER BY has_submitted DESC, net_total ASC`,
+          [week.id, leagueId, division.id]
+        );
+
+        // Award points to teams that submitted scores
+        const submittedTeams = leaderboardResult.rows.filter(t => t.has_submitted);
+        submittedTeams.forEach((team, index) => {
+          const rank = index + 1;
+          let weeklyPoints = 0;
+
+          // Award points: 1st=3pts, 2nd=2pts, 3rd=1pt, rest=0pts
+          if (rank === 1) weeklyPoints = 3;
+          else if (rank === 2) weeklyPoints = 2;
+          else if (rank === 3) weeklyPoints = 1;
+
+          // Initialize team stats if not exists
+          if (!teamStats.has(team.team_id)) {
+            teamStats.set(team.team_id, {
+              total_points: 0,
+              aggregate_net: 0,
+              weeks_played: 0
+            });
+          }
+
+          // Accumulate stats
+          const stats = teamStats.get(team.team_id);
+          stats.total_points += weeklyPoints;
+          stats.aggregate_net += parseInt(team.net_total);
+          stats.weeks_played += 1;
+        });
+      }
+    }
+
+    // Update tournament_teams table with calculated standings
+    for (const [teamId, stats] of teamStats.entries()) {
+      await pool.query(
+        `UPDATE tournament_teams SET
+          league_points = $1,
+          aggregate_net_score = $2,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $3`,
+        [stats.total_points, stats.aggregate_net, teamId]
+      );
+    }
+
+    console.log(`Standings calculated for league ${leagueId}: ${teamStats.size} teams updated`);
+    return { success: true, teams_updated: teamStats.size };
+  } catch (err) {
+    console.error('Error calculating division league standings:', err);
     throw err;
   }
 }
@@ -17917,9 +18054,9 @@ app.get('/api/leagues/schedule/:scheduleId/scores/:teamId', authenticateToken, a
   try {
     const { scheduleId, teamId } = req.params;
 
-    // Get lineup
+    // Get lineup with hole assignments and back9 order
     const lineupResult = await pool.query(
-      'SELECT id FROM league_lineups WHERE schedule_id = $1 AND team_id = $2',
+      'SELECT id, hole_assignments, back9_player_order FROM league_lineups WHERE schedule_id = $1 AND team_id = $2',
       [scheduleId, teamId]
     );
 
@@ -17927,7 +18064,8 @@ app.get('/api/leagues/schedule/:scheduleId/scores/:teamId', authenticateToken, a
       return res.status(404).json({ error: 'No lineup found' });
     }
 
-    const lineupId = lineupResult.rows[0].id;
+    const lineup = lineupResult.rows[0];
+    const lineupId = lineup.id;
 
     // Get individual scores
     const individualScores = await pool.query(
@@ -17941,8 +18079,50 @@ app.get('/api/leagues/schedule/:scheduleId/scores/:teamId', authenticateToken, a
       [lineupId, teamId]
     );
 
+    // Get the players who were in this lineup
+    const userIdsSet = new Set();
+
+    // Extract user_ids from hole_assignments
+    if (lineup.hole_assignments) {
+      Object.values(lineup.hole_assignments).forEach(userId => {
+        if (userId) userIdsSet.add(userId);
+      });
+    }
+
+    // Extract user_ids from back9_player_order
+    if (lineup.back9_player_order && Array.isArray(lineup.back9_player_order)) {
+      lineup.back9_player_order.forEach(userId => {
+        if (userId) userIdsSet.add(userId);
+      });
+    }
+
+    // Fetch player data for these user_ids
+    const lineupPlayers = [];
+    if (userIdsSet.size > 0) {
+      const userIds = Array.from(userIdsSet);
+      const playersResult = await pool.query(
+        `SELECT tm.id, tm.user_member_id as user_id, u.first_name, u.last_name, u.sim_handicap
+         FROM team_members tm
+         JOIN users u ON tm.user_member_id = u.member_id
+         WHERE tm.team_id = $1 AND tm.user_member_id = ANY($2::int[])`,
+        [teamId, userIds]
+      );
+
+      playersResult.rows.forEach(p => {
+        lineupPlayers.push({
+          id: p.id,
+          user_id: p.user_id,
+          name: `${p.first_name} ${p.last_name}`,
+          sim_handicap: p.sim_handicap
+        });
+      });
+    }
+
     res.json({
       lineup_id: lineupId,
+      hole_assignments: lineup.hole_assignments,
+      back9_player_order: lineup.back9_player_order,
+      lineup_players: lineupPlayers,
       individual_scores: individualScores.rows,
       alternate_shot_scores: alternateShotScores.rows[0] || null
     });

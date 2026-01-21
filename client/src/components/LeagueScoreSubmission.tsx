@@ -159,96 +159,79 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
     loadCourseData();
   }, [courseId]);
 
-  // Load existing scores if editing
+  // Load existing scores if editing (only load score values, not lineup)
   useEffect(() => {
     const loadExistingScores = async () => {
       if (!course || !teamId) return;
       if (!matchupId && !scheduleId) return;
+      if (!players || players.length === 0) return;
 
       try {
         const token = localStorage.getItem('token');
-        // Use appropriate endpoint based on league type
         const endpoint = scheduleId
           ? `${environment.apiBaseUrl}/leagues/schedule/${scheduleId}/scores/${teamId}`
           : `${environment.apiBaseUrl}/leagues/matchups/${matchupId}/scores/${teamId}`;
 
         const response = await fetch(endpoint, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
+          headers: { 'Authorization': `Bearer ${token}` }
         });
 
-        if (!response.ok) {
-          // No existing scores, that's ok
-          return;
-        }
+        if (!response.ok) return;
 
         const data = await response.json();
 
-        // Populate front 9 individual scores
+        // Only load the SCORES, not the lineup (lineup comes from initial props)
+        // Populate front 9 scores
         if (data.individual_scores && data.individual_scores.length > 0) {
-          const newHoleAssignments: { [hole: number]: number } = {};
-          const newFrontNineScores = { ...frontNineScores };
+          setFrontNineScores(prev => {
+            const newScores = { ...prev };
+            data.individual_scores.forEach((score: any) => {
+              const holeScores = score.hole_scores || {};
+              Object.keys(holeScores).forEach((holeStr: string) => {
+                const hole = parseInt(holeStr);
+                const holeData = holeScores[holeStr];
+                if (newScores[hole]) {
+                  newScores[hole] = {
+                    ...newScores[hole],
+                    gross: holeData.gross || 0,
+                    net: holeData.net || 0,
+                    stroke_received: holeData.stroke_received || false
+                  };
+                }
+              });
+            });
+            return newScores;
+          });
+        }
 
-          data.individual_scores.forEach((score: any) => {
-            const assignedHoles = score.assigned_holes || [];
-            const holeScores = score.hole_scores || {};
-
-            // Map player_id (user_id from database) to player.id from current players array
-            const player = players.find(p => p.user_id === score.player_id);
-            if (!player) {
-              console.warn(`Player with user_id ${score.player_id} not found in current players`);
-              return;
-            }
-
-            assignedHoles.forEach((hole: number) => {
-              newHoleAssignments[hole] = player.id;
-
-              if (holeScores[hole]) {
-                const holeData = holeScores[hole];
-                newFrontNineScores[hole] = {
-                  ...newFrontNineScores[hole],
+        // Populate back 9 scores
+        if (data.alternate_shot_scores && data.alternate_shot_scores.hole_scores) {
+          setBackNineScores(prev => {
+            const newScores = { ...prev };
+            const altShotHoleScores = data.alternate_shot_scores.hole_scores;
+            Object.keys(altShotHoleScores).forEach((holeStr: string) => {
+              const hole = parseInt(holeStr);
+              const holeData = altShotHoleScores[holeStr];
+              if (newScores[hole]) {
+                newScores[hole] = {
+                  ...newScores[hole],
                   gross: holeData.gross || 0,
                   net: holeData.net || 0,
                   stroke_received: holeData.stroke_received || false
                 };
               }
             });
+            return newScores;
           });
-
-          setHoleAssignments(newHoleAssignments);
-          setFrontNineScores(newFrontNineScores);
-        }
-
-        // Populate back 9 alternate shot scores
-        if (data.alternate_shot_scores && data.alternate_shot_scores.hole_scores) {
-          const altShotHoleScores = data.alternate_shot_scores.hole_scores;
-          const newBackNineScores = { ...backNineScores };
-
-          Object.keys(altShotHoleScores).forEach((holeStr: string) => {
-            const hole = parseInt(holeStr);
-            const holeData = altShotHoleScores[holeStr];
-
-            if (hole >= 10 && hole <= 18) {
-              newBackNineScores[hole] = {
-                ...newBackNineScores[hole],
-                gross: holeData.gross || 0,
-                net: holeData.net || 0,
-                stroke_received: holeData.stroke_received || false
-              };
-            }
-          });
-
-          setBackNineScores(newBackNineScores);
         }
       } catch (error) {
         console.error('Error loading existing scores:', error);
-        // Don't show error toast - it's ok if there are no existing scores
       }
     };
 
     loadExistingScores();
-  }, [course, matchupId, scheduleId, teamId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course, matchupId, scheduleId, teamId, players]);
 
   // Initialize back 9 player order from prop or default
   useEffect(() => {
@@ -308,8 +291,6 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
               ...updatedScores[hole],
               stroke_received: getsStroke
             };
-
-            console.log(`Initial Front 9 - Hole ${hole}: Player ${player.name} (${playerHandicap}) vs Index ${holeIndex} = ${getsStroke ? 'STROKE' : 'NO STROKE'}`);
           }
         }
       }

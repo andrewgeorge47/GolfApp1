@@ -304,9 +304,6 @@ const DivisionLeaderboard: React.FC<DivisionLeaderboardProps> = ({
                           <th className="px-6 py-3 text-center text-xs font-medium text-neutral-500 uppercase tracking-wider">
                             Aggregate Net
                           </th>
-                          <th className="px-6 py-3 text-center text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                            W-T-L
-                          </th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-neutral-200">
@@ -363,11 +360,6 @@ const DivisionLeaderboard: React.FC<DivisionLeaderboardProps> = ({
                               <td className="px-6 py-4 whitespace-nowrap text-center">
                                 <span className="text-sm text-neutral-600">
                                   {team.aggregate_net_score}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-center">
-                                <span className="text-sm text-neutral-600">
-                                  {team.wins}-{team.ties}-{team.losses}
                                 </span>
                               </td>
                             </tr>

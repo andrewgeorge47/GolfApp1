@@ -318,7 +318,7 @@ const LeagueStandings: React.FC<LeagueStandingsProps> = ({ leagueId }) => {
                     )}
                   </div>
                 </th>
-                <th 
+                <th
                   className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:bg-neutral-100"
                   onClick={() => handleSort('points')}
                 >
@@ -331,20 +331,7 @@ const LeagueStandings: React.FC<LeagueStandingsProps> = ({ leagueId }) => {
                     )}
                   </div>
                 </th>
-                <th 
-                  className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:bg-neutral-100"
-                  onClick={() => handleSort('record')}
-                >
-                  <div className="flex items-center">
-                    W-T-L
-                    {sortColumn === 'record' && (
-                      <span className="ml-1">
-                        {sortDirection === 'asc' ? '↑' : '↓'}
-                      </span>
-                    )}
-                  </div>
-                </th>
-                <th 
+                <th
                   className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider cursor-pointer hover:bg-neutral-100"
                   onClick={() => handleSort('aggregate')}
                 >
@@ -408,11 +395,6 @@ const LeagueStandings: React.FC<LeagueStandingsProps> = ({ leagueId }) => {
                       <span className="text-lg font-bold">{team.league_points}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-brand-black">
-                      <span className="font-medium">
-                        {team.wins}-{team.ties}-{team.losses}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-brand-black">
                       {team.aggregate_net_score}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-brand-black">
@@ -441,16 +423,13 @@ const LeagueStandings: React.FC<LeagueStandingsProps> = ({ leagueId }) => {
                   {/* Expanded Team Details */}
                   {expandedTeams.has(team.team_id) && (
                     <tr className="bg-neutral-50">
-                      <td colSpan={8} className="px-6 py-4">
+                      <td colSpan={7} className="px-6 py-4">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
                             <h4 className="text-sm font-medium text-neutral-700 mb-2">Team Stats</h4>
                             <div className="space-y-1 text-sm">
-                              <div>Matches Played: <span className="font-medium">{team.matches_played}</span></div>
-                              <div>Win %: <span className="font-medium">
-                                {team.matches_played > 0 ? 
-                                  ((team.wins + (team.ties * 0.5)) / team.matches_played * 100).toFixed(1) : 0}%
-                              </span></div>
+                              <div>Total Points: <span className="font-medium">{team.league_points}</span></div>
+                              <div>Aggregate Net: <span className="font-medium">{team.aggregate_net_score}</span></div>
                               <div>Second Half Net: <span className="font-medium">{team.second_half_net_score}</span></div>
                               <div>Final Week Net: <span className="font-medium">{team.final_week_net_score}</span></div>
                             </div>
