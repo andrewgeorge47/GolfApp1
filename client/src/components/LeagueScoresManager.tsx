@@ -3,37 +3,43 @@ import {
   ClipboardList,
   Edit2,
   Trash2,
-  Eye,
   Users,
   Calendar,
   MapPin,
-  AlertTriangle
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { environment } from '../config/environment';
 import { Button, Spinner } from './ui';
 import LeagueScoreSubmission from './LeagueScoreSubmission';
 
-interface MatchupScore {
-  matchup_id: number;
+interface TeamScore {
+  schedule_id: number;
   week_number: number;
   week_start_date: string;
   week_end_date: string;
-  division_name: string;
-  team1_id: number;
-  team1_name: string;
-  team2_id: number;
-  team2_name: string;
   course_id: number;
   course_name: string;
   status: string;
-  team1_has_scores: boolean;
-  team2_has_scores: boolean;
-  team1_net_total?: number;
-  team2_net_total?: number;
-  team1_gross_total?: number;
-  team2_gross_total?: number;
-  submitted_at?: string;
+  team_id: number;
+  team_name: string;
+  division_id: number;
+  division_name: string;
+  has_scores: boolean;
+  net_total: number | null;
+  gross_total: number | null;
+}
+
+interface WeekScores {
+  schedule_id: number;
+  week_number: number;
+  week_start_date: string;
+  week_end_date: string;
+  course_id: number;
+  course_name: string;
+  status: string;
+  teams: TeamScore[];
 }
 
 interface Player {
@@ -48,15 +54,16 @@ interface LeagueScoresManagerProps {
 }
 
 const LeagueScoresManager: React.FC<LeagueScoresManagerProps> = ({ leagueId }) => {
-  const [scores, setScores] = useState<MatchupScore[]>([]);
+  const [weekScores, setWeekScores] = useState<WeekScores[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedMatchup, setSelectedMatchup] = useState<MatchupScore | null>(null);
-  const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
+  const [selectedScheduleId, setSelectedScheduleId] = useState<number | null>(null);
+  const [selectedTeamScore, setSelectedTeamScore] = useState<TeamScore | null>(null);
   const [selectedPlayers, setSelectedPlayers] = useState<Player[]>([]);
   const [showScoreModal, setShowScoreModal] = useState(false);
   const [loadingPlayers, setLoadingPlayers] = useState(false);
-  const [deletingMatchupId, setDeletingMatchupId] = useState<number | null>(null);
+  const [deletingKey, setDeletingKey] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<'all' | 'submitted' | 'pending'>('all');
+  const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     loadScores();
@@ -76,8 +83,27 @@ const LeagueScoresManager: React.FC<LeagueScoresManagerProps> = ({ leagueId }) =
         throw new Error('Failed to load scores');
       }
 
-      const data = await response.json();
-      setScores(data);
+      const data: TeamScore[] = await response.json();
+
+      // Group scores by week
+      const weekMap = new Map<number, WeekScores>();
+      data.forEach(score => {
+        if (!weekMap.has(score.schedule_id)) {
+          weekMap.set(score.schedule_id, {
+            schedule_id: score.schedule_id,
+            week_number: score.week_number,
+            week_start_date: score.week_start_date,
+            week_end_date: score.week_end_date,
+            course_id: score.course_id,
+            course_name: score.course_name,
+            status: score.status,
+            teams: []
+          });
+        }
+        weekMap.get(score.schedule_id)!.teams.push(score);
+      });
+
+      setWeekScores(Array.from(weekMap.values()).sort((a, b) => a.week_number - b.week_number));
     } catch (error) {
       console.error('Error loading scores:', error);
       toast.error('Failed to load scores');
@@ -124,15 +150,16 @@ const LeagueScoresManager: React.FC<LeagueScoresManagerProps> = ({ leagueId }) =
     }
   };
 
-  const handleDeleteScore = async (matchupId: number, teamId: number, teamName: string) => {
+  const handleDeleteScore = async (scheduleId: number, teamId: number, teamName: string) => {
     if (!window.confirm(`Are you sure you want to delete ${teamName}'s scorecard? This will remove all scores for this team.`)) {
       return;
     }
 
-    setDeletingMatchupId(matchupId);
+    const deleteKey = `${scheduleId}-${teamId}`;
+    setDeletingKey(deleteKey);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${environment.apiBaseUrl}/leagues/matchups/${matchupId}/scores/${teamId}`, {
+      const response = await fetch(`${environment.apiBaseUrl}/leagues/schedule/${scheduleId}/scores/${teamId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -149,39 +176,51 @@ const LeagueScoresManager: React.FC<LeagueScoresManagerProps> = ({ leagueId }) =
       console.error('Error deleting score:', error);
       toast.error('Failed to delete score');
     } finally {
-      setDeletingMatchupId(null);
+      setDeletingKey(null);
     }
   };
 
-  const handleEditScore = async (matchup: MatchupScore, teamId: number) => {
-    const opponentTeamId = teamId === matchup.team1_id ? matchup.team2_id : matchup.team1_id;
-    const players = await loadTeamPlayers(teamId);
+  const handleEditScore = async (teamScore: TeamScore) => {
+    const players = await loadTeamPlayers(teamScore.team_id);
 
     if (players.length === 0) {
       toast.error('No players found for this team');
       return;
     }
 
-    setSelectedMatchup(matchup);
-    setSelectedTeamId(teamId);
+    setSelectedScheduleId(teamScore.schedule_id);
+    setSelectedTeamScore(teamScore);
     setSelectedPlayers(players);
     setShowScoreModal(true);
   };
 
   const handleScoreSubmitted = () => {
     setShowScoreModal(false);
-    setSelectedMatchup(null);
-    setSelectedTeamId(null);
+    setSelectedScheduleId(null);
+    setSelectedTeamScore(null);
     setSelectedPlayers([]);
     loadScores();
   };
 
-  const filteredScores = scores.filter(score => {
-    if (filterStatus === 'all') return true;
-    if (filterStatus === 'submitted') return score.team1_has_scores || score.team2_has_scores;
-    if (filterStatus === 'pending') return !score.team1_has_scores || !score.team2_has_scores;
-    return true;
-  });
+  const toggleWeek = (weekNumber: number) => {
+    const newExpanded = new Set(expandedWeeks);
+    if (newExpanded.has(weekNumber)) {
+      newExpanded.delete(weekNumber);
+    } else {
+      newExpanded.add(weekNumber);
+    }
+    setExpandedWeeks(newExpanded);
+  };
+
+  const filteredWeekScores = weekScores.map(week => ({
+    ...week,
+    teams: week.teams.filter(team => {
+      if (filterStatus === 'all') return true;
+      if (filterStatus === 'submitted') return team.has_scores;
+      if (filterStatus === 'pending') return !team.has_scores;
+      return true;
+    })
+  })).filter(week => week.teams.length > 0);
 
   if (loading) {
     return (
@@ -198,8 +237,8 @@ const LeagueScoresManager: React.FC<LeagueScoresManagerProps> = ({ leagueId }) =
         <div className="flex items-center space-x-3">
           <ClipboardList className="w-6 h-6 text-brand-neon-green" />
           <div>
-            <h2 className="text-2xl font-bold text-brand-black">Match Scores</h2>
-            <p className="text-sm text-neutral-600">View and manage all submitted scores</p>
+            <h2 className="text-2xl font-bold text-brand-black">Team Scores</h2>
+            <p className="text-sm text-neutral-600">View and manage team scores by week</p>
           </div>
         </div>
 
@@ -211,15 +250,15 @@ const LeagueScoresManager: React.FC<LeagueScoresManagerProps> = ({ leagueId }) =
             onChange={(e) => setFilterStatus(e.target.value as any)}
             className="px-3 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-neon-green focus:border-transparent"
           >
-            <option value="all">All Matches</option>
+            <option value="all">All Teams</option>
             <option value="submitted">Scores Submitted</option>
             <option value="pending">Pending Scores</option>
           </select>
         </div>
       </div>
 
-      {/* Scores Table */}
-      {filteredScores.length === 0 ? (
+      {/* Weekly Scores */}
+      {filteredWeekScores.length === 0 ? (
         <div className="bg-white rounded-lg shadow-sm border border-neutral-200 p-12 text-center">
           <ClipboardList className="w-16 h-16 mx-auto mb-4 text-neutral-300" />
           <h3 className="text-lg font-semibold text-neutral-700 mb-2">No scores found</h3>
@@ -232,209 +271,160 @@ const LeagueScoresManager: React.FC<LeagueScoresManagerProps> = ({ leagueId }) =
           </p>
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow-sm border border-neutral-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-neutral-50 border-b border-neutral-200">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">
-                    Week
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">
-                    Date
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">
-                    Division
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">
-                    Matchup
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">
-                    Course
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">
-                    Scores
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-neutral-600 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-200">
-                {filteredScores.map((score) => {
-                  // Create rows for each team
-                  return (
-                    <React.Fragment key={score.matchup_id}>
-                      {/* Team 1 Row */}
-                      <tr className="hover:bg-neutral-50 transition-colors">
-                        <td className="px-4 py-4 whitespace-nowrap" rowSpan={2}>
-                          <div className="flex items-center space-x-2">
-                            <Calendar className="w-4 h-4 text-neutral-400" />
-                            <span className="text-sm font-medium text-brand-black">Week {score.week_number}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap" rowSpan={2}>
-                          <div className="text-sm text-neutral-600">
-                            {new Date(score.week_start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            {' - '}
-                            {new Date(score.week_end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap" rowSpan={2}>
-                          <div className="text-sm text-neutral-700">{score.division_name}</div>
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex items-center space-x-2">
-                            <Users className="w-4 h-4 text-neutral-400" />
-                            <span className="text-sm font-medium text-brand-black">{score.team1_name}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4" rowSpan={2}>
-                          <div className="flex items-center space-x-2">
-                            <MapPin className="w-4 h-4 text-neutral-400" />
-                            <span className="text-sm text-neutral-700">{score.course_name || 'Not assigned'}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap">
-                          {score.team1_has_scores ? (
-                            <div className="text-sm">
-                              <span className="text-brand-neon-green font-semibold">
-                                {score.team1_net_total || 0}
-                              </span>
-                              <span className="text-neutral-400 ml-1 text-xs">
-                                (Gross: {score.team1_gross_total || 0})
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-neutral-400">Not submitted</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            score.team1_has_scores
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-yellow-100 text-yellow-800'
-                          }`}>
-                            {score.team1_has_scores ? 'Submitted' : 'Pending'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-center">
-                          <div className="flex items-center justify-center space-x-2">
-                            <button
-                              onClick={() => handleEditScore(score, score.team1_id)}
-                              disabled={loadingPlayers}
-                              className={`px-2 py-1 text-xs rounded transition-colors disabled:opacity-50 ${
-                                score.team1_has_scores
-                                  ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                                  : 'bg-brand-neon-green text-brand-black hover:bg-green-400 font-medium'
-                              }`}
-                              title={score.team1_has_scores ? 'Edit scores' : 'Submit scores'}
-                            >
-                              {score.team1_has_scores ? 'Edit' : 'Submit'}
-                            </button>
-                            {score.team1_has_scores && (
-                              <button
-                                onClick={() => handleDeleteScore(score.matchup_id, score.team1_id, score.team1_name)}
-                                disabled={deletingMatchupId === score.matchup_id}
-                                className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
-                                title="Delete scorecard"
-                              >
-                                {deletingMatchupId === score.matchup_id ? (
-                                  <Spinner size="sm" />
+        <div className="space-y-4">
+          {filteredWeekScores.map((week) => {
+            const isExpanded = expandedWeeks.has(week.week_number);
+            const submittedCount = week.teams.filter(t => t.has_scores).length;
+            const totalCount = week.teams.length;
+
+            return (
+              <div key={week.schedule_id} className="bg-white rounded-lg shadow-sm border border-neutral-200 overflow-hidden">
+                {/* Week Header */}
+                <button
+                  onClick={() => toggleWeek(week.week_number)}
+                  className="w-full px-6 py-4 flex items-center justify-between hover:bg-neutral-50 transition-colors"
+                >
+                  <div className="flex items-center space-x-4">
+                    {isExpanded ? (
+                      <ChevronDown className="w-5 h-5 text-neutral-400" />
+                    ) : (
+                      <ChevronRight className="w-5 h-5 text-neutral-400" />
+                    )}
+                    <div className="flex items-center space-x-3">
+                      <Calendar className="w-5 h-5 text-brand-neon-green" />
+                      <div className="text-left">
+                        <h3 className="text-lg font-semibold text-brand-black">Week {week.week_number}</h3>
+                        <p className="text-sm text-neutral-600">
+                          {new Date(week.week_start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {' - '}
+                          {new Date(week.week_end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2 ml-4">
+                      <MapPin className="w-4 h-4 text-neutral-400" />
+                      <span className="text-sm text-neutral-700">{week.course_name || 'No course assigned'}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-4">
+                    <span className="text-sm text-neutral-600">
+                      {submittedCount} / {totalCount} teams submitted
+                    </span>
+                    <div className="w-32 bg-neutral-200 rounded-full h-2">
+                      <div
+                        className="bg-brand-neon-green h-2 rounded-full transition-all"
+                        style={{ width: `${totalCount > 0 ? (submittedCount / totalCount) * 100 : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                </button>
+
+                {/* Team List */}
+                {isExpanded && (
+                  <div className="border-t border-neutral-200">
+                    <table className="w-full">
+                      <thead className="bg-neutral-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-neutral-600 uppercase">Team</th>
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-neutral-600 uppercase">Division</th>
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-neutral-600 uppercase">Net Score</th>
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-neutral-600 uppercase">Gross Score</th>
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-neutral-600 uppercase">Status</th>
+                          <th className="px-6 py-3 text-center text-xs font-semibold text-neutral-600 uppercase">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-200">
+                        {week.teams.map((team) => {
+                          const deleteKey = `${week.schedule_id}-${team.team_id}`;
+                          return (
+                            <tr key={team.team_id} className="hover:bg-neutral-50 transition-colors">
+                              <td className="px-6 py-4">
+                                <div className="flex items-center space-x-2">
+                                  <Users className="w-4 h-4 text-neutral-400" />
+                                  <span className="text-sm font-medium text-brand-black">{team.team_name}</span>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className="text-sm text-neutral-700">{team.division_name || 'No division'}</span>
+                              </td>
+                              <td className="px-6 py-4">
+                                {team.has_scores ? (
+                                  <span className="text-sm font-semibold text-brand-neon-green">{team.net_total}</span>
                                 ) : (
-                                  <Trash2 className="w-3 h-3" />
+                                  <span className="text-sm text-neutral-400">-</span>
                                 )}
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                      {/* Team 2 Row */}
-                      <tr className="hover:bg-neutral-50 transition-colors border-b-2 border-neutral-300">
-                        <td className="px-4 py-4">
-                          <div className="flex items-center space-x-2">
-                            <Users className="w-4 h-4 text-neutral-400" />
-                            <span className="text-sm font-medium text-brand-black">{score.team2_name}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap">
-                          {score.team2_has_scores ? (
-                            <div className="text-sm">
-                              <span className="text-brand-neon-green font-semibold">
-                                {score.team2_net_total || 0}
-                              </span>
-                              <span className="text-neutral-400 ml-1 text-xs">
-                                (Gross: {score.team2_gross_total || 0})
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-neutral-400">Not submitted</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            score.team2_has_scores
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-yellow-100 text-yellow-800'
-                          }`}>
-                            {score.team2_has_scores ? 'Submitted' : 'Pending'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-center">
-                          <div className="flex items-center justify-center space-x-2">
-                            <button
-                              onClick={() => handleEditScore(score, score.team2_id)}
-                              disabled={loadingPlayers}
-                              className={`px-2 py-1 text-xs rounded transition-colors disabled:opacity-50 ${
-                                score.team2_has_scores
-                                  ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                                  : 'bg-brand-neon-green text-brand-black hover:bg-green-400 font-medium'
-                              }`}
-                              title={score.team2_has_scores ? 'Edit scores' : 'Submit scores'}
-                            >
-                              {score.team2_has_scores ? 'Edit' : 'Submit'}
-                            </button>
-                            {score.team2_has_scores && (
-                              <button
-                                onClick={() => handleDeleteScore(score.matchup_id, score.team2_id, score.team2_name)}
-                                disabled={deletingMatchupId === score.matchup_id}
-                                className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
-                                title="Delete scorecard"
-                              >
-                                {deletingMatchupId === score.matchup_id ? (
-                                  <Spinner size="sm" />
+                              </td>
+                              <td className="px-6 py-4">
+                                {team.has_scores ? (
+                                  <span className="text-sm text-neutral-700">{team.gross_total}</span>
                                 ) : (
-                                  <Trash2 className="w-3 h-3" />
+                                  <span className="text-sm text-neutral-400">-</span>
                                 )}
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                  team.has_scores
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-yellow-100 text-yellow-800'
+                                }`}>
+                                  {team.has_scores ? 'Submitted' : 'Pending'}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="flex items-center justify-center space-x-2">
+                                  <button
+                                    onClick={() => handleEditScore(team)}
+                                    disabled={loadingPlayers}
+                                    className={`px-3 py-1 text-xs rounded transition-colors disabled:opacity-50 ${
+                                      team.has_scores
+                                        ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                                        : 'bg-brand-neon-green text-brand-black hover:bg-green-400 font-medium'
+                                    }`}
+                                    title={team.has_scores ? 'Edit scores' : 'Submit scores'}
+                                  >
+                                    {team.has_scores ? 'Edit' : 'Submit'}
+                                  </button>
+                                  {team.has_scores && (
+                                    <button
+                                      onClick={() => handleDeleteScore(week.schedule_id, team.team_id, team.team_name)}
+                                      disabled={deletingKey === deleteKey}
+                                      className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+                                      title="Delete scorecard"
+                                    >
+                                      {deletingKey === deleteKey ? (
+                                        <Spinner size="sm" />
+                                      ) : (
+                                        <Trash2 className="w-4 h-4" />
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
       {/* Score Submission Modal */}
-      {showScoreModal && selectedMatchup && selectedTeamId && selectedPlayers.length > 0 && (
+      {showScoreModal && selectedScheduleId && selectedTeamScore && selectedPlayers.length > 0 && (
         <LeagueScoreSubmission
-          matchupId={selectedMatchup.matchup_id}
-          teamId={selectedTeamId}
-          opponentTeamId={selectedTeamId === selectedMatchup.team1_id ? selectedMatchup.team2_id : selectedMatchup.team1_id}
-          courseId={selectedMatchup.course_id}
+          matchupId={selectedScheduleId} // Using scheduleId as matchupId for compatibility
+          teamId={selectedTeamScore.team_id}
+          opponentTeamId={selectedTeamScore.team_id} // No opponent in team-based scoring
+          courseId={selectedTeamScore.course_id}
           players={selectedPlayers}
           onClose={() => {
             setShowScoreModal(false);
-            setSelectedMatchup(null);
-            setSelectedTeamId(null);
+            setSelectedScheduleId(null);
+            setSelectedTeamScore(null);
             setSelectedPlayers([]);
           }}
           onSubmit={handleScoreSubmitted}

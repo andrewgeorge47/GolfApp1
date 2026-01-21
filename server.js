@@ -16210,83 +16210,92 @@ app.post('/api/leagues/matchups/:matchupId/scores', (req, res, next) => {
 });
 
 // GET /api/leagues/:leagueId/scores - Get all scores for a league
+// Updated endpoint for schedule-based team scores (not matchup-based)
 app.get('/api/leagues/:leagueId/scores', authenticateToken, async (req, res) => {
   try {
     const { leagueId } = req.params;
 
-    // Get all matchups with their scores
-    const result = await pool.query(
+    // Get all schedules/weeks for this league
+    const schedules = await pool.query(
       `SELECT
-        lm.id as matchup_id,
-        lm.week_number,
+        ls.id as schedule_id,
+        ls.week_number,
         ls.week_start_date,
         ls.week_end_date,
-        ld.division_name,
-        lm.team1_id,
-        t1.name as team1_name,
-        lm.team2_id,
-        t2.name as team2_name,
         ls.course_id,
         c.name as course_name,
-        lm.status,
-        (
-          SELECT COUNT(*) > 0
-          FROM match_individual_scores mis
-          WHERE mis.matchup_id = lm.id AND mis.team_id = lm.team1_id
-        ) as team1_has_scores,
-        (
-          SELECT COUNT(*) > 0
-          FROM match_individual_scores mis
-          WHERE mis.matchup_id = lm.id AND mis.team_id = lm.team2_id
-        ) as team2_has_scores,
-        (
-          SELECT COALESCE(SUM(mis.net_total), 0)
-          FROM match_individual_scores mis
-          WHERE mis.matchup_id = lm.id AND mis.team_id = lm.team1_id
-        ) + (
-          SELECT COALESCE(mass.net_total, 0)
-          FROM match_alternate_shot_scores mass
-          WHERE mass.matchup_id = lm.id AND mass.team_id = lm.team1_id
-        ) as team1_net_total,
-        (
-          SELECT COALESCE(SUM(mis.net_total), 0)
-          FROM match_individual_scores mis
-          WHERE mis.matchup_id = lm.id AND mis.team_id = lm.team2_id
-        ) + (
-          SELECT COALESCE(mass.net_total, 0)
-          FROM match_alternate_shot_scores mass
-          WHERE mass.matchup_id = lm.id AND mass.team_id = lm.team2_id
-        ) as team2_net_total,
-        (
-          SELECT COALESCE(SUM(mis.gross_total), 0)
-          FROM match_individual_scores mis
-          WHERE mis.matchup_id = lm.id AND mis.team_id = lm.team1_id
-        ) + (
-          SELECT COALESCE(mass.gross_total, 0)
-          FROM match_alternate_shot_scores mass
-          WHERE mass.matchup_id = lm.id AND mass.team_id = lm.team1_id
-        ) as team1_gross_total,
-        (
-          SELECT COALESCE(SUM(mis.gross_total), 0)
-          FROM match_individual_scores mis
-          WHERE mis.matchup_id = lm.id AND mis.team_id = lm.team2_id
-        ) + (
-          SELECT COALESCE(mass.gross_total, 0)
-          FROM match_alternate_shot_scores mass
-          WHERE mass.matchup_id = lm.id AND mass.team_id = lm.team2_id
-        ) as team2_gross_total
-      FROM league_matchups lm
-      JOIN tournament_teams t1 ON lm.team1_id = t1.id
-      JOIN tournament_teams t2 ON lm.team2_id = t2.id
-      LEFT JOIN league_divisions ld ON lm.division_id = ld.id
-      LEFT JOIN league_schedule ls ON lm.schedule_id = ls.id
+        ls.status
+      FROM league_schedule ls
       LEFT JOIN simulator_courses_combined c ON ls.course_id = c.id
-      WHERE lm.league_id = $1
-      ORDER BY lm.week_number, lm.id`,
+      WHERE ls.league_id = $1
+      ORDER BY ls.week_number`,
       [leagueId]
     );
 
-    res.json(result.rows);
+    // Get all teams in this league
+    const teams = await pool.query(
+      `SELECT
+        tt.id as team_id,
+        tt.name as team_name,
+        ld.id as division_id,
+        ld.division_name
+      FROM tournament_teams tt
+      LEFT JOIN league_divisions ld ON tt.division_id = ld.id
+      WHERE tt.league_id = $1
+      ORDER BY ld.division_name NULLS LAST, tt.name`,
+      [leagueId]
+    );
+
+    // Build the result set - one row per team per week
+    const results = [];
+    for (const schedule of schedules.rows) {
+      for (const team of teams.rows) {
+        // Check if this team has submitted scores for this week
+        const scoreCheck = await pool.query(
+          `SELECT
+            ll.id as lineup_id,
+            ll.is_finalized,
+            COALESCE(
+              (SELECT SUM(net_total) FROM match_individual_scores WHERE lineup_id = ll.id),
+              0
+            ) + COALESCE(
+              (SELECT net_total FROM match_alternate_shot_scores WHERE lineup_id = ll.id AND team_id = $2 LIMIT 1),
+              0
+            ) as net_total,
+            COALESCE(
+              (SELECT SUM(gross_total) FROM match_individual_scores WHERE lineup_id = ll.id),
+              0
+            ) + COALESCE(
+              (SELECT gross_total FROM match_alternate_shot_scores WHERE lineup_id = ll.id AND team_id = $2 LIMIT 1),
+              0
+            ) as gross_total
+          FROM league_lineups ll
+          WHERE ll.schedule_id = $1 AND ll.team_id = $2`,
+          [schedule.schedule_id, team.team_id]
+        );
+
+        const hasScores = scoreCheck.rows.length > 0 && scoreCheck.rows[0].is_finalized;
+
+        results.push({
+          schedule_id: schedule.schedule_id,
+          week_number: schedule.week_number,
+          week_start_date: schedule.week_start_date,
+          week_end_date: schedule.week_end_date,
+          course_id: schedule.course_id,
+          course_name: schedule.course_name,
+          status: schedule.status,
+          team_id: team.team_id,
+          team_name: team.team_name,
+          division_id: team.division_id,
+          division_name: team.division_name,
+          has_scores: hasScores,
+          net_total: hasScores ? scoreCheck.rows[0].net_total : null,
+          gross_total: hasScores ? scoreCheck.rows[0].gross_total : null
+        });
+      }
+    }
+
+    res.json(results);
   } catch (err) {
     console.error('Error fetching league scores:', err);
     res.status(500).json({ error: 'Failed to fetch league scores' });
@@ -16324,7 +16333,7 @@ app.get('/api/leagues/matchups/:matchupId/scores/:teamId', authenticateToken, as
   }
 });
 
-// DELETE /api/leagues/matchups/:matchupId/scores/:teamId - Delete scores for one team in a matchup
+// DELETE /api/leagues/matchups/:matchupId/scores/:teamId - Delete scores for one team in a matchup (deprecated)
 app.delete('/api/leagues/matchups/:matchupId/scores/:teamId', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
   try {
     const { matchupId, teamId } = req.params;
@@ -16372,6 +16381,58 @@ app.delete('/api/leagues/matchups/:matchupId/scores/:teamId', authenticateToken,
         [matchupId]
       );
     }
+
+    res.json({ message: 'Team scores deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting team scores:', err);
+    res.status(500).json({ error: 'Failed to delete team scores' });
+  }
+});
+
+// DELETE /api/leagues/schedule/:scheduleId/scores/:teamId - Delete scores for a team in a schedule week
+app.delete('/api/leagues/schedule/:scheduleId/scores/:teamId', authenticateToken, requirePermission('manage_tournaments'), async (req, res) => {
+  try {
+    const { scheduleId, teamId } = req.params;
+
+    // Verify schedule exists
+    const scheduleCheck = await pool.query(
+      'SELECT id, league_id FROM league_schedule WHERE id = $1',
+      [scheduleId]
+    );
+
+    if (scheduleCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Schedule not found' });
+    }
+
+    // Get lineup for this schedule and team
+    const lineupResult = await pool.query(
+      'SELECT id FROM league_lineups WHERE schedule_id = $1 AND team_id = $2',
+      [scheduleId, teamId]
+    );
+
+    if (lineupResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No scores found for this team' });
+    }
+
+    const lineupId = lineupResult.rows[0].id;
+
+    // Delete individual scores
+    await pool.query(
+      'DELETE FROM match_individual_scores WHERE lineup_id = $1',
+      [lineupId]
+    );
+
+    // Delete alternate shot scores
+    await pool.query(
+      'DELETE FROM match_alternate_shot_scores WHERE lineup_id = $1 AND team_id = $2',
+      [lineupId, teamId]
+    );
+
+    // Delete the lineup
+    await pool.query(
+      'DELETE FROM league_lineups WHERE id = $1',
+      [lineupId]
+    );
 
     res.json({ message: 'Team scores deleted successfully' });
   } catch (err) {

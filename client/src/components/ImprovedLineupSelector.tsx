@@ -109,6 +109,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
   // UI state
   const [expandedSection, setExpandedSection] = useState<'front9' | 'back9' | null>(null);
   const [lineupSaved, setLineupSaved] = useState(false);
+  const [scoresSubmitted, setScoresSubmitted] = useState(false); // NEW: Track if scores have been submitted
   const [isEditMode, setIsEditMode] = useState(false);
   const [showScoreModal, setShowScoreModal] = useState(false);
   const [showMobileLiveScoring, setShowMobileLiveScoring] = useState(false);
@@ -193,6 +194,10 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
         setLineupSaved(true);
       }
 
+      // IMPORTANT: Check if scores have been submitted (is_finalized flag)
+      // This is separate from lineup being saved - it means actual scores were entered
+      setScoresSubmitted(lineup.is_finalized === true);
+
       // Also save to localStorage for offline backup
       const key = getLineupStorageKey(weekId);
       localStorage.setItem(key, JSON.stringify({
@@ -200,7 +205,8 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
         holeAssignments: lineup.hole_assignments || {},
         back9PlayerOrder: back9_ids,
         savedAt: new Date().toISOString(),
-        lineupSaved: lineup.is_finalized
+        lineupSaved: lineup.is_finalized,
+        scoresSubmitted: lineup.is_finalized
       }));
 
       // Mark initial load as complete
@@ -230,6 +236,9 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
             if (loadedPlayers.length === 3) {
               setLineupSaved(true);
             }
+
+            // Check if scores were submitted (from localStorage)
+            setScoresSubmitted(lineupData.scoresSubmitted === true);
 
             // MIGRATION: If lineup was finalized in localStorage, save it to backend
             if (lineupData.lineupSaved && loadedPlayers.length === 3) {
@@ -316,6 +325,8 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
           loadCourseData(selectedWeek.course_id);
           loadLineup(selectedWeek.id);
           setIsEditMode(false);
+          // Reset scores submitted state when changing weeks
+          setScoresSubmitted(false);
         }
       }
     } catch (error) {
@@ -1080,8 +1091,8 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
                 <span>Save Lineup</span>
               </div>
             </button>
-          ) : selectedWeek.lineup_submitted ? (
-            // Show completion message when scores have been submitted
+          ) : scoresSubmitted ? (
+            // Show completion message when scores have been submitted (is_finalized = true)
             <div className="w-full p-6 bg-success-50 border-2 border-success-200 rounded-lg">
               <div className="flex items-center justify-center space-x-3">
                 <CheckCircle className="w-6 h-6 text-success-600" />
@@ -1153,6 +1164,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
           onClose={() => setShowScoreModal(false)}
           onSubmit={() => {
             setShowScoreModal(false);
+            setScoresSubmitted(true); // Mark scores as submitted
             onScoreSubmit?.();
           }}
         />
@@ -1175,6 +1187,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
           onClose={() => setShowMobileLiveScoring(false)}
           onSubmit={() => {
             setShowMobileLiveScoring(false);
+            setScoresSubmitted(true); // Mark scores as submitted
             onScoreSubmit?.();
           }}
         />
