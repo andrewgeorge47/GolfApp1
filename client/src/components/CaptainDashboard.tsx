@@ -516,7 +516,7 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
                 {upcomingMatches.map((match) => {
                   // In division-based leagues, playing_time is team-specific (not team1/team2)
                   const myPlayingTime = match.playing_time;
-                  const hasSubmittedScores = match.status !== 'scheduled';
+                  const hasSubmittedScores = match.lineup_submitted === true;
 
                   return (
                     <div key={match.id} className="p-6">
@@ -602,6 +602,7 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
             leagueId={leagueId}
             members={team.members}
             upcomingMatches={upcomingMatches}
+            onScoreSubmit={loadCaptainData}
           />
         )}
 

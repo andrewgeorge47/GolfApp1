@@ -66,13 +66,15 @@ interface ImprovedLineupSelectorProps {
   leagueId: number;
   members: TeamMember[];
   upcomingMatches: UpcomingMatch[];
+  onScoreSubmit?: () => void;
 }
 
 const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
   teamId,
   leagueId,
   members,
-  upcomingMatches
+  upcomingMatches,
+  onScoreSubmit
 }) => {
   // Debug logging
   console.log('ImprovedLineupSelector rendered with:', {
@@ -277,32 +279,49 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
 
   useEffect(() => {
     try {
-      console.log('useEffect - setting initial week, upcomingMatches:', upcomingMatches);
-      if (upcomingMatches.length > 0 && !selectedWeek) {
-        console.log('Setting selectedWeek to:', upcomingMatches[0]);
-        setSelectedWeek(upcomingMatches[0]);
+      if (upcomingMatches.length > 0) {
+        // Only set selectedWeek if it's null OR if the current selectedWeek is no longer in the list
+        if (!selectedWeek) {
+          setSelectedWeek(upcomingMatches[0]);
+        } else {
+          // Check if current selectedWeek still exists in upcomingMatches
+          const stillExists = upcomingMatches.some(m => m.id === selectedWeek.id);
+          if (!stillExists) {
+            // Current week no longer exists, select first available
+            setSelectedWeek(upcomingMatches[0]);
+          } else {
+            // Update selectedWeek with fresh data but don't reset state
+            const updatedWeek = upcomingMatches.find(m => m.id === selectedWeek.id);
+            if (updatedWeek && JSON.stringify(updatedWeek) !== JSON.stringify(selectedWeek)) {
+              setSelectedWeek(updatedWeek);
+            }
+          }
+        }
       }
     } catch (error) {
       console.error('Error in initial week useEffect:', error);
     }
   }, [upcomingMatches]);
 
+  // Track the last loaded week ID to prevent unnecessary reloads
+  const [lastLoadedWeekId, setLastLoadedWeekId] = React.useState<number | null>(null);
+
   useEffect(() => {
     try {
-      console.log('useEffect - selectedWeek changed:', selectedWeek);
       if (selectedWeek && selectedWeek.course_id) {
-        // Reset initial load flag when week changes
-        setIsInitialLoad(true);
-        console.log('Loading course and lineup for week:', selectedWeek.id);
-        loadCourseData(selectedWeek.course_id);
-        loadLineup(selectedWeek.id);
-        // Reset edit mode when week changes (lineupSaved is restored from localStorage in loadLineup)
-        setIsEditMode(false);
+        // Only reload if this is a different week than what's currently loaded
+        if (selectedWeek.id !== lastLoadedWeekId) {
+          setIsInitialLoad(true);
+          setLastLoadedWeekId(selectedWeek.id);
+          loadCourseData(selectedWeek.course_id);
+          loadLineup(selectedWeek.id);
+          setIsEditMode(false);
+        }
       }
     } catch (error) {
       console.error('Error in selectedWeek useEffect:', error);
     }
-  }, [selectedWeek]);
+  }, [selectedWeek?.id]);
 
   // Auto-save lineup to backend whenever it changes (but not during initial load)
   useEffect(() => {
@@ -1061,7 +1080,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
                 <span>Save Lineup</span>
               </div>
             </button>
-          ) : selectedWeek.status === 'completed' ? (
+          ) : selectedWeek.lineup_submitted ? (
             // Show completion message when scores have been submitted
             <div className="w-full p-6 bg-success-50 border-2 border-success-200 rounded-lg">
               <div className="flex items-center justify-center space-x-3">
@@ -1119,7 +1138,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
       {/* Score Submission Modal */}
       {showScoreModal && selectedWeek && (
         <LeagueScoreSubmission
-          matchupId={selectedWeek.id}
+          scheduleId={selectedWeek.id}
           teamId={teamId}
           opponentTeamId={selectedWeek.opponent_team_id}
           courseId={selectedWeek.course_id}
@@ -1134,7 +1153,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
           onClose={() => setShowScoreModal(false)}
           onSubmit={() => {
             setShowScoreModal(false);
-            toast.success('Score submitted successfully! Please refresh to see updated status.');
+            onScoreSubmit?.();
           }}
         />
       )}
@@ -1142,7 +1161,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
       {/* Mobile Live Scoring */}
       {showMobileLiveScoring && selectedWeek && (
         <MobileLiveScoring
-          matchupId={selectedWeek.id}
+          scheduleId={selectedWeek.id}
           teamId={teamId}
           courseId={selectedWeek.course_id}
           players={selectedPlayers.map(p => ({
@@ -1156,7 +1175,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
           onClose={() => setShowMobileLiveScoring(false)}
           onSubmit={() => {
             setShowMobileLiveScoring(false);
-            toast.success('Round submitted successfully! Please refresh to see updated status.');
+            onScoreSubmit?.();
           }}
         />
       )}

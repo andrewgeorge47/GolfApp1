@@ -25,7 +25,9 @@ interface HoleScore {
 }
 
 interface MobileLiveScoringProps {
-  matchupId: number;
+  // Either matchupId (matchup-based leagues) OR scheduleId (division-based leagues)
+  matchupId?: number;
+  scheduleId?: number;
   teamId: number;
   courseId: number;
   players: Player[];
@@ -45,6 +47,7 @@ interface CourseData {
 
 const MobileLiveScoring: React.FC<MobileLiveScoringProps> = ({
   matchupId,
+  scheduleId,
   teamId,
   courseId,
   players,
@@ -53,6 +56,10 @@ const MobileLiveScoring: React.FC<MobileLiveScoringProps> = ({
   onClose,
   onSubmit
 }) => {
+  // Exactly one of matchupId or scheduleId must be provided
+  if (!matchupId && !scheduleId) {
+    throw new Error('Either matchupId or scheduleId must be provided');
+  }
   const [currentHole, setCurrentHole] = useState(1);
   const [course, setCourse] = useState<CourseData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -267,7 +274,6 @@ const MobileLiveScoring: React.FC<MobileLiveScoringProps> = ({
       }), { gross: 0, net: 0 });
 
       const scoreData = {
-        matchup_id: matchupId,
         team_id: teamId,
         front_nine_scores: frontNineScores,
         back_nine_scores: backNineScores,
@@ -284,17 +290,19 @@ const MobileLiveScoring: React.FC<MobileLiveScoringProps> = ({
       };
 
       const token = localStorage.getItem('token');
-      const response = await fetch(
-        `${environment.apiBaseUrl}/leagues/matchups/${matchupId}/scores`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(scoreData)
-        }
-      );
+      // Use appropriate endpoint based on league type
+      const apiUrl = scheduleId
+        ? `${environment.apiBaseUrl}/leagues/schedule/${scheduleId}/scores`
+        : `${environment.apiBaseUrl}/leagues/matchups/${matchupId}/scores`;
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(scoreData)
+      });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));

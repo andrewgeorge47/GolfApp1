@@ -47,7 +47,9 @@ interface HoleScore {
 }
 
 interface LeagueScoreSubmissionProps {
-  matchupId: number;
+  // Either matchupId (matchup-based leagues) OR scheduleId (division-based leagues)
+  matchupId?: number;
+  scheduleId?: number;
   teamId: number;
   opponentTeamId?: number | null; // Optional for division-based scoring
   courseId: number;
@@ -61,6 +63,7 @@ interface LeagueScoreSubmissionProps {
 
 const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
   matchupId,
+  scheduleId,
   teamId,
   opponentTeamId,
   courseId,
@@ -70,6 +73,10 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
   initialHoleAssignments,
   initialBack9PlayerOrder
 }) => {
+  // Exactly one of matchupId or scheduleId must be provided
+  if (!matchupId && !scheduleId) {
+    throw new Error('Either matchupId or scheduleId must be provided');
+  }
   const [course, setCourse] = useState<CourseData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -155,18 +162,21 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
   // Load existing scores if editing
   useEffect(() => {
     const loadExistingScores = async () => {
-      if (!course || !matchupId || !teamId) return;
+      if (!course || !teamId) return;
+      if (!matchupId && !scheduleId) return;
 
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch(
-          `${environment.apiBaseUrl}/leagues/matchups/${matchupId}/scores/${teamId}`,
-          {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
+        // Use appropriate endpoint based on league type
+        const endpoint = scheduleId
+          ? `${environment.apiBaseUrl}/leagues/schedule/${scheduleId}/scores/${teamId}`
+          : `${environment.apiBaseUrl}/leagues/matchups/${matchupId}/scores/${teamId}`;
+
+        const response = await fetch(endpoint, {
+          headers: {
+            'Authorization': `Bearer ${token}`
           }
-        );
+        });
 
         if (!response.ok) {
           // No existing scores, that's ok
@@ -238,7 +248,7 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
     };
 
     loadExistingScores();
-  }, [course, matchupId, teamId]);
+  }, [course, matchupId, scheduleId, teamId]);
 
   // Initialize back 9 player order from prop or default
   useEffect(() => {
@@ -490,7 +500,6 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
     try {
       // Prepare score data
       const scoreData = {
-        matchup_id: matchupId,
         team_id: teamId,
         front_nine_scores: frontNineScores,
         back_nine_scores: backNineScores,
@@ -509,8 +518,10 @@ const LeagueScoreSubmission: React.FC<LeagueScoreSubmissionProps> = ({
       // Submit to API
       console.log('Submitting score data:', scoreData);
       const token = localStorage.getItem('token');
-      // apiBaseUrl already includes /api, so don't add it again
-      const apiUrl = `${environment.apiBaseUrl}/leagues/matchups/${matchupId}/scores`;
+      // Use appropriate endpoint based on league type
+      const apiUrl = scheduleId
+        ? `${environment.apiBaseUrl}/leagues/schedule/${scheduleId}/scores`
+        : `${environment.apiBaseUrl}/leagues/matchups/${matchupId}/scores`;
       console.log('Submitting to URL:', apiUrl);
 
       const response = await fetch(apiUrl, {

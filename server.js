@@ -17538,7 +17538,10 @@ app.post('/api/leagues/schedule/:scheduleId/lineup', authenticateToken, async (r
         player3_handicap = EXCLUDED.player3_handicap,
         hole_assignments = EXCLUDED.hole_assignments,
         back9_player_order = EXCLUDED.back9_player_order,
-        is_finalized = EXCLUDED.is_finalized,
+        is_finalized = CASE
+          WHEN league_lineups.is_finalized = true THEN true
+          ELSE EXCLUDED.is_finalized
+        END,
         playing_time = EXCLUDED.playing_time,
         updated_at = CURRENT_TIMESTAMP
       RETURNING *`,
@@ -17635,7 +17638,10 @@ app.post('/api/leagues/matchups/:matchupId/lineup', authenticateToken, async (re
         player3_handicap = EXCLUDED.player3_handicap,
         hole_assignments = EXCLUDED.hole_assignments,
         back9_player_order = EXCLUDED.back9_player_order,
-        is_finalized = EXCLUDED.is_finalized,
+        is_finalized = CASE
+          WHEN league_lineups.is_finalized = true THEN true
+          ELSE EXCLUDED.is_finalized
+        END,
         playing_time = EXCLUDED.playing_time,
         updated_at = CURRENT_TIMESTAMP
       RETURNING *`,
@@ -17693,6 +17699,194 @@ app.post('/api/leagues/schedule/:scheduleId/playing-time', authenticateToken, as
   } catch (err) {
     console.error('Error setting playing time:', err);
     res.status(500).json({ error: 'Failed to set playing time' });
+  }
+});
+
+// POST /api/leagues/schedule/:scheduleId/scores - Submit scores for division-based leagues
+app.post('/api/leagues/schedule/:scheduleId/scores', authenticateToken, async (req, res) => {
+  try {
+    const { scheduleId } = req.params;
+    const {
+      team_id,
+      front_nine_scores,
+      back_nine_scores,
+      hole_assignments,
+      team_handicap,
+      players,
+      total_gross,
+      total_net
+    } = req.body;
+
+    // Validation
+    if (!team_id || !front_nine_scores || !back_nine_scores || !hole_assignments || !players) {
+      return res.status(400).json({
+        error: 'team_id, front_nine_scores, back_nine_scores, hole_assignments, and players are required'
+      });
+    }
+
+    // Verify user is team member or admin
+    const membership = await pool.query(
+      'SELECT * FROM team_members WHERE team_id = $1 AND user_member_id = $2',
+      [team_id, req.user.member_id]
+    );
+
+    if (membership.rows.length === 0 && req.user.role !== 'Admin') {
+      return res.status(403).json({ error: 'Only team members can submit scores' });
+    }
+
+    // Get lineup for this schedule and team
+    const lineupCheck = await pool.query(
+      `SELECT id FROM league_lineups WHERE schedule_id = $1 AND team_id = $2`,
+      [scheduleId, team_id]
+    );
+
+    let lineupId;
+    if (lineupCheck.rows.length > 0) {
+      lineupId = lineupCheck.rows[0].id;
+    } else {
+      // Create lineup from players if it doesn't exist
+      const lineupResult = await pool.query(
+        `INSERT INTO league_lineups (
+          schedule_id, team_id, player1_id, player2_id, player3_id,
+          player1_handicap, player2_handicap, player3_handicap,
+          submitted_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+        RETURNING id`,
+        [
+          scheduleId, team_id,
+          players[0].user_id, players[1].user_id, players[2].user_id,
+          players[0].handicap, players[1].handicap, players[2].handicap
+        ]
+      );
+      lineupId = lineupResult.rows[0].id;
+    }
+
+    // Delete existing individual scores for this lineup (if any)
+    await pool.query(
+      'DELETE FROM match_individual_scores WHERE lineup_id = $1',
+      [lineupId]
+    );
+
+    // Submit individual scores for each player (front 9)
+    const individualScoreResults = [];
+    for (const player of players) {
+      // Find holes assigned to this player
+      const assignedHoles = Object.entries(hole_assignments)
+        .filter(([hole, playerId]) => playerId === player.id)
+        .map(([hole]) => parseInt(hole));
+
+      // Get hole scores for this player
+      const playerHoleScores = assignedHoles.reduce((acc, hole) => {
+        if (front_nine_scores[hole]) {
+          acc[hole] = front_nine_scores[hole];
+        }
+        return acc;
+      }, {});
+
+      // Calculate totals for this player
+      const grossTotal = Object.values(playerHoleScores).reduce((sum, score) => sum + (score.gross || 0), 0);
+      const netTotal = Object.values(playerHoleScores).reduce((sum, score) => sum + (score.net || 0), 0);
+
+      const result = await pool.query(
+        `INSERT INTO match_individual_scores (
+          lineup_id, team_id, player_id,
+          assigned_holes, hole_scores, gross_total, net_total,
+          player_handicap, course_handicap
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING *`,
+        [
+          lineupId, team_id, player.user_id,
+          assignedHoles,
+          JSON.stringify(playerHoleScores),
+          grossTotal, netTotal,
+          player.handicap,
+          Math.round(player.handicap)
+        ]
+      );
+      individualScoreResults.push(result.rows[0]);
+    }
+
+    // Submit alternate shot scores (back 9)
+    const backNineGross = Object.values(back_nine_scores).reduce((sum, score) => sum + (score.gross || 0), 0);
+    const backNineNet = Object.values(back_nine_scores).reduce((sum, score) => sum + (score.net || 0), 0);
+
+    // Delete existing alternate shot scores for this lineup (if any)
+    await pool.query(
+      'DELETE FROM match_alternate_shot_scores WHERE lineup_id = $1 AND team_id = $2',
+      [lineupId, team_id]
+    );
+
+    const alternateShotResult = await pool.query(
+      `INSERT INTO match_alternate_shot_scores (
+        lineup_id, team_id,
+        hole_scores, gross_total, net_total,
+        team_handicap, team_course_handicap
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *`,
+      [
+        lineupId, team_id,
+        JSON.stringify(back_nine_scores),
+        backNineGross, backNineNet,
+        team_handicap,
+        Math.round(team_handicap || 0)
+      ]
+    );
+
+    // Mark lineup as finalized (scores submitted)
+    await pool.query(
+      'UPDATE league_lineups SET is_finalized = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+      [lineupId]
+    );
+
+    res.json({
+      message: 'Scores submitted successfully',
+      lineup_id: lineupId,
+      individual_scores: individualScoreResults,
+      alternate_shot_scores: alternateShotResult.rows[0]
+    });
+  } catch (err) {
+    console.error('Error submitting scores:', err);
+    res.status(500).json({ error: 'Failed to submit scores' });
+  }
+});
+
+// GET /api/leagues/schedule/:scheduleId/scores/:teamId - Get scores for division-based leagues
+app.get('/api/leagues/schedule/:scheduleId/scores/:teamId', authenticateToken, async (req, res) => {
+  try {
+    const { scheduleId, teamId } = req.params;
+
+    // Get lineup
+    const lineupResult = await pool.query(
+      'SELECT id FROM league_lineups WHERE schedule_id = $1 AND team_id = $2',
+      [scheduleId, teamId]
+    );
+
+    if (lineupResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No lineup found' });
+    }
+
+    const lineupId = lineupResult.rows[0].id;
+
+    // Get individual scores
+    const individualScores = await pool.query(
+      'SELECT * FROM match_individual_scores WHERE lineup_id = $1',
+      [lineupId]
+    );
+
+    // Get alternate shot scores
+    const alternateShotScores = await pool.query(
+      'SELECT * FROM match_alternate_shot_scores WHERE lineup_id = $1 AND team_id = $2',
+      [lineupId, teamId]
+    );
+
+    res.json({
+      lineup_id: lineupId,
+      individual_scores: individualScores.rows,
+      alternate_shot_scores: alternateShotScores.rows[0] || null
+    });
+  } catch (err) {
+    console.error('Error retrieving scores:', err);
+    res.status(500).json({ error: 'Failed to retrieve scores' });
   }
 });
 
