@@ -151,7 +151,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
           player_handicaps,
           hole_assignments: holeAssignments,
           back9_player_order: back9_user_ids,
-          is_finalized: isManualSave
+          is_finalized: isManualSave  // True when captain clicks "Save Lineup"
         });
       } catch (error) {
         console.error('Error saving lineup to backend:', error);
@@ -188,15 +188,13 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
       }).filter((id: number) => id !== 0);
       setBack9PlayerOrder(back9_ids);
 
-      // Set lineup as saved if it has 3 players (could be auto-saved or finalized)
-      // This ensures captains see the score submission buttons even for auto-saved lineups
-      if (loadedPlayers.length === 3) {
-        setLineupSaved(true);
-      }
+      // Set lineup as saved if it's finalized OR if it has 3 players
+      // is_finalized = true means captain clicked "Save Lineup"
+      setLineupSaved(lineup.is_finalized === true || loadedPlayers.length === 3);
 
-      // IMPORTANT: Check if scores have been submitted (is_finalized flag)
+      // IMPORTANT: Check if scores have been submitted (scores_submitted flag)
       // This is separate from lineup being saved - it means actual scores were entered
-      setScoresSubmitted(lineup.is_finalized === true);
+      setScoresSubmitted(lineup.scores_submitted === true);
 
       // Also save to localStorage for offline backup
       const key = getLineupStorageKey(weekId);
@@ -205,8 +203,8 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
         holeAssignments: lineup.hole_assignments || {},
         back9PlayerOrder: back9_ids,
         savedAt: new Date().toISOString(),
-        lineupSaved: lineup.is_finalized,
-        scoresSubmitted: lineup.is_finalized
+        lineupSaved: lineup.is_finalized === true,
+        scoresSubmitted: lineup.scores_submitted === true
       }));
 
       // Mark initial load as complete
@@ -257,7 +255,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
                   player_handicaps,
                   hole_assignments: lineupData.holeAssignments || {},
                   back9_player_order: back9_user_ids,
-                  is_finalized: true
+                  is_finalized: true  // Migration from localStorage - lineup was saved
                 });
 
                 toast.success('Your saved lineup has been migrated to the cloud!', {

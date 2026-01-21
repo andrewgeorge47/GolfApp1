@@ -416,7 +416,7 @@ const LeagueScoresManager: React.FC<LeagueScoresManagerProps> = ({ leagueId }) =
       {/* Score Submission Modal */}
       {showScoreModal && selectedScheduleId && selectedTeamScore && selectedPlayers.length > 0 && (
         <LeagueScoreSubmission
-          matchupId={selectedScheduleId} // Using scheduleId as matchupId for compatibility
+          scheduleId={selectedScheduleId} // Pass as scheduleId for division-based leagues
           teamId={selectedTeamScore.team_id}
           opponentTeamId={selectedTeamScore.team_id} // No opponent in team-based scoring
           courseId={selectedTeamScore.course_id}

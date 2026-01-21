@@ -16255,6 +16255,7 @@ app.get('/api/leagues/:leagueId/scores', authenticateToken, async (req, res) => 
           `SELECT
             ll.id as lineup_id,
             ll.is_finalized,
+            ll.scores_submitted,
             COALESCE(
               (SELECT SUM(net_total) FROM match_individual_scores WHERE lineup_id = ll.id),
               0
@@ -16274,7 +16275,7 @@ app.get('/api/leagues/:leagueId/scores', authenticateToken, async (req, res) => 
           [schedule.schedule_id, team.team_id]
         );
 
-        const hasScores = scoreCheck.rows.length > 0 && scoreCheck.rows[0].is_finalized;
+        const hasScores = scoreCheck.rows.length > 0 && scoreCheck.rows[0].scores_submitted;
 
         results.push({
           schedule_id: schedule.schedule_id,
@@ -16465,7 +16466,7 @@ app.get('/api/leagues/:leagueId/divisions/:divisionId/leaderboard/:weekNumber', 
            WHERE mass.lineup_id = ll.id),
           0
         ) as net_total,
-        (ll.is_finalized = true) as has_submitted
+        (ll.scores_submitted = true) as has_submitted
       FROM tournament_teams t
       LEFT JOIN league_schedule ls
         ON ls.league_id = $1 AND ls.week_number = $3
@@ -17520,7 +17521,7 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
         NULL as opponent_team_id,
         NULL as opponent_team_name,
         ll.playing_time,
-        ll.is_finalized as lineup_submitted,
+        ll.scores_submitted as lineup_submitted,
         ls.week_end_date as lineup_deadline
        FROM league_schedule ls
        LEFT JOIN simulator_courses_combined sc ON ls.course_id = sc.id
@@ -17893,9 +17894,9 @@ app.post('/api/leagues/schedule/:scheduleId/scores', authenticateToken, async (r
       ]
     );
 
-    // Mark lineup as finalized (scores submitted)
+    // Mark scores as submitted (keep is_finalized for lineup state)
     await pool.query(
-      'UPDATE league_lineups SET is_finalized = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+      'UPDATE league_lineups SET scores_submitted = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
       [lineupId]
     );
 
