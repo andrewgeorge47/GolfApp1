@@ -354,7 +354,7 @@ const DivisionLeaderboard: React.FC<DivisionLeaderboardProps> = ({
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-center">
                                 <span className="text-sm font-bold text-brand-purple">
-                                  {team.total_points}
+                                  {team.league_points ?? 0}
                                 </span>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-center">

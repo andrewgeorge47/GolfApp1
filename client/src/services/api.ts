@@ -505,6 +505,7 @@ export interface LeagueStandings {
       ties: number;
       losses: number;
       total_points: number;
+      league_points: number;
       aggregate_net_score: number;
       rank_in_division: number;
       playoff_qualified: boolean;

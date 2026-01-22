@@ -623,7 +623,8 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
   console.log('ImprovedLineupSelector: Rendering main content, selectedPlayers:', selectedPlayers.length, 'course:', !!course);
 
   const totals = calculateTotals();
-  const hasScores = selectedWeek.status !== 'scheduled';
+  const canSubmitScores = selectedWeek.status === 'scheduled' || selectedWeek.status === 'active';
+  const isWeekCompleted = selectedWeek.status === 'completed';
   const isLineupLocked = lineupSaved && !isEditMode;
 
   return (
@@ -1070,19 +1071,26 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
         </div>
       )}
 
-      {/* Action Buttons */}
-      {selectedPlayers.length === 3 && (
+      {/* Week Completed Notice */}
+      {isWeekCompleted && (
+        <div className="w-full p-4 bg-neutral-100 border-2 border-neutral-300 rounded-lg">
+          <div className="flex items-center justify-center space-x-3">
+            <AlertCircle className="w-5 h-5 text-neutral-600" />
+            <span className="text-base font-medium text-neutral-700">
+              This week has been completed. Score submission is no longer available.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Action Buttons - Only show if week is not completed */}
+      {selectedPlayers.length === 3 && !isWeekCompleted && (
         <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
           {!lineupSaved || isEditMode ? (
             // Show Save Lineup button when not saved or in edit mode
             <button
               onClick={handleSaveLineup}
-              disabled={hasScores}
-              className={`w-full sm:w-auto px-8 py-4 rounded-lg font-semibold text-lg transition-all ${
-                hasScores
-                  ? 'bg-neutral-200 text-neutral-500 cursor-not-allowed'
-                  : 'bg-brand-neon-green text-brand-black shadow-lg hover:shadow-xl hover:scale-105'
-              }`}
+              className="w-full sm:w-auto px-8 py-4 rounded-lg font-semibold text-lg transition-all bg-brand-neon-green text-brand-black shadow-lg hover:shadow-xl hover:scale-105"
             >
               <div className="flex items-center justify-center space-x-2">
                 <Users className="w-5 h-5" />
@@ -1113,12 +1121,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
               </button>
               <button
                 onClick={() => setShowMobileLiveScoring(true)}
-                disabled={hasScores}
-                className={`w-full sm:w-auto px-6 py-4 rounded-lg font-semibold text-base transition-all ${
-                  hasScores
-                    ? 'bg-neutral-200 text-neutral-500 cursor-not-allowed'
-                    : 'bg-brand-muted-green text-white shadow-lg hover:shadow-xl hover:scale-105'
-                }`}
+                className="w-full sm:w-auto px-6 py-4 rounded-lg font-semibold text-base transition-all bg-brand-muted-green text-white shadow-lg hover:shadow-xl hover:scale-105"
               >
                 <div className="flex items-center justify-center space-x-2">
                   <Smartphone className="w-5 h-5" />
@@ -1127,12 +1130,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
               </button>
               <button
                 onClick={handleSubmitScore}
-                disabled={hasScores}
-                className={`w-full sm:w-auto px-6 py-4 rounded-lg font-semibold text-base transition-all ${
-                  hasScores
-                    ? 'bg-neutral-200 text-neutral-500 cursor-not-allowed'
-                    : 'bg-brand-neon-green text-brand-black shadow-lg hover:shadow-xl hover:scale-105'
-                }`}
+                className="w-full sm:w-auto px-6 py-4 rounded-lg font-semibold text-base transition-all bg-brand-neon-green text-brand-black shadow-lg hover:shadow-xl hover:scale-105"
               >
                 <div className="flex items-center justify-center space-x-2">
                   <Calculator className="w-5 h-5" />

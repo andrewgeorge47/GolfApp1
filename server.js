@@ -16807,19 +16807,21 @@ async function calculateDivisionLeagueStandings(leagueId) {
   try {
     console.log(`Calculating standings for division-based league ${leagueId}...`);
 
-    // Get all weeks/schedules for this league
+    // Get all weeks/schedules for this league (include all weeks regardless of status)
     const weeksResult = await pool.query(
-      `SELECT id, week_number FROM league_schedule
-       WHERE league_id = $1 AND status IN ('active', 'completed')
+      `SELECT id, week_number, status FROM league_schedule
+       WHERE league_id = $1
        ORDER BY week_number`,
       [leagueId]
     );
+    console.log(`Found ${weeksResult.rows.length} weeks for league ${leagueId}:`, weeksResult.rows.map(w => `Week ${w.week_number} (${w.status})`));
 
     // Get all divisions for this league
     const divisionsResult = await pool.query(
       `SELECT id FROM league_divisions WHERE league_id = $1`,
       [leagueId]
     );
+    console.log(`Found ${divisionsResult.rows.length} divisions for league ${leagueId}`);
 
     // Initialize team points accumulator
     const teamStats = new Map(); // teamId -> { total_points, aggregate_net, weeks_played }
@@ -16858,6 +16860,7 @@ async function calculateDivisionLeagueStandings(leagueId) {
 
         // Award points to teams that submitted scores
         const submittedTeams = leaderboardResult.rows.filter(t => t.has_submitted);
+        console.log(`Week ${week.week_number}, Division ${division.id}: Found ${leaderboardResult.rows.length} total teams, ${submittedTeams.length} submitted`);
         submittedTeams.forEach((team, index) => {
           const rank = index + 1;
           let weeklyPoints = 0;
