@@ -18135,6 +18135,180 @@ app.get('/api/leagues/schedule/:scheduleId/scores/:teamId', authenticateToken, a
   }
 });
 
+// GET /api/leagues/teams/:teamId/player-performance - Get player performance statistics
+app.get('/api/leagues/teams/:teamId/player-performance', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { league_id } = req.query;
+
+    // Verify user is a member of this team or admin
+    const membership = await pool.query(
+      'SELECT * FROM team_members WHERE team_id = $1 AND user_member_id = $2',
+      [teamId, req.user.member_id]
+    );
+
+    if (membership.rows.length === 0 && req.user.role !== 'Admin') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Get all lineups for this team in the league
+    const lineupsResult = await pool.query(
+      `SELECT ll.id, ll.schedule_id, ll.hole_assignments, ll.back9_player_order, ls.course_id
+       FROM league_lineups ll
+       JOIN league_schedule ls ON ll.schedule_id = ls.id
+       WHERE ll.team_id = $1 AND ls.league_id = $2 AND ll.scores_submitted = true
+       ORDER BY ls.week_number ASC`,
+      [teamId, league_id]
+    );
+
+    if (lineupsResult.rows.length === 0) {
+      return res.json({ players: [] });
+    }
+
+    // Aggregate performance data for each player
+    const playerPerformance = new Map();
+
+    for (const lineup of lineupsResult.rows) {
+      const lineupId = lineup.id;
+      const courseId = lineup.course_id;
+      const holeAssignments = lineup.hole_assignments || {};
+      const back9PlayerOrder = lineup.back9_player_order || [];
+
+      // Get course data for par values
+      const courseResult = await pool.query(
+        'SELECT par_values FROM simulator_courses_combined WHERE id = $1',
+        [courseId]
+      );
+      const parValues = courseResult.rows[0]?.par_values || Array(18).fill(4);
+
+      // Get individual scores (front 9)
+      const individualScoresResult = await pool.query(
+        'SELECT player_id, hole_scores FROM match_individual_scores WHERE lineup_id = $1',
+        [lineupId]
+      );
+
+      for (const score of individualScoresResult.rows) {
+        const playerId = score.player_id;
+        const holeScores = score.hole_scores || {};
+
+        if (!playerPerformance.has(playerId)) {
+          playerPerformance.set(playerId, {
+            player_id: playerId,
+            par3: { holes: 0, total_vs_par: 0, scores: [] },
+            par4: { holes: 0, total_vs_par: 0, scores: [] },
+            par5: { holes: 0, total_vs_par: 0, scores: [] },
+            tee_off_holes: { holes: 0, total_vs_par: 0, scores: [] }
+          });
+        }
+
+        const playerStats = playerPerformance.get(playerId);
+
+        // Process each hole
+        Object.keys(holeScores).forEach(holeStr => {
+          const hole = parseInt(holeStr);
+          const holeData = holeScores[holeStr];
+          const par = parValues[hole - 1];
+          const netScore = holeData.net || 0;
+          const vsPar = netScore - par;
+
+          // Categorize by par value
+          if (par === 3) {
+            playerStats.par3.holes++;
+            playerStats.par3.total_vs_par += vsPar;
+            playerStats.par3.scores.push({ hole, net: netScore, par, vsPar });
+          } else if (par === 4) {
+            playerStats.par4.holes++;
+            playerStats.par4.total_vs_par += vsPar;
+            playerStats.par4.scores.push({ hole, net: netScore, par, vsPar });
+          } else if (par === 5) {
+            playerStats.par5.holes++;
+            playerStats.par5.total_vs_par += vsPar;
+            playerStats.par5.scores.push({ hole, net: netScore, par, vsPar });
+          }
+        });
+      }
+
+      // Get alternate shot scores (back 9) for tee-off performance
+      const alternateShotResult = await pool.query(
+        'SELECT hole_scores FROM match_alternate_shot_scores WHERE lineup_id = $1 AND team_id = $2',
+        [lineupId, teamId]
+      );
+
+      if (alternateShotResult.rows.length > 0) {
+        const altShotHoleScores = alternateShotResult.rows[0].hole_scores || {};
+
+        // Determine which player teed off on which hole
+        // back9PlayerOrder is [player1_id, player2_id, player3_id] representing positions 1, 2, 3
+        // Holes 10, 11, 12 → position 1, 2, 3
+        // Holes 13, 14, 15 → position 1, 2, 3
+        // Holes 16, 17, 18 → position 1, 2, 3
+        Object.keys(altShotHoleScores).forEach(holeStr => {
+          const hole = parseInt(holeStr);
+          const holeData = altShotHoleScores[holeStr];
+          const par = parValues[hole - 1];
+          const netScore = holeData.net || 0;
+          const vsPar = netScore - par;
+
+          // Determine which player teed off
+          const holeIndex = hole - 10; // 0-8 for holes 10-18
+          const position = (holeIndex % 3); // 0, 1, or 2
+          const playerId = back9PlayerOrder[position];
+
+          if (playerId && playerPerformance.has(playerId)) {
+            const playerStats = playerPerformance.get(playerId);
+            playerStats.tee_off_holes.holes++;
+            playerStats.tee_off_holes.total_vs_par += vsPar;
+            playerStats.tee_off_holes.scores.push({ hole, net: netScore, par, vsPar });
+          }
+        });
+      }
+    }
+
+    // Get player details and format response
+    const playerIds = Array.from(playerPerformance.keys());
+    const playersResult = await pool.query(
+      `SELECT u.member_id, u.first_name, u.last_name, u.sim_handicap
+       FROM users u
+       WHERE u.member_id = ANY($1::int[])`,
+      [playerIds]
+    );
+
+    const players = playersResult.rows.map(player => {
+      const stats = playerPerformance.get(player.member_id);
+      return {
+        player_id: player.member_id,
+        name: `${player.first_name} ${player.last_name}`,
+        handicap: player.sim_handicap,
+        par3_performance: {
+          holes_played: stats.par3.holes,
+          avg_vs_par: stats.par3.holes > 0 ? (stats.par3.total_vs_par / stats.par3.holes).toFixed(2) : '0.00',
+          total_vs_par: stats.par3.total_vs_par
+        },
+        par4_performance: {
+          holes_played: stats.par4.holes,
+          avg_vs_par: stats.par4.holes > 0 ? (stats.par4.total_vs_par / stats.par4.holes).toFixed(2) : '0.00',
+          total_vs_par: stats.par4.total_vs_par
+        },
+        par5_performance: {
+          holes_played: stats.par5.holes,
+          avg_vs_par: stats.par5.holes > 0 ? (stats.par5.total_vs_par / stats.par5.holes).toFixed(2) : '0.00',
+          total_vs_par: stats.par5.total_vs_par
+        },
+        tee_off_performance: {
+          holes_played: stats.tee_off_holes.holes,
+          avg_vs_par: stats.tee_off_holes.holes > 0 ? (stats.tee_off_holes.total_vs_par / stats.tee_off_holes.holes).toFixed(2) : '0.00',
+          total_vs_par: stats.tee_off_holes.total_vs_par
+        }
+      };
+    });
+
+    res.json({ players });
+  } catch (err) {
+    console.error('Error fetching player performance:', err);
+    res.status(500).json({ error: 'Failed to fetch player performance' });
+  }
+});
+
 app.get('/api/leagues/matchups/:matchupId/lineup/:teamId', authenticateToken, async (req, res) => {
   // In division-based leagues, matchupId is actually the schedule_id
   const scheduleId = req.params.matchupId;

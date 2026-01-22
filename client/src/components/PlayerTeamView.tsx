@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import DivisionLeaderboard from './DivisionLeaderboard';
+import PlayerPerformanceRecap from './PlayerPerformanceRecap';
 import {
   Users,
   Calendar,
@@ -519,6 +520,9 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
 
             {activeTab === 'stats' && (
               <div className="space-y-6">
+                {/* Player Performance Recap */}
+                <PlayerPerformanceRecap teamId={teamId} leagueId={leagueId} />
+
                 {/* Team Performance */}
                 <div className="bg-white border border-neutral-200 rounded-lg p-6">
                   <h3 className="text-lg font-semibold text-brand-black mb-4">Team Performance</h3>

@@ -33,7 +33,8 @@ SELECT
       tt.league_points DESC,           -- Tiebreaker 1: Most points
       tt.aggregate_net_score ASC,      -- Tiebreaker 2: Lowest aggregate net
       tt.second_half_net_score ASC,    -- Tiebreaker 3: Lowest second half
-      tt.final_week_net_score ASC      -- Tiebreaker 4: Lowest final week
+      tt.final_week_net_score ASC,     -- Tiebreaker 4: Lowest final week
+      tt.name ASC                      -- Tiebreaker 5: Team name alphabetically
   ) AS rank_in_division
 FROM tournament_teams tt                                    -- ✅ Ground truth is the base table
 LEFT JOIN team_standings ts
