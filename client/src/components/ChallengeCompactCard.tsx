@@ -5,16 +5,12 @@ import {
   type ChallengeEntryExtended,
   type ChallengeShotGroup,
   type ChallengeType,
-  enterChallenge,
-  getOnboardingStatus,
-  completeCTPTutorial,
-  type OnboardingStatus
+  enterChallenge
 } from '../services/api';
 import { FeedItem, SegmentedControlOption } from './ui';
 import GroupPurchaseModal from './GroupPurchaseModal';
 import ShotGroupSubmission from './ShotGroupSubmission';
 import ChallengeInstructionsModal from './ChallengeInstructionsModal';
-import CTPOnboarding from './CTPOnboarding';
 import { toast } from 'react-toastify';
 
 interface ChallengeCompactCardProps {
@@ -44,27 +40,12 @@ const ChallengeCompactCard: React.FC<ChallengeCompactCardProps> = ({
   const [showGroupPurchaseModal, setShowGroupPurchaseModal] = useState(false);
   const [showInstructionsModal, setShowInstructionsModal] = useState(false);
   const [showShotSubmissionModal, setShowShotSubmissionModal] = useState(false);
-  const [showCTPOnboarding, setShowCTPOnboarding] = useState(false);
-  const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<ChallengeShotGroup | null>(null);
   const [isReup, setIsReup] = useState(false);
   const [segmentedValue, setSegmentedValue] = useState<'submit' | 'reup'>('submit');
   const [isEntering, setIsEntering] = useState(false);
 
   const isFreeChallenge = Number(challenge.entry_fee || 0) === 0;
-
-  // Load onboarding status
-  useEffect(() => {
-    const loadOnboardingStatus = async () => {
-      try {
-        const res = await getOnboardingStatus();
-        setOnboardingStatus(res.data);
-      } catch (err) {
-        console.error('Error loading onboarding status:', err);
-      }
-    };
-    loadOnboardingStatus();
-  }, []);
 
   // Debug logging
   useEffect(() => {
@@ -126,45 +107,15 @@ const ChallengeCompactCard: React.FC<ChallengeCompactCardProps> = ({
   };
 
   const handleEnterClick = () => {
-    // TESTING: Always show onboarding tutorial
-    // TODO: Remove this and uncomment the line below for production
-    console.log('handleEnterClick called');
-    setShowCTPOnboarding(true);
-    return;
-
-    // PRODUCTION VERSION (uncomment when done testing):
-    // Check if user has completed CTP tutorial (only for first-time entry)
-    // if (!myEntry && onboardingStatus && !onboardingStatus.ctp_tutorial_completed) {
-    //   setShowCTPOnboarding(true);
-    //   return;
-    // }
-
-    // if (isFreeChallenge) {
-    //   handleFreeEntry();
-    // } else {
-    //   setIsReup(false);
-    //   setShowGroupPurchaseModal(true);
-    // }
-  };
-
-  const handleCTPOnboardingComplete = async () => {
-    try {
-      await completeCTPTutorial();
-      setShowCTPOnboarding(false);
-      setOnboardingStatus(prev => prev ? { ...prev, ctp_tutorial_completed: true } : null);
-
-      // After onboarding, proceed with entry
-      if (isFreeChallenge) {
-        handleFreeEntry();
-      } else {
-        setIsReup(false);
-        setShowGroupPurchaseModal(true);
-      }
-    } catch (err) {
-      console.error('Error completing CTP tutorial:', err);
-      toast.error('Failed to save tutorial progress');
+    // Go straight to payment - no tutorial required
+    if (isFreeChallenge) {
+      handleFreeEntry();
+    } else {
+      setIsReup(false);
+      setShowGroupPurchaseModal(true);
     }
   };
+
 
   const handleFreeEntry = async () => {
     setIsEntering(true);
@@ -245,9 +196,10 @@ const ChallengeCompactCard: React.FC<ChallengeCompactCardProps> = ({
 
   // Build segmented control options for joined challenges with pending submission
   // Don't show re-up option for free challenges
+  const reupAmount = challenge.reup_fee ?? challengeType?.default_reup_fee ?? 3;
   const segmentedActionsConfig = needsSubmission && !isFreeChallenge ? {
     options: [
-      { value: 'reup' as const, label: 'Re-up $3' },
+      { value: 'reup' as const, label: `Re-up $${reupAmount}` },
       {
         value: 'submit' as const,
         label: 'Submit',
@@ -308,18 +260,6 @@ const ChallengeCompactCard: React.FC<ChallengeCompactCardProps> = ({
     const match = challengeDuration.match(/(\d+)d/);
     return match ? `${match[1]} day` : null;
   };
-
-  // Show CTP Onboarding if active
-  if (showCTPOnboarding) {
-    return (
-      <CTPOnboarding
-        onComplete={handleCTPOnboardingComplete}
-        onBack={() => setShowCTPOnboarding(false)}
-        challengeHole={challenge.designated_hole}
-        courseName={challenge.course_name}
-      />
-    );
-  }
 
   return (
     <>
@@ -385,7 +325,7 @@ const ChallengeCompactCard: React.FC<ChallengeCompactCardProps> = ({
         <ShotGroupSubmission
           challenge={challenge as any}
           group={selectedGroup}
-          shotsPerGroup={challengeType?.shots_per_group || 4}
+          shotsPerGroup={challenge.shots_per_group ?? challengeType?.shots_per_group ?? 4}
           onClose={() => {
             setShowShotSubmissionModal(false);
             setSelectedGroup(null);

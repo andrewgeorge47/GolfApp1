@@ -1641,6 +1641,7 @@ export interface WeeklyChallenge {
   designated_hole: number;
   entry_fee: number;
   reup_fee?: number;
+  shots_per_group?: number;
   week_start_date: string;
   week_end_date: string;
   status: 'active' | 'completed' | 'cancelled';
@@ -1723,7 +1724,7 @@ export interface ChallengePayoutHistory {
 }
 
 // ============================================================================
-// FIVE-SHOT CHALLENGE SYSTEM INTERFACES
+// STANDARD CTP CHALLENGE SYSTEM INTERFACES
 // ============================================================================
 
 export interface PayoutConfig {
@@ -1817,7 +1818,7 @@ export interface ChallengeHIOJackpot {
   updated_at: string;
 }
 
-// Extended WeeklyChallenge with Five-Shot fields
+// Extended WeeklyChallenge with Standard CTP fields
 export interface WeeklyChallengeExtended extends WeeklyChallenge {
   challenge_type_id?: number;
   challenge_type?: ChallengeType;
@@ -1829,7 +1830,7 @@ export interface WeeklyChallengeExtended extends WeeklyChallenge {
   ctp_pot_amount?: number;
 }
 
-// Extended ChallengeEntry with Five-Shot fields
+// Extended ChallengeEntry with Standard CTP fields
 export interface ChallengeEntryExtended extends ChallengeEntry {
   groups_purchased: number;
   total_paid: number;
@@ -2024,7 +2025,7 @@ export const getChallengeHistory = (params?: { limit?: number; offset?: number }
 };
 
 // ============================================================================
-// FIVE-SHOT CHALLENGE API FUNCTIONS
+// STANDARD CTP CHALLENGE API FUNCTIONS
 // ============================================================================
 
 // Get all challenge types

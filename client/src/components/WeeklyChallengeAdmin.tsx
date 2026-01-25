@@ -79,6 +79,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
     designated_hole: 1,
     entry_fee: 5,
     reup_fee: 3,
+    shots_per_group: '',
     week_start_date: '',
     week_end_date: '',
     course_id: '',
@@ -366,6 +367,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
       designated_hole: challenge.designated_hole,
       entry_fee: challenge.entry_fee || 0,
       reup_fee: challenge.reup_fee || 0,
+      shots_per_group: challenge.shots_per_group?.toString() || '',
       week_start_date: challenge.week_start_date.split('T')[0],
       week_end_date: challenge.week_end_date.split('T')[0],
       course_id: challenge.course_id?.toString() || '',
@@ -423,6 +425,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
         designated_hole: newChallenge.designated_hole,
         entry_fee: newChallenge.entry_fee,
         reup_fee: newChallenge.reup_fee,
+        shots_per_group: newChallenge.shots_per_group ? parseInt(newChallenge.shots_per_group) : undefined,
         week_start_date: newChallenge.week_start_date,
         week_end_date: newChallenge.week_end_date,
         course_id: newChallenge.course_id ? parseInt(newChallenge.course_id) : undefined,
@@ -502,6 +505,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
         designated_hole: 1,
         entry_fee: 5,
         reup_fee: 3,
+        shots_per_group: '',
         week_start_date: '',
         week_end_date: '',
         course_id: '',
@@ -683,6 +687,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
       designated_hole: 1,
       entry_fee: 5,
       reup_fee: 3,
+      shots_per_group: '',
       week_start_date: '',
       week_end_date: '',
       course_id: '',
@@ -1205,7 +1210,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
                   value={newChallenge.challenge_name}
                   onChange={(e) => setNewChallenge({ ...newChallenge, challenge_name: e.target.value })}
                   required
-                  placeholder={isCTPChallenge ? "Saturday CTP Challenge" : "Week 1 Five-Shot Challenge"}
+                  placeholder={isCTPChallenge ? "Saturday CTP Challenge" : "Week 1 Standard CTP Challenge"}
                 />
 
                 {/* Course Selection */}
@@ -1551,7 +1556,7 @@ const WeeklyChallengeAdmin: React.FC = () => {
                 </div>
 
                 {/* Entry and Re-up Fee Inputs (disabled for free challenges) */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <Input
                     label="Entry Fee ($)"
                     type="number"
@@ -1571,6 +1576,15 @@ const WeeklyChallengeAdmin: React.FC = () => {
                     onChange={(e) => setNewChallenge({ ...newChallenge, reup_fee: parseFloat(e.target.value) })}
                     disabled={isFreeChallenge}
                     required
+                  />
+                  <Input
+                    label="Shots Per Group"
+                    type="number"
+                    min="1"
+                    max="10"
+                    placeholder="Auto (from type)"
+                    value={newChallenge.shots_per_group}
+                    onChange={(e) => setNewChallenge({ ...newChallenge, shots_per_group: e.target.value })}
                   />
                 </div>
                 <Input

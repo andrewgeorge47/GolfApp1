@@ -17669,7 +17669,13 @@ app.get('/api/captain/team/:teamId/dashboard', authenticateToken, async (req, re
        WHERE ls.league_id = $1
          AND ls.is_published = true
          AND ls.status IN ('scheduled', 'active', 'completed')
-       ORDER BY ls.week_number DESC
+       ORDER BY
+         CASE ls.status
+           WHEN 'active' THEN 1
+           WHEN 'scheduled' THEN 2
+           WHEN 'completed' THEN 3
+         END,
+         ls.week_number ASC
        LIMIT 10`,
       [league_id, teamId]
     );
@@ -17744,7 +17750,10 @@ app.post('/api/leagues/schedule/:scheduleId/lineup', authenticateToken, async (r
           WHEN league_lineups.is_finalized = true THEN true
           ELSE EXCLUDED.is_finalized
         END,
-        playing_time = EXCLUDED.playing_time,
+        playing_time = CASE
+          WHEN EXCLUDED.playing_time IS NOT NULL THEN EXCLUDED.playing_time
+          ELSE league_lineups.playing_time
+        END,
         updated_at = CURRENT_TIMESTAMP
       RETURNING *`,
       [
@@ -17844,7 +17853,10 @@ app.post('/api/leagues/matchups/:matchupId/lineup', authenticateToken, async (re
           WHEN league_lineups.is_finalized = true THEN true
           ELSE EXCLUDED.is_finalized
         END,
-        playing_time = EXCLUDED.playing_time,
+        playing_time = CASE
+          WHEN EXCLUDED.playing_time IS NOT NULL THEN EXCLUDED.playing_time
+          ELSE league_lineups.playing_time
+        END,
         updated_at = CURRENT_TIMESTAMP
       RETURNING *`,
       [
@@ -18419,7 +18431,7 @@ app.get('/api/challenges/pot', async (req, res) => {
 });
 
 // ============================================================
-// FIVE-SHOT CHALLENGE SYSTEM ENDPOINTS
+// STANDARD CTP CHALLENGE SYSTEM ENDPOINTS
 // ============================================================
 
 // GET /api/challenges/types - List all challenge types
@@ -19067,9 +19079,10 @@ app.post('/api/challenges', authenticateToken, requirePermission('manage_tournam
       designated_hole,
       entry_fee,
       reup_fee,
+      shots_per_group,
       week_start_date,
       week_end_date,
-      // Five-Shot fields
+      // Standard CTP fields
       challenge_type_id,
       course_id,
       required_distance_yards,
@@ -19205,25 +19218,25 @@ app.post('/api/challenges', authenticateToken, requirePermission('manage_tournam
     // Insert challenge with CTP fields
     const insertQuery = is_ctp_challenge
       ? `INSERT INTO weekly_challenges
-         (challenge_name, designated_hole, entry_fee, reup_fee, week_start_date, week_end_date,
+         (challenge_name, designated_hole, entry_fee, reup_fee, shots_per_group, week_start_date, week_end_date,
           starting_pot, status, challenge_type_id, course_id, required_distance_yards, hio_jackpot_amount,
           is_ctp_challenge, ctp_mode, ctp_tee_type, ctp_pin_day, ctp_selected_holes, ctp_attempts_per_hole, ctp_holes_config, sim_id,
           instructions, platforms, gspro_settings, trackman_settings,
           prize_1st_image_url, prize_2nd_image_url, prize_3rd_image_url)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
-                 $20, $21, $22, $23, $24, $25, $26)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                 $21, $22, $23, $24, $25, $26, $27)
          RETURNING *`
       : `INSERT INTO weekly_challenges
-         (challenge_name, designated_hole, entry_fee, reup_fee, week_start_date, week_end_date,
+         (challenge_name, designated_hole, entry_fee, reup_fee, shots_per_group, week_start_date, week_end_date,
           starting_pot, status, challenge_type_id, course_id, required_distance_yards, hio_jackpot_amount,
           instructions, platforms, gspro_settings, trackman_settings,
           prize_1st_image_url, prize_2nd_image_url, prize_3rd_image_url)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11,
-                 $12, $13, $14, $15, $16, $17, $18)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9, $10, $11, $12,
+                 $13, $14, $15, $16, $17, $18, $19)
          RETURNING *`;
 
     const insertParams = is_ctp_challenge
-      ? [challenge_name, designated_hole, finalEntryFee, reup_fee, week_start_date, week_end_date,
+      ? [challenge_name, designated_hole, finalEntryFee, reup_fee, shots_per_group || null, week_start_date, week_end_date,
          startingPot, challenge_type_id || null, course_id || null, required_distance_yards || null, hioJackpot,
          true, ctp_mode, ctp_tee_type, ctp_pin_day, ctp_selected_holes || null,
          ctp_attempts_per_hole || 3, JSON.stringify(ctpHolesConfig), sim_id || 'nn-no5',
@@ -19231,7 +19244,7 @@ app.post('/api/challenges', authenticateToken, requirePermission('manage_tournam
          gspro_settings ? JSON.stringify(gspro_settings) : null,
          trackman_settings ? JSON.stringify(trackman_settings) : null,
          prize_1st_image_url || null, prize_2nd_image_url || null, prize_3rd_image_url || null]
-      : [challenge_name, designated_hole, finalEntryFee, reup_fee, week_start_date, week_end_date,
+      : [challenge_name, designated_hole, finalEntryFee, reup_fee, shots_per_group || null, week_start_date, week_end_date,
          startingPot, challenge_type_id || null, course_id || null, required_distance_yards || null, hioJackpot,
          instructions || null, platforms || null,
          gspro_settings ? JSON.stringify(gspro_settings) : null,
@@ -19243,7 +19256,9 @@ app.post('/api/challenges', authenticateToken, requirePermission('manage_tournam
     // Return with type and course info
     const extendedResult = await pool.query(
       `SELECT wc.*,
-              ct.type_key, ct.type_name, ct.shots_per_group, ct.default_reup_fee, ct.payout_config,
+              ct.type_key, ct.type_name,
+              COALESCE(wc.shots_per_group, ct.shots_per_group) as shots_per_group,
+              ct.default_reup_fee, ct.payout_config,
               sc.name as course_name, sc.location as course_location
        FROM weekly_challenges wc
        LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
@@ -19371,7 +19386,9 @@ app.get('/api/challenges/active', async (req, res) => {
     // First try to find a challenge within the date range
     let result = await pool.query(
       `SELECT wc.*,
-              ct.type_key, ct.type_name, ct.shots_per_group, ct.default_reup_fee, ct.payout_config,
+              ct.type_key, ct.type_name,
+              COALESCE(wc.shots_per_group, ct.shots_per_group) as shots_per_group,
+              ct.default_reup_fee, ct.payout_config,
               sc.name as course_name
        FROM weekly_challenges wc
        LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
@@ -19387,7 +19404,9 @@ app.get('/api/challenges/active', async (req, res) => {
     if (result.rows.length === 0) {
       result = await pool.query(
         `SELECT wc.*,
-                ct.type_key, ct.type_name, ct.shots_per_group, ct.default_reup_fee, ct.payout_config,
+                ct.type_key, ct.type_name,
+                COALESCE(wc.shots_per_group, ct.shots_per_group) as shots_per_group,
+                ct.default_reup_fee, ct.payout_config,
                 sc.name as course_name
          FROM weekly_challenges wc
          LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
@@ -19415,7 +19434,9 @@ app.get('/api/challenges/:id', async (req, res) => {
     const { id } = req.params;
     const result = await pool.query(
       `SELECT wc.*,
-              ct.type_key, ct.type_name, ct.shots_per_group, ct.default_reup_fee, ct.payout_config,
+              ct.type_key, ct.type_name,
+              COALESCE(wc.shots_per_group, ct.shots_per_group) as shots_per_group,
+              ct.default_reup_fee, ct.payout_config,
               sc.name as course_name, sc.location as course_location
        FROM weekly_challenges wc
        LEFT JOIN challenge_types ct ON wc.challenge_type_id = ct.id
@@ -19634,7 +19655,7 @@ app.post('/api/challenges/:id/create-payment-intent', authenticateToken, async (
     const { is_reup } = req.body;
     const userId = req.user.member_id;
 
-    // Get challenge and type info
+    // Get challenge and type info (wc.* includes reup_fee override)
     const challengeResult = await pool.query(
       `SELECT wc.*, ct.default_entry_fee, ct.default_reup_fee
        FROM weekly_challenges wc
@@ -19653,7 +19674,7 @@ app.post('/api/challenges/:id/create-payment-intent', authenticateToken, async (
     let amount;
     let description;
     if (is_reup) {
-      amount = challenge.default_reup_fee || 3;
+      amount = challenge.reup_fee ?? challenge.default_reup_fee ?? 3;
       description = `Re-up for ${challenge.challenge_name}`;
     } else {
       // Check if already entered
@@ -19909,7 +19930,7 @@ app.post('/api/challenges/:id/enter', authenticateToken, async (req, res) => {
     const entryFee = payment_amount || challenge.default_entry_fee || challenge.entry_fee || 0;
     const isFreeChallenge = entryFee === 0;
 
-    // Create entry with Five-Shot fields
+    // Create entry with Standard CTP fields
     const result = await pool.query(
       `INSERT INTO weekly_challenge_entries
        (challenge_id, user_id, entry_paid, payment_method, payment_amount, payment_notes,
@@ -19953,7 +19974,7 @@ app.post('/api/challenges/:id/enter', authenticateToken, async (req, res) => {
       [entryFee, challengeId]
     );
 
-    // Return extended response for Five-Shot challenges
+    // Return extended response for Standard CTP challenges
     if (challenge.challenge_type_id) {
       return res.status(201).json({
         entry: { ...entry, groups: [group], payments: payment ? [payment] : [] },
@@ -19976,7 +19997,7 @@ app.get('/api/challenges/:id/entries', async (req, res) => {
   try {
     const { id: challengeId } = req.params;
 
-    // Check if this is a Five-Shot challenge
+    // Check if this is a Standard CTP challenge
     const challengeResult = await pool.query(
       'SELECT challenge_type_id FROM weekly_challenges WHERE id = $1',
       [challengeId]
@@ -19985,7 +20006,7 @@ app.get('/api/challenges/:id/entries', async (req, res) => {
     const isFiveShotChallenge = challengeResult.rows[0]?.challenge_type_id;
 
     if (isFiveShotChallenge) {
-      // Get entries with groups and shots for Five-Shot challenges
+      // Get entries with groups and shots for Standard CTP challenges
       const entriesResult = await pool.query(
         `SELECT
           wce.*,
@@ -20100,7 +20121,7 @@ app.get('/api/challenges/:id/my-entry', authenticateToken, async (req, res) => {
 
     const entry = result.rows[0];
 
-    // Get groups with shots for Five-Shot system
+    // Get groups with shots for Standard CTP system
     const groupsResult = await pool.query(
       `SELECT g.*,
               json_agg(s ORDER BY s.shot_number) FILTER (WHERE s.id IS NOT NULL) as shots
@@ -20450,9 +20471,9 @@ app.post('/api/challenges/:id/finalize', authenticateToken, requirePermission('m
       throw new Error('Challenge already finalized');
     }
 
-    // Check if this is a Five-Shot Challenge (has challenge_type_id)
+    // Check if this is a Standard CTP Challenge (has challenge_type_id)
     if (challenge.challenge_type_id && challenge.payout_config) {
-      // NEW FIVE-SHOT CHALLENGE FINALIZATION
+      // NEW STANDARD CTP CHALLENGE FINALIZATION
       const payoutConfig = challenge.payout_config;
       const totalCollected = Number(challenge.total_entry_fees) || 0;
 

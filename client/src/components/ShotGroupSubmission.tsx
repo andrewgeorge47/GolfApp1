@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, Upload, Target, Check, Plus, Trash2, Image } from 'lucide-react';
+import { X, Upload, Target, Check, Plus, Trash2, Image, HelpCircle } from 'lucide-react';
 import {
   WeeklyChallengeExtended,
   ChallengeShotGroup,
@@ -18,6 +18,7 @@ import {
 } from './ui';
 import { compressImage, isImageFile } from '../utils/imageCompression';
 import { toast } from 'react-toastify';
+import CTPOnboarding from './CTPOnboarding';
 
 interface ShotGroupSubmissionProps {
   challenge: WeeklyChallengeExtended;
@@ -52,6 +53,7 @@ const ShotGroupSubmission: React.FC<ShotGroupSubmissionProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submittedShots, setSubmittedShots] = useState<ChallengeShot[]>([]);
+  const [showInstructions, setShowInstructions] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -208,18 +210,41 @@ const ShotGroupSubmission: React.FC<ShotGroupSubmissionProps> = ({
     return `${f}' ${i}"`;
   };
 
+  // Show instructions if requested
+  if (showInstructions) {
+    return (
+      <CTPOnboarding
+        onComplete={() => setShowInstructions(false)}
+        onBack={() => setShowInstructions(false)}
+        challengeHole={challenge.designated_hole}
+        courseName={challenge.course_name}
+      />
+    );
+  }
+
   return (
     <Modal open={true} onClose={onClose} size="md">
       <ModalHeader>
-        <div>
-          <div className="text-lg font-semibold">
-            Submit Shots - Group {group.group_number}
+        <div className="flex items-center justify-between w-full">
+          <div>
+            <div className="text-lg font-semibold">
+              Submit Shots - Group {group.group_number}
+            </div>
+            <p className="text-sm text-gray-500 font-normal">
+              {step === 'screenshot' && 'Step 1: Upload group screenshot'}
+              {step === 'shots' && 'Step 2: Enter shot distances'}
+              {step === 'details' && 'Step 3: Upload detail screenshots'}
+            </p>
           </div>
-          <p className="text-sm text-gray-500 font-normal">
-            {step === 'screenshot' && 'Step 1: Upload group screenshot'}
-            {step === 'shots' && 'Step 2: Enter shot distances'}
-            {step === 'details' && 'Step 3: Upload detail screenshots'}
-          </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowInstructions(true)}
+            className="flex items-center gap-2 ml-4"
+          >
+            <HelpCircle className="w-4 h-4" />
+            Instructions
+          </Button>
         </div>
       </ModalHeader>
 

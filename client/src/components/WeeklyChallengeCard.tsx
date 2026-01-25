@@ -7,16 +7,13 @@ import {
   getChallengePot,
   getHIOJackpot,
   getChallengeTypes,
-  getOnboardingStatus,
-  completeCTPTutorial,
   type WeeklyChallenge,
   type ChallengeEntry,
   type ChallengePot,
   type ChallengeEntryExtended,
   type ChallengeShotGroup,
   type ChallengeType,
-  type ChallengeHIOJackpot,
-  type OnboardingStatus
+  type ChallengeHIOJackpot
 } from '../services/api';
 import { useAuth } from '../AuthContext';
 import { Card, CardHeader, CardContent, Button, Badge, StatCard, SimpleLoading } from './ui';
@@ -24,7 +21,6 @@ import ChallengeEntryModal from './ChallengeEntryModal';
 import ChallengeDistanceSubmission from './ChallengeDistanceSubmission';
 import GroupPurchaseModal from './GroupPurchaseModal';
 import ShotGroupSubmission from './ShotGroupSubmission';
-import CTPOnboarding from './CTPOnboarding';
 
 interface WeeklyChallengeCardProps {
   onEntrySuccess?: () => void;
@@ -46,12 +42,10 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
   const [showDistanceModal, setShowDistanceModal] = useState(false);
   const [showGroupPurchaseModal, setShowGroupPurchaseModal] = useState(false);
   const [showShotSubmissionModal, setShowShotSubmissionModal] = useState(false);
-  const [showCTPOnboarding, setShowCTPOnboarding] = useState(false);
-  const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<ChallengeShotGroup | null>(null);
   const [isReup, setIsReup] = useState(false);
 
-  // Check if this is a Five-Shot challenge
+  // Check if this is a Standard CTP challenge (has challenge_type_id)
   const isFiveShotChallenge = Boolean(challenge && (challenge as any).challenge_type_id);
 
   useEffect(() => {
@@ -69,7 +63,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
       const potRes = await getChallengePot();
       setPot(potRes.data);
 
-      // Load HIO jackpot for Five-Shot challenges
+      // Load HIO jackpot for Standard CTP challenges
       try {
         const hioRes = await getHIOJackpot();
         setHioJackpot(hioRes.data);
@@ -77,7 +71,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
         // HIO jackpot table might not exist yet
       }
 
-      // Load challenge type if this is a Five-Shot challenge
+      // Load challenge type if this is a Standard CTP challenge
       const challengeData = challengeRes.data as any;
       if (challengeData?.challenge_type_id) {
         try {
@@ -98,16 +92,6 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
           if (err.response?.status !== 404) {
             console.error('Error loading entry:', err);
           }
-        }
-      }
-
-      // Load onboarding status if logged in
-      if (user) {
-        try {
-          const onboardingRes = await getOnboardingStatus();
-          setOnboardingStatus(onboardingRes.data);
-        } catch (err) {
-          console.error('Error loading onboarding status:', err);
         }
       }
     } catch (err: any) {
@@ -169,46 +153,15 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
   };
 
   const handleEnterClick = () => {
-    // TESTING: Always show onboarding tutorial
-    // TODO: Remove this and uncomment the line below for production
-    setShowCTPOnboarding(true);
-    return;
-
-    // PRODUCTION VERSION (uncomment when done testing):
-    // Check if user has completed CTP tutorial (only for first-time entry)
-    // if (!myEntry && onboardingStatus && !onboardingStatus.ctp_tutorial_completed) {
-    //   setShowCTPOnboarding(true);
-    //   return;
-    // }
-
-    // if (isFiveShotChallenge) {
-    //   setIsReup(false);
-    //   setShowGroupPurchaseModal(true);
-    // } else {
-    //   setShowEntryModal(true);
-    // }
-  };
-
-  const handleCTPOnboardingComplete = async () => {
-    try {
-      await completeCTPTutorial();
-      setShowCTPOnboarding(false);
-
-      // Update local state
-      setOnboardingStatus(prev => prev ? { ...prev, ctp_tutorial_completed: true } : null);
-
-      // Now show the entry modal
-      if (isFiveShotChallenge) {
-        setIsReup(false);
-        setShowGroupPurchaseModal(true);
-      } else {
-        setShowEntryModal(true);
-      }
-    } catch (err) {
-      console.error('Error completing CTP tutorial:', err);
-      toast.error('Failed to save tutorial progress');
+    // Go straight to payment - no tutorial required
+    if (isFiveShotChallenge) {
+      setIsReup(false);
+      setShowGroupPurchaseModal(true);
+    } else {
+      setShowEntryModal(true);
     }
   };
+
 
   const handleReupClick = () => {
     setIsReup(true);
@@ -243,18 +196,6 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
           <p className="text-gray-500">No active hole-in-one challenge this week</p>
         </CardContent>
       </Card>
-    );
-  }
-
-  // Show CTP Onboarding if active
-  if (showCTPOnboarding) {
-    return (
-      <CTPOnboarding
-        onComplete={handleCTPOnboardingComplete}
-        onBack={() => setShowCTPOnboarding(false)}
-        challengeHole={challenge.designated_hole}
-        courseName={(challenge as any).course_name}
-      />
     );
   }
 
@@ -383,11 +324,11 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
               <ul className="space-y-2 text-sm text-gray-700">
                 <li className="flex items-start gap-2">
                   <span className="text-indigo-600 font-bold mt-0.5">1.</span>
-                  <span><strong>Enter for ${challenge.entry_fee}</strong> and get {challengeType?.shots_per_group || 4} shots at hole {challenge.designated_hole}</span>
+                  <span><strong>Enter for ${challenge.entry_fee}</strong> and get {challenge.shots_per_group ?? challengeType?.shots_per_group ?? 4} shots at hole {challenge.designated_hole}</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-indigo-600 font-bold mt-0.5">2.</span>
-                  <span><strong>Re-up for ${challengeType?.default_reup_fee || 3}</strong> to purchase additional {challengeType?.shots_per_group || 4}-shot groups (unlimited)</span>
+                  <span><strong>Re-up for ${challenge.reup_fee ?? challengeType?.default_reup_fee ?? 3}</strong> to purchase additional {challenge.shots_per_group ?? challengeType?.shots_per_group ?? 4}-shot groups (unlimited)</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-blue-600 font-bold mt-0.5">3.</span>
@@ -425,7 +366,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
             <div className="bg-white rounded-lg p-4 mb-6 border-2 border-green-200">
               <h4 className="font-semibold text-gray-900 mb-3">Your Entry Status</h4>
 
-              {/* Five-Shot Challenge: Show groups */}
+              {/* Standard CTP Challenge: Show groups */}
               {isFiveShotChallenge && myEntry.groups && myEntry.groups.length > 0 ? (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-sm">
@@ -536,7 +477,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
                 Enter Challenge ({formatCurrency(challenge.entry_fee)})
               </Button>
             ) : isFiveShotChallenge ? (
-              /* Five-Shot Challenge actions */
+              /* Standard CTP Challenge actions */
               <>
                 <Button
                   onClick={handleReupClick}
@@ -545,7 +486,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
                   size="lg"
                 >
                   <Plus className="w-5 h-5 mr-2" />
-                  Re-up ({formatCurrency(challengeType?.default_reup_fee || 3)})
+                  Re-up ({formatCurrency(challenge.reup_fee ?? challengeType?.default_reup_fee ?? 3)})
                 </Button>
                 <Button
                   onClick={() => onViewLeaderboard?.(challenge.id)}
@@ -605,7 +546,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
         />
       )}
 
-      {/* Five-Shot: Group Purchase Modal */}
+      {/* Standard CTP: Group Purchase Modal */}
       {showGroupPurchaseModal && challenge && (
         <GroupPurchaseModal
           challenge={challenge as any}
@@ -620,12 +561,12 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
         />
       )}
 
-      {/* Five-Shot: Shot Submission Modal */}
+      {/* Standard CTP: Shot Submission Modal */}
       {showShotSubmissionModal && challenge && selectedGroup && (
         <ShotGroupSubmission
           challenge={challenge as any}
           group={selectedGroup}
-          shotsPerGroup={challengeType?.shots_per_group || 4}
+          shotsPerGroup={challenge.shots_per_group ?? challengeType?.shots_per_group ?? 4}
           onClose={() => {
             setShowShotSubmissionModal(false);
             setSelectedGroup(null);

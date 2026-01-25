@@ -34,11 +34,11 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
       const challengeRes = await getChallenge(challengeId);
       setChallenge(challengeRes.data);
 
-      // Check if this is a Five-Shot challenge
+      // Check if this is a Standard CTP challenge
       const isFiveShot = Boolean((challengeRes.data as any).challenge_type_id);
       setIsFiveShotChallenge(isFiveShot);
 
-      // Only fetch legacy leaderboard for non-Five-Shot challenges
+      // Only fetch legacy leaderboard for non-Standard CTP challenges
       if (!isFiveShot) {
         const leaderboardRes = await getChallengeLeaderboard(challengeId);
         setEntries(leaderboardRes.data);
@@ -127,7 +127,7 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
     );
   }
 
-  // Render DualLeaderboard for Five-Shot challenges
+  // Render DualLeaderboard for Standard CTP challenges
   if (isFiveShotChallenge) {
     return (
       <Card>
