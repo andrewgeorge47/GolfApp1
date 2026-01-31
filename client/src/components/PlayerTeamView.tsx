@@ -42,6 +42,7 @@ interface UpcomingMatch {
   course_slope?: number;
   course_par?: number;
   status: 'scheduled' | 'lineup_submitted' | 'completed';
+  lineup_submitted: boolean; // Team-specific: whether this team has submitted scores
   match_date?: string;
   team1_id: number;
   team2_id: number;
@@ -182,6 +183,8 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
         course_slope: match.course_slope,
         course_par: match.course_par,
         status: match.status,
+        // lineup_submitted comes from league_lineups.scores_submitted (team-specific)
+        lineup_submitted: match.lineup_submitted || false,
         match_date: match.match_date,
         team1_id: match.team1_id,
         team2_id: match.team2_id,
@@ -416,7 +419,7 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
                     {teamData.upcomingMatches.map((match) => {
                       // In division-based leagues, playing_time is team-specific (not team1/team2)
                       const myPlayingTime = match.playing_time;
-                      const hasSubmittedScores = match.status !== 'scheduled';
+                      const hasSubmittedScores = match.lineup_submitted === true;
 
                       return (
                         <div key={match.id} className="p-6 hover:bg-neutral-50 transition-colors">
@@ -444,8 +447,8 @@ const PlayerTeamView: React.FC<PlayerTeamViewProps> = ({ teamId, leagueId }) => 
                               </div>
 
                               <div>
-                                <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(match.status)}`}>
-                                  {match.status === 'scheduled' ? 'Not Submitted' : hasSubmittedScores ? 'Scores Submitted' : 'In Progress'}
+                                <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${hasSubmittedScores ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                                  {hasSubmittedScores ? 'Scores Submitted' : 'Not Submitted'}
                                 </span>
                               </div>
                             </div>

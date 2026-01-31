@@ -19997,15 +19997,15 @@ app.get('/api/challenges/:id/entries', async (req, res) => {
   try {
     const { id: challengeId } = req.params;
 
-    // Check if this is a Standard CTP challenge
+    // Check if this is a Standard CTP challenge (supports configurable shots per group)
     const challengeResult = await pool.query(
       'SELECT challenge_type_id FROM weekly_challenges WHERE id = $1',
       [challengeId]
     );
 
-    const isFiveShotChallenge = challengeResult.rows[0]?.challenge_type_id;
+    const isStandardCTP = challengeResult.rows[0]?.challenge_type_id;
 
-    if (isFiveShotChallenge) {
+    if (isStandardCTP) {
       // Get entries with groups and shots for Standard CTP challenges
       const entriesResult = await pool.query(
         `SELECT

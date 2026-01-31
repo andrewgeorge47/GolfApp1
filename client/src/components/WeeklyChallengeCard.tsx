@@ -46,7 +46,8 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
   const [isReup, setIsReup] = useState(false);
 
   // Check if this is a Standard CTP challenge (has challenge_type_id)
-  const isFiveShotChallenge = Boolean(challenge && (challenge as any).challenge_type_id);
+  // Standard CTP challenges support configurable shots per group (not limited to 5)
+  const isStandardCTP = Boolean(challenge && (challenge as any).challenge_type_id);
 
   useEffect(() => {
     loadChallengeData();
@@ -154,7 +155,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
 
   const handleEnterClick = () => {
     // Go straight to payment - no tutorial required
-    if (isFiveShotChallenge) {
+    if (isStandardCTP) {
       setIsReup(false);
       setShowGroupPurchaseModal(true);
     } else {
@@ -226,7 +227,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
 
         <CardContent>
           {/* Key Stats */}
-          {isFiveShotChallenge ? (
+          {isStandardCTP ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               <StatCard
                 icon={<Target className="w-5 h-5" />}
@@ -280,7 +281,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
               <Award className="w-5 h-5 text-yellow-500" />
               Prize Pool Breakdown
             </h4>
-            {isFiveShotChallenge ? (
+            {isStandardCTP ? (
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-600">CTP Prize Pool (50% of entries)</span>
@@ -320,7 +321,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
               <TrendingUp className="w-5 h-5 text-orange-500" />
               How it Works
             </h4>
-            {isFiveShotChallenge ? (
+            {isStandardCTP ? (
               <ul className="space-y-2 text-sm text-gray-700">
                 <li className="flex items-start gap-2">
                   <span className="text-indigo-600 font-bold mt-0.5">1.</span>
@@ -367,7 +368,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
               <h4 className="font-semibold text-gray-900 mb-3">Your Entry Status</h4>
 
               {/* Standard CTP Challenge: Show groups */}
-              {isFiveShotChallenge && myEntry.groups && myEntry.groups.length > 0 ? (
+              {isStandardCTP && myEntry.groups && myEntry.groups.length > 0 ? (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-600">Groups Purchased</span>
@@ -476,7 +477,7 @@ const WeeklyChallengeCard: React.FC<WeeklyChallengeCardProps> = ({
                 <DollarSign className="w-5 h-5 mr-2" />
                 Enter Challenge ({formatCurrency(challenge.entry_fee)})
               </Button>
-            ) : isFiveShotChallenge ? (
+            ) : isStandardCTP ? (
               /* Standard CTP Challenge actions */
               <>
                 <Button

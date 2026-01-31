@@ -333,6 +333,8 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
   }, [selectedWeek?.id]);
 
   // Auto-save lineup to backend whenever it changes (but not during initial load)
+  // NOTE: selectedWeek is intentionally NOT in the dependency array to prevent
+  // auto-saving old week data to the new week when the user changes weeks
   useEffect(() => {
     if (!isInitialLoad && selectedWeek && selectedPlayers.length > 0) {
       console.log('Auto-save triggered');
@@ -342,7 +344,7 @@ const ImprovedLineupSelector: React.FC<ImprovedLineupSelectorProps> = ({
       }, 1000);
       return () => clearTimeout(timeoutId);
     }
-  }, [selectedPlayers, holeAssignments, frontNineScores, backNineScores, back9PlayerOrder, selectedWeek, isInitialLoad]);
+  }, [selectedPlayers, holeAssignments, frontNineScores, backNineScores, back9PlayerOrder, isInitialLoad]);
 
   useEffect(() => {
     if (selectedPlayers.length === 3) {

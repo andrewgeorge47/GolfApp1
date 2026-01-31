@@ -21,7 +21,7 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
   const [challenge, setChallenge] = useState<WeeklyChallenge | null>(null);
   const [entries, setEntries] = useState<ChallengeEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isFiveShotChallenge, setIsFiveShotChallenge] = useState(false);
+  const [isStandardCTP, setIsStandardCTP] = useState(false);
 
   useEffect(() => {
     loadLeaderboard();
@@ -34,12 +34,12 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
       const challengeRes = await getChallenge(challengeId);
       setChallenge(challengeRes.data);
 
-      // Check if this is a Standard CTP challenge
-      const isFiveShot = Boolean((challengeRes.data as any).challenge_type_id);
-      setIsFiveShotChallenge(isFiveShot);
+      // Check if this is a Standard CTP challenge (supports configurable shots per group)
+      const isStandard = Boolean((challengeRes.data as any).challenge_type_id);
+      setIsStandardCTP(isStandard);
 
       // Only fetch legacy leaderboard for non-Standard CTP challenges
-      if (!isFiveShot) {
+      if (!isStandard) {
         const leaderboardRes = await getChallengeLeaderboard(challengeId);
         setEntries(leaderboardRes.data);
       }
@@ -128,7 +128,7 @@ const ChallengeLeaderboard: React.FC<ChallengeLeaderboardProps> = ({
   }
 
   // Render DualLeaderboard for Standard CTP challenges
-  if (isFiveShotChallenge) {
+  if (isStandardCTP) {
     return (
       <Card>
         <CardContent>

@@ -215,7 +215,8 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
         opponent_team_name: match.opponent_name,
         course_name: match.course_name || 'TBD',
         course_id: match.course_id || 0,
-        lineup_submitted: match.status === 'lineup_submitted' || match.lineup_submitted || false,
+        // lineup_submitted comes from league_lineups.scores_submitted (team-specific)
+        lineup_submitted: match.lineup_submitted || false,
         lineup_deadline: calculateDeadline(match.week_start_date),
         status: match.status || 'scheduled',
         team1_id: match.team1_id,
@@ -533,8 +534,8 @@ const CaptainDashboard: React.FC<CaptainDashboardProps> = ({ teamId, leagueId })
                               <h4 className="text-lg font-semibold text-brand-black">
                                 Week {match.week_number}
                               </h4>
-                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getMatchStatusColor(match.status)}`}>
-                                {match.status === 'scheduled' ? 'Not Submitted' : hasSubmittedScores ? 'Scores Submitted' : 'In Progress'}
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${hasSubmittedScores ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                                {hasSubmittedScores ? 'Scores Submitted' : 'Not Submitted'}
                               </span>
                             </div>
 

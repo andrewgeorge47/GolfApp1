@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Trophy, TrendingUp, Award, Lock } from 'lucide-react';
-import { getDivisionWeeklyLeaderboard, getLeagueStandings, type WeeklyLeaderboard, type LeagueStandings } from '../services/api';
+import { Trophy, TrendingUp, Lock, ChevronDown } from 'lucide-react';
+import { getDivisionWeeklyLeaderboard, getLeagueStandings, getLeagueSchedule, type WeeklyLeaderboard, type LeagueStandings } from '../services/api';
 import { toast } from 'react-toastify';
 
 interface DivisionLeaderboardProps {
@@ -15,25 +15,69 @@ const DivisionLeaderboard: React.FC<DivisionLeaderboardProps> = ({
   leagueId,
   divisionId,
   divisionName,
-  weekNumber,
+  weekNumber: initialWeekNumber,
   currentTeamId
 }) => {
   const [weeklyLeaderboard, setWeeklyLeaderboard] = useState<WeeklyLeaderboard | null>(null);
   const [leagueStandings, setLeagueStandings] = useState<LeagueStandings | null>(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'weekly' | 'season'>(weekNumber ? 'weekly' : 'season');
+  const [view, setView] = useState<'weekly' | 'season'>(initialWeekNumber ? 'weekly' : 'season');
+  const [selectedWeek, setSelectedWeek] = useState<number>(initialWeekNumber || 1);
+  const [availableWeeks, setAvailableWeeks] = useState<number[]>([]);
+
+  useEffect(() => {
+    loadLeagueInfo();
+  }, [leagueId]);
 
   useEffect(() => {
     loadData();
-  }, [leagueId, divisionId, weekNumber]);
+  }, [leagueId, divisionId, selectedWeek]);
+
+  const loadLeagueInfo = async () => {
+    try {
+      // Get published league schedule to determine available weeks
+      const response = await getLeagueSchedule(leagueId, true); // published only
+      const schedule = response.data;
+
+      if (!Array.isArray(schedule) || schedule.length === 0) {
+        // No schedule yet, fallback
+        setAvailableWeeks([1]);
+        setSelectedWeek(initialWeekNumber || 1);
+        return;
+      }
+
+      // Extract unique week numbers from schedule and sort them
+      const allWeekNumbers = schedule.map((week: any) => week.week_number);
+      const uniqueWeekNumbers = Array.from(new Set(allWeekNumbers));
+      const weekNumbers = uniqueWeekNumbers
+        .filter((num): num is number => typeof num === 'number')
+        .sort((a, b) => a - b);
+
+      setAvailableWeeks(weekNumbers);
+
+      // Set selected week: prioritize initialWeekNumber, then use the latest week
+      if (initialWeekNumber && weekNumbers.includes(initialWeekNumber)) {
+        setSelectedWeek(initialWeekNumber);
+      } else if (weekNumbers.length > 0) {
+        // Default to the most recent week
+        setSelectedWeek(weekNumbers[weekNumbers.length - 1]);
+      }
+    } catch (error) {
+      console.error('Error loading league schedule:', error);
+      // Fallback: assume week 1-2 are available if API fails
+      const fallbackWeeks = [1, 2];
+      setAvailableWeeks(fallbackWeeks);
+      setSelectedWeek(initialWeekNumber || 1);
+    }
+  };
 
   const loadData = async () => {
     try {
       setLoading(true);
 
-      // Load weekly leaderboard if week number is provided
-      if (weekNumber) {
-        const weeklyResponse = await getDivisionWeeklyLeaderboard(leagueId, divisionId, weekNumber);
+      // Load weekly leaderboard for selected week
+      if (selectedWeek) {
+        const weeklyResponse = await getDivisionWeeklyLeaderboard(leagueId, divisionId, selectedWeek);
         setWeeklyLeaderboard(weeklyResponse.data);
       }
 
@@ -67,49 +111,56 @@ const DivisionLeaderboard: React.FC<DivisionLeaderboardProps> = ({
   return (
     <div className="space-y-6">
       {/* Division Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-brand-black">{divisionName}</h2>
           <p className="text-sm text-neutral-600">Division Standings</p>
         </div>
 
-        {/* View Toggle */}
-        {weekNumber && (
-          <div className="flex rounded-lg bg-neutral-100 p-1">
-            <button
-              onClick={() => setView('weekly')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                view === 'weekly'
-                  ? 'bg-white text-brand-teal shadow-sm'
-                  : 'text-neutral-600 hover:text-brand-black'
-              }`}
+        {/* Combined View Selector */}
+        <div className="flex flex-col">
+          <label className="block text-xs font-medium text-neutral-600 mb-1">
+            View:
+          </label>
+          <div className="relative inline-block">
+            <select
+              value={view === 'season' ? 'season' : `week_${selectedWeek}`}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === 'season') {
+                  setView('season');
+                } else {
+                  const weekNum = parseInt(value.replace('week_', ''));
+                  setView('weekly');
+                  setSelectedWeek(weekNum);
+                }
+              }}
+              style={{
+                WebkitAppearance: 'none',
+                MozAppearance: 'none',
+                appearance: 'none'
+              }}
+              className="px-4 py-2 pr-10 border border-neutral-300 rounded-lg text-sm font-medium bg-white text-brand-black hover:border-brand-teal focus:outline-none focus:ring-2 focus:ring-brand-teal focus:border-transparent cursor-pointer min-w-[160px]"
             >
-              Week {weekNumber}
-            </button>
-            <button
-              onClick={() => setView('season')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                view === 'season'
-                  ? 'bg-white text-brand-teal shadow-sm'
-                  : 'text-neutral-600 hover:text-brand-black'
-              }`}
-            >
-              Season
-            </button>
+              <option value="season">Season Total</option>
+              {availableWeeks.length > 0 && (
+                <optgroup label="Weekly Results">
+                  {availableWeeks.map((week) => (
+                    <option key={week} value={`week_${week}`}>
+                      Week {week}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500 pointer-events-none" />
           </div>
-        )}
+        </div>
       </div>
 
       {/* Weekly Leaderboard */}
       {view === 'weekly' && weeklyLeaderboard && (
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="bg-gradient-to-r from-brand-teal to-brand-purple px-6 py-4">
-            <div className="flex items-center space-x-2">
-              <Award className="w-5 h-5 text-white" />
-              <h3 className="text-lg font-bold text-white">Week {weekNumber} Results</h3>
-            </div>
-          </div>
-
           {blurScores && (
             <div className="px-6 py-3 bg-yellow-50 border-b border-yellow-200 flex items-center space-x-2">
               <Lock className="w-4 h-4 text-yellow-700" />
